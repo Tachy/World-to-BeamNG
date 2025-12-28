@@ -23,6 +23,7 @@ import pyvista as pv
 # --- KONFIGURATION ---
 ROAD_WIDTH = 7.0
 SLOPE_HEIGHT = 3.0  # Höhe der Böschung in Metern
+GRID_SPACING = 1.0  # Abstand zwischen Grid-Punkten in Metern (1.0 = hohe Auflösung, 10.0 = niedrige Auflösung)
 LEVEL_NAME = "osm_generated_map"
 CACHE_DIR = "cache"  # Verzeichnis für Cache-Dateien
 HEIGHT_DATA_DIR = "height-data"  # Verzeichnis mit Höhendaten
@@ -772,34 +773,36 @@ def save_unified_obj(filename, vertices, road_faces, slope_faces, terrain_faces)
         f.write("d 1.000000\n")
         f.write("illum 2\n")
 
-    # Erstelle OBJ-Datei (BATCH-OPTIMIERT)
+    # Erstelle OBJ-Datei (BATCH-OPTIMIERT mit separaten Objekten)
     print(f"\nSchreibe OBJ-Datei: {filename}")
     with open(filename, "w", buffering=8 * 1024 * 1024) as f:  # 8MB Buffer
         f.write("# BeamNG Unified Terrain Mesh with integrated roads\n")
         f.write(f"# Generated from DGM1 data and OSM\n")
         f.write(f"mtllib {os.path.basename(mtl_filename)}\n\n")
-        f.write("o terrain\n")
 
-        # Vertices (BATCH mit join - 100x schneller!)
+        # Alle Vertices EINMAL schreiben (shared vertex pool)
         print(f"  Schreibe {len(vertices)} Vertices...")
         vertex_lines = [f"v {v[0]:.3f} {v[1]:.3f} {v[2]:.3f}\n" for v in vertices]
         f.write("".join(vertex_lines))
 
-        # Straßen-Faces (BATCH)
+        # Straßen-Objekt
         print(f"  Schreibe {len(road_faces)} Straßen-Faces...")
-        f.write("\nusemtl road_surface\n")
+        f.write("\no road_surface\n")
+        f.write("usemtl road_surface\n")
         face_lines = [f"f {face[0]} {face[1]} {face[2]}\n" for face in road_faces]
         f.write("".join(face_lines))
 
-        # Böschungs-Faces (BATCH)
+        # Böschungs-Objekt
         print(f"  Schreibe {len(slope_faces)} Böschungs-Faces...")
-        f.write("\nusemtl road_slope\n")
+        f.write("\no road_slope\n")
+        f.write("usemtl road_slope\n")
         face_lines = [f"f {face[0]} {face[1]} {face[2]}\n" for face in slope_faces]
         f.write("".join(face_lines))
 
-        # Terrain-Faces (BATCH)
+        # Terrain-Objekt
         print(f"  Schreibe {len(terrain_faces)} Terrain-Faces...")
-        f.write("\nusemtl terrain\n")
+        f.write("\no terrain\n")
+        f.write("usemtl terrain\n")
         face_lines = [f"f {face[0]} {face[1]} {face[2]}\n" for face in terrain_faces]
         f.write("".join(face_lines))
 
@@ -883,7 +886,7 @@ def main():
     # 6. Erstelle Terrain-Grid aus Höhendaten
     step_start = time.time()
     grid_points, grid_elevations, nx, ny = create_terrain_grid(
-        height_points, height_elevations, grid_spacing=1.0
+        height_points, height_elevations, grid_spacing=GRID_SPACING
     )
     timings["5_Grid_erstellen"] = time.time() - step_start
 
@@ -929,6 +932,17 @@ def main():
     roads_mesh = create_pyvista_mesh(vertices, road_faces)
     print(f"    ✓ {roads_mesh.n_points:,} Vertices, {roads_mesh.n_cells:,} Faces")
 
+    # Speichere Statistiken VOR dem Löschen!
+    original_stats = {
+        "terrain_vertices": terrain_mesh.n_points,
+        "slopes_vertices": slopes_mesh.n_points,
+        "roads_vertices": roads_mesh.n_points,
+        "total_vertices": len(vertices),
+        "road_faces": len(road_faces),
+        "slope_faces": len(slope_faces),
+        "terrain_faces": len(terrain_faces),
+    }
+
     # Gebe Original-Listen frei (können mehrere GB sein!)
     del vertices, road_faces, slope_faces, terrain_faces
     gc.collect()
@@ -966,6 +980,15 @@ def main():
     print(f"  Straßen ({roads_mesh.n_points:,} Vertices, keine Vereinfachung)...")
     roads_simplified = roads_mesh
 
+    # Speichere Vereinfachungs-Statistiken VOR dem Löschen!
+    simplified_stats = {
+        "terrain_original": terrain_mesh.n_points,
+        "terrain_simplified": terrain_simplified.n_points,
+        "slopes_original": slopes_mesh.n_points,
+        "slopes_simplified": slopes_simplified.n_points,
+        "roads_vertices": roads_mesh.n_points,
+    }
+
     # Gebe un-vereinfachte Meshes frei (nur noch simplified-Versionen behalten)
     del terrain_mesh, slopes_mesh, roads_mesh
     gc.collect()
@@ -986,37 +1009,58 @@ def main():
     # Alle Vertices vom kombinierten Mesh
     vertices = combined.points.tolist()
 
-    # Extrahiere Faces von jedem Layer separat
-    def extract_faces_from_mesh(mesh, vertex_offset=0):
-        """Extrahiert Faces aus PyVista Mesh und fügt Vertex-Offset hinzu."""
+    # WICHTIG: PyVista kombiniert Meshes UND deren Faces
+    # Wir müssen die Faces vom KOMBINIERTEN Mesh extrahieren (nicht von den einzelnen!)
+
+    # Berechne Cell-Offsets (wie viele Cells/Faces jedes Mesh hat)
+    terrain_cell_count = terrain_simplified.n_cells
+    slopes_cell_count = slopes_simplified.n_cells
+    roads_cell_count = roads_simplified.n_cells
+
+    print(f"    DEBUG: Terrain: {terrain_cell_count:,} Cells")
+    print(f"    DEBUG: Slopes: {slopes_cell_count:,} Cells")
+    print(f"    DEBUG: Roads: {roads_cell_count:,} Cells")
+
+    # Extrahiere ALLE Faces vom kombinierten Mesh
+    def extract_all_faces_from_combined(mesh):
+        """Extrahiert alle Faces vom kombinierten Mesh (1-basiert)."""
         faces_raw = mesh.faces
         faces = []
         i = 0
         while i < len(faces_raw):
             n = faces_raw[i]
-            # +1 für OBJ-Format (1-basiert), + vertex_offset für korrekte Indizes
             face = [
-                faces_raw[i + 1] + 1 + vertex_offset,
-                faces_raw[i + 2] + 1 + vertex_offset,
-                faces_raw[i + 3] + 1 + vertex_offset,
+                faces_raw[i + 1] + 1,  # +1 für OBJ-Format (1-basiert)
+                faces_raw[i + 2] + 1,
+                faces_raw[i + 3] + 1,
             ]
             faces.append(face)
             i += n + 1
         return faces
 
-    # Berechne Vertex-Offsets (wie PyVista die Meshes kombiniert)
-    terrain_offset = 0
-    slopes_offset = terrain_simplified.n_points
-    roads_offset = slopes_offset + slopes_simplified.n_points
+    all_faces = extract_all_faces_from_combined(combined)
+    print(f"    Extrahiert: {len(all_faces):,} Faces total")
 
-    # Extrahiere Faces mit korrekten Offsets
-    terrain_faces_final = extract_faces_from_mesh(terrain_simplified, terrain_offset)
-    slope_faces_final = extract_faces_from_mesh(slopes_simplified, slopes_offset)
-    road_faces_final = extract_faces_from_mesh(roads_simplified, roads_offset)
+    # Trenne Faces nach Material basierend auf Cell-Offsets
+    # PyVista kombiniert in der Reihenfolge: terrain + slopes + roads
+    terrain_faces_final = all_faces[0:terrain_cell_count]
+    slope_faces_final = all_faces[
+        terrain_cell_count : terrain_cell_count + slopes_cell_count
+    ]
+    road_faces_final = all_faces[terrain_cell_count + slopes_cell_count :]
 
-    print(f"    Terrain: {len(terrain_faces_final)} Faces")
-    print(f"    Slopes: {len(slope_faces_final)} Faces")
-    print(f"    Roads: {len(road_faces_final)} Faces")
+    # Prüfe maximale Indizes
+    if terrain_faces_final:
+        max_terrain = max(max(f) for f in terrain_faces_final)
+        print(f"    Terrain: {len(terrain_faces_final)} Faces, max index={max_terrain}")
+    if slope_faces_final:
+        max_slope = max(max(f) for f in slope_faces_final)
+        print(f"    Slopes: {len(slope_faces_final)} Faces, max index={max_slope}")
+    if road_faces_final:
+        max_road = max(max(f) for f in road_faces_final)
+        print(f"    Roads: {len(road_faces_final)} Faces, max index={max_road}")
+
+    print(f"    Combined Vertices: {len(vertices)}")
 
     # Speichere mit korrekten Material-Zuweisungen
     save_unified_obj(
@@ -1033,12 +1077,12 @@ def main():
 
     print(f"\n  ✓ Vereinfachtes Mesh gespeichert: {output_obj}")
     print(
-        f"    Terrain: {terrain_mesh.n_points:,} → {terrain_simplified.n_points:,} Vertices"
+        f"    Terrain: {simplified_stats['terrain_original']:,} → {simplified_stats['terrain_simplified']:,} Vertices"
     )
     print(
-        f"    Böschungen: {slopes_mesh.n_points:,} → {slopes_simplified.n_points:,} Vertices"
+        f"    Böschungen: {simplified_stats['slopes_original']:,} → {simplified_stats['slopes_simplified']:,} Vertices"
     )
-    print(f"    Straßen: {roads_mesh.n_points:,} Vertices (unverändert)")
+    print(f"    Straßen: {simplified_stats['roads_vertices']:,} Vertices (unverändert)")
 
     end_time = time.time()
     elapsed_time = end_time - start_time
@@ -1046,10 +1090,10 @@ def main():
     print(f"\n{'=' * 60}")
     print(f"✓ GENERATOR BEENDET!")
     print(f"{'=' * 60}")
-    print(f"  Terrain-Vertices: {len(vertices)}")
-    print(f"  Straßen-Faces: {len(road_faces)}")
-    print(f"  Böschungs-Faces: {len(slope_faces)}")
-    print(f"  Terrain-Faces: {len(terrain_faces)}")
+    print(f"  Terrain-Vertices: {original_stats['total_vertices']:,}")
+    print(f"  Straßen-Faces: {original_stats['road_faces']:,}")
+    print(f"  Böschungs-Faces: {original_stats['slope_faces']:,}")
+    print(f"  Terrain-Faces: {original_stats['terrain_faces']:,}")
     print(f"  Output-Datei: {output_obj}")
     print(f"  BBOX: {BBOX}")
     if LOCAL_OFFSET:
