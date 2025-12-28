@@ -1,0 +1,21 @@
+# Height data files (large DGM1 tiles)
+height-data/
+
+# Cache files
+cache/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+
+# Output files
+*.obj
+*.mtl
+
+# IDE
+.vscode/
+.idea/
+*.code-workspace
