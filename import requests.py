@@ -1,7 +1,7 @@
 import requests
 import json
 import numpy as np
-from pyproj import Transformer
+from pyproj import Transformer  # type: ignore
 
 # --- KONFIGURATION ---
 # Beispiel: Ein kleiner Ausschnitt (Stelvio Pass / Stilfser Joch)
