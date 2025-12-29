@@ -20,3 +20,6 @@ venv/
 .vscode/
 .idea/
 *.code-workspace
+
+# Documentation (internal only)
+REFACTORING.md
