@@ -7,161 +7,105 @@ from scipy.interpolate import NearestNDInterpolator
 
 from ..geometry.coordinates import apply_local_offset
 from .. import config
+from .junction_snapping import snap_junctions_with_edges
 
 
-def snap_road_edge_vertices(all_road_vertices, road_polygons, road_slope_polygons_2d):
+def detect_t_junctions(road_polygons, snap_distance=5.0):
     """
-    Snappt die Rand-Vertices (links/rechts) von Straßen, deren Centerlines
-    sich nahe kommen (z.B. an Kreuzungen).
-
-    Args:
-        all_road_vertices: Liste aller Road-Vertices (local coordinates)
-        road_polygons: Original Road-Polygons mit 'coords' (centerline)
-        road_slope_polygons_2d: Generierte Road/Slope-Polygone mit Metadaten
+    Erkennt T-Kreuzungen: Wo eine einmündende Straße auf eine durchgehende Straße trifft.
 
     Returns:
-        Modifizierte all_road_vertices Liste
+        Liste von T-Junction Dictionaries:
+        {
+            'through_road_idx': Index der durchgehenden Straße,
+            'joining_road_idx': Index der einmündenden Straße,
+            'junction_point': (x, y) Punkt der Einmündung,
+            'through_param': Parameter entlang der durchgehenden Straße (0-1),
+            'joining_is_start': True wenn joining road am Start einmündet
+        }
     """
     from scipy.spatial import cKDTree
+    from shapely.geometry import LineString, Point
 
-    snap_distance = 5.0  # Gleicher Wert wie bei Centerline-Snap
-    half_width = config.ROAD_WIDTH / 2.0
+    t_junctions = []
 
-    # Sammle Info über Start/End-Vertices jeder Straße
-    # Format: (vertex_idx_left, vertex_idx_right, centerline_point_xy, road_idx, is_start, normal_xy)
-    endpoints_info = []
-    vertex_offset = 0
+    # Erstelle LineStrings für alle Straßen
+    road_lines = []
+    for road in road_polygons:
+        coords = road["coords"]
+        if len(coords) >= 2:
+            line = LineString([(c[0], c[1]) for c in coords])
+            road_lines.append(line)
+        else:
+            road_lines.append(None)
 
-    for road_idx, poly_data in enumerate(road_slope_polygons_2d):
-        original_coords = poly_data["original_coords"]
-        if len(original_coords) < 2:
-            continue
+    # Sammle alle Endpunkte
+    endpoints = []
+    endpoint_info = []  # (road_idx, is_start, point_xy)
 
-        num_points = len(original_coords)
+    for road_idx, road in enumerate(road_polygons):
+        coords = road["coords"]
+        if len(coords) >= 2:
+            start_xy = (coords[0][0], coords[0][1])
+            end_xy = (coords[-1][0], coords[-1][1])
+            endpoints.append(start_xy)
+            endpoints.append(end_xy)
+            endpoint_info.append((road_idx, True, start_xy))
+            endpoint_info.append((road_idx, False, end_xy))
 
-        # Start-Vertices (Index 0)
-        start_left_idx = vertex_offset + 0
-        start_right_idx = vertex_offset + num_points + 0
-        start_center_xy = (original_coords[0][0], original_coords[0][1])
-        start_tangent = np.array(original_coords[1][:2]) - np.array(
-            original_coords[0][:2]
-        )
-        if np.linalg.norm(start_tangent) < 1e-9:
-            start_tangent = np.array([1.0, 0.0])
-        start_norm = start_tangent[[1, 0]] * np.array([-1, 1])  # (-dy, dx)
+    if len(endpoints) < 2:
+        return t_junctions
 
-        endpoints_info.append(
-            (
-                start_left_idx,
-                start_right_idx,
-                start_center_xy,
-                road_idx,
-                True,
-                start_norm,
-            )
-        )
+    # Baue KDTree
+    endpoints_array = np.array(endpoints)
+    kdtree = cKDTree(endpoints_array)
 
-        # End-Vertices (letzter Index)
-        end_left_idx = vertex_offset + (num_points - 1)
-        end_right_idx = vertex_offset + num_points + (num_points - 1)
-        end_center_xy = (original_coords[-1][0], original_coords[-1][1])
-        end_tangent = np.array(original_coords[-1][:2]) - np.array(
-            original_coords[-2][:2]
-        )
-        if np.linalg.norm(end_tangent) < 1e-9:
-            end_tangent = np.array([1.0, 0.0])
-        end_norm = end_tangent[[1, 0]] * np.array([-1, 1])  # (-dy, dx)
+    # Für jeden Endpunkt: Prüfe ob er nahe an einer ANDEREN Straße liegt (nicht am Endpunkt)
+    for ep_idx, (road_idx, is_start, ep) in enumerate(endpoint_info):
+        ep_point = Point(ep)
 
-        endpoints_info.append(
-            (end_left_idx, end_right_idx, end_center_xy, road_idx, False, end_norm)
-        )
+        # Suche nahe Straßen
+        for other_road_idx, other_line in enumerate(road_lines):
+            if other_road_idx == road_idx or other_line is None:
+                continue
 
-        vertex_offset += num_points * 2  # links + rechts
+            # Prüfe Distanz zur anderen Straße
+            dist = other_line.distance(ep_point)
 
-    if len(endpoints_info) < 2:
-        return all_road_vertices
+            if dist < snap_distance:
+                # Prüfe ob der Punkt NICHT an einem Endpunkt der anderen Straße liegt
+                other_coords = road_polygons[other_road_idx]["coords"]
+                other_start = Point(other_coords[0][0], other_coords[0][1])
+                other_end = Point(other_coords[-1][0], other_coords[-1][1])
 
-    # Baue KDTree mit Centerline-Endpunkten
-    centerline_endpoints = np.array([info[2] for info in endpoints_info])
-    kdtree = cKDTree(centerline_endpoints)
+                dist_to_other_start = ep_point.distance(other_start)
+                dist_to_other_end = ep_point.distance(other_end)
 
-    # Finde Endpunkte, die nahe beieinander liegen
-    pairs = kdtree.query_pairs(snap_distance)
+                # Wenn der Punkt NICHT nahe an den Endpunkten ist → T-Kreuzung!
+                if (
+                    dist_to_other_start > snap_distance
+                    and dist_to_other_end > snap_distance
+                ):
+                    # Finde Parameter entlang der durchgehenden Straße
+                    projection = other_line.project(ep_point)
+                    param = projection / other_line.length
 
-    if len(pairs) == 0:
-        print(f"    → Keine nahen Straßenenden gefunden")
-        return all_road_vertices
+                    # Finde nächsten Punkt auf der Linie
+                    junction_point_geom = other_line.interpolate(projection)
+                    junction_point = (junction_point_geom.x, junction_point_geom.y)
 
-    # Gruppiere zu Clustern (Union-Find)
-    from collections import defaultdict
+                    t_junctions.append(
+                        {
+                            "through_road_idx": other_road_idx,
+                            "joining_road_idx": road_idx,
+                            "junction_point": junction_point,
+                            "through_param": param,
+                            "joining_is_start": is_start,
+                            "projection_dist": projection,
+                        }
+                    )
 
-    parent = list(range(len(endpoints_info)))
-
-    def find(x):
-        if parent[x] != x:
-            parent[x] = find(parent[x])
-        return parent[x]
-
-    def union(x, y):
-        px, py = find(x), find(y)
-        if px != py:
-            parent[px] = py
-
-    for i, j in pairs:
-        union(i, j)
-
-    # Sammle Cluster
-    clusters = defaultdict(list)
-    for i in range(len(endpoints_info)):
-        clusters[find(i)].append(i)
-
-    # Für jeden Cluster: Snappe die Rand-Vertices zusammen
-    all_road_vertices = list(all_road_vertices)  # Konvertiere zu modifizierbarer Liste
-    snapped_clusters = 0
-
-    for cluster_indices in clusters.values():
-        if len(cluster_indices) <= 1:
-            continue  # Keine Nachbarn
-
-        # Sammle alle linken und rechten Vertices in diesem Cluster
-        left_vertices = []
-        right_vertices = []
-
-        for idx in cluster_indices:
-            left_idx, right_idx, _, _, _, norm_vec = endpoints_info[idx]
-
-            ref_norm = endpoints_info[cluster_indices[0]][5]
-            # Wenn die Normale entgegengesetzt zeigt, tausche links/rechts, um Verdrehungen zu vermeiden
-            if np.dot(norm_vec, ref_norm) < 0:
-                left_idx, right_idx = right_idx, left_idx
-
-            left_vertices.append(all_road_vertices[left_idx])
-            right_vertices.append(all_road_vertices[right_idx])
-
-        # Berechne Schwerpunkte
-        left_vertices_array = np.array(left_vertices)
-        right_vertices_array = np.array(right_vertices)
-
-        left_centroid = left_vertices_array.mean(axis=0)
-        right_centroid = right_vertices_array.mean(axis=0)
-
-        # Snap alle Vertices im Cluster zum jeweiligen Schwerpunkt
-        ref_norm = endpoints_info[cluster_indices[0]][5]
-
-        for idx in cluster_indices:
-            left_idx, right_idx, _, _, _, norm_vec = endpoints_info[idx]
-
-            if np.dot(norm_vec, ref_norm) < 0:
-                left_idx, right_idx = right_idx, left_idx
-
-            all_road_vertices[left_idx] = tuple(left_centroid)
-            all_road_vertices[right_idx] = tuple(right_centroid)
-
-        snapped_clusters += 1
-
-    print(f"    → {snapped_clusters} Kreuzungen mit gesnappten Rändern")
-
-    return all_road_vertices
+    return t_junctions
 
 
 def clip_road_to_bounds(coords, bounds_utm):
@@ -203,6 +147,10 @@ def generate_road_mesh_strips(road_polygons, height_points, height_elevations):
     all_slope_faces = []
     road_slope_polygons_2d = []
 
+    # Mapping: original road_polygons index → road_slope_polygons_2d index
+    # (wegen Clipping können Indices unterschiedlich sein)
+    original_to_mesh_idx = {}
+
     total_roads = len(road_polygons)
     processed = 0
     clipped_roads = 0
@@ -214,7 +162,7 @@ def generate_road_mesh_strips(road_polygons, height_points, height_elevations):
     min_height_diff = float("inf")
     max_height_diff = float("-inf")
 
-    for road in road_polygons:
+    for original_road_idx, road in enumerate(road_polygons):
         coords = road["coords"]
         road_id = road.get("id")
 
@@ -460,6 +408,9 @@ def generate_road_mesh_strips(road_polygons, height_points, height_elevations):
             }
         )
 
+        # Speichere Mapping: original_road_idx → aktueller Index in road_slope_polygons_2d
+        original_to_mesh_idx[original_road_idx] = len(road_slope_polygons_2d) - 1
+
         processed += 1
         if processed % 100 == 0:
             print(f"  {processed}/{total_roads} Straßen...")
@@ -496,14 +447,17 @@ def generate_road_mesh_strips(road_polygons, height_points, height_elevations):
     if clipped_roads > 0:
         print(f"  ℹ {clipped_roads} Straßen komplett außerhalb Grid (ignoriert)")
 
-    # Snappe Straßenränder an Kreuzungen (wo Centerlines zusammentreffen)
+    # T-Junction Snapping: Geometry-basiert mit Kanten-Schnitten
     if config.ENABLE_ROAD_EDGE_SNAPPING:
-        print(f"  Snappe Straßenrand-Vertices an Kreuzungen...")
-        all_road_vertices = snap_road_edge_vertices(
-            all_road_vertices, road_polygons, road_slope_polygons_2d
+        print(f"  Erkenne T-Kreuzungen und verbinde mit Kanten-Schnitten...")
+        t_junctions = detect_t_junctions(road_polygons, snap_distance=5.0)
+        print(f"    → {len(t_junctions)} T-Kreuzungen erkannt")
+
+        all_road_vertices = snap_junctions_with_edges(
+            all_road_vertices, road_slope_polygons_2d, t_junctions, original_to_mesh_idx
         )
     else:
-        print(f"  Snappe Straßenränder SKIP (config.ENABLE_ROAD_EDGE_SNAPPING=False)")
+        print(f"  T-Junction Snapping SKIP (config.ENABLE_ROAD_EDGE_SNAPPING=False)")
 
     return (
         all_road_vertices,
