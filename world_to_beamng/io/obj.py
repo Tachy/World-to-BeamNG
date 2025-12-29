@@ -180,3 +180,66 @@ def save_unified_obj(filename, vertices, road_faces, slope_faces, terrain_faces)
 
     print(f"  ✓ {filename} erfolgreich erstellt!")
     print(f"  ✓ {mtl_filename} erfolgreich erstellt!")
+
+
+def save_roads_obj(filename, vertices, road_faces, road_face_to_idx):
+    """Exportiert nur die Straßen als OBJ mit pro-Straße-Material (road_<id>)."""
+
+    if len(road_faces) == 0:
+        print(f"  → {filename}: Keine Straßen-Faces, überspringe")
+        return
+
+    # Gruppiere Faces nach road_idx
+    from collections import defaultdict
+
+    faces_by_road = defaultdict(list)
+    unknown_counter = 0
+    for face, ridx in zip(road_faces, road_face_to_idx):
+        key = ridx if ridx is not None else f"unknown_{unknown_counter}"
+        if ridx is None:
+            unknown_counter += 1
+        faces_by_road[key].append(face)
+
+    # Remap Vertices (nur verwendete)
+    used_indices = set()
+    for faces in faces_by_road.values():
+        for face in faces:
+            used_indices.update(face)
+
+    used_indices_sorted = sorted(used_indices)
+    index_map = {
+        old_idx: new_idx + 1 for new_idx, old_idx in enumerate(used_indices_sorted)
+    }
+    used_vertices = [vertices[idx] for idx in used_indices_sorted]
+
+    # Remap Faces
+    remapped_by_road = {}
+    for key, faces in faces_by_road.items():
+        remapped = [[index_map[idx] for idx in face] for face in faces]
+        remapped_by_road[key] = remapped
+
+    mtl_filename = filename.replace(".obj", ".mtl")
+    with open(mtl_filename, "w") as f:
+        f.write("# Road-only Material Library\n")
+        for key in remapped_by_road.keys():
+            f.write(f"newmtl road_{key}\n")
+            f.write(
+                "Ka 0.2 0.2 0.2\nKd 0.5 0.5 0.5\nKs 0.1 0.1 0.1\nd 1.0\nillum 2\n\n"
+            )
+
+    with open(filename, "w") as f:
+        f.write("# Roads only OBJ\n")
+        f.write(f"mtllib {os.path.basename(mtl_filename)}\n\n")
+
+        for v in used_vertices:
+            f.write(f"v {v[0]:.3f} {v[1]:.3f} {v[2]:.3f}\n")
+
+        for key, faces in remapped_by_road.items():
+            f.write(f"\no road_{key}\n")
+            f.write(f"usemtl road_{key}\n")
+            for face in faces:
+                f.write(f"f {face[0]} {face[1]} {face[2]}\n")
+
+    print(
+        f"  ✓ {filename}: {len(used_vertices)} vertices, {len(road_faces)} faces, {len(remapped_by_road)} roads"
+    )

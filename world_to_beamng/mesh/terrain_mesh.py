@@ -17,6 +17,7 @@ def generate_full_grid_mesh(grid_points, modified_heights, vertex_types, nx, ny)
         grid_points[:, 0], grid_points[:, 1], modified_heights
     )
     vertices = np.column_stack([x_local, y_local, z_local])
+    grid_points_2d = grid_points[:, :2]
 
     print("  Generiere Grid-Faces (vektorisiert)...")
 
@@ -38,17 +39,38 @@ def generate_full_grid_mesh(grid_points, modified_heights, vertex_types, nx, ny)
     mat_bl = vertex_types_2d[1:, :-1].ravel()
     quad_materials = np.maximum.reduce([mat_tl, mat_tr, mat_br, mat_bl])
 
-    # Erstelle alle Dreiecke (2 pro Quad)
-    num_quads = len(tl)
-    all_tris = np.empty((num_quads * 2, 3), dtype=np.int32)
-    all_tris[0::2] = np.column_stack([tl, tr, br])  # Dreieck 1
-    all_tris[1::2] = np.column_stack([tl, br, bl])  # Dreieck 2
+    # DEBUG: Zeige Material-Verteilung
+    marked_quads = np.count_nonzero(quad_materials > 0)
+    print(
+        f"  DEBUG: {marked_quads:,} Quads mit mindestens einer markierten Ecke (Material > 0)"
+    )
+    print(
+        f"  DEBUG: vertex_types shape: {vertex_types.shape}, vertex_types_2d shape: {vertex_types_2d.shape}"
+    )
+    marked_vertices = np.count_nonzero(vertex_types > 0)
+    print(f"  DEBUG: {marked_vertices:,} Vertices markiert")
 
-    # Verdopple Material-Maske (2 Dreiecke pro Quad)
-    tri_materials = np.repeat(quad_materials, 2)
+    # Erzeuge Faces NUR für Quads ohne IRGENDEINE markierte Vertices (alles material == 0)
+    # WICHTIG: Wenn ein Quad ALLE 4 Ecken hat (Material = 0), wird es generiert
+    #          Nur wenn mindestens EINE Ecke markiert ist (Material > 0), wird es NICHT generiert
+    valid_quads = quad_materials == 0
+    num_valid = np.count_nonzero(valid_quads)
+    print(f"  DEBUG: {num_valid:,} Quads mit ALLEN Ecken = Terrain (Material = 0)")
 
-    # Trenne nach Material - NUR TERRAIN (Straßen/Böschungen werden ausgeschnitten!)
-    terrain_faces = all_tris[tri_materials == 0].tolist()
+    num_valid = np.count_nonzero(valid_quads)
+
+    # Erstelle nur notwendige Dreiecke (2 pro gültigem Quad)
+    if num_valid > 0:
+        terrain_faces = np.empty((num_valid * 2, 3), dtype=np.int32)
+        terrain_faces[0::2] = np.column_stack(
+            [tl[valid_quads], tr[valid_quads], br[valid_quads]]
+        )
+        terrain_faces[1::2] = np.column_stack(
+            [tl[valid_quads], br[valid_quads], bl[valid_quads]]
+        )
+        terrain_faces = terrain_faces.tolist()
+    else:
+        terrain_faces = []
 
     road_faces = []
     slope_faces = []
