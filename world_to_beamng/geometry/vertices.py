@@ -70,42 +70,15 @@ def classify_grid_vertices(grid_points, grid_elevations, road_slope_polygons_2d)
 
     print(f"  Teste {len(road_data)} Roads gegen Grid-Punkte...")
 
-    roads_with_zero_points = []
-    roads_processed = 0
-
-    centerline_point_counts = []
-    road_lengths = []
-    sample_point_counts = []
-    grid_points_per_road = []
-    sample_gap_max = []
-
     for road_num, road_info in enumerate(road_data):
         centerline_points = road_info["centerline_points"]
 
-        if centerline_points is None:
-            roads_with_zero_points.append((road_num, "Centerline ist None"))
-            continue
-
-        if len(centerline_points) == 0:
-            roads_with_zero_points.append((road_num, "Centerline ist leer"))
-            continue
-
-        if len(centerline_points) < 2:
-            roads_with_zero_points.append(
-                (road_num, f"Centerline zu kurz ({len(centerline_points)} Punkte)")
-            )
+        if centerline_points is None or len(centerline_points) < 2:
             continue
 
         centerline_linestring = LineString(centerline_points)
 
-        if not centerline_linestring.is_valid:
-            roads_with_zero_points.append(
-                (road_num, "Centerline ist ungültig (is_valid=False)")
-            )
-            continue
-
-        if centerline_linestring.length == 0:
-            roads_with_zero_points.append((road_num, "Centerline hat Länge 0"))
+        if not centerline_linestring.is_valid or centerline_linestring.length == 0:
             continue
 
         total_length = centerline_linestring.length
@@ -116,22 +89,7 @@ def classify_grid_vertices(grid_points, grid_elevations, road_slope_polygons_2d)
         )
 
         if len(sample_distances) < 2:
-            roads_with_zero_points.append(
-                (road_num, f"Zu wenig Sample-Punkte ({len(sample_distances)})")
-            )
             continue
-
-        if len(sample_distances) > 1:
-            diffs = np.diff(sample_distances)
-            max_gap = np.max(diffs)
-            if max_gap > 10.5:
-                roads_with_zero_points.append(
-                    (
-                        road_num,
-                        f"Lücke > 10m in Sample-Distances (max: {max_gap:.1f}m, {len(sample_distances)} Samples)",
-                    )
-                )
-                continue
 
         try:
             centerline = np.array(
@@ -140,12 +98,10 @@ def classify_grid_vertices(grid_points, grid_elevations, road_slope_polygons_2d)
                     for dist in sample_distances
                 ]
             )
-        except Exception as e:
-            roads_with_zero_points.append((road_num, f"Interpolationsfehler: {str(e)}"))
+        except Exception:
             continue
 
         if len(centerline) == 0:
-            roads_with_zero_points.append((road_num, "Keine interpolierten Punkte"))
             continue
 
         buffer_indices_set = set()
@@ -158,22 +114,7 @@ def classify_grid_vertices(grid_points, grid_elevations, road_slope_polygons_2d)
         buffer_indices = list(buffer_indices_set)
 
         if len(buffer_indices) == 0:
-            roads_with_zero_points.append(
-                (
-                    road_num,
-                    f"Keine Punkte im 7m-Radius (Centerline: {len(centerline)} Punkte, Länge: {total_length:.1f}m, Samples: {len(sample_distances)})",
-                )
-            )
             continue
-
-        roads_processed += 1
-
-        centerline_point_counts.append(len(centerline_points))
-        road_lengths.append(total_length)
-        sample_point_counts.append(len(sample_distances))
-        grid_points_per_road.append(len(buffer_indices))
-        if len(sample_distances) > 1:
-            sample_gap_max.append(np.max(np.diff(sample_distances)))
 
         # Test 1: Straßen-Bereich
         road_coords = np.array(road_info["road_geom"].exterior.coords)
@@ -203,40 +144,6 @@ def classify_grid_vertices(grid_points, grid_elevations, road_slope_polygons_2d)
 
     elapsed_total = time_module.time() - process_start
     marked_count = np.count_nonzero(vertex_types)
-
-    print(f"\n  DEBUG-INFO:")
-    print(f"    • Verarbeitete Straßen: {roads_processed}/{len(road_data)}")
-    print(f"    • Straßen ohne Prüfung: {len(roads_with_zero_points)}")
-    if roads_with_zero_points:
-        print(f"    • Gründe für fehlende Prüfung:")
-        for road_idx, reason in roads_with_zero_points[:10]:
-            print(f"      - Road {road_idx}: {reason}")
-        if len(roads_with_zero_points) > 10:
-            print(f"      ... und {len(roads_with_zero_points) - 10} weitere")
-
-    if roads_processed > 0:
-        print(f"\n  STATISTIKEN (für {roads_processed} verarbeitete Straßen):")
-        print(f"    Centerline-Punkte:")
-        print(
-            f"      - Min: {np.min(centerline_point_counts)}, Max: {np.max(centerline_point_counts)}, Mittel: {np.mean(centerline_point_counts):.1f}"
-        )
-        print(f"    Straßenlängen:")
-        print(
-            f"      - Min: {np.min(road_lengths):.1f}m, Max: {np.max(road_lengths):.1f}m, Mittel: {np.mean(road_lengths):.1f}m"
-        )
-        print(f"    Sample-Punkte pro Straße:")
-        print(
-            f"      - Min: {np.min(sample_point_counts)}, Max: {np.max(sample_point_counts)}, Mittel: {np.mean(sample_point_counts):.1f}"
-        )
-        print(f"    Grid-Punkte pro Straße (im 7m-Radius):")
-        print(
-            f"      - Min: {np.min(grid_points_per_road)}, Max: {np.max(grid_points_per_road)}, Mittel: {np.mean(grid_points_per_road):.1f}"
-        )
-        if sample_gap_max:
-            print(f"    Max. Abstände zwischen Sample-Punkten:")
-            print(
-                f"      - Min: {np.min(sample_gap_max):.2f}m, Max: {np.max(sample_gap_max):.2f}m, Mittel: {np.mean(sample_gap_max):.2f}m"
-            )
 
     print(
         f"  ✓ Klassifizierung abgeschlossen ({elapsed_total:.1f}s, {marked_count} Punkte markiert)"

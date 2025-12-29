@@ -5,8 +5,8 @@ Zentrale Konfiguration für World-to-BeamNG.
 # === MESH-PARAMETER ===
 ROAD_WIDTH = 7.0
 SLOPE_ANGLE = 45.0  # Neigungswinkel der Böschung in Grad (45° = 1:1 Steigung)
-GRID_SPACING = 10.0  # Abstand zwischen Grid-Punkten in Metern (1.0 = hohe Auflösung, 10.0 = niedrige Auflösung)
-TERRAIN_REDUCTION = 0.0  # PyVista Decimation als Dezimalwert (0.70 = 70% Reduktion)
+GRID_SPACING = 1.0  # Abstand zwischen Grid-Punkten in Metern (1.0 = hohe Auflösung, 10.0 = niedrige Auflösung)
+TERRAIN_REDUCTION = 0.7  # PyVista Decimation als Dezimalwert (0.70 = 70% Reduktion)
 LEVEL_NAME = "osm_generated_map"
 
 # === VERZEICHNISSE ===
@@ -16,7 +16,7 @@ HEIGHT_DATA_DIR = "height-data"  # Verzeichnis mit Höhendaten
 # === MULTIPROCESSING ===
 # WARNUNG: Unter Windows kann Multiprocessing hängen bleiben!
 # Bei Problemen: False setzen
-USE_MULTIPROCESSING = False  # False = Single-Thread (langsamer, aber stabil)
+USE_MULTIPROCESSING = True  # False = Single-Thread (langsamer, aber stabil)
 NUM_WORKERS = 8  # None = Automatisch (alle CPU-Kerne), oder Anzahl (z.B. 4)
 
 # === GLOBALE ZUSTANDSVARIABLEN (werden in main() initialisiert) ===
