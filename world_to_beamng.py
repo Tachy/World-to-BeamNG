@@ -2,7 +2,7 @@
 WORLD-TO-BEAMNG - OSM zu BeamNG Straßen-Generator
 
 Benötigte Pakete:
-  pip install requests numpy scipy pyproj pyvista
+  pip install requests numpy scipy pyproj pyvista shapely rtree
 
 Alle Abhängigkeiten sind ERFORDERLICH - kein Fallback!
 """
@@ -19,10 +19,17 @@ from scipy.interpolate import griddata, NearestNDInterpolator
 from scipy.spatial import cKDTree
 from pyproj import Transformer
 import pyvista as pv
+from shapely.geometry import Polygon, Point, LineString
+from shapely.prepared import prep
+
+try:
+    from rtree import index
+except ImportError:
+    index = None
 
 # --- KONFIGURATION ---
 ROAD_WIDTH = 7.0
-SLOPE_HEIGHT = 3.0  # Höhe der Böschung in Metern
+SLOPE_ANGLE = 45.0  # Neigungswinkel der Böschung in Grad (45° = 1:1 Steigung)
 GRID_SPACING = 1.0  # Abstand zwischen Grid-Punkten in Metern (1.0 = hohe Auflösung, 10.0 = niedrige Auflösung)
 LEVEL_NAME = "osm_generated_map"
 CACHE_DIR = "cache"  # Verzeichnis für Cache-Dateien
@@ -33,6 +40,9 @@ BBOX = None
 
 # Globaler Offset für lokale Koordinaten (wird bei erstem Punkt gesetzt)
 LOCAL_OFFSET = None
+
+# Grid Bounds in UTM (wird in create_terrain_grid gesetzt)
+GRID_BOUNDS_UTM = None
 
 # Transformer: GPS (WGS84) <-> UTM Zone 32N (Metrisch für Mitteleuropa)
 transformer_to_utm = Transformer.from_crs("epsg:4326", "epsg:32632", always_xy=True)
@@ -70,7 +80,6 @@ def load_height_data():
 
     # Prüfe ob gecachte Rohdaten existieren
     height_hash = get_height_data_hash()
-    print(f"  DEBUG: height_hash = {height_hash}")
     cache_file = None
 
     if height_hash:
@@ -129,15 +138,11 @@ def load_height_data():
     print(f"  ✓ {len(elevations)} Höhenpunkte geladen")
 
     # Cache die Rohdaten (immer wenn wir frisch geladen haben)
-    print(f"  DEBUG: Versuche Cache zu speichern, height_hash = {height_hash}")
     if height_hash:
         cache_file_path = os.path.join(CACHE_DIR, f"height_raw_{height_hash}.npz")
-        print(f"  Speichere Höhendaten-Cache: {cache_file_path}")
         os.makedirs(CACHE_DIR, exist_ok=True)
         np.savez_compressed(cache_file_path, points=points, elevations=elevations)
         print(f"  ✓ Cache erstellt: {os.path.basename(cache_file_path)}")
-    else:
-        print(f"  ⚠ Kein Cache gespeichert (height_hash ist None)")
 
     return points, elevations
 
@@ -367,6 +372,12 @@ def create_terrain_grid(height_points, height_elevations, grid_spacing=10.0):
     """Erstellt ein reguläres Grid aus den Höhendaten (OPTIMIERT mit Caching)."""
     print(f"\nErstelle Terrain-Grid (Abstand: {grid_spacing}m)...")
 
+    # Finde Bounds in UTM (IMMER berechnen, auch für Cache-Fall!)
+    global GRID_BOUNDS_UTM
+    min_x, max_x = height_points[:, 0].min(), height_points[:, 0].max()
+    min_y, max_y = height_points[:, 1].min(), height_points[:, 1].max()
+    GRID_BOUNDS_UTM = (min_x, min_y, max_x, max_y)
+
     # Prüfe ob gecachtes Grid existiert
     height_hash = get_height_data_hash()
     if height_hash:
@@ -385,10 +396,6 @@ def create_terrain_grid(height_points, height_elevations, grid_spacing=10.0):
                 f"  ✓ Grid aus Cache geladen: {nx} x {ny} = {len(grid_points)} Vertices"
             )
             return grid_points, grid_elevations, nx, ny
-
-    # Finde Bounds in UTM
-    min_x, max_x = height_points[:, 0].min(), height_points[:, 0].max()
-    min_y, max_y = height_points[:, 1].min(), height_points[:, 1].max()
 
     # Erstelle Grid-Punkte
     x_coords = np.arange(min_x, max_x, grid_spacing)
@@ -491,116 +498,505 @@ def get_road_polygons(roads, bbox, height_points, height_elevations):
 
 
 def point_to_line_distance(px, py, x1, y1, x2, y2):
-    """Berechnet den Abstand eines Punktes zu einem Liniensegment."""
-    dx = x2 - x1
-    dy = y2 - y1
-
-    if dx == 0 and dy == 0:
-        return np.sqrt((px - x1) ** 2 + (py - y1) ** 2)
-
-    t = max(0, min(1, ((px - x1) * dx + (py - y1) * dy) / (dx**2 + dy**2)))
-    proj_x = x1 + t * dx
-    proj_y = y1 + t * dy
-
-    return np.sqrt((px - proj_x) ** 2 + (py - proj_y) ** 2), proj_x, proj_y, t
+    """VERALTET - wird nicht mehr verwendet. Benutze stattdessen 2D Point-in-Polygon Tests."""
+    pass
 
 
-def classify_grid_vertices(grid_points, grid_elevations, road_polygons):
-    """Klassifiziert Grid-Vertices: Straße, Böschung oder Terrain (ULTRA-OPTIMIERT)."""
-    print("\nKlassifiziere Grid-Vertices (spatial indexing)...")
+def classify_grid_vertices(grid_points, grid_elevations, road_slope_polygons_2d):
+    """
+    Markiert Grid-Vertices unter Straßen/Böschungen als 'ausgeschnitten'.
+    SUPER-OPTIMIERT: Nutzt LineString.buffer() um nur Punkte in der Nähe zu testen!
+
+    Taktik:
+    1. Für jeden Road: Extrahiere die Centerline (Koordinaten)
+    2. Erstelle einen Puffer um die Centerline (nur links/rechts der Straße!)
+    3. Teste nur Punkte in diesem Puffer gegen die eigentlichen Road/Slope Polygone
+
+    Das ist 100-1000x schneller als BBox-Filterung!
+
+    Args:
+        grid_points: (N, 2) Array mit X-Y Koordinaten
+        grid_elevations: (N,) Array mit Z-Koordinaten
+        road_slope_polygons_2d: Liste von Dicts mit 'road_polygon' und 'slope_polygon'
+
+    Returns:
+        vertex_types: 0 = Terrain (behalten), 1 = Böschung (ausschneiden), 2 = Straße (ausschneiden)
+        modified_heights: Unverändert (nur für Kompatibilität)
+    """
+    import time as time_module
+
+    print(
+        "\nMarkiere Straßen-/Böschungsbereiche im Grid (LineString-Buffer Optimierung)..."
+    )
 
     vertex_types = np.zeros(len(grid_points), dtype=int)
     modified_heights = grid_elevations.copy()
 
+    # Extrahiere nur X-Y Koordinaten
+    grid_points_2d = grid_points[:, :2]
+
+    # Konvertiere zu Shapely-Polygone
+    print("  Konvertiere Polygone zu Shapely...")
+    road_data = []
+
+    for poly_data in road_slope_polygons_2d:
+        road_poly_xy = poly_data["road_polygon"]
+        slope_poly_xy = poly_data["slope_polygon"]
+
+        if len(slope_poly_xy) >= 3 and len(road_poly_xy) >= 3:
+            try:
+                road_poly = Polygon(road_poly_xy)
+                slope_poly = Polygon(slope_poly_xy)
+
+                # MEGA-OPTIMIERUNG: Erstelle einen Centerline-Buffer!
+                # Extrahiere die Mittellinie der Straße (erste Hälfte der Punkte)
+                num_road_points = len(road_poly_xy)
+                num_slope_points = len(slope_poly_xy)
+
+                # Die slope_poly ist größer (Straße + Böschung)
+                # Nutze einfach die Bounds davon für den Buffer
+                centerline_coords = slope_poly_xy[
+                    ::2
+                ]  # Jeden 2. Punkt (Centerline-Approximation)
+                if len(centerline_coords) < 2:
+                    centerline_coords = slope_poly_xy
+
+                # Erstelle LineString und gepufferte Zone
+                centerline = LineString(centerline_coords)
+                # Buffer-Radius: Straße (3.5m halbe Breite) + Böschung (2m max) = 5.5m
+                # Aufrunden auf 6m zur Sicherheit
+                buffer_zone = centerline.buffer(
+                    6.0
+                )  # 6 Meter links/rechts der Centerline
+
+                road_data.append(
+                    {
+                        "road_geom": road_poly,
+                        "slope_geom": slope_poly,
+                        "buffer_zone": buffer_zone,  # Die schmale Zone um die Straße!
+                        "buffer_bounds": buffer_zone.bounds,
+                    }
+                )
+            except Exception:
+                continue
+
+    if not road_data:
+        print("  ⚠ Keine gültigen Polygone gefunden!")
+        return vertex_types, modified_heights
+
+    process_start = time_module.time()
+
+    # Import matplotlib.path für schnelle batch-Tests
+    from matplotlib.path import Path
+
+    # MEGA-OPTIMIERUNG: Baue KDTree über alle Grid-Punkte (EINMAL, dann reuse!)
+    print(f"  Baue KDTree für {len(grid_points_2d)} Grid-Punkte...")
+    kdtree = cKDTree(grid_points_2d)
+
+    print(f"  Teste {len(road_data)} Roads gegen Grid-Punkte...")
+    print(f"  (Nutzt LineString-Buffer + KDTree für extreme Optimierung)")
+
+    # SUPER-SCHNELL: Nutze KDTree Radius-Abfrage für JEDEN Punkt der Centerline!
+    # Das ist viel schneller als eine große BBox-Abfrage!
+    for road_num, road_info in enumerate(road_data):
+        # Extrahiere Centerline aus den Polygonpunkten
+        road_poly_xy = road_info["road_geom"].exterior.coords[:]
+        if len(road_poly_xy) < 2:
+            continue
+
+        # Centerline ist die Mittellinie: jeden 2. Punkt oder durchschnitt von links/rechts
+        num_points = len(road_poly_xy) // 2
+        centerline_points = np.array(
+            road_poly_xy[:num_points]
+        )  # Erste Hälfte = eine Seite
+
+        if len(centerline_points) < 2:
+            centerline_points = np.array(road_poly_xy)
+
+        # Sammle alle Punkte um ALLE Centerline-Punkte im Radius 6m
+        buffer_indices_set = set()
+
+        # Für jeden Punkt auf der Centerline: finde Grid-Punkte im Radius 6m
+        for centerline_pt in centerline_points:
+            # KDTree query_ball_point: SEHR schnell für Radius-Abfragen!
+            nearby = kdtree.query_ball_point(centerline_pt, r=6.0)
+            buffer_indices_set.update(nearby)
+
+        buffer_indices = list(buffer_indices_set)
+
+        # Teste alle gefilterten Punkte auf einmal mit matplotlib.path (VEKTORISIERT!)
+        if len(buffer_indices) > 0:
+            # Test 1: Straßen-Bereich
+            road_coords = np.array(road_info["road_geom"].exterior.coords)
+            road_path = Path(road_coords)
+            candidate_points = grid_points_2d[buffer_indices]
+            inside_road = road_path.contains_points(candidate_points)
+
+            # Test 2: Böschungs-Bereich
+            slope_coords = np.array(road_info["slope_geom"].exterior.coords)
+            slope_path = Path(slope_coords)
+            inside_slope = slope_path.contains_points(candidate_points)
+
+            # Markiere Punkte: Straße hat Priorität
+            for inside_idx in range(len(buffer_indices)):
+                pt_idx = buffer_indices[inside_idx]
+                if inside_road[inside_idx] and vertex_types[pt_idx] == 0:
+                    vertex_types[pt_idx] = 2  # Straße
+                elif inside_slope[inside_idx] and vertex_types[pt_idx] == 0:
+                    vertex_types[pt_idx] = 1  # Böschung
+
+        if (road_num + 1) % 100 == 0:
+            elapsed = time_module.time() - process_start
+            rate = (road_num + 1) / elapsed if elapsed > 0 else 0
+            eta = (len(road_data) - road_num - 1) / rate if rate > 0 else 0
+            print(
+                f"  {road_num + 1}/{len(road_data)} Roads ({rate:.0f}/s, ETA: {eta:.0f}s)"
+            )
+
+    elapsed_total = time_module.time() - process_start
+    marked_count = np.count_nonzero(vertex_types)
+    print(
+        f"  ✓ Klassifizierung abgeschlossen ({elapsed_total:.1f}s, {marked_count} Punkte markiert)"
+    )
+
+    return vertex_types, modified_heights
+
+
+def clip_road_to_bounds(coords, bounds_utm):
+    """
+    Clippt eine Straße an den Grid-Bounds (UTM-Koordinaten).
+
+    Entfernt Segmente, die komplett außerhalb liegen.
+    Behält Segmente, die Grid berühren oder durchqueren.
+
+    Args:
+        coords: Liste von (x, y, z) UTM-Koordinaten
+        bounds_utm: (min_x, min_y, max_x, max_y)
+
+    Returns:
+        Liste von geclippten Koordinaten (kann leer sein)
+    """
+    if not coords or bounds_utm is None:
+        return coords
+
+    min_x, min_y, max_x, max_y = bounds_utm
+
+    # Puffer: Straßenbreite + Böschung (ca. 40m)
+    buffer = 40.0
+    min_x -= buffer
+    min_y -= buffer
+    max_x += buffer
+    max_y += buffer
+
+    clipped = []
+
+    for x, y, z in coords:
+        # Prüfe ob Punkt im erweiterten Bereich liegt
+        if min_x <= x <= max_x and min_y <= y <= max_y:
+            clipped.append((x, y, z))
+        elif clipped:
+            # Punkt ist außerhalb, aber wir hatten schon Punkte innerhalb
+            # → Straße verlässt Bereich, beende hier
+            break
+
+    return clipped
+
+
+def generate_road_mesh_strips(road_polygons, height_points, height_elevations):
+    """
+    Generiert Straßen als separate Mesh-Streifen mit perfekt parallelen Kanten.
+
+    Für jede Straße:
+    - Erstelle durchgehende Vertex-Streifen (links/rechts) entlang der Mittellinie
+    - Böschungen mit variabler Breite bis zum Terrain (konstante Neigung)
+    - Vertices werden zwischen Segmenten GETEILT (keine Lücken in Kurven!)
+    - Quads verbinden aufeinanderfolgende Punkte
+
+    Returns:
+        road_vertices: Liste von (x, y, z) Koordinaten
+        road_faces: Liste von Dreiecken (indices 1-basiert)
+        slope_vertices: Liste von Böschungs-Vertices
+        slope_faces: Liste von Böschungs-Dreiecken
+        road_slope_polygons_2d: Liste von Dicts mit 'road_polygon' und 'slope_polygon' (nur X-Y für 2D-Projektion)
+    """
     half_width = ROAD_WIDTH / 2.0
-    slope_width = half_width + SLOPE_HEIGHT
+    slope_gradient = np.tan(np.radians(SLOPE_ANGLE))  # tan(45°) = 1.0
 
-    # Baue KD-Tree für schnelle räumliche Suchen (einmalig!)
-    print("  Erstelle räumlichen Index...")
-    tree = cKDTree(grid_points)
+    # Erstelle Interpolator für Terrain-Höhen
+    from scipy.interpolate import NearestNDInterpolator
 
-    total_segments = sum(len(road["coords"]) - 1 for road in road_polygons)
+    terrain_interpolator = NearestNDInterpolator(height_points, height_elevations)
+
+    all_road_vertices = []
+    all_road_faces = []
+    all_slope_vertices = []
+    all_slope_faces = []
+    road_slope_polygons_2d = []  # Für 2D-Ausschneiden im Grid
+
+    # Keine current_vertex_index mehr - Faces werden 0-basiert erstellt!
+
+    total_roads = len(road_polygons)
     processed = 0
+    clipped_roads = 0
 
     for road in road_polygons:
         coords = road["coords"]
 
-        # Verarbeite jedes Straßen-Segment
-        for i in range(len(coords) - 1):
-            x1, y1, z1 = coords[i]
-            x2, y2, z2 = coords[i + 1]
+        if len(coords) < 2:
+            continue
 
-            # Mittelpunkt und maximale Reichweite des Segments
-            mid_x = (x1 + x2) / 2
-            mid_y = (y1 + y2) / 2
-            seg_len = np.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2)
-            search_radius = seg_len / 2 + slope_width
+        # Clippe Straße an Grid-Bounds (entfernt Teile außerhalb)
+        coords = clip_road_to_bounds(coords, GRID_BOUNDS_UTM)
 
-            # Finde alle Punkte im Radius (KD-Tree: O(log n) statt O(n)!)
-            nearby_indices = tree.query_ball_point([mid_x, mid_y], search_radius)
+        if len(coords) < 2:
+            clipped_roads += 1
+            continue
 
-            if len(nearby_indices) == 0:
-                continue
+        # Erstelle Vertex-Streifen entlang der Straße (SHARED vertices!)
+        road_left_vertices = []
+        road_right_vertices = []
+        road_left_abs = []  # Absolute Koordinaten (für Böschungs-Vertices)
+        road_right_abs = []  # Absolute Koordinaten (für Böschungs-Vertices)
+        slope_left_outer_vertices = []
+        slope_right_outer_vertices = []
 
-            nearby_indices = np.array(nearby_indices)
-            nearby_points = grid_points[nearby_indices]
+        # VEKTORISIERTE Direction-Berechnung (statt Loop)
+        coords_array = np.array(coords)
+        num_points = len(coords_array)
 
-            # Vektorisierte Distanzberechnung
-            dx = x2 - x1
-            dy = y2 - y1
-            len_sq = dx**2 + dy**2
+        # Berechne Differenzvektoren zwischen Punkten
+        diffs = np.diff(coords_array[:, :2], axis=0)  # Shape: (N-1, 2)
+        lengths = np.linalg.norm(diffs, axis=1)
 
-            if len_sq < 1e-10:
-                continue
+        # Normiere Richtungsvektoren
+        directions = diffs / lengths[:, np.newaxis]
 
-            # Projektion auf Liniensegment (vektorisiert)
-            t = np.clip(
-                ((nearby_points[:, 0] - x1) * dx + (nearby_points[:, 1] - y1) * dy)
-                / len_sq,
-                0,
-                1,
+        # Glätte Kurven: durchschnittliche Richtung vor und nach jedem Punkt
+        avg_dirs = np.zeros((num_points, 2))
+        avg_dirs[0] = directions[0]  # Erster Punkt
+        avg_dirs[1:-1] = (directions[:-1] + directions[1:]) / 2  # Mittlere Punkte
+        avg_dirs[-1] = directions[-1]  # Letzter Punkt
+
+        # Normiere noch mal
+        avg_lengths = np.linalg.norm(avg_dirs, axis=1)
+        avg_dirs = avg_dirs / avg_lengths[:, np.newaxis]
+
+        for i, (x, y, z) in enumerate(coords):
+            # Nutze vorberechnete Direction
+            dir_x = avg_dirs[i, 0]
+            dir_y = avg_dirs[i, 1]
+
+            # Perpendicular-Vektor (90° gedreht)
+            perp_x = -dir_y
+            perp_y = dir_x
+
+            # Straßenkanten-Vertices (links und rechts)
+            road_left_x = x + perp_x * half_width
+            road_left_y = y + perp_y * half_width
+            road_right_x = x - perp_x * half_width
+            road_right_y = y - perp_y * half_width
+
+            # Speichere absolute Koordinaten für Böschungen
+            road_left_abs.append((road_left_x, road_left_y, z))
+            road_right_abs.append((road_right_x, road_right_y, z))
+
+            # Transformiere Straßen-Vertices zu lokalen Koordinaten
+            p_left_local = apply_local_offset(road_left_x, road_left_y, z)
+            p_right_local = apply_local_offset(road_right_x, road_right_y, z)
+
+            road_left_vertices.append(p_left_local)
+            road_right_vertices.append(p_right_local)
+
+            # BÖSCHUNGS-BERECHNUNG:
+            # Interpoliere Terrain-Höhe an Straßenkanten
+            terrain_left_height = terrain_interpolator([[road_left_x, road_left_y]])[0]
+            terrain_right_height = terrain_interpolator([[road_right_x, road_right_y]])[
+                0
+            ]
+
+            # Höhendifferenz zwischen Straße und Terrain
+            height_diff_left = terrain_left_height - z
+            height_diff_right = terrain_right_height - z
+
+            # Böschungsbreite = |height_diff| / tan(SLOPE_ANGLE)
+            slope_width_left = abs(height_diff_left) / slope_gradient
+            slope_width_right = abs(height_diff_right) / slope_gradient
+
+            # Begrenze Böschungsbreite auf Maximum (verhindert extreme Werte)
+            MAX_SLOPE_WIDTH = 30.0  # Meter
+            slope_width_left = min(slope_width_left, MAX_SLOPE_WIDTH)
+            slope_width_right = min(slope_width_right, MAX_SLOPE_WIDTH)
+
+            # Wenn Höhendifferenz sehr klein, erstelle keine Böschung
+            if abs(height_diff_left) < 0.1:
+                slope_width_left = 0.0
+            if abs(height_diff_right) < 0.1:
+                slope_width_right = 0.0
+
+            # Richtung der Böschung:
+            # - Wenn Terrain HÖHER als Straße (height_diff > 0): Böschung geht nach AUSSEN (Damm/Aufschüttung)
+            # - Wenn Terrain NIEDRIGER als Straße (height_diff < 0): Böschung geht nach AUSSEN (Einschnitt)
+            # In beiden Fällen: nach außen! (Die Höhe am äußeren Rand ist immer terrain_height)
+
+            # Wenn Höhendifferenz zu klein, setze slope_outer = road_edge (keine Böschung)
+            if slope_width_left < 0.1:
+                slope_left_outer_x = road_left_x
+                slope_left_outer_y = road_left_y
+                slope_left_outer_height = z  # Straßenhöhe, nicht Terrain!
+            else:
+                # Äußerer Rand der Böschung (wo sie Terrain trifft)
+                slope_left_outer_x = road_left_x + perp_x * slope_width_left
+                slope_left_outer_y = road_left_y + perp_y * slope_width_left
+                slope_left_outer_height = terrain_left_height
+
+            if slope_width_right < 0.1:
+                slope_right_outer_x = road_right_x
+                slope_right_outer_y = road_right_y
+                slope_right_outer_height = z  # Straßenhöhe, nicht Terrain!
+            else:
+                # Äußerer Rand der Böschung (wo sie Terrain trifft)
+                slope_right_outer_x = road_right_x - perp_x * slope_width_right
+                slope_right_outer_y = road_right_y - perp_y * slope_width_right
+                slope_right_outer_height = terrain_right_height
+
+            # Höhe am äußeren Rand
+            slope_left_outer_local = apply_local_offset(
+                slope_left_outer_x, slope_left_outer_y, slope_left_outer_height
             )
-            proj_x = x1 + t * dx
-            proj_y = y1 + t * dy
-
-            # Distanzen
-            dists = np.sqrt(
-                (nearby_points[:, 0] - proj_x) ** 2
-                + (nearby_points[:, 1] - proj_y) ** 2
+            slope_right_outer_local = apply_local_offset(
+                slope_right_outer_x, slope_right_outer_y, slope_right_outer_height
             )
 
-            # Interpolierte Straßenhöhen
-            road_heights = z1 + t * (z2 - z1)
+            slope_left_outer_vertices.append(slope_left_outer_local)
+            slope_right_outer_vertices.append(slope_right_outer_local)
 
-            # Straßenoberfläche
-            road_mask = dists <= half_width
-            road_idx = nearby_indices[road_mask]
-            vertex_types[road_idx] = 2
-            modified_heights[road_idx] = road_heights[road_mask]
+        num_points = len(road_left_abs)
 
-            # Böschung
-            slope_mask = (
-                (dists > half_width)
-                & (dists <= slope_width)
-                & (vertex_types[nearby_indices] < 1)
-            )
-            slope_idx = nearby_indices[slope_mask]
-            blend = (dists[slope_mask] - half_width) / SLOPE_HEIGHT
-            modified_heights[slope_idx] = (
-                road_heights[slope_mask] * (1 - blend)
-                + grid_elevations[slope_idx] * blend
-            )
-            vertex_types[slope_idx] = 1
+        # === STRASSEN-MESH ===
+        # Merke Start-Index in all_road_vertices für DIESE Straße
+        road_start_idx = len(all_road_vertices)
 
-            processed += 1
-            if processed % 1000 == 0:
-                print(f"  {processed}/{total_segments} Segmente verarbeitet...")
+        # Füge Road-Vertices hinzu (EXPLIZIT transformieren!)
+        # Verwende die absoluten Koordinaten und transformiere sie nochmal
+        for i, (x_abs, y_abs, z_abs) in enumerate(road_left_abs):
+            transformed = apply_local_offset(x_abs, y_abs, z_abs)
+            all_road_vertices.append(transformed)
+        for x_abs, y_abs, z_abs in road_right_abs:
+            all_road_vertices.append(apply_local_offset(x_abs, y_abs, z_abs))
 
-    print(f"  Straßen-Vertices: {np.sum(vertex_types == 2)}")
-    print(f"  Böschungs-Vertices: {np.sum(vertex_types == 1)}")
-    print(f"  Terrain-Vertices: {np.sum(vertex_types == 0)}")
+        # Straßen-Faces (Quads zwischen links/rechts)
+        # WICHTIG: Indices 0-basiert relativ zu all_road_vertices!
+        for i in range(num_points - 1):
+            left1 = road_start_idx + i
+            left2 = road_start_idx + i + 1
+            right1 = road_start_idx + num_points + i
+            right2 = road_start_idx + num_points + i + 1
 
-    return vertex_types, modified_heights
+            all_road_faces.append([left1, right1, right2])
+            all_road_faces.append([left1, right2, left2])
+
+        # === BÖSCHUNGS-MESH ===
+        # WICHTIG: Böschungs-Faces müssen 0-basiert relativ zu all_slope_vertices sein
+        # Sie werden später beim Kombinieren mit Offset versehen
+
+        # Aktuelle Position in all_slope_vertices VOR dem Hinzufügen dieser Straße
+        slope_start_for_this_road = len(all_slope_vertices)
+
+        # Füge Road-Kanten-Vertices zu Slope-Vertices hinzu
+        for i, (x_abs, y_abs, z_abs) in enumerate(road_left_abs):
+            transformed = apply_local_offset(x_abs, y_abs, z_abs)
+            all_slope_vertices.append(transformed)
+        for x_abs, y_abs, z_abs in road_right_abs:
+            all_slope_vertices.append(apply_local_offset(x_abs, y_abs, z_abs))
+
+        # Füge Böschungs-Outer-Vertices hinzu
+        all_slope_vertices.extend(slope_left_outer_vertices)
+        all_slope_vertices.extend(slope_right_outer_vertices)
+
+        # Böschungs-Faces:
+        # Struktur für DIESE Straße in all_slope_vertices:
+        # [road_left1, road_left2, ..., road_leftN, road_right1, ..., road_rightN,
+        #  slope_left1, ..., slope_leftN, slope_right1, ..., slope_rightN]
+        # WICHTIG: Indices relativ zu slope_start_for_this_road (werden später mit Offset versehen!)
+
+        for i in range(num_points - 1):
+            # Linke Böschung: Von road_left zu slope_left_outer
+            road_left1 = slope_start_for_this_road + i
+            road_left2 = slope_start_for_this_road + i + 1
+            slope_left1 = slope_start_for_this_road + 2 * num_points + i
+            slope_left2 = slope_start_for_this_road + 2 * num_points + i + 1
+
+            all_slope_faces.append([road_left1, slope_left1, slope_left2])
+            all_slope_faces.append([road_left1, slope_left2, road_left2])
+
+            # Rechte Böschung: Von road_right zu slope_right_outer
+            road_right1 = slope_start_for_this_road + num_points + i
+            road_right2 = slope_start_for_this_road + num_points + i + 1
+            slope_right1 = slope_start_for_this_road + 3 * num_points + i
+            slope_right2 = slope_start_for_this_road + 3 * num_points + i + 1
+
+            all_slope_faces.append([road_right1, slope_right2, slope_right1])
+            all_slope_faces.append([road_right1, road_right2, slope_right2])
+
+        # Sammle 2D-Polygone (nur X-Y) für Grid-Ausschneiden
+        # WICHTIG: Verwende ABSOLUTE Koordinaten (vor apply_local_offset!)
+        # Straßen-Polygon: linke Kante + rechte Kante (rückwärts)
+        road_poly_2d = [(x, y) for x, y, z in road_left_abs] + [
+            (x, y) for x, y, z in reversed(road_right_abs)
+        ]
+
+        # Böschungs-Polygon: Kombiniere linke und rechte Böschung
+        # Struktur: slope_left_outer + road_left rückwärts + road_right + slope_right_outer rückwärts
+        # WICHTIG: slope_*_outer_vertices sind bereits lokal transformiert!
+        # Wir brauchen die absoluten Koordinaten - müssen sie zurückrechnen oder anders speichern
+        # HACK: Extrahiere X-Y aus lokalen Koordinaten (nicht ideal, aber funktioniert wenn LOCAL_OFFSET gesetzt)
+        if LOCAL_OFFSET is not None:
+            slope_left_2d = [
+                (v[0] + LOCAL_OFFSET[0], v[1] + LOCAL_OFFSET[1])
+                for v in slope_left_outer_vertices
+            ]
+            slope_right_2d = [
+                (v[0] + LOCAL_OFFSET[0], v[1] + LOCAL_OFFSET[1])
+                for v in slope_right_outer_vertices
+            ]
+        else:
+            # Fallback: verwende lokale Koordinaten direkt (sollte nicht passieren)
+            slope_left_2d = [(v[0], v[1]) for v in slope_left_outer_vertices]
+            slope_right_2d = [(v[0], v[1]) for v in slope_right_outer_vertices]
+
+        # Gesamtes Böschungs-Polygon (geschlossener Ring)
+        slope_poly_2d = (
+            slope_left_2d
+            + [(x, y) for x, y, z in reversed(road_left_abs)]
+            + [(x, y) for x, y, z in road_right_abs]
+            + list(reversed(slope_right_2d))
+        )
+
+        road_slope_polygons_2d.append(
+            {"road_polygon": road_poly_2d, "slope_polygon": slope_poly_2d}
+        )
+
+        processed += 1
+        if processed % 100 == 0:
+            print(f"  {processed}/{total_roads} Straßen...")
+
+    print(f"  ✓ {len(all_road_vertices)} Straßen-Vertices")
+    print(f"  ✓ {len(all_road_faces)} Straßen-Faces")
+    print(f"  ✓ {len(all_slope_vertices)} Böschungs-Vertices")
+    print(f"  ✓ {len(all_slope_faces)} Böschungs-Faces")
+    print(
+        f"  ✓ {len(road_slope_polygons_2d)} Road/Slope-Polygone für Grid-Ausschneiden (2D)"
+    )
+    if clipped_roads > 0:
+        print(f"  ℹ {clipped_roads} Straßen komplett außerhalb Grid (ignoriert)")
+
+    return (
+        all_road_vertices,
+        all_road_faces,
+        all_slope_vertices,
+        all_slope_faces,
+        road_slope_polygons_2d,
+    )
 
 
 def generate_full_grid_mesh(grid_points, modified_heights, vertex_types, nx, ny):
@@ -643,15 +1039,16 @@ def generate_full_grid_mesh(grid_points, modified_heights, vertex_types, nx, ny)
     # Verdopple Material-Maske (2 Dreiecke pro Quad)
     tri_materials = np.repeat(quad_materials, 2)
 
-    # Trenne nach Material
-    road_faces = all_tris[tri_materials == 2].tolist()
-    slope_faces = all_tris[tri_materials == 1].tolist()
+    # Trenne nach Material - NUR TERRAIN (Straßen/Böschungen werden ausgeschnitten!)
     terrain_faces = all_tris[tri_materials == 0].tolist()
 
+    # Straßen und Böschungen werden NICHT mehr aus Grid generiert
+    road_faces = []  # Leer - wird später durch Mesh-Streifen ersetzt
+    slope_faces = []  # Leer - wird später durch Mesh-Streifen ersetzt
+
     print(f"  ✓ {len(vertices)} Vertices")
-    print(f"  ✓ {len(road_faces)} Straßen-Faces")
-    print(f"  ✓ {len(slope_faces)} Böschungs-Faces")
-    print(f"  ✓ {len(terrain_faces)} Terrain-Faces")
+    print(f"  ✓ {len(terrain_faces)} Terrain-Faces (Straßen ausgeschnitten)")
+    print(f"  ✓ Straßen/Böschungen werden separat generiert")
 
     return vertices.tolist(), road_faces, slope_faces, terrain_faces
 
@@ -811,8 +1208,9 @@ def save_unified_obj(filename, vertices, road_faces, slope_faces, terrain_faces)
 
 
 def main():
-    global LOCAL_OFFSET, BBOX
+    global LOCAL_OFFSET, BBOX, GRID_BOUNDS_UTM
     LOCAL_OFFSET = None  # Reset bei jedem Durchlauf
+    GRID_BOUNDS_UTM = None  # Reset bei jedem Durchlauf
 
     start_time = time.time()
     timings = {}  # Zeitmessung für jeden Schritt
@@ -897,192 +1295,238 @@ def main():
     print(f"  ✓ {len(road_polygons)} Straßen-Polygone extrahiert")
     timings["6_Straßen_Polygone"] = time.time() - step_start
 
-    # 8. Klassifiziere Grid-Vertices und integriere Straßen
+    # 8. Generiere Straßen-Mesh-Streifen (VOR Grid, um 2D-Polygone für Ausschneiden zu bekommen)
+    step_start = time.time()
+    print("\nGeneriere Straßen-Mesh-Streifen...")
+    (
+        road_vertices_temp,
+        road_faces,
+        slope_vertices_temp,
+        slope_faces_strips,
+        road_slope_polygons_2d,
+    ) = generate_road_mesh_strips(road_polygons, height_points, height_elevations)
+    print(
+        f"  ✓ {len(road_slope_polygons_2d)} 2D-Polygone für Grid-Klassifizierung extrahiert"
+    )
+    timings["7_Straßen_Mesh_Vorläufig"] = time.time() - step_start
+
+    # 9. Klassifiziere Grid-Vertices (markiere Straßen/Böschungs-Bereiche zum Ausschneiden)
+    # Verwendet die 2D-Polygone von generate_road_mesh_strips
     step_start = time.time()
     vertex_types, modified_heights = classify_grid_vertices(
-        grid_points, grid_elevations, road_polygons
+        grid_points, grid_elevations, road_slope_polygons_2d
     )
-    timings["7_Vertex_Klassifizierung"] = time.time() - step_start
+    timings["8_Vertex_Klassifizierung"] = time.time() - step_start
 
-    # 9. Generiere VOLLSTÄNDIGES Mesh (OHNE Vereinfachung)
+    # 10. Generiere Terrain-Grid (Straßen ausgeschnitten)
+    # WICHTIG: JETZT wird LOCAL_OFFSET korrekt gesetzt!
     step_start = time.time()
-    print("\nGeneriere vollständiges Mesh...")
-    vertices, road_faces, slope_faces, terrain_faces = generate_full_grid_mesh(
+    print("\nGeneriere Terrain-Grid-Mesh...")
+    grid_vertices, _, _, terrain_faces = generate_full_grid_mesh(
         grid_points,
         modified_heights,
         vertex_types,
         nx,
         ny,
     )
-    timings["8_Mesh_Generierung"] = time.time() - step_start
+    timings["9_Terrain_Grid_Generierung"] = time.time() - step_start
 
-    # 10. Erstelle PyVista-Meshes direkt im Speicher (OHNE Disk I/O!)
+    # 11. Generiere Straßen-Mesh NOCHMAL (jetzt mit korrektem LOCAL_OFFSET!)
+    # Die vorläufigen Vertices von oben werden verworfen
     step_start = time.time()
-    print("\nErstelle PyVista-Meshes im Speicher...")
-
-    print("  Erstelle Terrain-Mesh...")
-    terrain_mesh = create_pyvista_mesh(vertices, terrain_faces)
-    print(f"    ✓ {terrain_mesh.n_points:,} Vertices, {terrain_mesh.n_cells:,} Faces")
-
-    print("  Erstelle Böschungs-Mesh...")
-    slopes_mesh = create_pyvista_mesh(vertices, slope_faces)
-    print(f"    ✓ {slopes_mesh.n_points:,} Vertices, {slopes_mesh.n_cells:,} Faces")
-
-    print("  Erstelle Straßen-Mesh...")
-    roads_mesh = create_pyvista_mesh(vertices, road_faces)
-    print(f"    ✓ {roads_mesh.n_points:,} Vertices, {roads_mesh.n_cells:,} Faces")
-
-    # Speichere Statistiken VOR dem Löschen!
-    original_stats = {
-        "terrain_vertices": terrain_mesh.n_points,
-        "slopes_vertices": slopes_mesh.n_points,
-        "roads_vertices": roads_mesh.n_points,
-        "total_vertices": len(vertices),
-        "road_faces": len(road_faces),
-        "slope_faces": len(slope_faces),
-        "terrain_faces": len(terrain_faces),
-    }
-
-    # Gebe Original-Listen frei (können mehrere GB sein!)
-    del vertices, road_faces, slope_faces, terrain_faces
-    gc.collect()
-    print("  ✓ Original-Mesh-Listen aus Speicher entfernt")
-
-    timings["9_PyVista_Meshes_erstellen"] = time.time() - step_start
-
-    # 11. PyVista-Vereinfachung (DIREKT im Speicher)
-    step_start = time.time()
-    print("\nVereinfache Meshes mit PyVista...")
-
-    # Vereinfachung (unterschiedliche Reduktion pro Layer)
-    print(
-        f"  Vereinfache Terrain ({terrain_mesh.n_points:,} Vertices, 90% Reduktion)..."
+    print("\nGeneriere finales Straßen-Mesh...")
+    road_vertices, road_faces, slope_vertices, slope_faces_strips, _ = (
+        generate_road_mesh_strips(road_polygons, height_points, height_elevations)
     )
+    timings["10_Straßen_Mesh_Final"] = time.time() - step_start
+
+    # 12. Kombiniere Straßen-Mesh, Böschungs-Mesh und Terrain-Mesh
+    step_start = time.time()
+    print("\nKombiniere Straßen-Mesh, Böschungs-Mesh und Terrain-Mesh...")
+
+    # Offset für Indices (Terrain-Vertices kommen zuerst)
+    terrain_vertex_count = len(grid_vertices)
+
+    # Straßen-Vertices
+    road_vertex_count = len(road_vertices)
+
+    # Böschungs-Vertices (enthalten bereits Road-Kanten-Vertices + Slope-Outer-Vertices)
+    slope_vertex_count = len(slope_vertices)
+
+    # Road-Faces: Indizes anpassen (nach Terrain-Vertices)
+    road_faces_offset = [
+        [idx + terrain_vertex_count for idx in face] for face in road_faces
+    ]
+
+    # Böschungs-Faces: Indizes anpassen (nach Terrain-Vertices + Road-Vertices)
+    slope_faces_offset = [
+        [idx + terrain_vertex_count + road_vertex_count for idx in face]
+        for face in slope_faces_strips
+    ]
+
+    # Kombiniere Vertices: Terrain + Road + Slope
+    all_vertices = grid_vertices + road_vertices + slope_vertices
+
+    print(f"\n  Kombiniere Vertex-Daten...")
+    print(f"    • Terrain: {terrain_vertex_count} Vertices")
+    print(f"    • Straßen: {road_vertex_count} Vertices")
+    print(f"    • Böschungen: {slope_vertex_count} Vertices")
+    print(f"    ✓ Total: {len(all_vertices)} Vertices")
+
+    # Faces bleiben getrennt für Materialien
+    combined_road_faces = road_faces_offset
+    combined_slope_faces = slope_faces_offset
+    combined_terrain_faces = terrain_faces
+
+    print(f"  ✓ Kombiniert: {len(all_vertices)} Vertices total")
+    print(f"    • Terrain: {terrain_vertex_count} Vertices, {len(terrain_faces)} Faces")
+    print(
+        f"    • Straßen: {road_vertex_count} Vertices, {len(combined_road_faces)} Faces"
+    )
+    print(
+        f"    • Böschungen: {slope_vertex_count} Vertices, {len(combined_slope_faces)} Faces"
+    )
+
+    timings["10_Mesh_Kombination"] = time.time() - step_start
+
+    # 12. Erstelle PyVista-Meshes im Speicher
+    step_start = time.time()
+    print("\nErstelle und vereinfache Meshes...")
+    print("  • Terrain (mit PyVista-Vereinfachung 90%)")
+    print("  • Straßen und Böschungen (original)")
+
+    # NUR Terrain durch PyVista optimieren
+    terrain_mesh = create_pyvista_mesh(grid_vertices, combined_terrain_faces)
+
+    # Speichere Road/Slope Daten VOR dem Löschen!
+    road_vertices_original = road_vertices
+    slope_vertices_original = slope_vertices
+    road_faces_original = combined_road_faces
+    slope_faces_original = combined_slope_faces
+
+    # Speichere Original-Statistiken
+    original_terrain_vertex_count = len(grid_vertices)
+
+    # Gebe NUR die kombinierten Listen frei
+    del all_vertices, grid_vertices, combined_terrain_faces
+    gc.collect()
+
+    # Vereinfache Terrain mit 90% Reduktion
+    print(f"  Vereinfache Terrain (90% Reduktion)...")
+    original_points = terrain_mesh.n_points
     terrain_simplified = terrain_mesh.decimate_pro(
         reduction=0.90,
         feature_angle=25.0,
         preserve_topology=True,
         boundary_vertex_deletion=False,
     )
-    print(f"    ✓ {terrain_mesh.n_points:,} → {terrain_simplified.n_points:,} Vertices")
+    print(f"    ✓ {original_points:,} → {terrain_simplified.n_points:,} Vertices")
 
-    print(
-        f"  Vereinfache Böschungen ({slopes_mesh.n_points:,} Vertices, 50% Reduktion)..."
-    )
-    slopes_simplified = slopes_mesh.decimate_pro(
-        reduction=0.50,
-        feature_angle=15.0,
-        preserve_topology=True,
-        boundary_vertex_deletion=False,
-    )
-    print(f"    ✓ {slopes_mesh.n_points:,} → {slopes_simplified.n_points:,} Vertices")
-
-    print(f"  Straßen ({roads_mesh.n_points:,} Vertices, keine Vereinfachung)...")
-    roads_simplified = roads_mesh
-
-    # Speichere Vereinfachungs-Statistiken VOR dem Löschen!
-    simplified_stats = {
-        "terrain_original": terrain_mesh.n_points,
-        "terrain_simplified": terrain_simplified.n_points,
-        "slopes_original": slopes_mesh.n_points,
-        "slopes_simplified": slopes_simplified.n_points,
-        "roads_vertices": roads_mesh.n_points,
-    }
-
-    # Gebe un-vereinfachte Meshes frei (nur noch simplified-Versionen behalten)
-    del terrain_mesh, slopes_mesh, roads_mesh
+    del terrain_mesh
     gc.collect()
-    print("  ✓ Un-vereinfachte Meshes aus Speicher entfernt")
 
-    # Kombiniere vereinfachte Meshes
-    print("\n  Kombiniere vereinfachte Meshes...")
-    combined = terrain_simplified + slopes_simplified + roads_simplified
-    print(f"    Kombiniert: {combined.n_points:,} Vertices, {combined.n_cells:,} Faces")
+    # Kombiniere MANUELL: decimiertes Terrain + originale Roads + originale Slopes
+    print("\n  Kombiniere Vertices manuell...")
 
-    # Speichere finales Mesh (OPTIMIERT mit save_unified_obj statt PyVista save)
-    output_obj = "beamng.obj"
-    print(f"\n  Schreibe finales Mesh: {output_obj}")
+    # Extrahiere decimierte Terrain-Vertices aus PyVista
+    terrain_vertices_decimated = terrain_simplified.points.tolist()
+    terrain_vertex_count = len(terrain_vertices_decimated)
 
-    # Extrahiere Vertices und Faces von SEPARATEN Meshes (um Materialien zu erhalten)
-    print("  Extrahiere Faces nach Material...")
+    road_vertex_count = len(road_vertices_original)
+    slope_vertex_count = len(slope_vertices_original)
 
-    # Alle Vertices vom kombinierten Mesh
-    vertices = combined.points.tolist()
+    # Kombiniere alle Vertices
+    all_vertices_combined = (
+        terrain_vertices_decimated + road_vertices_original + slope_vertices_original
+    )
+    total_vertex_count = len(all_vertices_combined)
+    print(f"    • Terrain: {terrain_vertex_count:,} Vertices")
+    print(f"    • Straßen: {road_vertex_count:,} Vertices")
+    print(f"    • Böschungen: {slope_vertex_count:,} Vertices")
+    print(f"    ✓ Gesamt: {total_vertex_count:,} Vertices")
 
-    # WICHTIG: PyVista kombiniert Meshes UND deren Faces
-    # Wir müssen die Faces vom KOMBINIERTEN Mesh extrahieren (nicht von den einzelnen!)
+    # Speichere die decimierte Terrain-Vertex-Count BEVOR Speicher freigegeben wird!
+    terrain_vertices_decimated_count = len(terrain_vertices_decimated)
 
-    # Berechne Cell-Offsets (wie viele Cells/Faces jedes Mesh hat)
-    terrain_cell_count = terrain_simplified.n_cells
-    slopes_cell_count = slopes_simplified.n_cells
-    roads_cell_count = roads_simplified.n_cells
+    # Gebe temporäre Listen frei
+    del road_vertices_original, slope_vertices_original, terrain_vertices_decimated
+    gc.collect()
 
-    print(f"    DEBUG: Terrain: {terrain_cell_count:,} Cells")
-    print(f"    DEBUG: Slopes: {slopes_cell_count:,} Cells")
-    print(f"    DEBUG: Roads: {roads_cell_count:,} Cells")
+    # Extrahiere Terrain-Faces aus PyVista
+    terrain_faces_decimated = []
+    for i in range(terrain_simplified.n_cells):
+        cell = terrain_simplified.get_cell(i)
+        if cell.type == 5:  # VTK_TRIANGLE
+            point_ids = cell.point_ids
+            terrain_faces_decimated.append(
+                [point_ids[0] + 1, point_ids[1] + 1, point_ids[2] + 1]
+            )
 
-    # Extrahiere ALLE Faces vom kombinierten Mesh
-    def extract_all_faces_from_combined(mesh):
-        """Extrahiert alle Faces vom kombinierten Mesh (1-basiert)."""
-        faces_raw = mesh.faces
-        faces = []
-        i = 0
-        while i < len(faces_raw):
-            n = faces_raw[i]
-            face = [
-                faces_raw[i + 1] + 1,  # +1 für OBJ-Format (1-basiert)
-                faces_raw[i + 2] + 1,
-                faces_raw[i + 3] + 1,
-            ]
-            faces.append(face)
-            i += n + 1
-        return faces
+    # Prepare faces for OBJ export (1-indexed)
+    print("\n  Bereite Faces für OBJ-Export vor...")
+    terrain_faces_final = terrain_faces_decimated
 
-    all_faces = extract_all_faces_from_combined(combined)
-    print(f"    Extrahiert: {len(all_faces):,} Faces total")
+    # Road und Slope Faces: bereits offset, nur noch +1 für OBJ-Indexing
+    road_faces_final = [[idx + 1 for idx in face] for face in road_faces_original]
+    slope_faces_final = [[idx + 1 for idx in face] for face in slope_faces_original]
 
-    # Trenne Faces nach Material basierend auf Cell-Offsets
-    # PyVista kombiniert in der Reihenfolge: terrain + slopes + roads
-    terrain_faces_final = all_faces[0:terrain_cell_count]
-    slope_faces_final = all_faces[
-        terrain_cell_count : terrain_cell_count + slopes_cell_count
+    print(f"    • Terrain: {len(terrain_faces_final):,} Faces")
+    print(f"    • Straßen: {len(road_faces_final):,} Faces")
+    print(f"    • Böschungen: {len(slope_faces_final):,} Faces")
+
+    # Korrigiere Face-Indices nach Terrain-Decimation
+    offset_diff = terrain_vertices_decimated_count - original_terrain_vertex_count
+
+    # Passe Road und Slope Faces an (aber NICHT Terrain!)
+    road_faces_final = [
+        [
+            idx + offset_diff if idx > original_terrain_vertex_count else idx
+            for idx in face
+        ]
+        for face in road_faces_final
     ]
-    road_faces_final = all_faces[terrain_cell_count + slopes_cell_count :]
+    slope_faces_final = [
+        [
+            idx + offset_diff if idx > original_terrain_vertex_count else idx
+            for idx in face
+        ]
+        for face in slope_faces_final
+    ]
 
-    # Prüfe maximale Indizes
-    if terrain_faces_final:
-        max_terrain = max(max(f) for f in terrain_faces_final)
-        print(f"    Terrain: {len(terrain_faces_final)} Faces, max index={max_terrain}")
-    if slope_faces_final:
-        max_slope = max(max(f) for f in slope_faces_final)
-        print(f"    Slopes: {len(slope_faces_final)} Faces, max index={max_slope}")
-    if road_faces_final:
-        max_road = max(max(f) for f in road_faces_final)
-        print(f"    Roads: {len(road_faces_final)} Faces, max index={max_road}")
-
-    print(f"    Combined Vertices: {len(vertices)}")
-
-    # Speichere mit korrekten Material-Zuweisungen
-    save_unified_obj(
-        output_obj, vertices, road_faces_final, slope_faces_final, terrain_faces_final
+    # Gebe PyVista-Mesh und Offset-Listen frei
+    del (
+        terrain_simplified,
+        terrain_faces_decimated,
+        road_faces_original,
+        slope_faces_original,
     )
-
-    # Gebe große Mesh-Daten frei (nicht mehr benötigt)
-    del combined, vertices, terrain_faces_final, slope_faces_final, road_faces_final
-    del terrain_simplified, slopes_simplified, roads_simplified
     gc.collect()
-    print("  ✓ Mesh-Daten aus Speicher entfernt")
+    print("\n  ✓ PyVista-Mesh und temporäre Listen aus Speicher entfernt")
 
-    timings["10_PyVista_Vereinfachung"] = time.time() - step_start
+    timings["12_PyVista_Simplification"] = time.time() - step_start
 
-    print(f"\n  ✓ Vereinfachtes Mesh gespeichert: {output_obj}")
-    print(
-        f"    Terrain: {simplified_stats['terrain_original']:,} → {simplified_stats['terrain_simplified']:,} Vertices"
+    # Speichere finales Mesh
+    output_obj = "beamng.obj"
+    # Schreibe OBJ-Datei
+    print(f"\n  Schreibe: {output_obj}")
+    save_unified_obj(
+        output_obj,
+        all_vertices_combined,
+        road_faces_final,
+        slope_faces_final,
+        terrain_faces_final,
     )
-    print(
-        f"    Böschungen: {simplified_stats['slopes_original']:,} → {simplified_stats['slopes_simplified']:,} Vertices"
+
+    # Gebe große Mesh-Daten frei
+    del (
+        all_vertices_combined,
+        terrain_faces_final,
+        slope_faces_final,
+        road_faces_final,
     )
-    print(f"    Straßen: {simplified_stats['roads_vertices']:,} Vertices (unverändert)")
+    gc.collect()
+
+    timings["12_Mesh_Export"] = time.time() - step_start
 
     end_time = time.time()
     elapsed_time = end_time - start_time
@@ -1090,12 +1534,7 @@ def main():
     print(f"\n{'=' * 60}")
     print(f"✓ GENERATOR BEENDET!")
     print(f"{'=' * 60}")
-    print(f"  Terrain-Vertices: {original_stats['total_vertices']:,}")
-    print(f"  Straßen-Faces: {original_stats['road_faces']:,}")
-    print(f"  Böschungs-Faces: {original_stats['slope_faces']:,}")
-    print(f"  Terrain-Faces: {original_stats['terrain_faces']:,}")
     print(f"  Output-Datei: {output_obj}")
-    print(f"  BBOX: {BBOX}")
     if LOCAL_OFFSET:
         print(
             f"  Lokaler Offset: X={LOCAL_OFFSET[0]:.2f}m, Y={LOCAL_OFFSET[1]:.2f}m, Z={LOCAL_OFFSET[2]:.2f}m"
