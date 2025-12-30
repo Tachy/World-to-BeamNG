@@ -4,8 +4,11 @@ Straßen-Mesh und Böschungs-Generierung.
 
 import numpy as np
 from scipy.interpolate import NearestNDInterpolator
+from scipy.spatial import cKDTree
+from concurrent.futures import ProcessPoolExecutor
+from functools import partial
+from math import ceil
 
-from ..geometry.coordinates import apply_local_offset
 from .. import config
 from .junction_snapping import snap_junctions_with_edges
 
@@ -24,20 +27,31 @@ def detect_t_junctions(road_polygons, snap_distance=5.0):
             'joining_is_start': True wenn joining road am Start einmündet
         }
     """
-    from scipy.spatial import cKDTree
     from shapely.geometry import LineString, Point
+    from shapely.strtree import STRtree
 
     t_junctions = []
 
-    # Erstelle LineStrings für alle Straßen
+    # Erstelle LineStrings und Spatial-Index (STRtree) für schnelle Nachbarsuche
     road_lines = []
-    for road in road_polygons:
+    valid_lines = []
+    valid_indices = []
+
+    for idx, road in enumerate(road_polygons):
         coords = road["coords"]
         if len(coords) >= 2:
             line = LineString([(c[0], c[1]) for c in coords])
             road_lines.append(line)
+            valid_lines.append(line)
+            valid_indices.append(idx)
         else:
             road_lines.append(None)
+
+    if not valid_lines:
+        return t_junctions
+
+    line_tree = STRtree(valid_lines)
+    id_to_idx = {id(geom): idx for geom, idx in zip(valid_lines, valid_indices)}
 
     # Sammle alle Endpunkte
     endpoints = []
@@ -56,54 +70,51 @@ def detect_t_junctions(road_polygons, snap_distance=5.0):
     if len(endpoints) < 2:
         return t_junctions
 
-    # Baue KDTree
-    endpoints_array = np.array(endpoints)
-    kdtree = cKDTree(endpoints_array)
-
-    # Für jeden Endpunkt: Prüfe ob er nahe an einer ANDEREN Straße liegt (nicht am Endpunkt)
-    for ep_idx, (road_idx, is_start, ep) in enumerate(endpoint_info):
+    # Für jeden Endpunkt: prüfe nahe Straßen über Spatial-Index
+    search_radius = snap_distance
+    for road_idx, is_start, ep in endpoint_info:
         ep_point = Point(ep)
+        candidate_lines = line_tree.query(ep_point.buffer(search_radius))
 
-        # Suche nahe Straßen
-        for other_road_idx, other_line in enumerate(road_lines):
-            if other_road_idx == road_idx or other_line is None:
+        for geom in candidate_lines:
+            other_road_idx = id_to_idx.get(id(geom))
+            if other_road_idx is None or other_road_idx == road_idx:
                 continue
 
-            # Prüfe Distanz zur anderen Straße
+            other_line = road_lines[other_road_idx]
+            if other_line is None:
+                continue
+
             dist = other_line.distance(ep_point)
+            if dist >= snap_distance:
+                continue
 
-            if dist < snap_distance:
-                # Prüfe ob der Punkt NICHT an einem Endpunkt der anderen Straße liegt
-                other_coords = road_polygons[other_road_idx]["coords"]
-                other_start = Point(other_coords[0][0], other_coords[0][1])
-                other_end = Point(other_coords[-1][0], other_coords[-1][1])
+            # Prüfe, ob nicht am Endpunkt der anderen Straße
+            other_coords = road_polygons[other_road_idx]["coords"]
+            other_start = Point(other_coords[0][0], other_coords[0][1])
+            other_end = Point(other_coords[-1][0], other_coords[-1][1])
 
-                dist_to_other_start = ep_point.distance(other_start)
-                dist_to_other_end = ep_point.distance(other_end)
+            if (
+                ep_point.distance(other_start) <= snap_distance
+                or ep_point.distance(other_end) <= snap_distance
+            ):
+                continue
 
-                # Wenn der Punkt NICHT nahe an den Endpunkten ist → T-Kreuzung!
-                if (
-                    dist_to_other_start > snap_distance
-                    and dist_to_other_end > snap_distance
-                ):
-                    # Finde Parameter entlang der durchgehenden Straße
-                    projection = other_line.project(ep_point)
-                    param = projection / other_line.length
+            projection = other_line.project(ep_point)
+            param = projection / other_line.length if other_line.length > 0 else 0.0
+            junction_point_geom = other_line.interpolate(projection)
+            junction_point = (junction_point_geom.x, junction_point_geom.y)
 
-                    # Finde nächsten Punkt auf der Linie
-                    junction_point_geom = other_line.interpolate(projection)
-                    junction_point = (junction_point_geom.x, junction_point_geom.y)
-
-                    t_junctions.append(
-                        {
-                            "through_road_idx": other_road_idx,
-                            "joining_road_idx": road_idx,
-                            "junction_point": junction_point,
-                            "through_param": param,
-                            "joining_is_start": is_start,
-                            "projection_dist": projection,
-                        }
-                    )
+            t_junctions.append(
+                {
+                    "through_road_idx": other_road_idx,
+                    "joining_road_idx": road_idx,
+                    "junction_point": junction_point,
+                    "through_param": param,
+                    "joining_is_start": is_start,
+                    "projection_dist": projection,
+                }
+            )
 
     return t_junctions
 
@@ -131,19 +142,203 @@ def clip_road_to_bounds(coords, bounds_utm):
     return clipped
 
 
-def generate_road_mesh_strips(road_polygons, height_points, height_elevations):
+def _process_road_batch(
+    batch,
+    half_width,
+    height_points,
+    height_elevations,
+    local_offset,
+    grid_bounds,
+    lookup_mode,
+):
+    """Worker-Funktion für Straßen-Batch (multiprocessing-fähig)."""
+    use_kdtree = lookup_mode == "kdtree"
+    tree = cKDTree(height_points) if use_kdtree else None
+    interpolator = (
+        NearestNDInterpolator(height_points, height_elevations)
+        if not use_kdtree
+        else None
+    )
+
+    if local_offset is None:
+        local_offset = (0.0, 0.0, 0.0)
+
+    def _apply_offset(x, y, z):
+        ox, oy, oz = local_offset
+        return (x - ox, y - oy, z - oz)
+
+    batch_vertices = []
+    batch_per_road = []
+    clipped_local = 0
+
+    for original_road_idx, road in batch:
+        coords = road["coords"]
+        road_id = road.get("id")
+
+        if len(coords) < 2:
+            continue
+
+        coords = clip_road_to_bounds(coords, grid_bounds)
+
+        if len(coords) < 2:
+            clipped_local += 1
+            continue
+
+        cleaned_coords = [coords[0]]
+        for i in range(1, len(coords)):
+            dx = coords[i][0] - cleaned_coords[-1][0]
+            dy = coords[i][1] - cleaned_coords[-1][1]
+            if dx * dx + dy * dy > 0.01:
+                cleaned_coords.append(coords[i])
+
+        if len(cleaned_coords) < 2:
+            clipped_local += 1
+            continue
+
+        coords = cleaned_coords
+        coords_array = np.array(coords)
+        num_points = len(coords_array)
+
+        diffs = np.diff(coords_array[:, :2], axis=0)
+        lengths = np.linalg.norm(diffs, axis=1)
+        lengths = np.maximum(lengths, 0.001)
+        directions = diffs / lengths[:, np.newaxis]
+
+        point_dirs = np.zeros((num_points, 2))
+        point_dirs[0] = directions[0]
+        point_dirs[-1] = directions[-1]
+        for i in range(1, num_points - 1):
+            incoming_dir = directions[i - 1]
+            outgoing_dir = directions[i]
+            avg_dir = (incoming_dir + outgoing_dir) / 2.0
+            length = np.linalg.norm(avg_dir)
+            point_dirs[i] = avg_dir / length if length > 1e-6 else incoming_dir
+
+        perp = np.column_stack([-point_dirs[:, 1], point_dirs[:, 0]])
+
+        left_xy = coords_array[:, :2] + perp * half_width
+        right_xy = coords_array[:, :2] - perp * half_width
+        z_vals = coords_array[:, 2]
+
+        if use_kdtree:
+            _, left_idx = tree.query(left_xy)
+            _, right_idx = tree.query(right_xy)
+            terrain_left_height = height_elevations[left_idx]
+            terrain_right_height = height_elevations[right_idx]
+        else:
+            terrain_left_height = interpolator(left_xy)
+            terrain_right_height = interpolator(right_xy)
+
+        height_diff_left = terrain_left_height - z_vals
+        height_diff_right = terrain_right_height - z_vals
+
+        abs_left = np.abs(height_diff_left)
+        abs_right = np.abs(height_diff_right)
+        min_slope = getattr(config, "MIN_SLOPE_WIDTH", 0.2)
+        slope_width_left = np.clip(np.maximum(min_slope, abs_left), None, 30.0)
+        slope_width_right = np.clip(np.maximum(min_slope, abs_right), None, 30.0)
+
+        slope_left_outer_xy = left_xy + perp * slope_width_left[:, np.newaxis]
+        slope_right_outer_xy = right_xy - perp * slope_width_right[:, np.newaxis]
+        slope_left_outer_z = z_vals + height_diff_left
+        slope_right_outer_z = z_vals + height_diff_right
+
+        left_local = _apply_offset(left_xy[:, 0], left_xy[:, 1], z_vals)
+        right_local = _apply_offset(right_xy[:, 0], right_xy[:, 1], z_vals)
+
+        slope_left_outer_local = _apply_offset(
+            slope_left_outer_xy[:, 0], slope_left_outer_xy[:, 1], slope_left_outer_z
+        )
+        slope_right_outer_local = _apply_offset(
+            slope_right_outer_xy[:, 0], slope_right_outer_xy[:, 1], slope_right_outer_z
+        )
+
+        road_left_vertices = list(zip(left_local[0], left_local[1], left_local[2]))
+        road_right_vertices = list(zip(right_local[0], right_local[1], right_local[2]))
+        slope_left_outer_vertices = list(
+            zip(
+                slope_left_outer_local[0],
+                slope_left_outer_local[1],
+                slope_left_outer_local[2],
+            )
+        )
+        slope_right_outer_vertices = list(
+            zip(
+                slope_right_outer_local[0],
+                slope_right_outer_local[1],
+                slope_right_outer_local[2],
+            )
+        )
+
+        road_left_abs = list(zip(left_xy[:, 0], left_xy[:, 1], z_vals))
+        road_right_abs = list(zip(right_xy[:, 0], right_xy[:, 1], z_vals))
+
+        road_left_2d = [(x, y) for x, y, z in road_left_abs]
+        road_right_2d = [(x, y) for x, y, z in road_right_abs]
+        road_poly_2d = road_left_2d + list(reversed(road_right_2d))
+
+        slope_left_2d = [(v[0], v[1]) for v in slope_left_outer_vertices]
+        slope_right_2d = [(v[0], v[1]) for v in slope_right_outer_vertices]
+        slope_poly_2d = (
+            road_left_2d
+            + slope_left_2d
+            + list(reversed(slope_right_2d))
+            + list(reversed(road_right_2d))
+        )
+
+        left_start = len(batch_vertices)
+        batch_vertices.extend(road_left_vertices)
+        right_start = len(batch_vertices)
+        batch_vertices.extend(road_right_vertices)
+        slope_left_start = len(batch_vertices)
+        batch_vertices.extend(slope_left_outer_vertices)
+        slope_right_start = len(batch_vertices)
+        batch_vertices.extend(slope_right_outer_vertices)
+
+        batch_per_road.append(
+            {
+                "road_id": road_id,
+                "original_idx": original_road_idx,
+                "original_coords": coords,
+                "num_points": num_points,
+                "left_start": left_start,
+                "right_start": right_start,
+                "slope_left_start": slope_left_start,
+                "slope_right_start": slope_right_start,
+                "road_poly_2d": road_poly_2d,
+                "slope_poly_2d": slope_poly_2d,
+                "road_left_2d": road_left_2d,
+                "road_right_2d": road_right_2d,
+            }
+        )
+
+    return (
+        batch_per_road,
+        batch_vertices,
+        clipped_local,
+    )
+
+
+def generate_road_mesh_strips(
+    road_polygons, height_points, height_elevations, vertex_manager
+):
     """
-    Generiert Straßen als separate Mesh-Streifen mit perfekt parallelen Kanten.
+    Generiert Straßen als separate Mesh-Streifen mit zentraler Vertex-Verwaltung.
+
+    Args:
+        road_polygons: Liste von Straßen-Polygonen
+        height_points: Terrain-Höhenpunkte
+        height_elevations: Terrain-Höhen
+        vertex_manager: Zentrale Vertex-Verwaltung (ERFORDERLICH)
+
+    Returns:
+        Tuple: (road_faces, slope_faces, road_slope_polygons_2d, original_to_mesh_idx)
     """
     half_width = config.ROAD_WIDTH / 2.0
     slope_gradient = np.tan(np.radians(config.SLOPE_ANGLE))
 
-    terrain_interpolator = NearestNDInterpolator(height_points, height_elevations)
-
-    all_road_vertices = []
     all_road_faces = []
     all_road_face_to_idx = []
-    all_slope_vertices = []
     all_slope_faces = []
     road_slope_polygons_2d = []
 
@@ -152,318 +347,191 @@ def generate_road_mesh_strips(road_polygons, height_points, height_elevations):
     original_to_mesh_idx = {}
 
     total_roads = len(road_polygons)
-    processed = 0
+
+    use_mp = config.USE_MULTIPROCESSING
+    num_workers = config.NUM_WORKERS or None
+    local_offset = config.LOCAL_OFFSET
+    grid_bounds = config.GRID_BOUNDS_UTM
+
+    lookup_mode = (getattr(config, "HEIGHT_LOOKUP_MODE", "kdtree") or "kdtree").lower()
+
+    worker_func = partial(
+        _process_road_batch,
+        half_width=half_width,
+        height_points=height_points,
+        height_elevations=height_elevations,
+        local_offset=local_offset,
+        grid_bounds=grid_bounds,
+        lookup_mode=lookup_mode,
+    )
+
+    per_road_data = []
+    all_vertices_concat = []
     clipped_roads = 0
 
-    # DEBUG: Statistiken für Böschungen
-    slopes_with_left = 0
-    slopes_with_right = 0
-    slopes_with_both = 0
-    min_height_diff = float("inf")
-    max_height_diff = float("-inf")
+    if use_mp and total_roads > 0:
+        workers = num_workers or None
+        max_roads_per_batch = getattr(config, "MAX_ROADS_PER_BATCH", 500) or 500
+        chunk_size = ceil(total_roads / (workers or 1))
+        chunk_size = max(1, min(chunk_size, max_roads_per_batch))
+        batches = []
+        for start in range(0, total_roads, chunk_size):
+            end = min(start + chunk_size, total_roads)
+            batch = list(zip(range(start, end), road_polygons[start:end]))
+            batches.append(batch)
 
-    for original_road_idx, road in enumerate(road_polygons):
-        coords = road["coords"]
-        road_id = road.get("id")
+        with ProcessPoolExecutor(max_workers=workers) as ex:
+            for idx, result in enumerate(ex.map(worker_func, batches), 1):
+                (
+                    batch_per_road,
+                    batch_vertices,
+                    clipped_local,
+                ) = result
 
-        if len(coords) < 2:
+                offset = len(all_vertices_concat)
+                all_vertices_concat.extend(batch_vertices)
+
+                for entry in batch_per_road:
+                    entry["left_start"] += offset
+                    entry["right_start"] += offset
+                    entry["slope_left_start"] += offset
+                    entry["slope_right_start"] += offset
+                per_road_data.extend(batch_per_road)
+
+                clipped_roads += clipped_local
+
+                print(
+                    f"  Batch {idx}/{len(batches)} fertig (Vertices: {len(batch_vertices):,})"
+                )
+    else:
+        # Single-thread fallback
+        for original_road_idx, road in enumerate(road_polygons):
+            (
+                batch_per_road,
+                batch_vertices,
+                clipped_local,
+            ) = worker_func([(original_road_idx, road)])
+
+            offset = len(all_vertices_concat)
+            all_vertices_concat.extend(batch_vertices)
+            for entry in batch_per_road:
+                entry["left_start"] += offset
+                entry["right_start"] += offset
+                entry["slope_left_start"] += offset
+                entry["slope_right_start"] += offset
+
+            per_road_data.extend(batch_per_road)
+            clipped_roads += clipped_local
+
+            processed = original_road_idx + 1
+            if processed % 50 == 0:
+                print(f"  {processed}/{total_roads} Straßen (Geometrie)...")
+
+    # === Globaler Insert in einem Rutsch ===
+    print(
+        f"  Füge {len(all_vertices_concat):,} Straßen/Böschungs-Vertices in einem Rutsch hinzu..."
+    )
+    global_indices = vertex_manager.add_vertices_batch_dedup_fast(all_vertices_concat)
+    print(f"  ✓ VertexManager: {vertex_manager.get_count():,} Vertices nach Straßen")
+
+    # === Faces und Polygone aufbauen mit globalen Indices ===
+    for road_meta in per_road_data:
+        n = road_meta["num_points"]
+        if n < 2:
             continue
 
-        coords = clip_road_to_bounds(coords, config.GRID_BOUNDS_UTM)
+        ls = road_meta["left_start"]
+        rs = road_meta["right_start"]
+        sls = road_meta["slope_left_start"]
+        srs = road_meta["slope_right_start"]
 
-        if len(coords) < 2:
-            clipped_roads += 1
-            continue
+        road_vertex_indices_left = global_indices[ls : ls + n]
+        road_vertex_indices_right = global_indices[rs : rs + n]
+        slope_left_outer_indices = global_indices[sls : sls + n]
+        slope_right_outer_indices = global_indices[srs : srs + n]
 
-        # Entferne doppelte aufeinanderfolgende Punkte (Sicherheit)
-        cleaned_coords = [coords[0]]
-        for i in range(1, len(coords)):
-            dx = coords[i][0] - cleaned_coords[-1][0]
-            dy = coords[i][1] - cleaned_coords[-1][1]
-            if dx * dx + dy * dy > 0.01:  # > 10cm Abstand
-                cleaned_coords.append(coords[i])
+        road_id = road_meta["road_id"]
 
-        if len(cleaned_coords) < 2:
-            clipped_roads += 1
-            continue
+        # Straßen-Faces
+        for i in range(n - 1):
+            left1 = road_vertex_indices_left[i]
+            left2 = road_vertex_indices_left[i + 1]
+            right1 = road_vertex_indices_right[i]
+            right2 = road_vertex_indices_right[i + 1]
 
-        coords = cleaned_coords
-
-        road_left_vertices = []
-        road_right_vertices = []
-        road_left_abs = []
-        road_right_abs = []
-        slope_left_outer_vertices = []
-        slope_right_outer_vertices = []
-
-        coords_array = np.array(coords)
-        num_points = len(coords_array)
-
-        # Berechne GEGLÄTTETE Tangenten für radiale Ausrichtung
-        # Statt segment-basierte Richtungen, mitteln wir die Richtungen
-        # für sanftere Übergänge an Kurven
-        diffs = np.diff(coords_array[:, :2], axis=0)
-        lengths = np.linalg.norm(diffs, axis=1)
-
-        # Verhindere Division durch 0 bei identischen Punkten
-        lengths = np.maximum(lengths, 0.001)  # Min 1mm
-        directions = diffs / lengths[:, np.newaxis]
-
-        # NEUE METHODE: Geglättete Tangenten für bessere Kurven
-        point_dirs = np.zeros((num_points, 2))
-
-        # Erster Punkt: Richtung zum nächsten
-        point_dirs[0] = directions[0]
-
-        # Letzter Punkt: Richtung vom vorherigen
-        point_dirs[-1] = directions[-1]
-
-        # Mittlere Punkte: Mittle die Richtungen für glatte Tangenten
-        for i in range(1, num_points - 1):
-            # Mittle zwischen eingehender und ausgehender Richtung
-            incoming_dir = directions[i - 1]
-            outgoing_dir = directions[i]
-
-            # Gewichteter Durchschnitt
-            avg_dir = (incoming_dir + outgoing_dir) / 2.0
-
-            # Normalisiere
-            length = np.linalg.norm(avg_dir)
-            if length > 1e-6:
-                point_dirs[i] = avg_dir / length
-            else:
-                # Fallback wenn Richtungen entgegengesetzt sind
-                point_dirs[i] = incoming_dir
-
-        for i, (x, y, z) in enumerate(coords):
-            dir_x = point_dirs[i, 0]
-            dir_y = point_dirs[i, 1]
-
-            perp_x = -dir_y
-            perp_y = dir_x
-
-            road_left_x = x + perp_x * half_width
-            road_left_y = y + perp_y * half_width
-            road_right_x = x - perp_x * half_width
-            road_right_y = y - perp_y * half_width
-
-            road_left_abs.append((road_left_x, road_left_y, z))
-            road_right_abs.append((road_right_x, road_right_y, z))
-
-            p_left_local = apply_local_offset(road_left_x, road_left_y, z)
-            p_right_local = apply_local_offset(road_right_x, road_right_y, z)
-
-            road_left_vertices.append(p_left_local)
-            road_right_vertices.append(p_right_local)
-
-            terrain_left_height = terrain_interpolator([[road_left_x, road_left_y]])[0]
-            terrain_right_height = terrain_interpolator([[road_right_x, road_right_y]])[
-                0
-            ]
-
-            height_diff_left = terrain_left_height - z
-            height_diff_right = terrain_right_height - z
-
-            # DEBUG: Statistiken
-            if abs(height_diff_left) > 0.01:
-                min_height_diff = min(min_height_diff, abs(height_diff_left))
-                max_height_diff = max(max_height_diff, abs(height_diff_left))
-            if abs(height_diff_right) > 0.01:
-                min_height_diff = min(min_height_diff, abs(height_diff_right))
-                max_height_diff = max(max_height_diff, abs(height_diff_right))
-
-            # Böschungs-Logik:
-            # - Mindestbreite 0.2m (20cm)
-            # - Solange |height_diff| < 0.2m: Breite = 0.2m
-            # - Ab |height_diff| >= 0.2m: Breite = |height_diff| (1:1 = 45°)
-            abs_left = abs(height_diff_left)
-            abs_right = abs(height_diff_right)
-
-            slope_width_left = max(0.2, abs_left)
-            slope_width_right = max(0.2, abs_right)
-
-            MAX_SLOPE_WIDTH = 30.0
-            slope_width_left = min(slope_width_left, MAX_SLOPE_WIDTH)
-            slope_width_right = min(slope_width_right, MAX_SLOPE_WIDTH)
-
-            if slope_width_left < 0.01:  # Praktisch 0
-                slope_left_outer_x = road_left_x
-                slope_left_outer_y = road_left_y
-                slope_left_outer_height = z
-            else:
-                slopes_with_left += 1
-                slope_left_outer_x = road_left_x + perp_x * slope_width_left
-                slope_left_outer_y = road_left_y + perp_y * slope_width_left
-                slope_left_outer_height = (
-                    z + height_diff_left
-                )  # Use terrain height, not z
-
-            if slope_width_right < 0.01:  # Praktisch 0
-                slope_right_outer_x = road_right_x
-                slope_right_outer_y = road_right_y
-                slope_right_outer_height = z
-            else:
-                slopes_with_right += 1
-                slope_right_outer_x = road_right_x - perp_x * slope_width_right
-                slope_right_outer_y = road_right_y - perp_y * slope_width_right
-                slope_right_outer_height = (
-                    z + height_diff_right
-                )  # Use terrain height, not z
-
-            if slope_width_left >= 0.01 and slope_width_right >= 0.01:
-                slopes_with_both += 1
-
-            slope_left_outer_local = apply_local_offset(
-                slope_left_outer_x, slope_left_outer_y, slope_left_outer_height
-            )
-            slope_right_outer_local = apply_local_offset(
-                slope_right_outer_x, slope_right_outer_y, slope_right_outer_height
-            )
-
-            slope_left_outer_vertices.append(slope_left_outer_local)
-            slope_right_outer_vertices.append(slope_right_outer_local)
-
-        num_points = len(road_left_abs)
-
-        road_start_idx = len(all_road_vertices)
-
-        for i, (x_abs, y_abs, z_abs) in enumerate(road_left_abs):
-            transformed = apply_local_offset(x_abs, y_abs, z_abs)
-            all_road_vertices.append(transformed)
-        for x_abs, y_abs, z_abs in road_right_abs:
-            all_road_vertices.append(apply_local_offset(x_abs, y_abs, z_abs))
-
-        for i in range(num_points - 1):
-            left1 = road_start_idx + i
-            left2 = road_start_idx + i + 1
-            right1 = road_start_idx + num_points + i
-            right2 = road_start_idx + num_points + i + 1
-
-            # Erstelle zwei Dreiecke für ein Quad zwischen left und right
-            # Face 1: left1 → right1 → right2
             all_road_faces.append([left1, right1, right2])
             all_road_face_to_idx.append(road_id)
-            # Face 2: left1 → right2 → left2
             all_road_faces.append([left1, right2, left2])
             all_road_face_to_idx.append(road_id)
 
-        # DEBUG: Prüfe ob alle Vertices verbunden sind
-        if num_points < 2:
-            print(f"    ⚠ Straße mit nur {num_points} Punkten - zu kurz!")
+        # Böschungs-Faces
+        slope_road_left_indices = road_vertex_indices_left
+        slope_road_right_indices = road_vertex_indices_right
 
-        slope_start_for_this_road = len(all_slope_vertices)
-
-        for i, (x_abs, y_abs, z_abs) in enumerate(road_left_abs):
-            transformed = apply_local_offset(x_abs, y_abs, z_abs)
-            all_slope_vertices.append(transformed)
-        for x_abs, y_abs, z_abs in road_right_abs:
-            all_slope_vertices.append(apply_local_offset(x_abs, y_abs, z_abs))
-
-        all_slope_vertices.extend(slope_left_outer_vertices)
-        all_slope_vertices.extend(slope_right_outer_vertices)
-
-        for i in range(num_points - 1):
-            road_left1 = slope_start_for_this_road + i
-            road_left2 = slope_start_for_this_road + i + 1
-            slope_left1 = slope_start_for_this_road + 2 * num_points + i
-            slope_left2 = slope_start_for_this_road + 2 * num_points + i + 1
+        for i in range(n - 1):
+            road_left1 = slope_road_left_indices[i]
+            road_left2 = slope_road_left_indices[i + 1]
+            slope_left1 = slope_left_outer_indices[i]
+            slope_left2 = slope_left_outer_indices[i + 1]
 
             all_slope_faces.append([road_left1, slope_left1, slope_left2])
             all_slope_faces.append([road_left1, slope_left2, road_left2])
 
-            road_right1 = slope_start_for_this_road + num_points + i
-            road_right2 = slope_start_for_this_road + num_points + i + 1
-            slope_right1 = slope_start_for_this_road + 3 * num_points + i
-            slope_right2 = slope_start_for_this_road + 3 * num_points + i + 1
+            road_right1 = slope_road_right_indices[i]
+            road_right2 = slope_road_right_indices[i + 1]
+            slope_right1 = slope_right_outer_indices[i]
+            slope_right2 = slope_right_outer_indices[i + 1]
 
             all_slope_faces.append([road_right1, slope_right2, slope_right1])
             all_slope_faces.append([road_right1, road_right2, slope_right2])
 
-        # WICHTIG: 2D-Polygone OHNE LOCAL_OFFSET für Vertex-Klassifizierung!
-        # Die grid_points sind in globalen UTM-Koordinaten
-        # LOCAL_OFFSET wird nur für 3D-Mesh-Vertices angewendet
-        road_left_2d = [(x, y) for x, y, z in road_left_abs]
-        road_right_2d = [(x, y) for x, y, z in road_right_abs]
-
-        road_poly_2d = road_left_2d + list(reversed(road_right_2d))
-
-        # Böschungs-Polygone OHNE LOCAL_OFFSET (für Vertex-Klassifizierung)
-        # Polygon-Reihenfolge: road_left → slope_left → slope_right → road_right → zurück zu road_left
-        slope_left_2d = [(v[0], v[1]) for v in slope_left_outer_vertices]
-        slope_right_2d = [(v[0], v[1]) for v in slope_right_outer_vertices]
-
-        # Korrekte Polygon-Reihenfolge (gegen Uhrzeigersinn)
-        slope_poly_2d = (
-            road_left_2d  # Innere linke Straßenkante
-            + slope_left_2d  # Äußere linke Böschungskante
-            + list(reversed(slope_right_2d))  # Äußere rechte Böschungskante (rückwärts)
-            + list(reversed(road_right_2d))  # Innere rechte Straßenkante (rückwärts)
-        )
-
+        # 2D-Polygone + Mapping für Snapping/Klassifizierung
         road_slope_polygons_2d.append(
             {
-                "road_polygon": road_poly_2d,
-                "slope_polygon": slope_poly_2d,
-                "original_coords": coords,  # Original OSM-Straßenkoordinaten
+                "road_polygon": road_meta["road_poly_2d"],
+                "slope_polygon": road_meta["slope_poly_2d"],
+                "original_coords": road_meta["original_coords"],
+                "road_vertex_indices": {
+                    "left": road_vertex_indices_left,
+                    "right": road_vertex_indices_right,
+                },
+                "slope_outer_indices": {
+                    "left": slope_left_outer_indices,
+                    "right": slope_right_outer_indices,
+                },
             }
         )
 
-        # Speichere Mapping: original_road_idx → aktueller Index in road_slope_polygons_2d
-        original_to_mesh_idx[original_road_idx] = len(road_slope_polygons_2d) - 1
+        original_idx = road_meta["original_idx"]
+        original_to_mesh_idx[original_idx] = len(road_slope_polygons_2d) - 1
 
-        processed += 1
-        if processed % 100 == 0:
-            print(f"  {processed}/{total_roads} Straßen...")
-
-    print(f"  ✓ {len(all_road_vertices)} Straßen-Vertices")
     print(f"  ✓ {len(all_road_faces)} Straßen-Faces")
-    print(f"  ✓ {len(all_slope_vertices)} Böschungs-Vertices")
     print(f"  ✓ {len(all_slope_faces)} Böschungs-Faces")
 
-    # DEBUG: Böschungsstatistiken
-    print(f"\n  DEBUG: Böschungen-Statistik:")
-    print(f"    • Straßen mit linker Böschung: {slopes_with_left}")
-    print(f"    • Straßen mit rechter Böschung: {slopes_with_right}")
-    print(f"    • Straßen mit BEIDEN Böschungen: {slopes_with_both}")
-    if min_height_diff != float("inf"):
-        print(
-            f"    • Höhendifferenzen: {min_height_diff:.2f}m - {max_height_diff:.2f}m"
-        )
-    else:
-        print(f"    • Keine Höhendifferenzen gefunden!")
-
-    # DEBUG: Prüfe ob alle Straßen auch Böschungen haben
-    if len(all_slope_vertices) == 0:
-        print("    ⚠ WARNUNG: KEINE Böschungs-Vertices generiert!")
-    elif len(all_slope_vertices) < len(all_road_vertices) * 2:
-        print(
-            f"    ⚠ WARNUNG: Weniger Böschungs- als Straßen-Vertices! ({len(all_slope_vertices)} vs {len(all_road_vertices)})"
-        )
-    else:
-        print(f"    ✓ Böschungen OK")
+    print(f"  ✓ Böschungen OK")
     print(
         f"  ✓ {len(road_slope_polygons_2d)} Road/Slope-Polygone für Grid-Ausschneiden (2D)"
     )
     if clipped_roads > 0:
         print(f"  ℹ {clipped_roads} Straßen komplett außerhalb Grid (ignoriert)")
 
-    # T-Junction Snapping: Geometry-basiert mit Kanten-Schnitten
+    # T-Junction Snapping: Geometry-basiert
     if config.ENABLE_ROAD_EDGE_SNAPPING:
-        print(f"  Erkenne T-Kreuzungen und verbinde mit Kanten-Schnitten...")
+        print(f"  Erkenne T-Kreuzungen und verbinde Vertices...")
         t_junctions = detect_t_junctions(road_polygons, snap_distance=5.0)
         print(f"    → {len(t_junctions)} T-Kreuzungen erkannt")
 
-        all_road_vertices = snap_junctions_with_edges(
-            all_road_vertices, road_slope_polygons_2d, t_junctions, original_to_mesh_idx
+        snap_junctions_with_edges(
+            vertex_manager,
+            road_slope_polygons_2d,
+            t_junctions,
+            original_to_mesh_idx,
         )
-    else:
-        print(f"  T-Junction Snapping SKIP (config.ENABLE_ROAD_EDGE_SNAPPING=False)")
 
     return (
-        all_road_vertices,
         all_road_faces,
         all_road_face_to_idx,
-        all_slope_vertices,
         all_slope_faces,
         road_slope_polygons_2d,
+        original_to_mesh_idx,
     )

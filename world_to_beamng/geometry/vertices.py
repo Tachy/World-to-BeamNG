@@ -79,11 +79,6 @@ def classify_grid_vertices(grid_points, grid_elevations, road_slope_polygons_2d)
 
     print(f"  Teste {len(road_data)} Roads gegen Grid-Punkte...")
 
-    # DEBUG: Sammle Centerlines und Sample-Points für Visualisierung
-    debug_centerlines = []
-    debug_sample_points = []
-    debug_search_radii = []
-
     for road_num, road_info in enumerate(road_data):
         centerline_points = road_info["centerline_points"]
 
@@ -118,9 +113,6 @@ def classify_grid_vertices(grid_points, grid_elevations, road_slope_polygons_2d)
         if len(centerline) == 0:
             continue
 
-        # DEBUG: Speichere Centerline für Visualisierung
-        debug_centerlines.append(centerline.tolist())
-
         buffer_indices_set = set()
         # KDTree-Radius: 7m = halbe Straßenbreite (3.5m) + Puffer für Böschungen (3.5m)
         search_radius = 7.0
@@ -129,9 +121,7 @@ def classify_grid_vertices(grid_points, grid_elevations, road_slope_polygons_2d)
             nearby = kdtree.query_ball_point(centerline_pt, r=search_radius)
             buffer_indices_set.update(nearby)
 
-            # DEBUG: Speichere Sample-Point und Radius
-            debug_sample_points.append(centerline_pt.tolist())
-            debug_search_radii.append(search_radius)
+            # Sammle alle relevanten Grid-Indices innerhalb des Suchradius
 
         buffer_indices = list(buffer_indices_set)
 
@@ -163,13 +153,7 @@ def classify_grid_vertices(grid_points, grid_elevations, road_slope_polygons_2d)
                 vertex_types[pt_idx] = 1  # Böschung
             # else: Vertex ist im KDTree-Buffer, aber außerhalb → NICHT markieren!
 
-        if (road_num + 1) % 100 == 0:
-            elapsed = time_module.time() - process_start
-            rate = (road_num + 1) / elapsed if elapsed > 0 else 0
-            eta = (len(road_data) - road_num - 1) / rate if rate > 0 else 0
-            print(
-                f"  {road_num + 1}/{len(road_data)} Roads ({rate:.0f}/s, ETA: {eta:.0f}s)"
-            )
+        # Fortschrittslogging entfernt
 
     elapsed_total = time_module.time() - process_start
     marked_count = np.count_nonzero(vertex_types)
@@ -178,85 +162,4 @@ def classify_grid_vertices(grid_points, grid_elevations, road_slope_polygons_2d)
         f"  ✓ Klassifizierung abgeschlossen ({elapsed_total:.1f}s, {marked_count} Punkte markiert)"
     )
 
-    # DEBUG: Exportiere Centerlines und Suchradien als OBJ
-    print("  DEBUG: Exportiere Centerlines und Suchradien zu debug_centerlines.obj...")
-    _export_debug_visualization(
-        debug_centerlines, debug_sample_points, debug_search_radii
-    )
-
     return vertex_types, modified_heights
-
-
-def _export_debug_visualization(centerlines, sample_points, search_radii):
-    """Exportiert Centerlines und Suchradien als OBJ zur Visualisierung."""
-    from ..geometry.coordinates import apply_local_offset
-
-    # Erstelle MTL-Datei
-    with open("debug_centerlines.mtl", "w") as f:
-        f.write("# Debug Materialien\n\n")
-        f.write("newmtl centerline\n")
-        f.write("Ka 0.0 1.0 0.0\n")  # Ambient grün
-        f.write("Kd 0.0 1.0 0.0\n")  # Diffuse grün
-        f.write("Ks 0.0 0.0 0.0\n")  # Specular schwarz
-        f.write("d 1.0\n\n")
-
-        f.write("newmtl searchradius\n")
-        f.write("Ka 1.0 0.0 0.0\n")  # Ambient rot
-        f.write("Kd 1.0 0.0 0.0\n")  # Diffuse rot
-        f.write("Ks 0.0 0.0 0.0\n")  # Specular schwarz
-        f.write("d 0.5\n")  # Halb-transparent
-
-    with open("debug_centerlines.obj", "w") as f:
-        f.write("# Debug: Centerlines und Suchradien\n")
-        f.write("mtllib debug_centerlines.mtl\n")
-        f.write("# Grün = Centerlines, Rot = Sample Points mit Radius\n\n")
-
-        vertex_count = 1
-
-        # Exportiere Centerlines als Linien
-        f.write("usemtl centerline\n")
-        for centerline in centerlines:
-            # Schreibe Vertices
-            for x, y in centerline:
-                x_local, y_local, z_local = apply_local_offset(x, y, 0.0)
-                f.write(f"v {x_local} {y_local} {z_local}\n")
-
-            # Schreibe Linien (l v1 v2 v3 ...)
-            num_verts = len(centerline)
-            line_indices = " ".join(str(vertex_count + i) for i in range(num_verts))
-            f.write(f"l {line_indices}\n")
-            vertex_count += num_verts
-
-        f.write("\n# Sample Points mit Suchradius (Kreise)\n")
-        f.write("usemtl searchradius\n")
-
-        # Exportiere Sample Points als Kreise (gefüllte Polygone)
-        for (x, y), radius in zip(sample_points, search_radii):
-            # Erstelle Kreis mit 16 Segmenten als gefülltes Polygon
-            num_segments = 16
-
-            # Zentrum des Kreises
-            x_local, y_local, z_local = apply_local_offset(x, y, 0.0)
-            f.write(f"v {x_local} {y_local} {z_local}\n")
-            center_idx = vertex_count
-            vertex_count += 1
-
-            # Kreis-Vertices
-            circle_verts = []
-            for i in range(num_segments):
-                angle = 2 * np.pi * i / num_segments
-                cx = x + radius * np.cos(angle)
-                cy = y + radius * np.sin(angle)
-                x_local, y_local, z_local = apply_local_offset(cx, cy, 0.0)
-                f.write(f"v {x_local} {y_local} {z_local}\n")
-                circle_verts.append(vertex_count)
-                vertex_count += 1
-
-            # Schreibe Kreis als Dreiecke (Fächer vom Zentrum)
-            for i in range(num_segments):
-                v1 = center_idx
-                v2 = circle_verts[i]
-                v3 = circle_verts[(i + 1) % num_segments]
-                f.write(f"f {v1} {v2} {v3}\n")
-
-    print("    ✓ debug_centerlines.obj + debug_centerlines.mtl erstellt")

@@ -4,9 +4,18 @@ Zentrale Konfiguration für World-to-BeamNG.
 
 # === MESH-PARAMETER ===
 ROAD_WIDTH = 7.0
+# Minimale Böschungsbreite (Meter) unabhängig von Höhenunterschieden
+MIN_SLOPE_WIDTH = 2
+# Loch-Check schaltbar: False = kein Check/Export, True = Check + immer Export
+HOLE_CHECK_ENABLED = True
+# Exportpfad für offene Kanten als OBJ (mit MTL), wenn HOLE_CHECK_ENABLED=True
+BOUNDARY_EDGES_EXPORT = "boundary_edges.obj"
 SLOPE_ANGLE = 45.0  # Neigungswinkel der Böschung in Grad (45° = 1:1 Steigung)
-GRID_SPACING = 3.0  # Abstand zwischen Grid-Punkten in Metern (1.0 = hohe Auflösung, 10.0 = niedrige Auflösung)
-TERRAIN_REDUCTION = 0  # PyVista Decimation als Dezimalwert (0.70 = 70% Reduktion)
+# Vorab-Reduktion über gröberes Grid (Strategie 2). Für feineres Terrain z.B. 1.0 setzen.
+GRID_SPACING = (
+    2.0  # Abstand zwischen Grid-Punkten in Metern (1.0 = sehr fein, 10.0 = grob)
+)
+TERRAIN_REDUCTION = 0  # Decimation bleibt aus; steuern wir über GRID_SPACING
 LEVEL_NAME = "osm_generated_map"
 
 # === STRASSENGLÄTTUNG / OPTIONEN ===
@@ -29,8 +38,12 @@ HEIGHT_DATA_DIR = "height-data"  # Verzeichnis mit Höhendaten
 # === MULTIPROCESSING ===
 # WARNUNG: Unter Windows kann Multiprocessing hängen bleiben!
 # Bei Problemen: False setzen
-USE_MULTIPROCESSING = False  # False = Single-Thread (langsamer, aber stabil)
-NUM_WORKERS = 2  # None = Automatisch (alle CPU-Kerne), oder Anzahl (z.B. 4)
+USE_MULTIPROCESSING = True  # False = Single-Thread (langsamer, aber stabil)
+NUM_WORKERS = 4  # None = Automatisch (alle CPU-Kerne), oder Anzahl (z.B. 4)
+# Höhenabfrage: "kdtree" (schnell, NN) oder "interpolator" (NearestNDInterpolator)
+HEIGHT_LOOKUP_MODE = "kdtree"
+# Maximale Straßen pro Batch im Multiprocessing
+MAX_ROADS_PER_BATCH = 500
 
 # === GLOBALE ZUSTANDSVARIABLEN (werden in main() initialisiert) ===
 BBOX = None

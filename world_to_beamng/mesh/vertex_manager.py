@@ -1,0 +1,274 @@
+"""
+Zentrale Verwaltung aller Mesh-Vertices mit automatischer Deduplication.
+"""
+
+import numpy as np
+from scipy.spatial import cKDTree
+
+
+class VertexManager:
+    """
+    Verwaltet alle Mesh-Vertices zentral mit automatischer Deduplizierung.
+
+    Verhindert doppelte Vertices innerhalb einer definierten Toleranz und
+    gibt konsistente globale Indices zurück.
+    """
+
+    def __init__(self, tolerance=0.001):
+        """
+        Initialisiert den VertexManager.
+
+        Args:
+            tolerance: Minimaler Abstand zwischen Vertices (in Metern).
+                      Vertices näher als dieser Wert werden als identisch behandelt.
+        """
+        self.vertices = []  # Liste aller Vertices als [x, y, z]
+        self.tolerance = tolerance
+        self.tolerance_sq = tolerance * tolerance
+
+        # Schnelles räumliches Hash: cell -> [vertex_indices]
+        self.cell_size = tolerance
+        self.spatial_hash = {}
+
+        # KDTree bleibt optional als Fallback (derzeit nicht genutzt)
+        self.kdtree = None
+        self.rebuild_threshold = 1000
+
+    def add_vertex(self, x, y, z):
+        """
+        Fügt einen Vertex hinzu oder gibt Index eines existierenden zurück.
+
+        Args:
+            x, y, z: Koordinaten des Vertex
+
+        Returns:
+            int: Globaler Index des Vertex (0-basiert)
+        """
+        new_point = np.array([x, y, z], dtype=np.float32)
+
+        existing_idx = self._find_existing(new_point)
+        if existing_idx is not None:
+            return existing_idx
+
+        new_idx = len(self.vertices)
+        self.vertices.append(new_point)
+        self._add_to_hash(new_idx, new_point)
+        return new_idx
+
+    def add_vertices_direct(self, xs, ys, zs):
+        """
+        Fügt viele Vertices OHNE Deduplication hinzu (schnell).
+
+        Hinweis: Nur nutzen, wenn sicher keine Überschneidung mit existierenden
+        Vertices besteht (z. B. initialer Grid-Aufbau). Baut den KDTree am Ende
+        neu auf, damit spätere Queries korrekt funktionieren.
+
+        Returns: Liste globaler Indices (0-basiert)
+        """
+        start_idx = len(self.vertices)
+        coords = np.column_stack([xs, ys, zs]).astype(np.float32)
+        start_idx = len(self.vertices)
+        self.vertices.extend(coords)
+        for i, pt in enumerate(coords):
+            self._add_to_hash(start_idx + i, pt)
+        self._rebuild_kdtree()
+        return list(range(start_idx, start_idx + len(coords)))
+
+    def add_vertices_direct_nohash(self, coords):
+        """Fügt viele Vertices ohne Dedup und ohne Hash/KDTree-Update hinzu (maximale Speed).
+
+        Nur nutzen, wenn danach keine Dedup-Queries mehr nötig sind und keine Überschneidungen
+        zu bestehenden Vertices zu erwarten sind.
+        """
+        coords_arr = np.asarray(coords, dtype=np.float32)
+        if coords_arr.size == 0:
+            return []
+
+        start_idx = len(self.vertices)
+        self.vertices.extend(coords_arr)
+        end_idx = start_idx + len(coords_arr)
+        return list(range(start_idx, end_idx))
+
+    def add_vertices_batch_dedup(self, coords):
+        """
+        Fügt viele Vertices mit Deduplication auf einmal hinzu (vektorisiert).
+
+        Args:
+            coords: Iterable von (x, y, z)
+
+        Returns:
+            list[int]: Globale Indices der eingefügten/gefundenen Vertices
+        """
+        coords_arr = np.asarray(coords, dtype=np.float32)
+        if coords_arr.size == 0:
+            return []
+
+        return self.add_vertices_batch_dedup_fast(coords_arr)
+
+    def add_vertices_batch_dedup_fast(self, coords_arr):
+        """Schneller deduplizierender Batch-Insert (ohne per-Vertex np.array-Kopien)."""
+        coords_arr = np.asarray(coords_arr, dtype=np.float32)
+        if coords_arr.size == 0:
+            return []
+
+        result_indices = [None] * len(coords_arr)
+
+        # Lokale Referenzen für Speed
+        v_list = self.vertices
+        tol_sq = self.tolerance_sq
+        cell_size = self.cell_size
+        s_hash = self.spatial_hash
+
+        def cell_key_from_point(px, py, pz):
+            return (
+                int(np.floor(px / cell_size)),
+                int(np.floor(py / cell_size)),
+                int(np.floor(pz / cell_size)),
+            )
+
+        # Hilfsfunktion: lookup existing in neighboring buckets
+        def lookup(px, py, pz, key):
+            kx, ky, kz = key
+            for dx in (-1, 0, 1):
+                for dy in (-1, 0, 1):
+                    for dz in (-1, 0, 1):
+                        bucket = s_hash.get((kx + dx, ky + dy, kz + dz))
+                        if not bucket:
+                            continue
+                        for vidx in bucket:
+                            vx, vy, vz = v_list[vidx]
+                            dist_sq = (vx - px) ** 2 + (vy - py) ** 2 + (vz - pz) ** 2
+                            if dist_sq < tol_sq:
+                                return vidx
+            return None
+
+        for i, (px, py, pz) in enumerate(coords_arr):
+            key = cell_key_from_point(px, py, pz)
+            existing = lookup(px, py, pz, key)
+            if existing is not None:
+                result_indices[i] = int(existing)
+                continue
+
+            new_idx = len(v_list)
+            v_list.append((px, py, pz))
+            result_indices[i] = new_idx
+
+            bucket = s_hash.get(key)
+            if bucket is None:
+                s_hash[key] = [new_idx]
+            else:
+                bucket.append(new_idx)
+
+        return result_indices
+
+    def add_vertices_batch(self, coords):
+        """
+        Fügt mehrere Vertices auf einmal hinzu (effizient).
+
+        Args:
+            coords: Liste/Array von (x, y, z) Koordinaten
+
+        Returns:
+            list: Liste von globalen Vertex-Indices
+        """
+        indices = []
+        for coord in coords:
+            if len(coord) == 3:
+                indices.append(self.add_vertex(coord[0], coord[1], coord[2]))
+            else:
+                # Tuple unpacking
+                indices.append(self.add_vertex(*coord))
+        return indices
+
+    # --- Interne Helfer für Spatial Hash ---
+    def _cell_key(self, point):
+        return (
+            int(np.floor(point[0] / self.cell_size)),
+            int(np.floor(point[1] / self.cell_size)),
+            int(np.floor(point[2] / self.cell_size)),
+        )
+
+    def _add_to_hash(self, idx, point):
+        key = self._cell_key(point)
+        bucket = self.spatial_hash.get(key)
+        if bucket is None:
+            self.spatial_hash[key] = [idx]
+        else:
+            bucket.append(idx)
+
+    def _find_existing(self, point):
+        key = self._cell_key(point)
+        px, py, pz = point
+        # Prüfe eigene und Nachbarzellen (3x3x3)
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                for dz in (-1, 0, 1):
+                    neighbor_key = (key[0] + dx, key[1] + dy, key[2] + dz)
+                    bucket = self.spatial_hash.get(neighbor_key)
+                    if not bucket:
+                        continue
+                    for vidx in bucket:
+                        vx, vy, vz = self.vertices[vidx]
+                        dist_sq = (vx - px) ** 2 + (vy - py) ** 2 + (vz - pz) ** 2
+                        if dist_sq < self.tolerance_sq:
+                            return int(vidx)
+        return None
+
+    def add_vertex_tuple(self, vertex_tuple):
+        """
+        Fügt einen Vertex als Tuple hinzu.
+
+        Args:
+            vertex_tuple: (x, y, z) Tuple
+
+        Returns:
+            int: Globaler Index des Vertex
+        """
+        return self.add_vertex(vertex_tuple[0], vertex_tuple[1], vertex_tuple[2])
+
+    def get_vertex(self, index):
+        """
+        Gibt Vertex an gegebenem Index zurück.
+
+        Args:
+            index: Globaler Vertex-Index
+
+        Returns:
+            np.array: [x, y, z] Koordinaten
+        """
+        return self.vertices[index]
+
+    def get_array(self):
+        """
+        Gibt alle Vertices als NumPy-Array zurück.
+
+        Returns:
+            np.ndarray: (N, 3) Array mit allen Vertices
+        """
+        if len(self.vertices) == 0:
+            return np.array([], dtype=np.float32).reshape(0, 3)
+        return np.array(self.vertices, dtype=np.float32)
+
+    def get_count(self):
+        """
+        Gibt Anzahl der Vertices zurück.
+
+        Returns:
+            int: Anzahl Vertices
+        """
+        return len(self.vertices)
+
+    def _rebuild_kdtree(self):
+        """Baut KDTree neu auf (derzeit optional)."""
+        if len(self.vertices) > 0:
+            vertex_array = np.array(self.vertices, dtype=np.float32)
+            self.kdtree = cKDTree(vertex_array)
+
+    def __len__(self):
+        """Gibt Anzahl der Vertices zurück."""
+        return len(self.vertices)
+
+    def __repr__(self):
+        return (
+            f"VertexManager({len(self.vertices)} vertices, tolerance={self.tolerance}m)"
+        )
