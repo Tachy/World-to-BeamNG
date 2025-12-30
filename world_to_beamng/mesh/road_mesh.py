@@ -124,7 +124,8 @@ def clip_road_to_bounds(coords, bounds_local):
     if not coords or bounds_local is None:
         return coords
 
-    min_x, min_y, max_x, max_y = bounds_local
+    # bounds_local ist (min_x, max_x, min_y, max_y)
+    min_x, max_x, min_y, max_y = bounds_local
     buffer = 0.0
     min_x -= buffer
     min_y -= buffer

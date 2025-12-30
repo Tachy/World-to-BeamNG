@@ -3,12 +3,13 @@ Debug-Tool: Visualisiere Gelände, Straßen und Böschungen
 Steuerung:
   - SPACE: Nächste Straße (Einzeln-Modus)
   - B: Vorherige Straße
+  - R: Toggle Roads (Straßen) an/aus
   - S: Toggle Slopes (Böschungen) an/aus
   - T: Toggle Terrain an/aus
-  - C: Toggle Centerlines an/aus
+  - H: Toggle Holes (Lochpolygone) an/aus
   - A: Toggle Alle Straßen / Einzelne Straße
   - L: Toggle Punkt-Labels an/aus
-  - R: Toggle road_idx-Labels an/aus
+  - I: Toggle road_idx-Labels an/aus
   - Q: Beenden
 """
 
@@ -50,34 +51,12 @@ class RoadViewer:
             self.road_face_to_idx,
         ) = self._parse_obj(obj_file, fallback_obj)
 
-        print(f"Lade Centerlines: debug_centerlines.obj")
+        print(f"Lade Lochpolygone: lochpolygone.obj")
         (
-            self.centerline_vertices,
-            self.centerline_edges,
-            self.search_circle_vertices,
-            self.search_circle_edges,
-        ) = self._load_centerlines("debug_centerlines.obj")
+            self.hole_vertices,
+            self.hole_edges,
+        ) = self._load_lochpolygone("lochpolygone.obj")
 
-        print(f"[Init] Nach _load_centerlines():")
-        print(
-            f"  centerline_vertices type: {type(self.centerline_vertices)}, shape: {self.centerline_vertices.shape if hasattr(self.centerline_vertices, 'shape') else 'N/A'}"
-        )
-        print(
-            f"  centerline_edges type: {type(self.centerline_edges)}, len: {len(self.centerline_edges)}"
-        )
-        print(
-            f"  search_circle_vertices type: {type(self.search_circle_vertices)}, shape: {self.search_circle_vertices.shape if hasattr(self.search_circle_vertices, 'shape') else 'N/A'}"
-        )
-        print(
-            f"  search_circle_edges type: {type(self.search_circle_edges)}, len: {len(self.search_circle_edges)}"
-        )
-
-        if len(self.centerline_vertices) > 0:
-            print(
-                f"  Centerline Bounds: X=[{self.centerline_vertices[:, 0].min():.1f}, {self.centerline_vertices[:, 0].max():.1f}], "
-                f"Y=[{self.centerline_vertices[:, 1].min():.1f}, {self.centerline_vertices[:, 1].max():.1f}], "
-                f"Z=[{self.centerline_vertices[:, 2].min():.1f}, {self.centerline_vertices[:, 2].max():.1f}]"
-            )
         if len(self.vertices) > 0:
             print(
                 f"  Mesh Bounds: X=[{self.vertices[:, 0].min():.1f}, {self.vertices[:, 0].max():.1f}], "
@@ -88,10 +67,11 @@ class RoadViewer:
         self.faces_per_road = faces_per_road
         self.current_road = 0
         self.max_roads = max(1, len(self.road_faces) // faces_per_road)
+        self.show_roads = True
         self.show_slopes = True
         self.show_terrain = True
+        self.show_holes = True
         self.show_all = True
-        self.show_centerlines = False
         self.label_distance_threshold = label_distance_threshold
         self.label_max_points = label_max_points
         self.dolly_step = dolly_step
@@ -112,25 +92,28 @@ class RoadViewer:
         print("\nSteuerung:")
         print("  SPACE = Nächste Straße")
         print("  B = Vorherige Straße")
+        print("  R = Toggle Roads (Straßen)")
         print("  S = Toggle Slopes (Böschungen)")
         print("  T = Toggle Terrain")
+        print("  H = Toggle Holes (Lochpolygone)")
         print("  A = Toggle ALLE Straßen / Einzelne Straße")
         print("  Pfeil hoch/runter = Kamera vor/zurück (statt Zoom)")
         print("  L = Toggle Punkt-Labels an/aus")
-        print("  R = Toggle road_idx-Labels an/aus")
+        print("  I = Toggle road_idx-Labels an/aus")
         print("  Q = Beenden")
 
         self.plotter = pv.Plotter()
         self.plotter.add_key_event("space", self.next_road)
         self.plotter.add_key_event("b", self.prev_road)
+        self.plotter.add_key_event("r", self.toggle_roads)
         self.plotter.add_key_event("s", self.toggle_slopes)
         self.plotter.add_key_event("t", self.toggle_terrain)
-        self.plotter.add_key_event("c", self.toggle_centerlines)
+        self.plotter.add_key_event("h", self.toggle_holes)
         self.plotter.add_key_event("a", self.toggle_show_all)
         self.plotter.add_key_event("Up", self.dolly_forward)
         self.plotter.add_key_event("Down", self.dolly_backward)
         self.plotter.add_key_event("l", self.toggle_labels)
-        self.plotter.add_key_event("r", self.toggle_road_idx_labels)
+        self.plotter.add_key_event("i", self.toggle_road_idx_labels)
         # Mouse-Observer für Label-Klick (Bildschirm-Koordinaten)
         self.plotter.iren.add_observer("LeftButtonPressEvent", self.on_left_click)
 
@@ -314,6 +297,45 @@ class RoadViewer:
             print(f"  Info: {obj_file} nicht gefunden. Keine Centerlines geladen.")
             return np.array([]), [], np.array([]), []
 
+    def _load_lochpolygone(self, obj_file):
+        """Lade Lochpolygone-Geometrie aus OBJ-Datei."""
+        vertices = []
+        edges = []
+
+        try:
+            # Versuche verschiedene Encodings
+            for encoding in ["utf-8", "latin-1", "cp1252", "iso-8859-1"]:
+                try:
+                    with open(obj_file, "r", encoding=encoding) as f:
+                        for line in f:
+                            if line.startswith("v "):
+                                parts = line.strip().split()
+                                vertices.append(
+                                    [float(parts[1]), float(parts[2]), float(parts[3])]
+                                )
+                            elif line.startswith("l "):
+                                # Linie: "l v1 v2 v3 ... v1"
+                                parts = line.strip().split()[1:]
+                                indices = [int(p.split("/")[0]) - 1 for p in parts]
+                                for i in range(len(indices) - 1):
+                                    edges.append([indices[i], indices[i + 1]])
+
+                    print(
+                        f"  Lochpolygone geladen: {len(vertices)} Vertices, {len(edges)} Kanten"
+                    )
+                    return np.array(vertices), edges
+                except (UnicodeDecodeError, ValueError):
+                    vertices = []
+                    edges = []
+                    continue
+
+            # Fallback: wenn alle Encodings fehlschlagen
+            print(f"  Warnung: {obj_file} konnte mit keinem Encoding gelesen werden.")
+            return np.array([]), []
+        except FileNotFoundError:
+            print(f"  Info: {obj_file} nicht gefunden. Keine Lochpolygone geladen.")
+            return np.array([]), []
+
     def _create_search_circle(self, center, radius, num_segments=16):
         """Erstelle Kreis-Vertices um einen Mittelpunkt (Projektion in XY-Ebene)."""
         angles = np.linspace(0, 2 * np.pi, num_segments, endpoint=False)
@@ -325,6 +347,12 @@ class RoadViewer:
             circle_vertices.append([x, y, z])
         return circle_vertices
 
+    def toggle_roads(self):
+        self.show_roads = not self.show_roads
+        state = "AN" if self.show_roads else "AUS"
+        print(f"\nRoads (Straßen): {state}")
+        self.update_view(reset_camera=False)
+
     def toggle_slopes(self):
         self.show_slopes = not self.show_slopes
         state = "AN" if self.show_slopes else "AUS"
@@ -335,6 +363,12 @@ class RoadViewer:
         self.show_terrain = not self.show_terrain
         state = "AN" if self.show_terrain else "AUS"
         print(f"\nTerrain: {state}")
+        self.update_view(reset_camera=False)
+
+    def toggle_holes(self):
+        self.show_holes = not self.show_holes
+        state = "AN" if self.show_holes else "AUS"
+        print(f"\nLochpolygone: {state}")
         self.update_view(reset_camera=False)
 
     def toggle_show_all(self):
@@ -353,12 +387,6 @@ class RoadViewer:
         self.show_road_idx_labels = not self.show_road_idx_labels
         state = "AN" if self.show_road_idx_labels else "AUS"
         print(f"\nroad_idx Labels: {state}")
-        self.update_view(reset_camera=False)
-
-    def toggle_centerlines(self):
-        self.show_centerlines = not self.show_centerlines
-        state = "AN" if self.show_centerlines else "AUS"
-        print(f"\nCenterlines: {state}")
         self.update_view(reset_camera=False)
 
     def next_road(self):
@@ -470,22 +498,23 @@ class RoadViewer:
         vertex_map = {old: new for new, old in enumerate(used_vertices)}
         subset_points = self.vertices[used_vertices]
 
-        remapped_road_faces = np.array(
-            [[vertex_map[v] for v in face] for face in subset_road_faces]
-        )
-        pyvista_road_faces = np.hstack(
-            [[3] + face.tolist() for face in remapped_road_faces]
-        )
-        road_mesh = pv.PolyData(subset_points, pyvista_road_faces)
+        if self.show_roads:
+            remapped_road_faces = np.array(
+                [[vertex_map[v] for v in face] for face in subset_road_faces]
+            )
+            pyvista_road_faces = np.hstack(
+                [[3] + face.tolist() for face in remapped_road_faces]
+            )
+            road_mesh = pv.PolyData(subset_points, pyvista_road_faces)
 
-        self.plotter.add_mesh(
-            road_mesh,
-            color="lightgray",
-            show_edges=True,
-            edge_color="red",
-            line_width=2,
-            label="Road",
-        )
+            self.plotter.add_mesh(
+                road_mesh,
+                color="lightgray",
+                show_edges=True,
+                edge_color="red",
+                line_width=2,
+                label="Road",
+            )
 
         if self.show_terrain and len(subset_terrain_faces) > 0:
             remapped_terrain_faces = np.array(
@@ -547,87 +576,46 @@ class RoadViewer:
                     f"Keine Faces für selektierte road_idx {self.selected_road_idx} im aktuellen Ausschnitt gefunden"
                 )
 
+        roads_info = "ON" if self.show_roads else "OFF"
         slopes_info = "ON" if self.show_slopes else "OFF"
         terrain_info = "ON" if self.show_terrain else "OFF"
+        holes_info = "ON" if self.show_holes else "OFF"
         mode_info = "ALLE" if self.show_all else f"{self.current_road}/{self.max_roads}"
         road_info = "ALLE" if self.show_all else f"road_idx ~ {current_road_idx}"
         label_state = "ON" if self.show_point_labels else "OFF"
         road_label_state = "ON" if self.show_road_idx_labels else "AUS"
-        centerlines_state = "ON" if self.show_centerlines else "OFF"
 
-        # Rendering von Centerlines
-        print(
-            f"[Update_View] Checking centerlines: show={self.show_centerlines}, vertices_len={len(self.centerline_vertices)}, edges_len={len(self.centerline_edges)}"
-        )
-        if (
-            self.show_centerlines
-            and len(self.centerline_vertices) > 0
-            and len(self.centerline_edges) > 0
-        ):
-            print(f"[Rendering] CENTERLINES TOGGLE AN")
+        # Rendering von Lochpolygonen (nur wenn show_holes=True)
+        if self.show_holes and len(self.hole_vertices) > 0 and len(self.hole_edges) > 0:
             print(
-                f"[Rendering] Centerlines: {len(self.centerline_vertices)} vertices, {len(self.centerline_edges)} edges"
+                f"[Rendering] Lochpolygone: {len(self.hole_vertices)} vertices, {len(self.hole_edges)} edges"
             )
             try:
-                # Erstelle ein PolyData mit Linien direkt über das lines Property
-                centerline_mesh = pv.PolyData()
-                centerline_mesh.points = self.centerline_vertices
+                hole_mesh = pv.PolyData()
+                hole_mesh.points = self.hole_vertices
 
                 # Konvertiere edges zu PyVista line format: [2, idx0, idx1, 2, idx0, idx1, ...]
-                lines = np.hstack(
-                    [[2, edge[0], edge[1]] for edge in self.centerline_edges]
-                )
-                centerline_mesh.lines = lines
-
-                print(
-                    f"[Rendering] centerline_mesh created successfully: {centerline_mesh}"
-                )
+                lines = np.hstack([[2, edge[0], edge[1]] for edge in self.hole_edges])
+                hole_mesh.lines = lines
 
                 self.plotter.add_mesh(
-                    centerline_mesh,
-                    color="magenta",
-                    line_width=6,  # Erhöht von 2 auf 6 - dicke Linien
-                    label="Centerlines",
+                    hole_mesh,
+                    color="red",
+                    line_width=4,
+                    label="Lochpolygone",
                 )
-                print(f"[Rendering] Centerline mesh added to plotter")
+                print(f"[Rendering] Lochpolygone mesh added to plotter")
             except Exception as e:
-                print(f"[Rendering] ERROR beim Rendering von Centerlines: {e}")
-                import traceback
-
-                traceback.print_exc()
-
-            # Rendering von Suchkreisen (7m Buffer)
-            if (
-                len(self.search_circle_vertices) > 0
-                and len(self.search_circle_edges) > 0
-            ):
-                try:
-                    search_circle_mesh = pv.PolyData()
-                    search_circle_mesh.points = self.search_circle_vertices
-
-                    # Konvertiere edges zu PyVista line format
-                    lines = np.hstack(
-                        [[2, edge[0], edge[1]] for edge in self.search_circle_edges]
-                    )
-                    search_circle_mesh.lines = lines
-
-                    self.plotter.add_mesh(
-                        search_circle_mesh,
-                        color="cyan",
-                        line_width=2,  # Erhöht von 1 auf 2
-                        label="Search Radius (7m)",
-                    )
-                except Exception as e:
-                    print(f"[Rendering] ERROR bei Search-Circles: {e}")
+                print(f"[Rendering] ERROR beim Rendering von Lochpolygonen: {e}")
 
         self.plotter.add_text(
-            f"Straße: {mode_info} | Terrain: {terrain_info} | Slopes: {slopes_info} | Centerlines: {centerlines_state} | {road_info} | Labels: {label_state} | road_idx: {road_label_state} | A=all, SPACE=next, B=prev, S=slopes, T=terrain, C=centerlines, L=labels, R=road_idx, Q=quit",
+            f"Straße: {mode_info} | Roads: {roads_info} | Terrain: {terrain_info} | Slopes: {slopes_info} | Holes: {holes_info} | {road_info} | Labels: {label_state} | road_idx: {road_label_state} | R=roads, S=slopes, T=terrain, H=holes, A=all, SPACE=next, B=prev, L=labels, I=road_idx, Q=quit",
             position="upper_left",
             font_size=10,
         )
         self.plotter.show_grid()
 
-        # Berechne Camera-Bounds inkl. Centerlines für korrektes Zoom
+        # Berechne Camera-Bounds
         center = subset_points.mean(axis=0)
         bounds = [
             subset_points[:, 0].min(),
@@ -637,38 +625,6 @@ class RoadViewer:
             subset_points[:, 2].min(),
             subset_points[:, 2].max(),
         ]
-        print(f"[Camera] Initial bounds from mesh: X[{bounds[0]:.1f}, {bounds[1]:.1f}]")
-
-        # Erweitere bounds um Centerlines (falls vorhanden)
-        if self.show_centerlines and len(self.centerline_vertices) > 0:
-            cl_bounds = [
-                self.centerline_vertices[:, 0].min(),
-                self.centerline_vertices[:, 0].max(),
-                self.centerline_vertices[:, 1].min(),
-                self.centerline_vertices[:, 1].max(),
-                self.centerline_vertices[:, 2].min(),
-                self.centerline_vertices[:, 2].max(),
-            ]
-            print(
-                f"[Camera] Centerlines bounds: X[{cl_bounds[0]:.1f}, {cl_bounds[1]:.1f}]"
-            )
-            bounds = [
-                min(bounds[0], cl_bounds[0]),
-                max(bounds[1], cl_bounds[1]),
-                min(bounds[2], cl_bounds[2]),
-                max(bounds[3], cl_bounds[3]),
-                min(bounds[4], cl_bounds[4]),
-                max(bounds[5], cl_bounds[5]),
-            ]
-            print(f"[Camera] Combined bounds: X[{bounds[0]:.1f}, {bounds[1]:.1f}]")
-            center = np.array(
-                [
-                    (bounds[0] + bounds[1]) / 2,
-                    (bounds[2] + bounds[3]) / 2,
-                    (bounds[4] + bounds[5]) / 2,
-                ]
-            )
-            print(f"[Camera] New center: {center}")
 
         if reset_camera:
             print(f"[Camera] Setting focal_point to {center} and fitting bounds")

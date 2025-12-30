@@ -10,6 +10,57 @@ from ..geometry.coordinates import transformer_to_utm
 from .. import config
 
 
+def clip_road_polygons(road_polygons, grid_bounds_local, margin=3.0):
+    """
+    Clippt Straßen-Polygone am Grid-Rand mit Margin.
+
+    Args:
+        road_polygons: Liste von Straßen-Dictionaries mit 'coords'
+        grid_bounds_local: (min_x, max_x, min_y, max_y) in lokalen Koordinaten
+        margin: Abstand vom Grid-Rand in Metern (default 3.0)
+
+    Returns:
+        Geclippte road_polygons (Straßen die komplett außerhalb liegen werden entfernt)
+    """
+    if not grid_bounds_local:
+        return road_polygons
+
+    min_x, max_x, min_y, max_y = grid_bounds_local
+    clip_min_x = min_x + margin
+    clip_max_x = max_x - margin
+    clip_min_y = min_y + margin
+    clip_max_y = max_y - margin
+
+    clipped_roads = []
+    removed_count = 0
+    segment_count = 0
+
+    for road in road_polygons:
+        coords = road["coords"]
+        new_coords = []
+
+        for x, y, z in coords:
+            # Hard Clip: Punkt außerhalb → verwerfen
+            if clip_min_x <= x <= clip_max_x and clip_min_y <= y <= clip_max_y:
+                new_coords.append((x, y, z))
+
+        # Straße behalten wenn mindestens 2 Punkte übrig sind
+        if len(new_coords) >= 2:
+            clipped_roads.append(
+                {"id": road["id"], "coords": new_coords, "name": road["name"]}
+            )
+            segment_count += len(coords) - len(new_coords)
+        else:
+            removed_count += 1
+
+    if removed_count > 0 or segment_count > 0:
+        print(
+            f"  Clipping: {removed_count} Straßen entfernt, {segment_count} Punkte außerhalb des Grids entfernt"
+        )
+
+    return clipped_roads
+
+
 def get_road_polygons(roads, bbox, height_points, height_elevations):
     """Extrahiert Straßen-Polygone mit ihren Koordinaten und Höhen (OPTIMIERT)."""
     road_polygons = []
