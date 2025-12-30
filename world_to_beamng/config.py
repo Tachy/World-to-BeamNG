@@ -10,13 +10,6 @@ MIN_SLOPE_WIDTH = 2
 HOLE_CHECK_ENABLED = False
 # Exportpfad für offene Kanten als OBJ (mit MTL), wenn HOLE_CHECK_ENABLED=True
 BOUNDARY_EDGES_EXPORT = "boundary_edges.obj"
-# Lochfüllung (Schritt 10b): Earcut-basierte Boundary-Loop-Triangulation
-ENABLE_HOLE_FILLING = (
-    False  # False = kein Loch-Fill, kein Cleanup (nur Fan-Stitching, das auch aus ist)
-)
-# Limitierungen für Lochfüllung (Earcut)
-HOLE_MAX_EDGE_LEN = 5.0  # Meter, Loops mit längerer Einzelkante werden ignoriert
-HOLE_MAX_AREA = 20000.0  # Quadratmeter, zu große Loops werden ignoriert
 SLOPE_ANGLE = 45.0  # Neigungswinkel der Böschung in Grad (45° = 1:1 Steigung)
 # Vorab-Reduktion über gröberes Grid (Strategie 2). Für feineres Terrain z.B. 1.0 setzen.
 GRID_SPACING = (

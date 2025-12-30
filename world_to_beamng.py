@@ -30,9 +30,8 @@ from world_to_beamng.geometry.vertices import classify_grid_vertices
 from world_to_beamng.mesh.road_mesh import generate_road_mesh_strips
 from world_to_beamng.mesh.vertex_manager import VertexManager
 from world_to_beamng.mesh.terrain_mesh import generate_full_grid_mesh
+from world_to_beamng.mesh.cleanup import cleanup_duplicate_faces
 from world_to_beamng.mesh.stitching import (
-    clean_faces_nonmanifold,
-    fill_holes_by_boundary_loops,
     stitch_terrain_gaps,
 )
 from world_to_beamng.io.obj import (
@@ -359,36 +358,24 @@ def main():
         vertex_manager,
         terrain_vertex_indices,
         road_slope_polygons_2d,
+        terrain_faces_final,
+        slope_faces,
         stitch_radius=10.0,
     )
     terrain_faces_final.extend(stitch_faces)
     print(f"  ✓ {len(stitch_faces)} Stitch-Faces hinzugefügt")
 
-    hole_start_idx = None
-    if config.ENABLE_HOLE_FILLING:
-        hole_faces = fill_holes_by_boundary_loops(
-            vertex_manager,
-            terrain_faces_final,
-            slope_faces,
-            road_faces,
-        )
-        hole_start_idx = len(terrain_faces_final)
-        terrain_faces_final.extend(hole_faces)
-        print(f"  ✓ {len(hole_faces)} Hole-Faces aus Boundary-Loops hinzugefügt")
-    else:
-        print("  ⊘ Hole-Filling deaktiviert (ENABLE_HOLE_FILLING=False)")
     timings["10b_Terrain_Stitching"] = time.time() - step_start
 
     # ===== SCHRITT 11: Hole finale Vertex-Daten =====
     step_start = time.time()
     print("\n[11] Extrahiere finale Vertex-Daten...")
-    if config.ENABLE_HOLE_FILLING and hole_start_idx is not None:
-        cleaned_faces = clean_faces_nonmanifold(terrain_faces_final, hole_start_idx)
-        if len(cleaned_faces) != len(terrain_faces_final):
-            print(
-                f"  ✓ Non-manifold/dupe Cleanup: {len(terrain_faces_final) - len(cleaned_faces)} Faces entfernt"
-            )
-        terrain_faces_final = cleaned_faces
+
+    # Cleanup: Entferne doppelte Faces
+    terrain_faces_final = cleanup_duplicate_faces(terrain_faces_final)
+    road_faces = cleanup_duplicate_faces(road_faces)
+    slope_faces = cleanup_duplicate_faces(slope_faces)
+
     all_vertices_combined = np.asarray(vertex_manager.get_array())
     total_vertex_count = len(all_vertices_combined)
 

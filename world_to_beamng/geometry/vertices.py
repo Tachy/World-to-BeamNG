@@ -27,31 +27,14 @@ def classify_grid_vertices(grid_points, grid_elevations, road_slope_polygons_2d)
     # Grid-Punkte sind bereits in lokalen Koordinaten (wie Polygone)
     grid_points_2d = grid_points[:, :2]
 
-    if len(grid_points_2d) > 0:
-        print(f"    DEBUG Grid: sample point 0 = {grid_points_2d[0]}")
-        print(f"    DEBUG Grid: sample point 1000000 = {grid_points_2d[1000000]}")
-        print(
-            f"    DEBUG Grid: min = {grid_points_2d.min(axis=0)}, max = {grid_points_2d.max(axis=0)}"
-        )
-
     # Konvertiere zu Shapely-Polygone
     print("  Konvertiere Polygone zu Shapely...")
     road_data = []
-
-    print(f"    DEBUG: {len(road_slope_polygons_2d)} Polygone zu verarbeiten")
 
     for idx, poly_data in enumerate(road_slope_polygons_2d):
         road_poly_xy = poly_data["road_polygon"]
         slope_poly_xy = poly_data["slope_polygon"]
         original_coords = poly_data.get("original_coords", [])
-
-        if idx == 0:
-            print(f"    DEBUG Polygon 0: road_polygon hat {len(road_poly_xy)} Punkte")
-            print(f"    DEBUG Polygon 0: slope_polygon hat {len(slope_poly_xy)} Punkte")
-            if len(road_poly_xy) > 0:
-                print(f"    DEBUG Polygon 0: road_polygon[0] = {road_poly_xy[0]}")
-            if len(slope_poly_xy) > 0:
-                print(f"    DEBUG Polygon 0: slope_polygon[0] = {slope_poly_xy[0]}")
 
         if len(slope_poly_xy) >= 3 and len(road_poly_xy) >= 3:
             try:
