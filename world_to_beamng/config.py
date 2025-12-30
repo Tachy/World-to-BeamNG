@@ -37,7 +37,7 @@ CENTERLINE_SAMPLE_SPACING = (
 CENTERLINE_SEARCH_RADIUS = 10.0  # Suchradius um Centerline-Punkte (m)
 
 # === CLIPPING ===
-ROAD_CLIP_MARGIN = 3.0  # Clipping-Abstand vom Grid-Rand in Metern (Faces < 3m vom Rand werden entfernt)
+ROAD_CLIP_MARGIN = 10.0  # Clipping-Abstand vom Grid-Rand in Metern (Faces < 3m vom Rand werden entfernt)
 
 
 # === VERZEICHNISSE ===

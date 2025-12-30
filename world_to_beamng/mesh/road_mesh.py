@@ -1,5 +1,8 @@
 """
 Straßen-Mesh und Böschungs-Generierung.
+
+Hinweis: Junction-Detection wurde nach Schritt 6a verschoben (detect_junctions_in_centerlines).
+Die hier früher stattfindende nachträgliche T-Junction-Erkennung ist nicht mehr erforderlich.
 """
 
 import numpy as np
@@ -10,9 +13,13 @@ from functools import partial
 from math import ceil
 
 from .. import config
-from .junction_snapping import snap_junctions_with_edges
 
 
+# DEPRECATED: Diese Funktion wird nicht mehr verwendet
+# Junction-Detection erfolgt jetzt in Schritt 6a via detect_junctions_in_centerlines()
+# und wird bereits beim Road-Polygon-Export berücksichtigt.
+#
+# Beibehalten für Backward-Compatibility, aber nicht mehr aufgerufen.
 def detect_t_junctions(road_polygons, snap_distance=5.0):
     """
     Erkennt T-Kreuzungen: Wo eine einmündende Straße auf eine durchgehende Straße trifft.
@@ -515,17 +522,11 @@ def generate_road_mesh_strips(
     if clipped_roads > 0:
         print(f"  ℹ {clipped_roads} Straßen komplett außerhalb Grid (ignoriert)")
 
-    # T-Junction Snapping: Geometry-basiert
+    # T-Junction Snapping: JETZT DEAKTIVIERT - wird direkt in Schritt 6a erkannt
+    # Die Junctions werden bereits in der Pipeline erkannt und in generate_road_mesh_strips verarbeitet
     if config.ENABLE_ROAD_EDGE_SNAPPING:
-        print(f"  Erkenne T-Kreuzungen und verbinde Vertices...")
-        t_junctions = detect_t_junctions(road_polygons, snap_distance=5.0)
-        print(f"    → {len(t_junctions)} T-Kreuzungen erkannt")
-
-        snap_junctions_with_edges(
-            vertex_manager,
-            road_slope_polygons_2d,
-            t_junctions,
-            original_to_mesh_idx,
+        print(
+            f"  ℹ Junction-Handling: wird direkt in Centerlines erkannt (nicht mehr nachträglich)"
         )
 
     return (

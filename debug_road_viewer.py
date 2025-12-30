@@ -70,7 +70,7 @@ class RoadViewer:
         self.show_roads = True
         self.show_slopes = True
         self.show_terrain = True
-        self.show_holes = True
+        self.show_holes = False
         self.show_all = True
         self.label_distance_threshold = label_distance_threshold
         self.label_max_points = label_max_points

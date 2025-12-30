@@ -25,9 +25,25 @@ from world_to_beamng.osm.parser import (
     extract_roads_from_osm,
 )
 from world_to_beamng.osm.downloader import get_osm_data
-from world_to_beamng.geometry.polygon import get_road_polygons
+from world_to_beamng.geometry.polygon import get_road_polygons, clip_road_polygons
+from world_to_beamng.geometry.junctions import (
+    detect_junctions_in_centerlines,
+    mark_junction_endpoints,
+    debug_junctions,
+)
+from world_to_beamng.geometry.junction_geometry import (
+    truncate_roads_at_junctions,
+)
+from world_to_beamng.geometry.junction_vertices import (
+    extract_junction_vertices_from_mesh,
+)
+from world_to_beamng.geometry.junction_connectors import (
+    build_junction_connectors,
+    connectors_to_faces,
+)
 from world_to_beamng.geometry.vertices import classify_grid_vertices
 from world_to_beamng.mesh.road_mesh import generate_road_mesh_strips
+from world_to_beamng.mesh.junction_mesh import add_junction_polygons_to_mesh
 from world_to_beamng.mesh.vertex_manager import VertexManager
 from world_to_beamng.mesh.terrain_mesh import generate_full_grid_mesh
 from world_to_beamng.mesh.cleanup import cleanup_duplicate_faces
@@ -346,17 +362,70 @@ def main():
         roads, config.BBOX, height_points, height_elevations
     )
     print(f"  ✓ {len(road_polygons)} Straßen-Polygone extrahiert")
+
+    # Clippe Straßen-Polygone am Grid-Rand (vor Mesh-Generierung!)
+    if config.ROAD_CLIP_MARGIN > 0:
+        print(
+            f"  Clippe Straßen-Polygone am Grid-Rand ({config.ROAD_CLIP_MARGIN}m Margin)..."
+        )
+        road_polygons = clip_road_polygons(
+            road_polygons, config.GRID_BOUNDS_LOCAL, margin=config.ROAD_CLIP_MARGIN
+        )
+        print(f"  ✓ {len(road_polygons)} Straßen nach Clipping")
+
     timings["6_Straßen_Polygone"] = time.time() - step_start
 
-    # ===== SCHRITT 6a: Initialisiere VertexManager =====
+    # ===== SCHRITT 6a: Erkenne Straßen-Junctions in Centerlines =====
     step_start = time.time()
-    print("\n[6a] Initialisiere zentrale Vertex-Verwaltung...")
-    vertex_manager = VertexManager(tolerance=0.1)  # 10cm Toleranz
-    print(f"  ✓ VertexManager bereit (Toleranz: 10cm)")
-    timings["6a_VertexManager_Init"] = time.time() - step_start
+    print("\n[6a] Erkenne Straßen-Junctions in Centerlines...")
+    junctions = detect_junctions_in_centerlines(road_polygons)
+    road_polygons = mark_junction_endpoints(road_polygons, junctions)
+    debug_junctions(junctions, road_polygons)
+    timings["6a_Junctions_erkennen"] = time.time() - step_start
+
+    # ===== SCHRITT 6a.4: Kürze Straßen-Enden bei Junctions =====
+    print("\n[6a.4] Kürze Straßen-Enden bei Junctions...")
+    # Truncation mit ca. 10m Distanz für saubere Junction-Anschlüsse
+    truncation_distance = 10.0  # Meter - großzügig für saubere Verbindungen
+    road_polygons = truncate_roads_at_junctions(
+        road_polygons,
+        junctions,
+        road_width=config.ROAD_WIDTH,
+        truncation_distance=truncation_distance,
+    )
+
+    # WICHTIG: Interpoliere Z-Werte aus DGM für alle coords (ersetzt UTM-Z-Werte!)
+    print("  Interpoliere Z-Koordinaten aus DGM...")
+    from scipy.interpolate import NearestNDInterpolator
+
+    height_interp = NearestNDInterpolator(height_points, height_elevations)
+    for road in road_polygons:
+        coords = road.get("coords", [])
+        if coords:
+            # Ersetze Z-Werte durch DGM-Interpolation
+            new_coords = []
+            for x, y, z_old in coords:
+                z_new = float(height_interp(x, y))
+                new_coords.append((x, y, z_new))
+            road["coords"] = new_coords
+    print(f"  ✓ Z-Koordinaten aus DGM interpoliert für {len(road_polygons)} Straßen")
+    timings["6a4_Road_Truncation"] = time.time() - step_start
+
+    # HINWEIS: Junction-Polygone werden NACH dem Road-Meshing gebaut (Schritt 7a)!
+    # Wir nutzen die echten Mesh-Vertices der gekürzten Straßen.
+
+    # HINWEIS: Snapping ist jetzt DEAKTIVIERT, da Truncation bereits die Straßen bei den
+    # Junctions positioniert. Snapping würde die Truncation nur wieder rückgängig machen.
+
+    # ===== SCHRITT 6b: Initialisiere VertexManager =====
+    step_start = time.time()
+    print("\n[6b] Initialisiere zentrale Vertex-Verwaltung...")
+    vertex_manager = VertexManager(tolerance=0.01)  # 1cm Toleranz für präzises Snapping
+    print(f"  ✓ VertexManager bereit (Toleranz: 1cm)")
+    timings["6b_VertexManager_Init"] = time.time() - step_start
 
     # ===== SCHRITT 7: Generiere Straßen-Mesh =====
-    print("\n[7] Generiere Straßen-Mesh-Streifen...")
+    print("\n[7] Generiere Straßen-Mesh-Streifen (mit Junctions)...")
     step_start = time.time()
     (
         road_faces,
@@ -367,45 +436,131 @@ def main():
     ) = generate_road_mesh_strips(
         road_polygons, height_points, height_elevations, vertex_manager
     )
+
+    # Initialisiere Combined-Lists für spätere Verwendung
+    combined_junction_faces = []
+
     print(
         f"  ✓ {len(road_slope_polygons_2d)} 2D-Polygone für Grid-Klassifizierung extrahiert"
     )
     print(
-        f"  ✓ {vertex_manager.get_count()} Vertices gesamt (inkl. Straßen+Böschungen)"
+        f"  ✓ {vertex_manager.get_count()} Vertices gesamt (inkl. Straßen+Böschungen+Junctions+Connectors)"
     )
     timings["7_Straßen_Mesh"] = time.time() - step_start
 
-    # ===== SCHRITT 7a: Clippe Straßen/Böschungs-Faces am Grid-Rand =====
-    if config.ROAD_CLIP_MARGIN > 0:
-        step_start = time.time()
-        print(
-            f"\n[7a] Clippe Road/Slope-Faces am Grid-Rand ({config.ROAD_CLIP_MARGIN}m Margin)..."
-        )
-        all_vertices_temp = np.asarray(vertex_manager.get_array())
+    # ===== SCHRITT 7a: Extrahiere Junction-Vertices aus Road-Mesh =====
+    print("\n[7a] Baue Junction-Polygone aus Road-Mesh-Vertices...")
+    step_start = time.time()
 
-        road_faces, road_removed = clip_faces_near_boundary(
-            road_faces,
-            all_vertices_temp,
-            config.GRID_BOUNDS_LOCAL,
-            margin=config.ROAD_CLIP_MARGIN,
-        )
-        slope_faces, slope_removed = clip_faces_near_boundary(
-            slope_faces,
-            all_vertices_temp,
-            config.GRID_BOUNDS_LOCAL,
-            margin=config.ROAD_CLIP_MARGIN,
+    # Extrahiere die Edge-Vertices der gekürzten Straßen
+    junction_polys_dict = extract_junction_vertices_from_mesh(
+        junctions, road_polygons, vertex_manager
+    )
+
+    # Konvertiere zu junction_polys-Format
+    junction_polys = []
+    for junction_idx, junction_data in junction_polys_dict.items():
+        junction = junctions[junction_idx]
+        junction_polys.append(
+            {
+                "vertices_2d": junction_data["vertices_2d"],
+                "vertices_3d": junction_data["vertices_3d"],
+                "center": junction_data["center"],
+                "road_indices": junction_data["road_indices"],
+                "road_edge_data": junction_data.get(
+                    "road_edge_data", {}
+                ),  # WICHTIG für Connectoren!
+                "type": (
+                    "t_junction" if len(junction_data["road_indices"]) == 3 else "cross"
+                ),
+                "num_roads": len(junction_data["road_indices"]),
+            }
         )
 
+    print(f"  ✓ {len(junction_polys)} Junction-Polygone aus Mesh-Vertices gebaut")
+
+    # ===== SCHRITT 7b: Baue Connector-Quads =====
+    print("\n[7b] Baue Connector-Quads...")
+    truncation_distance = 10.0
+    connector_polys = build_junction_connectors(
+        junction_polys, junctions, road_polygons, truncation_distance, config.ROAD_WIDTH
+    )
+    print(f"  ✓ {len(connector_polys)} Connector-Quads gebaut")
+    if connector_polys:
         print(
-            f"  ✓ {road_removed} Road-Faces entfernt, {slope_removed} Slope-Faces entfernt"
+            f"    → Erstes Connector: vertices_3d = {connector_polys[0].get('vertices_3d', 'NONE')}"
         )
+
+    # ===== SCHRITT 7c: Meshe Junction-Polygone (separates Meshing) =====
+    print("\n[7c] Meshe Junction-Quads (Fan-Triangulation)...")
+
+    # DEBUG: Zeige erste paar Junction-Polygone
+    if junction_polys:
+        print(f"      DEBUG: junction_polys[0]:")
+        print(f"        vertices_3d: {junction_polys[0].get('vertices_3d', [])}")
+        print(f"        type: {type(junction_polys[0].get('vertices_3d'))}")
+        print(f"        len: {len(junction_polys[0].get('vertices_3d', []))}")
+
+    junction_faces, junction_face_indices = add_junction_polygons_to_mesh(
+        vertex_manager, junction_polys
+    )
+    print(f"  ✓ {len(junction_faces)} Junction-Faces generiert")
+
+    # WICHTIG: Speichere Junction-Faces SEPARAT für Material-Export!
+    combined_junction_faces.extend(junction_faces)
+
+    # ===== SCHRITT 7d: Meshe Connector-Quads (separates Meshing) =====
+    print("\n[7d] Meshe Connector-Quads (Fan-Triangulation)...")
+    print(f"  DEBUG: {len(connector_polys)} Connector-Polygone vorhanden")
+    if connector_polys:
         print(
-            f"  ✓ {len(road_faces)} Road-Faces verbleibend, {len(slope_faces)} Slope-Faces verbleibend"
+            f"    → Erstes Connector-Poly: {connector_polys[0].get('vertices_3d', 'NONE')}"
         )
-        timings["7a_Face_Clipping"] = time.time() - step_start
-    else:
-        print("\n[7a] Face-Clipping SKIP (ROAD_CLIP_MARGIN = 0)")
-        timings["7a_Face_Clipping"] = 0.0
+    connector_faces = connectors_to_faces(connector_polys, vertex_manager)
+    print(f"  ✓ {len(connector_faces)} Connector-Faces generiert")
+    if not connector_faces:
+        print(f"  ⚠ WARNUNG: Keine Connector-Faces generiert!")
+
+    # Integriere in road_faces VOR CCW-Normalisierung
+    road_faces.extend(junction_faces)
+    road_faces.extend(connector_faces)
+    print(
+        f"  ✓ {len(road_faces)} road_faces gesamt (inkl. Straßen+Junctions+Connectors)"
+    )
+    print(f"  ✓ {vertex_manager.get_count()} Vertices nach Junctions/Connectors")
+    timings["7ab_Junction_Connector_Mesh"] = time.time() - step_start
+
+    # ===== SCHRITT 7e: Füge Junction/Connector-Polygone für Terrain-Ausschnitt hinzu =====
+    print(
+        "\n[7e] Füge Junction+Connector-Polygone für Terrain-Klassifizierung hinzu..."
+    )
+    for junction_poly in junction_polys:
+        vertices_2d = junction_poly.get("vertices_2d", [])
+        if len(vertices_2d) >= 3:
+            road_slope_polygons_2d.append(
+                {
+                    "road_polygon": vertices_2d,
+                    "slope_polygon": vertices_2d,  # Keine separaten Böschungen
+                    "original_coords": [],
+                    "road_vertex_indices": {"left": [], "right": []},
+                    "slope_outer_indices": {"left": [], "right": []},
+                }
+            )
+
+    for connector_poly in connector_polys:
+        vertices_2d = connector_poly.get("vertices_2d", [])
+        if len(vertices_2d) >= 3:
+            road_slope_polygons_2d.append(
+                {
+                    "road_polygon": vertices_2d,
+                    "slope_polygon": vertices_2d,  # Keine separaten Böschungen (vorerst)
+                    "original_coords": [],
+                    "road_vertex_indices": {"left": [], "right": []},
+                    "slope_outer_indices": {"left": [], "right": []},
+                }
+            )
+
+    print(f"  ✓ {len(road_slope_polygons_2d)} Polygone gesamt für Terrain-Ausschnitt")
 
     # ===== SCHRITT 8: Klassifiziere Grid-Vertices =====
     print("\n[8] Klassifiziere Grid-Vertices (Schneide Straßen aus Terrain)...")
@@ -473,15 +628,25 @@ def main():
     all_vertices_combined = np.asarray(vertex_manager.get_array())
     total_vertex_count = len(all_vertices_combined)
 
+    # WICHTIG: Junction+Connector-Faces sind bereits in road_faces integriert (Schritt 7a/7b)
+    # Sie durchlaufen damit automatisch CCW-Normalisierung, cleanup, etc.
+    print(f"\n[10b] Road-Faces bereits komplett (inkl. Junctions+Connectors)...")
+    combined_road_faces = (
+        road_faces  # Enthält bereits: Straßen + Junction-Quads + Connectors
+    )
+    # combined_junction_faces wird bereits gefüllt in Schritt 7c, NICHT hier leer setzen!
+
     # Faces sind bereits CCW-orientiert (Schritt 10a)
     combined_terrain_faces = terrain_faces_final
-    combined_road_faces = road_faces
     combined_slope_faces = slope_faces
 
     if config.HOLE_CHECK_ENABLED:
         print("  Kanten-Check (0-basiert, vor Export)...")
         combined_all_faces = (
-            combined_terrain_faces + combined_slope_faces + combined_road_faces
+            combined_terrain_faces
+            + combined_slope_faces
+            + combined_road_faces
+            + combined_junction_faces
         )
         export_path = config.BOUNDARY_EDGES_EXPORT or "boundary_edges.obj"
         report_boundary_edges(
@@ -493,7 +658,7 @@ def main():
 
     print(f"  ✓ {total_vertex_count:,} Vertices gesamt (dedupliziert)")
     print(f"    • Terrain: {len(combined_terrain_faces):,} Faces")
-    print(f"    • Straßen: {len(combined_road_faces):,} Faces")
+    print(f"    • Straßen (inkl. Junctions): {len(combined_road_faces):,} Faces")
     print(f"    • Böschungen: {len(combined_slope_faces):,} Faces")
     timings["10_Vertices_Finalisieren"] = time.time() - step_start
 
@@ -514,15 +679,18 @@ def main():
     terrain_faces_final = np.array(combined_terrain_faces, dtype=np.int32)
     road_faces_array = np.array(combined_road_faces, dtype=np.int32)
     slope_faces_array = np.array(combined_slope_faces, dtype=np.int32)
+    junction_faces_array = np.array(combined_junction_faces, dtype=np.int32)
 
     # OBJ erwartet 1-basierte Indices
     terrain_faces_final = terrain_faces_final + 1
     road_faces_final = road_faces_array + 1
     slope_faces_final = slope_faces_array + 1
+    junction_faces_final = junction_faces_array + 1
 
     print(f"    • Terrain: {len(terrain_faces_final):,} Faces")
     print(f"    • Straßen: {len(road_faces_final):,} Faces")
     print(f"    • Böschungen: {len(slope_faces_final):,} Faces")
+    print(f"    • Junctions: {len(junction_faces_final):,} Faces")
 
     timings["12_Faces_Vorbereiten"] = time.time() - step_start
 
@@ -538,12 +706,16 @@ def main():
     print(f"    → roads.obj: {time.time() - export_start:.2f}s")
 
     export_start = time.time()
+    print(
+        f"  DEBUG: Übergebe junction_faces_final mit {len(junction_faces_final)} Faces zu save_unified_obj..."
+    )
     save_unified_obj(
         output_obj,
         all_vertices_combined,
         road_faces_final,
         slope_faces_final,
         terrain_faces_final,
+        junction_faces_final,  # WICHTIG: Übergebe Junction-Faces separat!
     )
     print(f"    → save_unified_obj(): {time.time() - export_start:.2f}s")
 

@@ -92,8 +92,22 @@ def save_layer_obj(filename, vertices, faces, material_name):
     print(f"  ✓ {filename}: {len(used_vertices)} vertices, {len(faces)} faces")
 
 
-def save_unified_obj(filename, vertices, road_faces, slope_faces, terrain_faces):
-    """Speichert ein einheitliches Terrain-Mesh mit integrierten Straßen (ULTRA-OPTIMIERT)."""
+def save_unified_obj(
+    filename, vertices, road_faces, slope_faces, terrain_faces, junction_faces=None
+):
+    """Speichert ein einheitliches Terrain-Mesh mit integrierten Straßen und Junctions."""
+    print(f"DEBUG save_unified_obj():")
+    print(f"  - vertices: {len(vertices)}")
+    print(f"  - road_faces: {len(road_faces)}")
+    print(f"  - slope_faces: {len(slope_faces)}")
+    print(f"  - terrain_faces: {len(terrain_faces)}")
+    print(
+        f"  - junction_faces: {len(junction_faces) if junction_faces is not None else 'None'}"
+    )
+
+    if junction_faces is None:
+        junction_faces = np.array([], dtype=np.int32)
+
     mtl_filename = filename.replace(".obj", ".mtl")
 
     # Erstelle MTL-Datei
@@ -129,14 +143,24 @@ def save_unified_obj(filename, vertices, road_faces, slope_faces, terrain_faces)
         f.write("Ks 0.100000 0.100000 0.100000\n")
         f.write("Ni 1.000000\n")
         f.write("d 1.000000\n")
+        f.write("illum 2\n\n")
+
+        # Junction-Quads (Grün für Sichtbarkeit)
+        f.write("newmtl junction_quad_surface\n")
+        f.write("Ns 50.000000\n")
+        f.write("Ka 0.200000 0.300000 0.200000\n")
+        f.write("Kd 0.400000 0.700000 0.400000\n")
+        f.write("Ks 0.300000 0.300000 0.300000\n")
+        f.write("Ni 1.000000\n")
+        f.write("d 1.000000\n")
         f.write("illum 2\n")
 
-    # Erstelle OBJ-Datei (ULTRA-OPTIMIERT mit NumPy String-Formatting)
+    # Erstelle OBJ-Datei
     print(f"\nSchreibe OBJ-Datei: {filename}")
     with open(
         filename, "w", buffering=64 * 1024 * 1024
     ) as f:  # 64MB Buffer für Ultra-Speed!
-        f.write("# BeamNG Unified Terrain Mesh with integrated roads\n")
+        f.write("# BeamNG Unified Terrain Mesh with integrated roads and junctions\n")
         f.write(f"# Generated from DGM1 data and OSM\n")
         f.write(f"mtllib {os.path.basename(mtl_filename)}\n\n")
 
@@ -170,11 +194,19 @@ def save_unified_obj(filename, vertices, road_faces, slope_faces, terrain_faces)
         f.write("\n".join(v_lines.tolist()) + "\n")
         del v_array, v1, v2, v3, v_lines
 
-        # Straßen-Objekt
+        # Straßen-Objekt (inkl. Junction-Faces!)
         print(f"  Schreibe {len(road_faces)} Straßen-Faces (ULTRA-FAST)...")
         f.write("\no road_surface\n")
         f.write("usemtl road_surface\n")
         write_faces_fast(f, road_faces, "f ")
+
+        # Junction-Faces INNERHALB road_surface Objekt (für Viewer-Kompatibilität)
+        if junction_faces is not None and len(junction_faces) > 0:
+            print(
+                f"  Schreibe {len(junction_faces)} Junction-Faces (innerhalb road_surface)..."
+            )
+            write_faces_fast(f, junction_faces, "f ")
+            print(f"    ✓ Junction-Faces geschrieben!")
 
         # Böschungs-Objekt
         print(f"  Schreibe {len(slope_faces)} Böschungs-Faces (ULTRA-FAST)...")
