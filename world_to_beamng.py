@@ -30,8 +30,16 @@ from world_to_beamng.geometry.vertices import classify_grid_vertices
 from world_to_beamng.mesh.road_mesh import generate_road_mesh_strips
 from world_to_beamng.mesh.vertex_manager import VertexManager
 from world_to_beamng.mesh.terrain_mesh import generate_full_grid_mesh
-from world_to_beamng.mesh.stitching import stitch_terrain_gaps
-from world_to_beamng.io.obj import save_unified_obj, save_roads_obj
+from world_to_beamng.mesh.stitching import (
+    clean_faces_nonmanifold,
+    fill_holes_by_boundary_loops,
+    stitch_terrain_gaps,
+)
+from world_to_beamng.io.obj import (
+    save_unified_obj,
+    save_roads_obj,
+    save_centerlines_obj,
+)
 
 
 def enforce_ccw_up(faces, vertices):
@@ -66,17 +74,43 @@ def report_boundary_edges(faces, vertices, label="mesh", export_path=None):
 
     edges = np.vstack([f[:, [0, 1]], f[:, [1, 2]], f[:, [2, 0]]])
     edges = np.sort(edges, axis=1)
+
+    # Entferne Kanten, die vollständig auf dem äußeren Bounding-Box-Rand liegen
+    verts_np = np.asarray(vertices, dtype=np.float64)
+    xs = verts_np[:, 0]
+    ys = verts_np[:, 1]
+    min_x, max_x = xs.min(), xs.max()
+    min_y, max_y = ys.min(), ys.max()
+    tol = max(getattr(config, "GRID_SPACING", 1.0) * 0.5, 0.05)
+
+    on_min_x = np.abs(xs - min_x) <= tol
+    on_max_x = np.abs(xs - max_x) <= tol
+    on_min_y = np.abs(ys - min_y) <= tol
+    on_max_y = np.abs(ys - max_y) <= tol
+
+    a_idx = edges[:, 0]
+    b_idx = edges[:, 1]
+    border_mask = (
+        (on_min_x[a_idx] & on_min_x[b_idx])
+        | (on_max_x[a_idx] & on_max_x[b_idx])
+        | (on_min_y[a_idx] & on_min_y[b_idx])
+        | (on_max_y[a_idx] & on_max_y[b_idx])
+    )
+
+    edges_filtered = edges[~border_mask]
+    if edges_filtered.size == 0:
+        print(f"  {label}: Keine Kanten nach Rand-Filter")
+        return
+
     # Nutzung von np.unique über axis=0 vermeidet View-Probleme
-    unique, counts = np.unique(edges, axis=0, return_counts=True)
+    unique, counts = np.unique(edges_filtered, axis=0, return_counts=True)
 
     boundary_mask = counts == 1
     nonmanifold_mask = counts > 2
     num_boundary = int(np.count_nonzero(boundary_mask))
     num_nonmanifold = int(np.count_nonzero(nonmanifold_mask))
 
-    print(
-        f"  {label}: Boundary-Kanten={num_boundary}, Non-manifold={num_nonmanifold}"
-    )
+    print(f"  {label}: Boundary-Kanten={num_boundary}, Non-manifold={num_nonmanifold}")
     if num_boundary:
         sample = unique[boundary_mask][:10]
         print(f"    Beispiel offene Kanten (0-basiert): {sample.tolist()}")
@@ -143,7 +177,9 @@ def report_boundary_edges(faces, vertices, label="mesh", export_path=None):
                         fmtl.write("newmtl boundary_edges\n")
                         fmtl.write("Ka 1 0 0\nKd 1 0 0\nKs 0 0 0\nd 1.0\nillum 1\n")
 
-                print(f"    → Boundary-Kanten als OBJ (Faces) exportiert nach {export_path}")
+                print(
+                    f"    → Boundary-Kanten als OBJ (Faces) exportiert nach {export_path}"
+                )
             except Exception as exc:
                 print(f"    ⚠ Export nach {export_path} fehlgeschlagen: {exc}")
 
@@ -154,7 +190,7 @@ def main():
     # Reset globale Zustände
     config.LOCAL_OFFSET = None
     config.BBOX = None
-    config.GRID_BOUNDS_UTM = None
+    config.GRID_BOUNDS_LOCAL = None
 
     start_time = time.time()
     timings = {}
@@ -173,6 +209,23 @@ def main():
     print("\n[2] Berechne BBOX aus Höhendaten...")
     step_start = time.time()
     config.BBOX = calculate_bbox_from_height_data(height_points)
+
+    # WICHTIG: Setze Local Offset SOFORT (vor allen weiteren Transformationen)
+    if config.LOCAL_OFFSET is None:
+        config.LOCAL_OFFSET = (
+            height_points[0, 0],
+            height_points[0, 1],
+            height_elevations[0],
+        )
+        print(f"  LOCAL_OFFSET gesetzt: {config.LOCAL_OFFSET}")
+
+    # Transformiere height_points zu lokalen Koordinaten
+    ox, oy, oz = config.LOCAL_OFFSET
+    height_points[:, 0] -= ox
+    height_points[:, 1] -= oy
+    height_elevations = height_elevations - oz  # Auch Z-Koordinaten transformieren!
+    print(f"  ✓ height_points + elevations zu lokalen Koordinaten transformiert")
+
     timings["2_BBOX_berechnen"] = time.time() - step_start
 
     # ===== SCHRITT 3: Prüfe OSM-Daten-Cache =====
@@ -234,6 +287,8 @@ def main():
     )
     timings["5_Grid_erstellen"] = time.time() - step_start
 
+    # LOCAL_OFFSET wurde bereits in Schritt 2 gesetzt
+
     # ===== SCHRITT 6: Extrahiere Straßen-Polygone =====
     step_start = time.time()
     print(f"\n[6] Extrahiere {len(roads)} Straßen-Polygone...")
@@ -249,14 +304,6 @@ def main():
     vertex_manager = VertexManager(tolerance=0.1)  # 10cm Toleranz
     print(f"  ✓ VertexManager bereit (Toleranz: 10cm)")
     timings["6a_VertexManager_Init"] = time.time() - step_start
-
-    # Stelle sicher, dass der Local Offset definiert ist (wichtig für Multiprocessing)
-    if config.LOCAL_OFFSET is None:
-        config.LOCAL_OFFSET = (
-            grid_points[0, 0],
-            grid_points[0, 1],
-            grid_elevations[0],
-        )
 
     # ===== SCHRITT 7: (übersprungen) =====
     print("\n[7] Überspringe temporäres Terrain-Grid-Mesh (nicht mehr nötig)...")
@@ -316,11 +363,32 @@ def main():
     )
     terrain_faces_final.extend(stitch_faces)
     print(f"  ✓ {len(stitch_faces)} Stitch-Faces hinzugefügt")
+
+    hole_start_idx = None
+    if config.ENABLE_HOLE_FILLING:
+        hole_faces = fill_holes_by_boundary_loops(
+            vertex_manager,
+            terrain_faces_final,
+            slope_faces,
+            road_faces,
+        )
+        hole_start_idx = len(terrain_faces_final)
+        terrain_faces_final.extend(hole_faces)
+        print(f"  ✓ {len(hole_faces)} Hole-Faces aus Boundary-Loops hinzugefügt")
+    else:
+        print("  ⊘ Hole-Filling deaktiviert (ENABLE_HOLE_FILLING=False)")
     timings["10b_Terrain_Stitching"] = time.time() - step_start
 
     # ===== SCHRITT 11: Hole finale Vertex-Daten =====
     step_start = time.time()
     print("\n[11] Extrahiere finale Vertex-Daten...")
+    if config.ENABLE_HOLE_FILLING and hole_start_idx is not None:
+        cleaned_faces = clean_faces_nonmanifold(terrain_faces_final, hole_start_idx)
+        if len(cleaned_faces) != len(terrain_faces_final):
+            print(
+                f"  ✓ Non-manifold/dupe Cleanup: {len(terrain_faces_final) - len(cleaned_faces)} Faces entfernt"
+            )
+        terrain_faces_final = cleaned_faces
     all_vertices_combined = np.asarray(vertex_manager.get_array())
     total_vertex_count = len(all_vertices_combined)
 
@@ -331,16 +399,14 @@ def main():
 
     if config.HOLE_CHECK_ENABLED:
         print("  Kanten-Check (0-basiert, vor Export)...")
-        report_boundary_edges(combined_terrain_faces, all_vertices_combined, label="Terrain")
-        report_boundary_edges(combined_road_faces, all_vertices_combined, label="Straßen")
-        report_boundary_edges(combined_slope_faces, all_vertices_combined, label="Böschungen")
-
-        combined_ts_faces = combined_terrain_faces + combined_slope_faces
+        combined_all_faces = (
+            combined_terrain_faces + combined_slope_faces + combined_road_faces
+        )
         export_path = config.BOUNDARY_EDGES_EXPORT or "boundary_edges.obj"
         report_boundary_edges(
-            combined_ts_faces,
+            combined_all_faces,
             all_vertices_combined,
-            label="Terrain+Böschung",
+            label="Gesamtmesh",
             export_path=export_path,
         )
 
@@ -400,17 +466,19 @@ def main():
     )
     print(f"    → save_unified_obj(): {time.time() - export_start:.2f}s")
 
-    # DEBUG: Exportiere nur Terrain zum Debuggen
-    print(f"  DEBUG: Schreibe nur Terrain zu beamng_terrain_only.obj...")
+    # Exportiere Centerlines
+    print(f"  Schreibe centerlines zu debug_centerlines.obj...")
+    print(f"    Aktueller LOCAL_OFFSET: {config.LOCAL_OFFSET}")
     export_start = time.time()
-    save_unified_obj(
-        "beamng_terrain_only.obj",
-        all_vertices_combined,
-        [],  # Keine Straßen
-        [],  # Keine Böschungen
-        terrain_faces_final,  # Nur Terrain
+    save_centerlines_obj(
+        "debug_centerlines.obj",
+        road_polygons,
+        height_points,
+        height_elevations,
+        config.BBOX,
+        local_offset=config.LOCAL_OFFSET,
     )
-    print(f"    → save_unified_obj() (nur Terrain): {time.time() - export_start:.2f}s")
+    print(f"    → save_centerlines_obj(): {time.time() - export_start:.2f}s")
 
     cleanup_start = time.time()
     del (

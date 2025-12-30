@@ -1,44 +1,97 @@
 """
-Debug-Tool: Visualisiere Straßen und Böschungen mit Vertex-Nummern und Edges
+Debug-Tool: Visualisiere Gelände, Straßen und Böschungen
 Steuerung:
-  - SPACE: Nächste Straße
+  - SPACE: Nächste Straße (Einzeln-Modus)
   - B: Vorherige Straße
-  - S: Toggle Slopes (Böschungen) ein/aus
+  - S: Toggle Slopes (Böschungen) an/aus
+  - T: Toggle Terrain an/aus
+  - C: Toggle Centerlines an/aus
   - A: Toggle Alle Straßen / Einzelne Straße
+  - L: Toggle Punkt-Labels an/aus
+  - R: Toggle road_idx-Labels an/aus
   - Q: Beenden
 """
 
 import pyvista as pv
 import numpy as np
 
+# Konfigurationswerte für Suchkreise/Sampling
+try:
+    from world_to_beamng import config
+
+    _CENTERLINE_SEARCH_RADIUS = config.CENTERLINE_SEARCH_RADIUS
+    _CENTERLINE_SAMPLE_SPACING = config.CENTERLINE_SAMPLE_SPACING
+except Exception:
+    _CENTERLINE_SEARCH_RADIUS = 10.0
+    _CENTERLINE_SAMPLE_SPACING = 10.0
+
 
 class RoadViewer:
     def __init__(
         self,
-        obj_file="roads.obj",
+        obj_file="beamng.obj",
+        fallback_obj="roads.obj",
         faces_per_road=10000,
         label_distance_threshold=1e9,
         label_max_points=50000000,
         dolly_step=10.0,
-        show_point_labels=True,
+        show_point_labels=False,
         road_idx_label_max=5000000,
-        show_road_idx_labels=True,
+        show_road_idx_labels=False,
         label_click_px_tol=30.0,
         preselect_road_idx=None,
     ):
-        print("Lade OBJ und extrahiere road_surface + slope_surface Faces...")
+        print(f"Lade OBJ: {obj_file}")
         (
             self.vertices,
             self.road_faces,
             self.slope_faces,
+            self.terrain_faces,
             self.road_face_to_idx,
-        ) = self._parse_obj(obj_file)
+        ) = self._parse_obj(obj_file, fallback_obj)
+
+        print(f"Lade Centerlines: debug_centerlines.obj")
+        (
+            self.centerline_vertices,
+            self.centerline_edges,
+            self.search_circle_vertices,
+            self.search_circle_edges,
+        ) = self._load_centerlines("debug_centerlines.obj")
+
+        print(f"[Init] Nach _load_centerlines():")
+        print(
+            f"  centerline_vertices type: {type(self.centerline_vertices)}, shape: {self.centerline_vertices.shape if hasattr(self.centerline_vertices, 'shape') else 'N/A'}"
+        )
+        print(
+            f"  centerline_edges type: {type(self.centerline_edges)}, len: {len(self.centerline_edges)}"
+        )
+        print(
+            f"  search_circle_vertices type: {type(self.search_circle_vertices)}, shape: {self.search_circle_vertices.shape if hasattr(self.search_circle_vertices, 'shape') else 'N/A'}"
+        )
+        print(
+            f"  search_circle_edges type: {type(self.search_circle_edges)}, len: {len(self.search_circle_edges)}"
+        )
+
+        if len(self.centerline_vertices) > 0:
+            print(
+                f"  Centerline Bounds: X=[{self.centerline_vertices[:, 0].min():.1f}, {self.centerline_vertices[:, 0].max():.1f}], "
+                f"Y=[{self.centerline_vertices[:, 1].min():.1f}, {self.centerline_vertices[:, 1].max():.1f}], "
+                f"Z=[{self.centerline_vertices[:, 2].min():.1f}, {self.centerline_vertices[:, 2].max():.1f}]"
+            )
+        if len(self.vertices) > 0:
+            print(
+                f"  Mesh Bounds: X=[{self.vertices[:, 0].min():.1f}, {self.vertices[:, 0].max():.1f}], "
+                f"Y=[{self.vertices[:, 1].min():.1f}, {self.vertices[:, 1].max():.1f}], "
+                f"Z=[{self.vertices[:, 2].min():.1f}, {self.vertices[:, 2].max():.1f}]"
+            )
 
         self.faces_per_road = faces_per_road
         self.current_road = 0
         self.max_roads = max(1, len(self.road_faces) // faces_per_road)
         self.show_slopes = True
-        self.show_all = False
+        self.show_terrain = True
+        self.show_all = True
+        self.show_centerlines = False
         self.label_distance_threshold = label_distance_threshold
         self.label_max_points = label_max_points
         self.dolly_step = dolly_step
@@ -52,13 +105,15 @@ class RoadViewer:
         self.preselect_road_idx = preselect_road_idx
 
         print(
-            f"Gefunden: {len(self.vertices)} Vertices, {len(self.road_faces)} Road Faces, {len(self.slope_faces)} Slope Faces"
+            f"Gefunden: {len(self.vertices)} Vertices, {len(self.road_faces)} Road Faces, "
+            f"{len(self.slope_faces)} Slope Faces, {len(self.terrain_faces)} Terrain Faces"
         )
         print(f"Ca. {self.max_roads} Straßen (je {faces_per_road} Faces)")
         print("\nSteuerung:")
         print("  SPACE = Nächste Straße")
         print("  B = Vorherige Straße")
         print("  S = Toggle Slopes (Böschungen)")
+        print("  T = Toggle Terrain")
         print("  A = Toggle ALLE Straßen / Einzelne Straße")
         print("  Pfeil hoch/runter = Kamera vor/zurück (statt Zoom)")
         print("  L = Toggle Punkt-Labels an/aus")
@@ -69,6 +124,8 @@ class RoadViewer:
         self.plotter.add_key_event("space", self.next_road)
         self.plotter.add_key_event("b", self.prev_road)
         self.plotter.add_key_event("s", self.toggle_slopes)
+        self.plotter.add_key_event("t", self.toggle_terrain)
+        self.plotter.add_key_event("c", self.toggle_centerlines)
         self.plotter.add_key_event("a", self.toggle_show_all)
         self.plotter.add_key_event("Up", self.dolly_forward)
         self.plotter.add_key_event("Down", self.dolly_backward)
@@ -93,68 +150,216 @@ class RoadViewer:
 
         self.update_view()
 
-    def _parse_obj(self, obj_file):
+    def _parse_obj(self, obj_file, fallback_obj="roads.obj"):
         vertices = []
         road_faces = []
         slope_faces = []
+        terrain_faces = []
         road_face_to_idx = []
         current_material = None
         current_road_idx = None
 
-        with open(obj_file, "r", encoding="utf-8") as f:
-            for line in f:
-                if line.startswith("v "):
-                    parts = line.strip().split()
-                    vertices.append([float(parts[1]), float(parts[2]), float(parts[3])])
-                elif line.startswith("usemtl"):
-                    current_material = line.strip().split()[1].lower()
-                    # Versuche road-Index aus dem Materialnamen zu extrahieren (z.B. road_12)
-                    current_road_idx = None
-                    tokens = current_material.replace("-", "_").split("_")
-                    for t in tokens:
-                        if t.isdigit():
-                            current_road_idx = int(t)
-                            break
-                elif line.startswith("f "):
-                    parts = line.strip().split()[1:]
-                    face = [int(p.split("/")[0]) - 1 for p in parts]
-                    if current_material:
-                        if "slope" in current_material:
-                            slope_faces.append(face)
-                        elif "road" in current_material:
-                            road_faces.append(face)
-                            road_face_to_idx.append(current_road_idx)
-
-        if len(slope_faces) == 0:
+        # Versuche primär beamng.obj zu laden (unified mesh)
+        try:
+            with open(obj_file, "r", encoding="utf-8") as f:
+                for line in f:
+                    if line.startswith("v "):
+                        parts = line.strip().split()
+                        vertices.append(
+                            [float(parts[1]), float(parts[2]), float(parts[3])]
+                        )
+                    elif line.startswith("usemtl"):
+                        current_material = line.strip().split()[1].lower()
+                        # Versuche road-Index aus dem Materialnamen zu extrahieren (z.B. road_12)
+                        current_road_idx = None
+                        tokens = current_material.replace("-", "_").split("_")
+                        for t in tokens:
+                            if t.isdigit():
+                                current_road_idx = int(t)
+                                break
+                    elif line.startswith("f "):
+                        parts = line.strip().split()[1:]
+                        face = [int(p.split("/")[0]) - 1 for p in parts]
+                        if current_material:
+                            if "terrain" in current_material:
+                                terrain_faces.append(face)
+                            elif "slope" in current_material:
+                                slope_faces.append(face)
+                            elif "road" in current_material:
+                                road_faces.append(face)
+                                road_face_to_idx.append(current_road_idx)
+        except FileNotFoundError:
             print(
-                "Warnung: Keine slope*-Materialien gefunden. Prüfe 'usemtl' Namen im OBJ."
+                f"  Warnung: {obj_file} nicht gefunden. Nutze Fallback {fallback_obj}"
             )
+            # Fallback auf roads.obj
+            if fallback_obj:
+                try:
+                    with open(fallback_obj, "r", encoding="utf-8") as f:
+                        for line in f:
+                            if line.startswith("v "):
+                                parts = line.strip().split()
+                                vertices.append(
+                                    [float(parts[1]), float(parts[2]), float(parts[3])]
+                                )
+                            elif line.startswith("usemtl"):
+                                current_material = line.strip().split()[1].lower()
+                                current_road_idx = None
+                                tokens = current_material.replace("-", "_").split("_")
+                                for t in tokens:
+                                    if t.isdigit():
+                                        current_road_idx = int(t)
+                                        break
+                            elif line.startswith("f "):
+                                parts = line.strip().split()[1:]
+                                face = [int(p.split("/")[0]) - 1 for p in parts]
+                                if current_material:
+                                    if "terrain" in current_material:
+                                        terrain_faces.append(face)
+                                    elif "slope" in current_material:
+                                        slope_faces.append(face)
+                                    elif "road" in current_material:
+                                        road_faces.append(face)
+                                        road_face_to_idx.append(current_road_idx)
+                except FileNotFoundError:
+                    print(f"  Fehler: Weder {obj_file} noch {fallback_obj} gefunden!")
+                    raise
 
-        return np.array(vertices), road_faces, slope_faces, road_face_to_idx
+        if len(terrain_faces) == 0:
+            print("  Info: Keine Terrain-Faces gefunden (nutze ggf. terrain-only OBJ).")
+        if len(slope_faces) == 0:
+            print("  Info: Keine Slope-Faces gefunden.")
+
+        return (
+            np.array(vertices),
+            road_faces,
+            slope_faces,
+            terrain_faces,
+            road_face_to_idx,
+        )
+
+    def _load_centerlines(self, obj_file):
+        """Lade Centerline-Geometrie und Suchkreise direkt aus OBJ-Datei (bereits vom Generator erstellt)."""
+        centerline_vertices = []
+        centerline_edges = []
+        circle_vertices = []
+        circle_edges = []
+
+        current_material = None
+        all_vertices = []
+
+        try:
+            # Versuche verschiedene Encodings
+            for encoding in ["utf-8", "latin-1", "cp1252", "iso-8859-1"]:
+                try:
+                    with open(obj_file, "r", encoding=encoding) as f:
+                        for line in f:
+                            if line.startswith("usemtl "):
+                                current_material = line.strip().split()[1]
+                            elif line.startswith("v "):
+                                parts = line.strip().split()
+                                all_vertices.append(
+                                    [float(parts[1]), float(parts[2]), float(parts[3])]
+                                )
+                            elif line.startswith("l "):
+                                # Linie: "l v1 v2 v3 ..."
+                                parts = line.strip().split()[1:]
+                                indices = [int(p.split("/")[0]) - 1 for p in parts]
+                                for i in range(len(indices) - 1):
+                                    edge = [indices[i], indices[i + 1]]
+                                    if current_material == "centerline":
+                                        centerline_edges.append(edge)
+                                    elif current_material == "search_circle":
+                                        circle_edges.append(edge)
+
+                    if all_vertices:
+                        # Die OBJ enthält: erst Centerline-Vertices, dann Circle-Vertices
+                        # Finde den Split-Punkt basierend auf den Indizes
+                        if centerline_edges and circle_edges:
+                            max_centerline_idx = max(max(e) for e in centerline_edges)
+                            centerline_vertices = all_vertices[: max_centerline_idx + 1]
+                            circle_vertices = all_vertices[max_centerline_idx + 1 :]
+
+                            # Remap circle edges (offset entfernen)
+                            offset = max_centerline_idx + 1
+                            circle_edges = [
+                                [e[0] - offset, e[1] - offset] for e in circle_edges
+                            ]
+                        elif centerline_edges:
+                            centerline_vertices = all_vertices
+                            circle_vertices = []
+                        else:
+                            centerline_vertices = []
+                            circle_vertices = all_vertices
+
+                        print(
+                            f"  Centerlines geladen: {len(centerline_vertices)} Vertices, {len(centerline_edges)} Kanten"
+                        )
+                        print(
+                            f"  Suchkreise geladen: {len(circle_vertices)} Circle-Vertices, {len(circle_edges)} Circle-Edges"
+                        )
+                        return (
+                            np.array(centerline_vertices),
+                            centerline_edges,
+                            np.array(circle_vertices),
+                            circle_edges,
+                        )
+                except (UnicodeDecodeError, ValueError):
+                    continue
+
+            # Fallback: wenn alle Encodings fehlschlagen
+            print(f"  Warnung: {obj_file} konnte mit keinem Encoding gelesen werden.")
+            return np.array([]), [], np.array([]), []
+        except FileNotFoundError:
+            print(f"  Info: {obj_file} nicht gefunden. Keine Centerlines geladen.")
+            return np.array([]), [], np.array([]), []
+
+    def _create_search_circle(self, center, radius, num_segments=16):
+        """Erstelle Kreis-Vertices um einen Mittelpunkt (Projektion in XY-Ebene)."""
+        angles = np.linspace(0, 2 * np.pi, num_segments, endpoint=False)
+        circle_vertices = []
+        for angle in angles:
+            x = center[0] + radius * np.cos(angle)
+            y = center[1] + radius * np.sin(angle)
+            z = center[2]  # Gleiche Z wie Mittelpunkt
+            circle_vertices.append([x, y, z])
+        return circle_vertices
 
     def toggle_slopes(self):
         self.show_slopes = not self.show_slopes
         state = "AN" if self.show_slopes else "AUS"
         print(f"\nBöschungen: {state}")
-        self.update_view()
+        self.update_view(reset_camera=False)
+
+    def toggle_terrain(self):
+        self.show_terrain = not self.show_terrain
+        state = "AN" if self.show_terrain else "AUS"
+        print(f"\nTerrain: {state}")
+        self.update_view(reset_camera=False)
 
     def toggle_show_all(self):
         self.show_all = not self.show_all
         state = "ALLE" if self.show_all else "EINZELN"
         print(f"\nAnzeige-Modus: {state}")
-        self.update_view()
+        self.update_view(reset_camera=False)
 
     def toggle_labels(self):
         self.show_point_labels = not self.show_point_labels
         state = "AN" if self.show_point_labels else "AUS"
         print(f"\nPunkt-Labels: {state}")
-        self.update_view()
+        self.update_view(reset_camera=False)
 
     def toggle_road_idx_labels(self):
         self.show_road_idx_labels = not self.show_road_idx_labels
         state = "AN" if self.show_road_idx_labels else "AUS"
         print(f"\nroad_idx Labels: {state}")
-        self.update_view()
+        self.update_view(reset_camera=False)
+
+    def toggle_centerlines(self):
+        self.show_centerlines = not self.show_centerlines
+        state = "AN" if self.show_centerlines else "AUS"
+        print(f"\nCenterlines: {state}")
+        self.update_view(reset_camera=False)
 
     def next_road(self):
         self.current_road = min(self.current_road + 1, self.max_roads - 1)
@@ -203,9 +408,11 @@ class RoadViewer:
             end_face = len(self.road_faces)
             subset_road_faces = self.road_faces
             subset_slope_faces = self.slope_faces if self.show_slopes else []
+            subset_terrain_faces = self.terrain_faces if self.show_terrain else []
             current_road_idx = None
             print(
-                f"Zeige alle {len(subset_road_faces)} Road Faces und {len(subset_slope_faces)} Slope Faces..."
+                f"Zeige alle {len(subset_road_faces)} Road, {len(subset_slope_faces)} Slope, "
+                f"{len(subset_terrain_faces)} Terrain Faces..."
             )
         else:
             start_face = self.current_road * self.faces_per_road
@@ -232,6 +439,14 @@ class RoadViewer:
                 )
                 subset_slope_faces = self.slope_faces[slope_start:slope_end]
 
+            subset_terrain_faces = []
+            if self.show_terrain:
+                terrain_start = start_face * 10
+                terrain_end = min(
+                    terrain_start + self.faces_per_road * 10, len(self.terrain_faces)
+                )
+                subset_terrain_faces = self.terrain_faces[terrain_start:terrain_end]
+
         # Mapping für den aktuellen Ausschnitt (Road-Indices pro Face)
         if len(self.road_face_to_idx) > 0:
             face_indices = self.road_face_to_idx[
@@ -246,6 +461,10 @@ class RoadViewer:
         if len(subset_slope_faces) > 0:
             subset_slope_faces_array = np.array(subset_slope_faces)
             used_vertices.update(subset_slope_faces_array.flatten().tolist())
+
+        if len(subset_terrain_faces) > 0:
+            subset_terrain_faces_array = np.array(subset_terrain_faces)
+            used_vertices.update(subset_terrain_faces_array.flatten().tolist())
 
         used_vertices = np.array(sorted(used_vertices))
         vertex_map = {old: new for new, old in enumerate(used_vertices)}
@@ -267,6 +486,23 @@ class RoadViewer:
             line_width=2,
             label="Road",
         )
+
+        if self.show_terrain and len(subset_terrain_faces) > 0:
+            remapped_terrain_faces = np.array(
+                [[vertex_map[v] for v in face] for face in subset_terrain_faces]
+            )
+            pyvista_terrain_faces = np.hstack(
+                [[3] + face.tolist() for face in remapped_terrain_faces]
+            )
+            terrain_mesh = pv.PolyData(subset_points, pyvista_terrain_faces)
+
+            self.plotter.add_mesh(
+                terrain_mesh,
+                color="green",
+                show_edges=False,
+                opacity=0.5,
+                label="Terrain",
+            )
 
         if self.show_slopes and len(subset_slope_faces) > 0:
             remapped_slope_faces = np.array(
@@ -312,21 +548,158 @@ class RoadViewer:
                 )
 
         slopes_info = "ON" if self.show_slopes else "OFF"
+        terrain_info = "ON" if self.show_terrain else "OFF"
         mode_info = "ALLE" if self.show_all else f"{self.current_road}/{self.max_roads}"
         road_info = "ALLE" if self.show_all else f"road_idx ~ {current_road_idx}"
         label_state = "ON" if self.show_point_labels else "OFF"
         road_label_state = "ON" if self.show_road_idx_labels else "AUS"
+        centerlines_state = "ON" if self.show_centerlines else "OFF"
+
+        # Rendering von Centerlines
+        print(
+            f"[Update_View] Checking centerlines: show={self.show_centerlines}, vertices_len={len(self.centerline_vertices)}, edges_len={len(self.centerline_edges)}"
+        )
+        if (
+            self.show_centerlines
+            and len(self.centerline_vertices) > 0
+            and len(self.centerline_edges) > 0
+        ):
+            print(f"[Rendering] CENTERLINES TOGGLE AN")
+            print(
+                f"[Rendering] Centerlines: {len(self.centerline_vertices)} vertices, {len(self.centerline_edges)} edges"
+            )
+            try:
+                # Erstelle ein PolyData mit Linien direkt über das lines Property
+                centerline_mesh = pv.PolyData()
+                centerline_mesh.points = self.centerline_vertices
+
+                # Konvertiere edges zu PyVista line format: [2, idx0, idx1, 2, idx0, idx1, ...]
+                lines = np.hstack(
+                    [[2, edge[0], edge[1]] for edge in self.centerline_edges]
+                )
+                centerline_mesh.lines = lines
+
+                print(
+                    f"[Rendering] centerline_mesh created successfully: {centerline_mesh}"
+                )
+
+                self.plotter.add_mesh(
+                    centerline_mesh,
+                    color="magenta",
+                    line_width=6,  # Erhöht von 2 auf 6 - dicke Linien
+                    label="Centerlines",
+                )
+                print(f"[Rendering] Centerline mesh added to plotter")
+            except Exception as e:
+                print(f"[Rendering] ERROR beim Rendering von Centerlines: {e}")
+                import traceback
+
+                traceback.print_exc()
+
+            # Rendering von Suchkreisen (7m Buffer)
+            if (
+                len(self.search_circle_vertices) > 0
+                and len(self.search_circle_edges) > 0
+            ):
+                try:
+                    search_circle_mesh = pv.PolyData()
+                    search_circle_mesh.points = self.search_circle_vertices
+
+                    # Konvertiere edges zu PyVista line format
+                    lines = np.hstack(
+                        [[2, edge[0], edge[1]] for edge in self.search_circle_edges]
+                    )
+                    search_circle_mesh.lines = lines
+
+                    self.plotter.add_mesh(
+                        search_circle_mesh,
+                        color="cyan",
+                        line_width=2,  # Erhöht von 1 auf 2
+                        label="Search Radius (7m)",
+                    )
+                except Exception as e:
+                    print(f"[Rendering] ERROR bei Search-Circles: {e}")
+
         self.plotter.add_text(
-            f"Straße: {mode_info} | Slopes: {slopes_info} | {road_info} | Labels: {label_state} | road_idx: {road_label_state} | A=toggle all, SPACE=next, B=prev, S=slopes, L=labels, R=road_idx, Q=quit",
+            f"Straße: {mode_info} | Terrain: {terrain_info} | Slopes: {slopes_info} | Centerlines: {centerlines_state} | {road_info} | Labels: {label_state} | road_idx: {road_label_state} | A=all, SPACE=next, B=prev, S=slopes, T=terrain, C=centerlines, L=labels, R=road_idx, Q=quit",
             position="upper_left",
             font_size=10,
         )
         self.plotter.show_grid()
 
+        # Berechne Camera-Bounds inkl. Centerlines für korrektes Zoom
         center = subset_points.mean(axis=0)
+        bounds = [
+            subset_points[:, 0].min(),
+            subset_points[:, 0].max(),
+            subset_points[:, 1].min(),
+            subset_points[:, 1].max(),
+            subset_points[:, 2].min(),
+            subset_points[:, 2].max(),
+        ]
+        print(f"[Camera] Initial bounds from mesh: X[{bounds[0]:.1f}, {bounds[1]:.1f}]")
+
+        # Erweitere bounds um Centerlines (falls vorhanden)
+        if self.show_centerlines and len(self.centerline_vertices) > 0:
+            cl_bounds = [
+                self.centerline_vertices[:, 0].min(),
+                self.centerline_vertices[:, 0].max(),
+                self.centerline_vertices[:, 1].min(),
+                self.centerline_vertices[:, 1].max(),
+                self.centerline_vertices[:, 2].min(),
+                self.centerline_vertices[:, 2].max(),
+            ]
+            print(
+                f"[Camera] Centerlines bounds: X[{cl_bounds[0]:.1f}, {cl_bounds[1]:.1f}]"
+            )
+            bounds = [
+                min(bounds[0], cl_bounds[0]),
+                max(bounds[1], cl_bounds[1]),
+                min(bounds[2], cl_bounds[2]),
+                max(bounds[3], cl_bounds[3]),
+                min(bounds[4], cl_bounds[4]),
+                max(bounds[5], cl_bounds[5]),
+            ]
+            print(f"[Camera] Combined bounds: X[{bounds[0]:.1f}, {bounds[1]:.1f}]")
+            center = np.array(
+                [
+                    (bounds[0] + bounds[1]) / 2,
+                    (bounds[2] + bounds[3]) / 2,
+                    (bounds[4] + bounds[5]) / 2,
+                ]
+            )
+            print(f"[Camera] New center: {center}")
+
         if reset_camera:
+            print(f"[Camera] Setting focal_point to {center} and fitting bounds")
+            # Verwende fit_bounds statt reset_camera - das funktioniert besser mit großen Bereichen
+            # Füge Padding hinzu um sicherzustellen, dass alles sichtbar ist
+            padding = 50  # 50m Padding um alle Objekte
+            bounds_with_padding = [
+                bounds[0] - padding,
+                bounds[1] + padding,
+                bounds[2] - padding,
+                bounds[3] + padding,
+                bounds[4] - padding,
+                bounds[5] + padding,
+            ]
+            print(f"[Camera] Calling fit_bounds with: {bounds_with_padding}")
+            self.plotter.camera_position = None  # Reset first
+            self.plotter.view_isometric()  # Isometric view
+            # Setze camera basierend auf bounds
             self.plotter.camera.focal_point = center
-            self.plotter.reset_camera()
+            # Position ist wichtig: diagonal vom center weg
+            cam_dist = (
+                max(bounds[1] - bounds[0], bounds[3] - bounds[2], bounds[5] - bounds[4])
+                * 1.5
+            )  # 1.5x der größten Ausdehnung
+            self.plotter.camera.position = [
+                center[0] + cam_dist,
+                center[1] + cam_dist,
+                center[2] + cam_dist,
+            ]
+            print(f"[Camera] Camera position set to: {self.plotter.camera.position}")
+            print(f"[Camera] Camera focal_point: {self.plotter.camera.focal_point}")
 
         cam_pos = (
             np.array(self.plotter.camera.position) if self.plotter.camera else None
@@ -439,9 +812,10 @@ class RoadViewer:
 
 
 if __name__ == "__main__":
-    # Falls du direkt eine road_idx hervorheben willst, hier setzen
+    # Primär beamng.obj (unified mesh mit Terrain), Fallback auf roads.obj
     viewer = RoadViewer(
-        "roads.obj",
+        "beamng.obj",
+        fallback_obj="roads.obj",
         faces_per_road=10000,
         preselect_road_idx=84076071,
     )

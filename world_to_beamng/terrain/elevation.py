@@ -157,17 +157,24 @@ def get_elevations_for_points(pts, bbox, height_points, height_elevations):
     if missing_pts:
         print(f"  Interpoliere {len(missing_pts)} Höhenwerte...")
 
-        # Konvertiere WGS84 zu UTM
-        missing_pts_utm = []
+        # Konvertiere WGS84 zu UTM und dann zu lokal
+        from .. import config
+
+        missing_pts_local = []
         for pt in missing_pts:
             x, y = transformer_to_utm.transform(pt[1], pt[0])  # lon, lat -> x, y
-            missing_pts_utm.append([x, y])
+            # Transformiere zu lokalen Koordinaten
+            if config.LOCAL_OFFSET is not None:
+                ox, oy, oz = config.LOCAL_OFFSET
+                x -= ox
+                y -= oy
+            missing_pts_local.append([x, y])
 
-        missing_pts_utm = np.array(missing_pts_utm)
+        missing_pts_local = np.array(missing_pts_local)
 
         # Interpoliere Höhen (nearest neighbor für schnellere Berechnung)
         new_elevations = griddata(
-            height_points, height_elevations, missing_pts_utm, method="nearest"
+            height_points, height_elevations, missing_pts_local, method="nearest"
         )
 
         # Füge zum Cache hinzu

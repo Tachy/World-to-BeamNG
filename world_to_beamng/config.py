@@ -7,9 +7,16 @@ ROAD_WIDTH = 7.0
 # Minimale Böschungsbreite (Meter) unabhängig von Höhenunterschieden
 MIN_SLOPE_WIDTH = 2
 # Loch-Check schaltbar: False = kein Check/Export, True = Check + immer Export
-HOLE_CHECK_ENABLED = True
+HOLE_CHECK_ENABLED = False
 # Exportpfad für offene Kanten als OBJ (mit MTL), wenn HOLE_CHECK_ENABLED=True
 BOUNDARY_EDGES_EXPORT = "boundary_edges.obj"
+# Lochfüllung (Schritt 10b): Earcut-basierte Boundary-Loop-Triangulation
+ENABLE_HOLE_FILLING = (
+    False  # False = kein Loch-Fill, kein Cleanup (nur Fan-Stitching, das auch aus ist)
+)
+# Limitierungen für Lochfüllung (Earcut)
+HOLE_MAX_EDGE_LEN = 5.0  # Meter, Loops mit längerer Einzelkante werden ignoriert
+HOLE_MAX_AREA = 20000.0  # Quadratmeter, zu große Loops werden ignoriert
 SLOPE_ANGLE = 45.0  # Neigungswinkel der Böschung in Grad (45° = 1:1 Steigung)
 # Vorab-Reduktion über gröberes Grid (Strategie 2). Für feineres Terrain z.B. 1.0 setzen.
 GRID_SPACING = (
@@ -30,6 +37,12 @@ ROAD_SMOOTH_TENSION = (
     0.0  # Spline-Glättungsfaktor (0.0 = eng an Originalpunkten, 1.0 = sehr glatt)
 )
 
+# === CENTERLINE-SAMPLING / SUCHE ===
+CENTERLINE_SAMPLE_SPACING = (
+    10.0  # Abstand zwischen Sample-Punkten entlang der Centerline (m)
+)
+CENTERLINE_SEARCH_RADIUS = 10.0  # Suchradius um Centerline-Punkte (m)
+
 
 # === VERZEICHNISSE ===
 CACHE_DIR = "cache"  # Verzeichnis für Cache-Dateien
@@ -48,7 +61,7 @@ MAX_ROADS_PER_BATCH = 500
 # === GLOBALE ZUSTANDSVARIABLEN (werden in main() initialisiert) ===
 BBOX = None
 LOCAL_OFFSET = None  # Globaler Offset für lokale Koordinaten
-GRID_BOUNDS_UTM = None  # Grid Bounds in UTM
+GRID_BOUNDS_LOCAL = None  # Grid Bounds in lokalen Koordinaten
 
 # === OVERPASS API ENDPOINTS ===
 OVERPASS_ENDPOINTS = [

@@ -4,8 +4,6 @@ Terrain-Grid Mesh Generierung mit zentraler Vertex-Verwaltung.
 
 import numpy as np
 
-from ..geometry.coordinates import apply_local_offset
-
 
 def generate_full_grid_mesh(
     grid_points, modified_heights, vertex_types, nx, ny, vertex_manager, dedup=True
@@ -25,13 +23,9 @@ def generate_full_grid_mesh(
     """
     print("  Füge Grid-Vertices zum VertexManager hinzu...")
 
-    # Transformiere und füge alle Vertices hinzu
-    x_local, y_local, z_local = apply_local_offset(
-        grid_points[:, 0], grid_points[:, 1], modified_heights
-    )
-
+    # Grid-Punkte sind bereits in lokalen Koordinaten - keine Transformation mehr nötig!
     # Füge alle Vertices zum Manager hinzu und speichere Indices (vektorisiert)
-    coords = np.column_stack([x_local, y_local, z_local])
+    coords = np.column_stack([grid_points[:, 0], grid_points[:, 1], modified_heights])
 
     if not dedup:
         # Endphase: kein Dedup mehr nötig → schneller Append ohne Hash/KDTree

@@ -14,16 +14,16 @@ def create_terrain_grid(height_points, height_elevations, grid_spacing=10.0):
     """Erstellt ein reguläres Grid aus den Höhendaten (OPTIMIERT mit Caching)."""
     print(f"\nErstelle Terrain-Grid (Abstand: {grid_spacing}m)...")
 
-    # Finde Bounds in UTM (IMMER berechnen, auch für Cache-Fall!)
+    # Finde Bounds in lokalen Koordinaten (IMMER berechnen, auch für Cache-Fall!)
     min_x, max_x = height_points[:, 0].min(), height_points[:, 0].max()
     min_y, max_y = height_points[:, 1].min(), height_points[:, 1].max()
-    config.GRID_BOUNDS_UTM = (min_x, min_y, max_x, max_y)
+    config.GRID_BOUNDS_LOCAL = (min_x, min_y, max_x, max_y)
 
-    # Prüfe ob gecachtes Grid existiert
+    # Prüfe ob gecachtes Grid existiert (Version 2 für lokale Koordinaten!)
     height_hash = get_height_data_hash()
     if height_hash:
         cache_file = os.path.join(
-            config.CACHE_DIR, f"grid_{height_hash}_spacing{grid_spacing:.1f}m.npz"
+            config.CACHE_DIR, f"grid_v2_{height_hash}_spacing{grid_spacing:.1f}m.npz"
         )
 
         if os.path.exists(cache_file):
@@ -36,6 +36,9 @@ def create_terrain_grid(height_points, height_elevations, grid_spacing=10.0):
             print(
                 f"  ✓ Grid aus Cache geladen: {nx} x {ny} = {len(grid_points)} Vertices"
             )
+            # WICHTIG: Grid wurde in UTM gecacht, transformiere zu lokal!
+            # (height_points wurden bereits transformiert, min_x/min_y sind lokal)
+            # Wir müssen hier nichts tun - grid_points sind schon im gleichen System wie height_points
             return grid_points, grid_elevations, nx, ny
 
     # Erstelle Grid-Punkte
@@ -69,10 +72,10 @@ def create_terrain_grid(height_points, height_elevations, grid_spacing=10.0):
     ny = len(y_coords)
     print(f"  Grid: {nx} x {ny} = {len(grid_points)} Vertices")
 
-    # Cache das Grid für zukünftige Verwendung
+    # Cache das Grid für zukünftige Verwendung (Version 2 für lokale Koordinaten!)
     if height_hash:
         cache_file = os.path.join(
-            config.CACHE_DIR, f"grid_{height_hash}_spacing{grid_spacing:.1f}m.npz"
+            config.CACHE_DIR, f"grid_v2_{height_hash}_spacing{grid_spacing:.1f}m.npz"
         )
         print(f"  Speichere Grid-Cache: {os.path.basename(cache_file)}")
         os.makedirs(config.CACHE_DIR, exist_ok=True)

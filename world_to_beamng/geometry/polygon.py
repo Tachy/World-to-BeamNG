@@ -43,7 +43,17 @@ def get_road_polygons(roads, bbox, height_points, height_elevations):
     lons = np.array([c[1] for c in all_coords])
     xs, ys = transformer_to_utm.transform(lons, lats)
 
-    # Erstelle Straßen-Polygone
+    # Transformiere direkt in lokale Koordinaten
+    from .. import config
+
+    if config.LOCAL_OFFSET is not None:
+        ox, oy, oz = config.LOCAL_OFFSET
+        xs = xs - ox
+        ys = ys - oy
+        # Transformiere auch Z-Koordinaten!
+        all_elevations = [e - oz for e in all_elevations]
+
+    # Erstelle Straßen-Polygone (bereits in lokalen Koordinaten)
     for start_idx, end_idx, way in road_indices:
         utm_coords = [
             (xs[i], ys[i], all_elevations[i]) for i in range(start_idx, end_idx)
@@ -140,14 +150,13 @@ def smooth_roads_with_spline(road_polygons):
             continue
 
         # Sample gleichmäßig entlang der Kurve
+        # Stelle sicher, dass die Segmentlänge <= ROAD_SMOOTH_MAX_SEGMENT bleibt
+        # (n-1) Segmente pro Kurve, daher +1 Samples
         num_samples = max(
-            int(np.ceil(total_length / config.ROAD_SMOOTH_MAX_SEGMENT)),
             len(coords_array),
+            int(np.ceil(total_length / config.ROAD_SMOOTH_MAX_SEGMENT)) + 1,
+            2,
         )
-
-        # Limitiere auf vernünftige Anzahl
-        num_samples = min(num_samples, len(coords_array) * 2)
-        num_samples = max(num_samples, 2)
 
         # Gleichmäßig verteilte Parameter entlang der Kurve
         sample_params = np.linspace(0, total_length, num_samples)

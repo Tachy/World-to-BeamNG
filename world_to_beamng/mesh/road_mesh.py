@@ -119,12 +119,12 @@ def detect_t_junctions(road_polygons, snap_distance=5.0):
     return t_junctions
 
 
-def clip_road_to_bounds(coords, bounds_utm):
-    """Clippt eine Straße an den Grid-Bounds (UTM-Koordinaten)."""
-    if not coords or bounds_utm is None:
+def clip_road_to_bounds(coords, bounds_local):
+    """Clippt eine Straße an den Grid-Bounds (lokale Koordinaten)."""
+    if not coords or bounds_local is None:
         return coords
 
-    min_x, min_y, max_x, max_y = bounds_utm
+    min_x, min_y, max_x, max_y = bounds_local
     buffer = 0.0
     min_x -= buffer
     min_y -= buffer
@@ -243,14 +243,19 @@ def _process_road_batch(
         slope_left_outer_z = z_vals + height_diff_left
         slope_right_outer_z = z_vals + height_diff_right
 
-        left_local = _apply_offset(left_xy[:, 0], left_xy[:, 1], z_vals)
-        right_local = _apply_offset(right_xy[:, 0], right_xy[:, 1], z_vals)
+        # Keine Transformation mehr nötig - ALLE Koordinaten sind bereits lokal
+        left_local = (left_xy[:, 0], left_xy[:, 1], z_vals)
+        right_local = (right_xy[:, 0], right_xy[:, 1], z_vals)
 
-        slope_left_outer_local = _apply_offset(
-            slope_left_outer_xy[:, 0], slope_left_outer_xy[:, 1], slope_left_outer_z
+        slope_left_outer_local = (
+            slope_left_outer_xy[:, 0],
+            slope_left_outer_xy[:, 1],
+            slope_left_outer_z,
         )
-        slope_right_outer_local = _apply_offset(
-            slope_right_outer_xy[:, 0], slope_right_outer_xy[:, 1], slope_right_outer_z
+        slope_right_outer_local = (
+            slope_right_outer_xy[:, 0],
+            slope_right_outer_xy[:, 1],
+            slope_right_outer_z,
         )
 
         road_left_vertices = list(zip(left_local[0], left_local[1], left_local[2]))
@@ -270,21 +275,15 @@ def _process_road_batch(
             )
         )
 
-        road_left_abs = list(zip(left_xy[:, 0], left_xy[:, 1], z_vals))
-        road_right_abs = list(zip(right_xy[:, 0], right_xy[:, 1], z_vals))
-
-        road_left_2d = [(x, y) for x, y, z in road_left_abs]
-        road_right_2d = [(x, y) for x, y, z in road_right_abs]
+        # Verwende LOKALE Koordinaten für 2D-Polygone (nach Offset-Transformation)
+        road_left_2d = [(v[0], v[1]) for v in road_left_vertices]
+        road_right_2d = [(v[0], v[1]) for v in road_right_vertices]
         road_poly_2d = road_left_2d + list(reversed(road_right_2d))
 
         slope_left_2d = [(v[0], v[1]) for v in slope_left_outer_vertices]
         slope_right_2d = [(v[0], v[1]) for v in slope_right_outer_vertices]
-        slope_poly_2d = (
-            road_left_2d
-            + slope_left_2d
-            + list(reversed(slope_right_2d))
-            + list(reversed(road_right_2d))
-        )
+        # Korrigierte Reihenfolge: Außenkontur gegen Uhrzeigersinn
+        slope_poly_2d = slope_left_2d + list(reversed(slope_right_2d))
 
         left_start = len(batch_vertices)
         batch_vertices.extend(road_left_vertices)
@@ -351,7 +350,7 @@ def generate_road_mesh_strips(
     use_mp = config.USE_MULTIPROCESSING
     num_workers = config.NUM_WORKERS or None
     local_offset = config.LOCAL_OFFSET
-    grid_bounds = config.GRID_BOUNDS_UTM
+    grid_bounds = config.GRID_BOUNDS_LOCAL
 
     lookup_mode = (getattr(config, "HEIGHT_LOOKUP_MODE", "kdtree") or "kdtree").lower()
 
