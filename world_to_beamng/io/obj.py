@@ -461,7 +461,13 @@ def save_ebene1_roads(vertices, road_faces, road_face_to_idx):
     print(f"  [OK] ebene1.obj: Roads exportiert")
 
 
-def save_ebene2_centerlines_junctions(road_polygons, junctions, all_vertices=None):
+def save_ebene2_centerlines_junctions(
+    road_polygons,
+    junctions,
+    all_vertices=None,
+    remesh_boundaries=None,
+    radius_circles=None,
+):
     """
     Exportiert Centerlines + Junction-Points als ebene2.obj.
 
@@ -469,6 +475,7 @@ def save_ebene2_centerlines_junctions(road_polygons, junctions, all_vertices=Non
         road_polygons: Liste von Road-Dicts mit 'coords'
         junctions: Liste von Junction-Dicts mit 'position'
         all_vertices: Optional - Vertices aus VertexManager (für Konsistenz)
+        remesh_boundaries: Optional Liste von Boundary-Pfaden (Nx3) für Debug
     """
     filename = "ebene2.obj"
     mtl_filename = "ebene2.mtl"
@@ -496,6 +503,32 @@ def save_ebene2_centerlines_junctions(road_polygons, junctions, all_vertices=Non
     junction_offset = len(centerline_vertices)
     junction_vertices = []
     junction_labels = []
+
+    # Remesh-Boundaries (optional) als Linienzug
+    remesh_boundaries = remesh_boundaries or []
+    boundary_vertices = []
+    boundary_edges = []
+
+    # Mehrere Search-Radius-Kreise (optional)
+    # radius_circles: Liste von Dicts {"junction_idx": int|None, "circle": [[x,y,z], ...]}
+    radius_circles = radius_circles or []
+    radius_circle_vertices = []  # flache Liste aller Kreis-Punkte
+    radius_circle_edges = []
+
+    # Fallback: wenn keine Kreise übergeben, versuche letzten Debug-Kreis aus remesh_debug_data.json zu laden
+    if not radius_circles:
+        try:
+            import json
+            import os
+
+            if os.path.exists("remesh_debug_data.json"):
+                with open("remesh_debug_data.json", "r") as debug_f:
+                    debug_data = json.load(debug_f)
+                    circle = debug_data.get("search_radius_circle")
+                    if circle:
+                        radius_circles.append({"junction_idx": None, "circle": circle})
+        except Exception:
+            pass  # Ignoriere Fehler beim Laden
 
     for idx, junction in enumerate(junctions):
         pos = junction.get("position", junction.get("pos", None))
@@ -528,6 +561,22 @@ def save_ebene2_centerlines_junctions(road_polygons, junctions, all_vertices=Non
         f.write("d 1.0\n")
         f.write("illum 2\n\n")
 
+        # Material für Remesh-Boundaries (blau)
+        f.write("newmtl remesh_boundary\n")
+        f.write("Ka 0.0 0.0 0.6\n")
+        f.write("Kd 0.0 0.0 1.0\n")
+        f.write("Ks 0.2 0.2 0.2\n")
+        f.write("d 1.0\n")
+        f.write("illum 2\n\n")
+
+        # Material für Search-Radius-Kreis (gelb)
+        f.write("newmtl search_radius\n")
+        f.write("Ka 0.6 0.6 0.0\n")
+        f.write("Kd 1.0 1.0 0.0\n")
+        f.write("Ks 0.2 0.2 0.2\n")
+        f.write("d 1.0\n")
+        f.write("illum 2\n\n")
+
     # Schreibe OBJ-Datei
     with open(filename, "w") as f:
         f.write("# ebene2.obj - Centerlines + Junction Points\n")
@@ -540,6 +589,40 @@ def save_ebene2_centerlines_junctions(road_polygons, junctions, all_vertices=Non
         # Junction-Vertices
         for i, v in enumerate(junction_vertices):
             f.write(f"v {v[0]:.3f} {v[1]:.3f} {v[2]:.3f}\n")
+
+        # Boundary-Vertices (optional)
+        if remesh_boundaries:
+            boundary_vertex_offset = len(centerline_vertices) + len(junction_vertices)
+            for path in remesh_boundaries:
+                start_idx = boundary_vertex_offset + len(boundary_vertices)
+                path_list = np.asarray(path, dtype=float)
+                boundary_vertices.extend(path_list.tolist())
+                n = len(path_list)
+                if n >= 2:
+                    for i in range(n):
+                        v1 = start_idx + i
+                        v2 = start_idx + (i + 1) % n
+                        boundary_edges.append([v1, v2])
+            for v in boundary_vertices:
+                f.write(f"v {v[0]:.3f} {v[1]:.3f} {v[2]:.3f}\n")
+
+        # Radius-Kreis-Vertices (optional, mehrere)
+        radius_circle_offset = (
+            len(centerline_vertices) + len(junction_vertices) + len(boundary_vertices)
+        )
+        if radius_circles:
+            for circle_entry in radius_circles:
+                circle = circle_entry.get("circle", [])
+                start_idx = radius_circle_offset + len(radius_circle_vertices)
+                for v in circle:
+                    f.write(f"v {v[0]:.3f} {v[1]:.3f} {v[2]:.3f}\n")
+                n_circle = len(circle)
+                if n_circle >= 2:
+                    for i in range(n_circle):
+                        v1 = start_idx + i
+                        v2 = start_idx + (i + 1) % n_circle
+                        radius_circle_edges.append([v1, v2])
+                radius_circle_vertices.extend(circle)
 
         f.write("\n")
 
@@ -561,6 +644,18 @@ def save_ebene2_centerlines_junctions(road_polygons, junctions, all_vertices=Non
             vertex_idx = junction_offset + i + 1  # 1-basiert
             # Label-Kommentar wird vom mesh_viewer geparst und als Text-Label angezeigt
             f.write(f"p {vertex_idx}  # Junction {label}\n")
+
+        # Boundary-Linien (blau)
+        if boundary_edges:
+            f.write("\nusemtl remesh_boundary\n")
+            for edge in boundary_edges:
+                f.write(f"l {edge[0] + 1} {edge[1] + 1}\n")
+
+        # Radius-Kreis (gelb)
+        if radius_circle_edges:
+            f.write("\nusemtl search_radius\n")
+            for edge in radius_circle_edges:
+                f.write(f"l {edge[0] + 1} {edge[1] + 1}\n")
 
     print(
         f"  [OK] {filename}: {len(centerline_vertices)} centerline vertices, "

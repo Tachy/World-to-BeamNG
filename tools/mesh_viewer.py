@@ -97,8 +97,12 @@ class MeshViewer:
 
         # Auto-Reload Support
         self.obj_file = obj_file
-        self.last_modification_time = os.path.getmtime(obj_file) if os.path.exists(obj_file) else 0
-        self.last_file_size = os.path.getsize(obj_file) if os.path.exists(obj_file) else 0
+        self.last_modification_time = (
+            os.path.getmtime(obj_file) if os.path.exists(obj_file) else 0
+        )
+        self.last_file_size = (
+            os.path.getsize(obj_file) if os.path.exists(obj_file) else 0
+        )
         self.auto_reload_enabled = True
         self.file_changed = False
         self.reload_lock = threading.Lock()
@@ -256,91 +260,92 @@ class MeshViewer:
             print(f"\nDebug-Ebene {layer_name} nicht gefunden")
 
     def _parse_obj(self, obj_file, fallback_obj="roads.obj"):
-        """Parse OBJ file and extract vertices, faces, etc."""
-        vertices = []
-        road_faces = []
-        slope_faces = []
-        terrain_faces = []
-        junction_faces = []
-        road_face_to_idx = []
-        current_material = None
-        current_road_idx = None
+        """Parse OBJ file and extract vertices, faces, etc. (optimized read)."""
 
-        # Versuche primär beamng.obj zu laden (unified mesh)
-        try:
-            with open(obj_file, "r", encoding="utf-8") as f:
+        def parse_file(path):
+            vertices = []
+            road_faces = []
+            slope_faces = []
+            terrain_faces = []
+            junction_faces = []
+            road_face_to_idx = []
+            current_material = None
+            current_road_idx = None
+
+            with open(path, "r", encoding="utf-8", buffering=32 * 1024 * 1024) as f:
                 for line in f:
-                    if line.startswith("v "):
-                        parts = line.strip().split()
+                    if not line:
+                        continue
+                    prefix = line[0]
+                    if prefix == "v" and line.startswith("v "):
+                        parts = line.split()
                         vertices.append(
-                            [float(parts[1]), float(parts[2]), float(parts[3])]
+                            (float(parts[1]), float(parts[2]), float(parts[3]))
                         )
-                    elif line.startswith("usemtl"):
-                        current_material = line.strip().split()[1].lower()
-                        # Versuche road-Index aus dem Materialnamen zu extrahieren (z.B. road_12)
+                        continue
+
+                    if prefix == "u" and line.startswith("usemtl"):
+                        current_material = line.split()[1].lower()
                         current_road_idx = None
                         tokens = current_material.replace("-", "_").split("_")
                         for t in tokens:
                             if t.isdigit():
                                 current_road_idx = int(t)
                                 break
-                    elif line.startswith("f "):
-                        parts = line.strip().split()[1:]
-                        face = [int(p.split("/")[0]) - 1 for p in parts]
-                        if current_material:
-                            if "terrain" in current_material:
-                                terrain_faces.append(face)
-                            elif "slope" in current_material:
-                                slope_faces.append(face)
-                            elif (
-                                "junction" in current_material
-                                or "quad" in current_material
-                            ):
-                                junction_faces.append(face)
-                            elif "road" in current_material:
-                                road_faces.append(face)
-                                road_face_to_idx.append(current_road_idx)
+                        continue
+
+                    if prefix != "f" or not line.startswith("f "):
+                        continue
+
+                    parts = line.split()[1:]
+                    face = [int(p.split("/")[0]) - 1 for p in parts]
+
+                    if current_material:
+                        if "terrain" in current_material:
+                            terrain_faces.append(face)
+                        elif "slope" in current_material:
+                            slope_faces.append(face)
+                        elif (
+                            "junction" in current_material or "quad" in current_material
+                        ):
+                            junction_faces.append(face)
+                        elif "road" in current_material:
+                            road_faces.append(face)
+                            road_face_to_idx.append(current_road_idx)
+
+            return (
+                vertices,
+                road_faces,
+                slope_faces,
+                terrain_faces,
+                junction_faces,
+                road_face_to_idx,
+            )
+
+        try:
+            (
+                vertices,
+                road_faces,
+                slope_faces,
+                terrain_faces,
+                junction_faces,
+                road_face_to_idx,
+            ) = parse_file(obj_file)
         except FileNotFoundError:
             print(
                 f"  Warnung: {obj_file} nicht gefunden. Nutze Fallback {fallback_obj}"
             )
-            # Fallback auf roads.obj
             if fallback_obj:
-                try:
-                    with open(fallback_obj, "r", encoding="utf-8") as f:
-                        for line in f:
-                            if line.startswith("v "):
-                                parts = line.strip().split()
-                                vertices.append(
-                                    [float(parts[1]), float(parts[2]), float(parts[3])]
-                                )
-                            elif line.startswith("usemtl"):
-                                current_material = line.strip().split()[1].lower()
-                                current_road_idx = None
-                                tokens = current_material.replace("-", "_").split("_")
-                                for t in tokens:
-                                    if t.isdigit():
-                                        current_road_idx = int(t)
-                                        break
-                            elif line.startswith("f "):
-                                parts = line.strip().split()[1:]
-                                face = [int(p.split("/")[0]) - 1 for p in parts]
-                                if current_material:
-                                    if "terrain" in current_material:
-                                        terrain_faces.append(face)
-                                    elif "slope" in current_material:
-                                        slope_faces.append(face)
-                                    elif (
-                                        "junction" in current_material
-                                        or "quad" in current_material
-                                    ):
-                                        junction_faces.append(face)
-                                    elif "road" in current_material:
-                                        road_faces.append(face)
-                                        road_face_to_idx.append(current_road_idx)
-                except FileNotFoundError:
-                    print(f"  Fehler: Weder {obj_file} noch {fallback_obj} gefunden!")
-                    raise
+                (
+                    vertices,
+                    road_faces,
+                    slope_faces,
+                    terrain_faces,
+                    junction_faces,
+                    road_face_to_idx,
+                ) = parse_file(fallback_obj)
+            else:
+                raise
 
         if len(terrain_faces) == 0:
             print("  Info: Keine Terrain-Faces gefunden (nutze ggf. terrain-only OBJ).")
@@ -349,12 +354,20 @@ class MeshViewer:
         if len(junction_faces) > 0:
             print(f"  Info: {len(junction_faces)} Junction-Quad-Faces gefunden!")
 
+        # Konvertiere zu NumPy für spätere schnelle Remaps
+        vertex_array = np.asarray(vertices, dtype=np.float32)
+        road_faces = np.asarray(road_faces, dtype=np.int32)
+        slope_faces = np.asarray(slope_faces, dtype=np.int32)
+        terrain_faces = np.asarray(terrain_faces, dtype=np.int32)
+        junction_faces = np.asarray(junction_faces, dtype=np.int32)
+        road_face_to_idx = list(road_face_to_idx)
+
         return (
-            np.array(vertices),
-            road_faces,
-            slope_faces,
-            terrain_faces,
-            junction_faces,
+            vertex_array,
+            road_faces.tolist(),
+            slope_faces.tolist(),
+            terrain_faces.tolist(),
+            junction_faces.tolist(),
             road_face_to_idx,
         )
 
@@ -815,52 +828,79 @@ class MeshViewer:
         """Starte Viewer mit Auto-Reload bei Dateiänderung"""
         # Starte File-Watcher Thread
         if self.auto_reload_enabled:
-            self.watcher_thread = threading.Thread(target=self._file_watcher, daemon=True)
+            self.watcher_thread = threading.Thread(
+                target=self._file_watcher, daemon=True
+            )
             self.watcher_thread.start()
             print("[Auto-Reload] Überwache beamng.obj auf Änderungen...")
-        
+
+        # Periodischer Callback im Render-Loop zum Reload (Hauptthread)
+        if self.auto_reload_enabled:
+            try:
+                self.plotter.add_callback(self.reload_obj_file, interval=1.0)
+            except Exception:
+                pass
+
         # Starte Hauptschleife (ohne interactive_update - nicht unterstützt)
         try:
             self.plotter.show()
         except Exception as e:
             print(f"[FEHLER] PyVista show() ist fehlgeschlagen: {e}")
             import traceback
+
             traceback.print_exc()
 
     def _file_watcher(self):
         """Background Thread: Überwache OBJ-Datei auf Änderungen"""
-        size_stable_count = 0
-        last_checked_size = self.last_file_size
-        
+        pending_mtime = None
+        pending_size = None
+        pending_since = None
+
         while self.auto_reload_enabled:
             try:
                 if not os.path.exists(self.obj_file):
                     time.sleep(1)
                     size_stable_count = 0
                     continue
-                
+
                 current_mtime = os.path.getmtime(self.obj_file)
                 current_size = os.path.getsize(self.obj_file)
-                
-                # Datei hat sich geändert
+
+                # Neue Schreibaktivität erkannt -> Timer neu starten
                 if current_mtime > self.last_modification_time:
-                    # Prüfe ob Dateigröße stabil ist (2x hintereinander gleich)
-                    if current_size == last_checked_size:
-                        size_stable_count += 1
-                    else:
-                        size_stable_count = 0
-                    
-                    last_checked_size = current_size
-                    
-                    # Erst reloaden wenn Dateigröße 2x stabil ist (~2 Sekunden)
-                    if size_stable_count >= 2:
+                    if (
+                        pending_mtime is None
+                        or current_mtime != pending_mtime
+                        or current_size != pending_size
+                    ):
+                        pending_mtime = current_mtime
+                        pending_size = current_size
+                        pending_since = time.time()
+
+                # Wenn eine Änderung ansteht: warte 3 Sekunden Stabilität (mtime+size)
+                if pending_mtime is not None:
+                    still_same = (
+                        os.path.getmtime(self.obj_file) == pending_mtime
+                        and os.path.getsize(self.obj_file) == pending_size
+                    )
+
+                    if still_same and (time.time() - pending_since) >= 3.0:
                         with self.reload_lock:
                             self.file_changed = True
-                        self.last_modification_time = current_mtime
-                        self.last_file_size = current_size
-                        print(f"\n[Auto-Reload] {self.obj_file} fertig geschrieben ({current_size/1e6:.1f} MB)")
-                        size_stable_count = 0
-                
+                        self.last_modification_time = pending_mtime
+                        self.last_file_size = pending_size
+                        print(
+                            f"\n[Auto-Reload] {self.obj_file} fertig geschrieben ({pending_size/1e6:.1f} MB)"
+                        )
+                        pending_mtime = None
+                        pending_size = None
+                        pending_since = None
+                    elif not still_same:
+                        # Datei schreibt weiter -> Timer neu starten
+                        pending_mtime = os.path.getmtime(self.obj_file)
+                        pending_size = os.path.getsize(self.obj_file)
+                        pending_since = time.time()
+
                 # Prüfe jede Sekunde
                 time.sleep(1)
             except Exception as e:
@@ -870,15 +910,15 @@ class MeshViewer:
         """Lade OBJ-Datei neu (wird periodisch aufgerufen)"""
         if not self.file_changed:
             return False
-        
+
         with self.reload_lock:
             if not self.file_changed:
                 return False
             self.file_changed = False
-        
+
         try:
             print(f"  [Lade neu...] {self.obj_file}")
-            
+
             # Speichere aktuelle Kameraposition (sicher)
             camera_pos = None
             camera_focal = None
@@ -889,7 +929,7 @@ class MeshViewer:
                 camera_up = self.plotter.camera.up_vector
             except:
                 pass  # Kamera-Info nicht verfügbar
-            
+
             # Lade OBJ neu
             (
                 self.vertices,
@@ -899,12 +939,14 @@ class MeshViewer:
                 self.junction_faces,
                 self.road_face_to_idx,
             ) = self._parse_obj(self.obj_file, "roads.obj")
-            
-            print(f"  ✓ Neu geladen: {len(self.vertices)} Vertices, {len(self.road_faces)} Faces")
-            
+
+            print(
+                f"  ✓ Neu geladen: {len(self.vertices)} Vertices, {len(self.road_faces)} Faces"
+            )
+
             # Update View
             self.update_view(reset_camera=False)
-            
+
             # Stelle Kameraposition wieder her (sicher)
             if camera_pos is not None:
                 try:
@@ -914,12 +956,13 @@ class MeshViewer:
                     print(f"  ✓ Kamera-Position beibehalten")
                 except:
                     pass  # Kamera-Restore fehlgeschlagen
-            
+
             return True
-            
+
         except Exception as e:
             print(f"  ✗ Fehler beim Reload: {e}")
             import traceback
+
             traceback.print_exc()
             return False
 

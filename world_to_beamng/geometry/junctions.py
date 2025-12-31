@@ -231,7 +231,6 @@ def detect_junctions_in_centerlines(road_polygons):
     # ---- Zusätzliche Erkennung: Endpoint auf durchgehender Centerline (T-Junction) ----
     # Erkennt Punkte, bei denen ein Endpoint auf der Mittellinie einer anderen Straße endet
     # (typisch für T-Junctions mit durchgehender Straße).
-    print("  [DEBUG] T-Junction-Erkennung (Endpoint auf Linie)...")
     t_search_radius = 10.0  # Meter - breite Vorauswahl mit KDTree
     t_line_tol = 0.5  # Meter - Toleranz für Punkt-zu-Linie Entfernung (50cm)
     merge_tol = 1.0  # Zusammenführungs-Toleranz zu bestehenden Junctions (1.0m)
@@ -248,15 +247,9 @@ def detect_junctions_in_centerlines(road_polygons):
             line_points_xy.append([coord[0], coord[1]])
 
     if not line_points_xy:
-        print("    -> Keine Linienpunkte für T-Junction-Suche")
+        pass
     else:
         line_kdtree = cKDTree(np.array(line_points_xy))
-        print(
-            f"    -> Prüfe {len(endpoints)} Endpunkte gegen {len(all_line_points)} Linienpunkte..."
-        )
-        print(
-            f"       (KDTree-Vorauswahl: {t_search_radius}m, Punkt-zu-Linie-Filter: {t_line_tol}m)"
-        )
 
         t_count = 0
 

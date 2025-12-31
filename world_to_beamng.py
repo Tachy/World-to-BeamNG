@@ -47,16 +47,8 @@ from world_to_beamng.mesh.junction_remesh import (
 from world_to_beamng.geometry.junction_geometry import (
     truncate_roads_at_junctions,
 )
-from world_to_beamng.geometry.junction_vertices import (
-    extract_junction_vertices_from_mesh,
-)
-from world_to_beamng.geometry.junction_connectors import (
-    build_junction_connectors,
-    connectors_to_faces,
-)
 from world_to_beamng.geometry.vertices import classify_grid_vertices
 from world_to_beamng.mesh.road_mesh import generate_road_mesh_strips
-from world_to_beamng.mesh.junction_mesh import add_junction_polygons_to_mesh
 from world_to_beamng.mesh.vertex_manager import VertexManager
 from world_to_beamng.mesh.terrain_mesh import generate_full_grid_mesh
 from world_to_beamng.mesh.cleanup import cleanup_duplicate_faces
@@ -459,6 +451,12 @@ def main():
         road_polygons, height_points, height_elevations, vertex_manager
     )
 
+    # TEMP: Böschungs-Generierung deaktiviert bis Remeshing stabil ist
+    slope_faces = []
+    print(
+        "  [TEMP] Boeschungen sind voruebergehend deaktiviert (werden spaeter angepasst)"
+    )
+
     # Initialisiere Combined-Lists für spätere Verwendung
     combined_junction_faces = []
 
@@ -473,46 +471,72 @@ def main():
     # ===== SCHRITT 7x: Junction Remeshing (ersetzt 7a-7e komplett) =====
     print("\n[7x] Junction Remeshing mit lokaler Delaunay-Triangulation...")
     step_start = time.time()
-    
-    # Sammle Vertices/Faces einmalig
-    all_vertices = vertex_manager.get_array()
-    all_faces = np.array(road_faces, dtype=np.int32) if len(road_faces) > 0 else np.array([], dtype=np.int32).reshape(0, 3)
-    
-    # Filter: Nur Junction 491 für Testing
-    test_junction_idx = 491
+
+    remesh_boundaries = []
+    remesh_radius_circles = []
     remesh_stats = {"success": 0, "failed": 0}
-    
-    print(f"  [TEST] Remesh nur Junction {test_junction_idx}...")
-    
-    if test_junction_idx < len(junctions):
-        junction = junctions[test_junction_idx]
-        
-        result = remesh_single_junction(
-            test_junction_idx,
-            junction,
-            all_vertices,
-            all_faces,
-            vertex_manager
+
+    # Remeshe Junctions mit mindestens drei Centerline-Verbindungen
+    # Zähle Verbindungstypen: 'mid' zählt als 2 Richtungen, sonst Anzahl der Einträge
+    def _connection_count(j):
+        ct = j.get("connection_types", {}) or {}
+        count = 0
+        for types in ct.values():
+            if "mid" in types:
+                count += 2
+            else:
+                count += len(types)
+        # Fallback: wenn keine connection_types hinterlegt, nutze road_indices-Länge
+        if count == 0:
+            count = len(j.get("road_indices", []))
+        return count
+
+    remesh_candidates = [
+        (idx, j) for idx, j in enumerate(junctions) if _connection_count(j) >= 3
+    ]
+
+    for junction_idx, junction in remesh_candidates:
+        # Nutze jeweils den aktuellen Stand von Vertices/Faces
+        all_vertices = vertex_manager.get_array()
+        all_faces = (
+            np.array(road_faces, dtype=np.int32)
+            if len(road_faces) > 0
+            else np.array([], dtype=np.int32).reshape(0, 3)
         )
-        
+
+        result = remesh_single_junction(
+            junction_idx, junction, all_vertices, all_faces, vertex_manager
+        )
+
         if result is not None and result["success"]:
+            faces_to_remove = result.get("faces_to_remove", [])
+            if faces_to_remove:
+                keep_mask = np.ones(len(road_faces), dtype=bool)
+                keep_mask[faces_to_remove] = False
+                removed_before = len(road_faces)
+                road_faces = [f for i, f in enumerate(road_faces) if keep_mask[i]]
+                road_face_to_idx = [
+                    rid for i, rid in enumerate(road_face_to_idx) if keep_mask[i]
+                ]
+                removed_count = removed_before - len(road_faces)
+
             # Integriere neue Faces
             road_faces.extend(result["new_faces"])
+            road_face_to_idx.extend([-1] * len(result["new_faces"]))
             remesh_stats["success"] += 1
-            
-            print(f"  [OK] Junction {test_junction_idx} remeshed:")
-            print(f"    - {result['new_vertices_count']} neue Vertices")
-            print(f"    - {result['new_faces_count']} neue Faces")
-            print(f"    - Alte Umgebung: {result['nearby_vertices']} Vertices, {result['nearby_faces']} Faces")
+            boundary_coords = result.get("boundary_coords_3d")
+            if boundary_coords is not None:
+                remesh_boundaries.append(boundary_coords)
+
+            circle = result.get("search_radius_circle")
+            if circle:
+                remesh_radius_circles.append({"junction_idx": junction_idx, "circle": circle})
         else:
             remesh_stats["failed"] += 1
-            print(f"  [FEHLER] Junction {test_junction_idx} remesh fehlgeschlagen")
-    else:
-        print(f"  [FEHLER] Junction {test_junction_idx} existiert nicht")
-    
-    print(f"  [OK] Remeshing abgeschlossen: {remesh_stats['success']} erfolg, {remesh_stats['failed']} fehler")
-    print(f"    Neue Gesamt-Faces in road_faces: {len(road_faces)}")
-    
+            print(f"  [FEHLER] Junction {junction_idx} remesh fehlgeschlagen")
+
+
+
     timings["7x_Junction_Remesh"] = time.time() - step_start
 
     # ===== SCHRITT 7a-7e: ÜBERSPRUNGEN (neuer Algorithmus in Planung) =====
@@ -666,8 +690,8 @@ def main():
     print(f"  [OK] CCW-Orientierung sichergestellt")
     timings["9a_CCW_Normalization"] = time.time() - step_start
 
-    # ===== SCHRITT 9b: Stitching zwischen Terrain und Böschungen =====
-    if config.HOLE_CHECK_ENABLED:
+    # ===== SCHRITT 9b: Stiching zwischen Terrain und Böschungen =====
+    if config.HOLE_CHECK_ENABLED and len(slope_faces) > 0:
         step_start = time.time()
         print("\n[9b] Fuelle Luecken zwischen Terrain und Boeschungen (Stitching)...")
         stitch_faces = stitch_terrain_gaps(
@@ -682,7 +706,12 @@ def main():
         print(f"  [OK] {len(stitch_faces)} Stitch-Faces hinzugefuegt")
         timings["9b_Terrain_Stitching"] = time.time() - step_start
     else:
-        print("\n[9b] Stitching SKIP (HOLE_CHECK_ENABLED=False)")
+        reason = (
+            "HOLE_CHECK_ENABLED=False"
+            if not config.HOLE_CHECK_ENABLED
+            else "Boeschungen deaktiviert"
+        )
+        print(f"\n[9b] Stitching SKIP ({reason})")
         timings["9b_Terrain_Stitching"] = 0.0
 
     # ===== SCHRITT 10: Hole finale Vertex-Daten =====
@@ -780,12 +809,14 @@ def main():
     print(f"  Schreibe ebene2.obj (Centerlines + Junction-Points)...")
     # Nutze die unkürzten Centerlines aus dem Backup für Debug-Layer
     # Koordinaten sind bereits in polygon.py transformiert (UTM -> Local, einmalig!)
-    save_ebene2_centerlines_junctions(road_polygons_full, junctions)
+    save_ebene2_centerlines_junctions(
+        road_polygons_full,
+        junctions,
+        remesh_boundaries=remesh_boundaries,
+        radius_circles=remesh_radius_circles,
+    )
 
     export_start = time.time()
-    print(
-        f"  DEBUG: Übergebe junction_faces_final mit {len(junction_faces_final)} Faces zu save_unified_obj..."
-    )
     save_unified_obj(
         output_obj,
         all_vertices_combined,
