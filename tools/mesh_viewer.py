@@ -18,6 +18,8 @@ import numpy as np
 import os
 import glob
 import sys
+import time
+import threading
 
 # Füge Parent-Verzeichnis zum Path hinzu für world_to_beamng import
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -92,6 +94,15 @@ class MeshViewer:
         self.current_label_ridx = None
         self.label_click_px_tol = label_click_px_tol
         self.preselect_road_idx = preselect_road_idx
+
+        # Auto-Reload Support
+        self.obj_file = obj_file
+        self.last_modification_time = os.path.getmtime(obj_file) if os.path.exists(obj_file) else 0
+        self.last_file_size = os.path.getsize(obj_file) if os.path.exists(obj_file) else 0
+        self.auto_reload_enabled = True
+        self.file_changed = False
+        self.reload_lock = threading.Lock()
+        self.watcher_thread = None
 
         print(
             f"Gefunden: {len(self.vertices)} Vertices, {len(self.road_faces)} Road Faces, "
@@ -801,7 +812,116 @@ class MeshViewer:
         self.plotter.render()
 
     def show(self):
-        self.plotter.show()
+        """Starte Viewer mit Auto-Reload bei Dateiänderung"""
+        # Starte File-Watcher Thread
+        if self.auto_reload_enabled:
+            self.watcher_thread = threading.Thread(target=self._file_watcher, daemon=True)
+            self.watcher_thread.start()
+            print("[Auto-Reload] Überwache beamng.obj auf Änderungen...")
+        
+        # Starte Hauptschleife (ohne interactive_update - nicht unterstützt)
+        try:
+            self.plotter.show()
+        except Exception as e:
+            print(f"[FEHLER] PyVista show() ist fehlgeschlagen: {e}")
+            import traceback
+            traceback.print_exc()
+
+    def _file_watcher(self):
+        """Background Thread: Überwache OBJ-Datei auf Änderungen"""
+        size_stable_count = 0
+        last_checked_size = self.last_file_size
+        
+        while self.auto_reload_enabled:
+            try:
+                if not os.path.exists(self.obj_file):
+                    time.sleep(1)
+                    size_stable_count = 0
+                    continue
+                
+                current_mtime = os.path.getmtime(self.obj_file)
+                current_size = os.path.getsize(self.obj_file)
+                
+                # Datei hat sich geändert
+                if current_mtime > self.last_modification_time:
+                    # Prüfe ob Dateigröße stabil ist (2x hintereinander gleich)
+                    if current_size == last_checked_size:
+                        size_stable_count += 1
+                    else:
+                        size_stable_count = 0
+                    
+                    last_checked_size = current_size
+                    
+                    # Erst reloaden wenn Dateigröße 2x stabil ist (~2 Sekunden)
+                    if size_stable_count >= 2:
+                        with self.reload_lock:
+                            self.file_changed = True
+                        self.last_modification_time = current_mtime
+                        self.last_file_size = current_size
+                        print(f"\n[Auto-Reload] {self.obj_file} fertig geschrieben ({current_size/1e6:.1f} MB)")
+                        size_stable_count = 0
+                
+                # Prüfe jede Sekunde
+                time.sleep(1)
+            except Exception as e:
+                pass
+
+    def reload_obj_file(self):
+        """Lade OBJ-Datei neu (wird periodisch aufgerufen)"""
+        if not self.file_changed:
+            return False
+        
+        with self.reload_lock:
+            if not self.file_changed:
+                return False
+            self.file_changed = False
+        
+        try:
+            print(f"  [Lade neu...] {self.obj_file}")
+            
+            # Speichere aktuelle Kameraposition (sicher)
+            camera_pos = None
+            camera_focal = None
+            camera_up = None
+            try:
+                camera_pos = self.plotter.camera.position
+                camera_focal = self.plotter.camera.focal_point
+                camera_up = self.plotter.camera.up_vector
+            except:
+                pass  # Kamera-Info nicht verfügbar
+            
+            # Lade OBJ neu
+            (
+                self.vertices,
+                self.road_faces,
+                self.slope_faces,
+                self.terrain_faces,
+                self.junction_faces,
+                self.road_face_to_idx,
+            ) = self._parse_obj(self.obj_file, "roads.obj")
+            
+            print(f"  ✓ Neu geladen: {len(self.vertices)} Vertices, {len(self.road_faces)} Faces")
+            
+            # Update View
+            self.update_view(reset_camera=False)
+            
+            # Stelle Kameraposition wieder her (sicher)
+            if camera_pos is not None:
+                try:
+                    self.plotter.camera.position = camera_pos
+                    self.plotter.camera.focal_point = camera_focal
+                    self.plotter.camera.up_vector = camera_up
+                    print(f"  ✓ Kamera-Position beibehalten")
+                except:
+                    pass  # Kamera-Restore fehlgeschlagen
+            
+            return True
+            
+        except Exception as e:
+            print(f"  ✗ Fehler beim Reload: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
 
     def _world_to_display(self, pts):
         ren = self.plotter.renderer

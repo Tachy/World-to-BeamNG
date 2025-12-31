@@ -36,6 +36,14 @@ from world_to_beamng.geometry.junctions import (
     mark_junction_endpoints,
     debug_junctions,
 )
+from world_to_beamng.mesh.junction_remesh import (
+    collect_nearby_geometry,
+    analyze_junction_geometry,
+    prepare_remesh_data,
+    merge_and_triangulate,
+    reconstruct_z_values,
+    remesh_single_junction,
+)
 from world_to_beamng.geometry.junction_geometry import (
     truncate_roads_at_junctions,
 )
@@ -461,6 +469,51 @@ def main():
         f"  [OK] {vertex_manager.get_count()} Vertices gesamt (inkl. Straßen+Böschungen+Junctions+Connectors)"
     )
     timings["7_Straßen_Mesh"] = time.time() - step_start
+
+    # ===== SCHRITT 7x: Junction Remeshing (ersetzt 7a-7e komplett) =====
+    print("\n[7x] Junction Remeshing mit lokaler Delaunay-Triangulation...")
+    step_start = time.time()
+    
+    # Sammle Vertices/Faces einmalig
+    all_vertices = vertex_manager.get_array()
+    all_faces = np.array(road_faces, dtype=np.int32) if len(road_faces) > 0 else np.array([], dtype=np.int32).reshape(0, 3)
+    
+    # Filter: Nur Junction 491 für Testing
+    test_junction_idx = 491
+    remesh_stats = {"success": 0, "failed": 0}
+    
+    print(f"  [TEST] Remesh nur Junction {test_junction_idx}...")
+    
+    if test_junction_idx < len(junctions):
+        junction = junctions[test_junction_idx]
+        
+        result = remesh_single_junction(
+            test_junction_idx,
+            junction,
+            all_vertices,
+            all_faces,
+            vertex_manager
+        )
+        
+        if result is not None and result["success"]:
+            # Integriere neue Faces
+            road_faces.extend(result["new_faces"])
+            remesh_stats["success"] += 1
+            
+            print(f"  [OK] Junction {test_junction_idx} remeshed:")
+            print(f"    - {result['new_vertices_count']} neue Vertices")
+            print(f"    - {result['new_faces_count']} neue Faces")
+            print(f"    - Alte Umgebung: {result['nearby_vertices']} Vertices, {result['nearby_faces']} Faces")
+        else:
+            remesh_stats["failed"] += 1
+            print(f"  [FEHLER] Junction {test_junction_idx} remesh fehlgeschlagen")
+    else:
+        print(f"  [FEHLER] Junction {test_junction_idx} existiert nicht")
+    
+    print(f"  [OK] Remeshing abgeschlossen: {remesh_stats['success']} erfolg, {remesh_stats['failed']} fehler")
+    print(f"    Neue Gesamt-Faces in road_faces: {len(road_faces)}")
+    
+    timings["7x_Junction_Remesh"] = time.time() - step_start
 
     # ===== SCHRITT 7a-7e: ÜBERSPRUNGEN (neuer Algorithmus in Planung) =====
     if False:
