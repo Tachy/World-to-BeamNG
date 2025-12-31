@@ -7,7 +7,7 @@ Main Entry Point für die Anwendung.
 Benötigte Pakete:
   pip install requests numpy scipy pyproj pyvista shapely rtree
 
-Alle Abhängigkeiten sind ERFORDERLICH - kein Fallback!
+Alle Abhängigkeiten sind ERFORDERLICH - kein Fallback!!
 """
 
 import time
