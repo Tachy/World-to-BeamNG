@@ -11,16 +11,16 @@ def mesh_junction_polygons(junction_polys, vertex_manager):
     """
     Konvertiere Junction-Polygone zu Mesh-Faces.
 
-    Nutzt Fan-Triangulation für beliebige Polygone (4, 5, 6+ Ecken).
+    Nutzt Fan-Triangulation fuer beliebige Polygone (4, 5, 6+ Ecken).
 
     Args:
         junction_polys: Liste von Junction-Polygon-Dicts aus build_all_junction_polygons()
-        vertex_manager: VertexManager zum Hinzufügen der Vertices
+        vertex_manager: VertexManager zum Hinzufuegen der Vertices
 
     Returns:
         Tuple: (all_faces, all_face_indices)
         - all_faces: List of triangles [v0, v1, v2]
-        - all_face_indices: List of junction indices (welcher Junction jedes Face angehört)
+        - all_face_indices: List of junction indices (welcher Junction jedes Face angehoert)
     """
     if not junction_polys:
         return [], []
@@ -37,14 +37,14 @@ def mesh_junction_polygons(junction_polys, vertex_manager):
         poly_type = poly.get("type", "unknown")
 
         if len(vertices_3d) < 3:
-            # Mindestens 3 Vertices für Triangle
+            # Mindestens 3 Vertices fuer Triangle
             continue
 
-        # Füge alle Vertices hinzu
+        # Fuege alle Vertices hinzu
         vertex_indices = vertex_manager.add_vertices_batch_dedup_fast(vertices_3d)
 
         # Fan-Triangulation: v0 ist Zentrum, Triangles von v0 zu je 2 benachbarten Vertices
-        # Für N Vertices: N-2 Triangles
+        # Fuer N Vertices: N-2 Triangles
         num_triangles = 0
         for i in range(1, len(vertex_indices) - 1):
             triangle = [vertex_indices[0], vertex_indices[i], vertex_indices[i + 1]]
@@ -59,7 +59,7 @@ def mesh_junction_polygons(junction_polys, vertex_manager):
     # Ausgabe der Statistik
     if all_junction_faces:
         print(
-            f"      ✓ {len(all_junction_faces)} Triangles aus {len(junction_polys)} Junctions:"
+            f"      [OK] {len(all_junction_faces)} Triangles aus {len(junction_polys)} Junctions:"
         )
         for poly_type in sorted(type_counts.keys()):
             count = type_counts[poly_type]
@@ -73,7 +73,7 @@ def mesh_junction_polygons(junction_polys, vertex_manager):
         z_values = [v[2] for poly in junction_polys for v in poly["vertices_3d"]]
         if z_values:
             print(
-                f"      ℹ Junction Z-Range: {min(z_values):.1f} to {max(z_values):.1f}m"
+                f"      [i] Junction Z-Range: {min(z_values):.1f} to {max(z_values):.1f}m"
             )
 
     return all_junction_faces, all_junction_indices
@@ -81,7 +81,7 @@ def mesh_junction_polygons(junction_polys, vertex_manager):
 
 def add_junction_polygons_to_mesh(vertex_manager, junction_polys):
     """
-    Convenience-Funktion: Meshe Junction-Polygone und gib zurück.
+    Convenience-Funktion: Meshe Junction-Polygone und gib zurueck.
 
     Args:
         vertex_manager: VertexManager

@@ -27,7 +27,7 @@ try:
                         for i in range(len(indices) - 1):
                             edges.append([indices[i], indices[i + 1]])
 
-                print(f"✓ Encoding {encoding} erfolgreich")
+                print(f"[OK] Encoding {encoding} erfolgreich")
                 print(f"  Vertices geladen: {len(vertices)}")
                 print(f"  Edges geladen: {len(edges)}")
 
@@ -57,8 +57,8 @@ try:
 
                 break
         except (UnicodeDecodeError, ValueError) as e:
-            print(f"✗ Encoding {encoding} fehlgeschlagen: {e}")
+            print(f"[x] Encoding {encoding} fehlgeschlagen: {e}")
             continue
 
 except FileNotFoundError:
-    print(f"✗ Datei {obj_file} nicht gefunden!")
+    print(f"[x] Datei {obj_file} nicht gefunden!")

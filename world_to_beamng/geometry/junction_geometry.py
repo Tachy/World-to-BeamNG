@@ -1,12 +1,12 @@
 """
 Konstruktion von sauberen Junctions mit zentralen Polygonen.
 
-Für jede Junction (Kreuzung, T-Junction, etc.) wird ein zentrales Polygon gebaut:
-- 4-Wege-Kreuzung → Quad in der Mitte
-- T-Kreuzung (3 Wege) → Pentagon
-- 2-Wege → Quad
+Fuer jede Junction (Kreuzung, T-Junction, etc.) wird ein zentrales Polygon gebaut:
+- 4-Wege-Kreuzung -> Quad in der Mitte
+- T-Kreuzung (3 Wege) -> Pentagon
+- 2-Wege -> Quad
 
-Die Straßen werden dann so gekürzt, dass sie exakt an diesem Polygon andocken.
+Die Strassen werden dann so gekuerzt, dass sie exakt an diesem Polygon andocken.
 """
 
 import numpy as np
@@ -22,7 +22,7 @@ def line_line_intersection(p1, d1, p2, d2):
 
     Returns: Schnittpunkt (x, y) oder None wenn parallel
     """
-    # Löse: p1 + t*d1 = p2 + s*d2
+    # Loese: p1 + t*d1 = p2 + s*d2
     # Als Matrix: [d1 | -d2] * [t, s]^T = p2 - p1
     A = np.array([[d1[0], -d2[0]], [d1[1], -d2[1]]])
     b = p2 - p1
@@ -38,15 +38,15 @@ def line_line_intersection(p1, d1, p2, d2):
 
 def build_junction_polygon(junction, road_polygons, road_width=7.0):
     """
-    Baue Junction-Quad aus SCHNITTPUNKTEN der Straßenkanten.
+    Baue Junction-Quad aus SCHNITTPUNKTEN der Strassenkanten.
 
     Die 4 Eckpunkte des Quads liegen auf den Schnittpunkten der
-    left/right Kanten der angeschlossenen Straßen.
+    left/right Kanten der angeschlossenen Strassen.
 
     Args:
         junction: Junction-Dict mit 'position', 'road_indices', 'direction_vectors'
-        road_polygons: Wird nicht verwendet (nur für Signatur-Kompatibilität)
-        road_width: Straßenbreite in Metern
+        road_polygons: Wird nicht verwendet (nur fuer Signatur-Kompatibilität)
+        road_width: Strassenbreite in Metern
 
     Returns:
         Junction-Polygon-Dict mit geometrisch korrektem Quad
@@ -80,7 +80,7 @@ def build_junction_polygon(junction, road_polygons, road_width=7.0):
             "num_roads": num_roads,
         }
 
-    # Berechne left/right Kanten-Linien für jede Straße
+    # Berechne left/right Kanten-Linien fuer jede Strasse
     road_edges = []
     for road_idx, direction in direction_vectors.items():
         direction = np.array(direction)
@@ -88,7 +88,7 @@ def build_junction_polygon(junction, road_polygons, road_width=7.0):
         if norm > 0.01:
             direction = direction / norm
 
-        # Perpendicular zur Straße (left/right offset)
+        # Perpendicular zur Strasse (left/right offset)
         perpendicular = np.array([-direction[1], direction[0]])
 
         # Left/Right edge Positionen am Junction-Punkt
@@ -101,12 +101,12 @@ def build_junction_polygon(junction, road_polygons, road_width=7.0):
                 "direction": direction,
                 "left_pos": left_pos,
                 "right_pos": right_pos,
-                "left_dir": direction,  # Kantenlinie verläuft parallel zur Straße
+                "left_dir": direction,  # Kantenlinie verläuft parallel zur Strasse
                 "right_dir": direction,
             }
         )
 
-    # Sortiere Straßen nach Winkel (CCW)
+    # Sortiere Strassen nach Winkel (CCW)
     def angle_of_direction(edge):
         return np.arctan2(edge["direction"][1], edge["direction"][0])
 
@@ -119,7 +119,7 @@ def build_junction_polygon(junction, road_polygons, road_width=7.0):
     for i in range(n):
         next_i = (i + 1) % n
 
-        # Rechte Kante von Straße i schneidet linke Kante von Straße i+1
+        # Rechte Kante von Strasse i schneidet linke Kante von Strasse i+1
         edge1 = road_edges[i]
         edge2 = road_edges[next_i]
 
@@ -143,14 +143,14 @@ def build_junction_polygon(junction, road_polygons, road_width=7.0):
         "road_indices": junction["road_indices"],
         "type": _get_junction_type(num_roads),
         "num_roads": num_roads,
-        "road_edges": road_edges,  # Speichere für Connector
+        "road_edges": road_edges,  # Speichere fuer Connector
     }
 
     return junction_poly
 
 
 def _get_junction_type(num_roads):
-    """Bestimme Typ basierend auf Anzahl Straßen."""
+    """Bestimme Typ basierend auf Anzahl Strassen."""
     if num_roads == 2:
         return "endpoint"
     elif num_roads == 3:
@@ -163,12 +163,12 @@ def _get_junction_type(num_roads):
 
 def build_all_junction_polygons(junctions, road_polygons, road_width=7.0):
     """
-    Baue Polygone für alle Junctions.
+    Baue Polygone fuer alle Junctions.
 
     Args:
         junctions: Liste aller Junctions
-        road_polygons: Alle Straßen
-        road_width: Straßenbreite
+        road_polygons: Alle Strassen
+        road_width: Strassenbreite
 
     Returns:
         Liste von Junction-Polygonen
@@ -193,7 +193,7 @@ def build_all_junction_polygons(junctions, road_polygons, road_width=7.0):
             elif poly_type == "cross":
                 cross_count += 1
 
-    print(f"  ℹ {len(junction_polys)} Junction-Polygone gebaut:")
+    print(f"  [i] {len(junction_polys)} Junction-Polygone gebaut:")
     if quad_count > 0:
         print(f"    - {quad_count} Quads (2-Wege)")
     if t_junction_count > 0:
@@ -208,16 +208,16 @@ def truncate_roads_at_junctions(
     road_polygons, junctions, road_width=7.0, truncation_distance=3.5
 ):
     """
-    Kürze Straßen so, dass sie bei der Junction enden.
+    Kuerze Strassen so, dass sie bei der Junction enden.
 
-    Wichtig: Wenn eine Straße an BEIDEN Enden eine Junction hat (z.B. start und end),
-    wird sie zweimal gekürzt (einmal vom Start, einmal vom Ende) - sie wird dadurch unterbrochen!
+    Wichtig: Wenn eine Strasse an BEIDEN Enden eine Junction hat (z.B. start und end),
+    wird sie zweimal gekuerzt (einmal vom Start, einmal vom Ende) - sie wird dadurch unterbrochen!
 
     Args:
-        road_polygons: Alle Straßen (wird modifiziert)
+        road_polygons: Alle Strassen (wird modifiziert)
         junctions: Alle Junctions
-        road_width: Straßenbreite
-        truncation_distance: Distanz von der Junction zur Straßen-Kante
+        road_width: Strassenbreite
+        truncation_distance: Distanz von der Junction zur Strassen-Kante
 
     Returns:
         Modifizierte road_polygons
@@ -229,7 +229,7 @@ def truncate_roads_at_junctions(
     truncation_dist = truncation_distance if truncation_distance > 0 else half_width
 
     truncated_count = 0
-    split_roads = 0  # Straßen die unterbrochen werden (start UND end Junction)
+    split_roads = 0  # Strassen die unterbrochen werden (start UND end Junction)
 
     for junction in junctions:
         junction_pos_2d = junction["position"][:2]
@@ -246,12 +246,12 @@ def truncate_roads_at_junctions(
 
             conn_types = junction["connection_types"].get(road_idx, [])
 
-            # Prüfe ob diese Straße an BEIDEN Enden dieser Junction angedockt ist
+            # Pruefe ob diese Strasse an BEIDEN Enden dieser Junction angedockt ist
             # (Das bedeutet sie wird unterbrochen)
             if len(conn_types) > 1:
                 split_roads += 1
 
-            # Kürze vom Start her
+            # Kuerze vom Start her
             if "start" in conn_types:
                 new_coords = _truncate_from_start(
                     coords, junction_pos_2d, truncation_dist
@@ -260,7 +260,7 @@ def truncate_roads_at_junctions(
                     road["coords"] = new_coords
                     truncated_count += 1
 
-            # Kürze vom Ende her
+            # Kuerze vom Ende her
             if "end" in conn_types:
                 new_coords = _truncate_from_end(
                     coords, junction_pos_2d, truncation_dist
@@ -270,9 +270,9 @@ def truncate_roads_at_junctions(
                     truncated_count += 1
 
     if truncated_count > 0:
-        print(f"  ℹ {truncated_count} Straßen-Endpunkte gekürzt")
+        print(f"  [i] {truncated_count} Strassen-Endpunkte gekuerzt")
     if split_roads > 0:
-        print(f"  ℹ {split_roads} Straßen unterbrochen (start UND end Junction)")
+        print(f"  [i] {split_roads} Strassen unterbrochen (start UND end Junction)")
 
     return road_polygons
 
@@ -305,7 +305,7 @@ def _truncate_from_start(coords, junction_pos_2d, distance):
 
         cumulative_dist += segment_dist
 
-    # Wenn nicht genug Distanz, gib Original zurück
+    # Wenn nicht genug Distanz, gib Original zurueck
     return coords
 
 
@@ -314,16 +314,16 @@ def _truncate_from_end(coords, junction_pos_2d, distance):
     if len(coords) < 2:
         return coords
 
-    # Reversiere, truncate, und reversiere zurück
+    # Reversiere, truncate, und reversiere zurueck
     coords_rev = list(reversed(coords))
     truncated_rev = _truncate_from_start(coords_rev, junction_pos_2d, distance)
     return list(reversed(truncated_rev))
 
 
 def analyze_junction_polygons(junction_polys):
-    """Gib Debug-Info über generierte Junction-Polygone."""
+    """Gib Debug-Info ueber generierte Junction-Polygone."""
     if not junction_polys:
-        print("  ℹ Keine Junction-Polygone generiert")
+        print("  [i] Keine Junction-Polygone generiert")
         return
 
     types = {}
@@ -335,10 +335,10 @@ def analyze_junction_polygons(junction_polys):
         total_vertices += len(poly["vertices_3d"])
 
     print(
-        f"  ℹ {len(junction_polys)} Junction-Polygone generiert ({total_vertices} Vertices):"
+        f"  [i] {len(junction_polys)} Junction-Polygone generiert ({total_vertices} Vertices):"
     )
 
-    # Detaillierte Aufschlüsselung nach Typ
+    # Detaillierte Aufschluesselung nach Typ
     for poly_type in sorted(types.keys()):
         count = types[poly_type]
         print(f"      - {count} {poly_type}")

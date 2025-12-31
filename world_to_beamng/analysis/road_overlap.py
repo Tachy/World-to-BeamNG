@@ -1,5 +1,5 @@
 """
-Analyse-Tool zur Erkennung von überlappenden Straßen in OSM-Daten.
+Analyse-Tool zur Erkennung von ueberlappenden Strassen in OSM-Daten.
 """
 
 import numpy as np
@@ -9,18 +9,18 @@ from shapely.strtree import STRtree
 
 def analyze_road_overlaps(road_polygons, threshold_distance=5.0):
     """
-    Analysiert, ob sich Straßen überlappen oder sehr nah beieinander liegen.
+    Analysiert, ob sich Strassen ueberlappen oder sehr nah beieinander liegen.
 
     Args:
-        road_polygons: Liste der Straßen-Polygone mit coords
-        threshold_distance: Maximaler Abstand in Metern für "Überlappung"
+        road_polygons: Liste der Strassen-Polygone mit coords
+        threshold_distance: Maximaler Abstand in Metern fuer "Überlappung"
 
     Returns:
-        dict mit Statistiken und Liste der überlappenden Straßenpaare
+        dict mit Statistiken und Liste der ueberlappenden Strassenpaare
     """
-    print(f"\n[Analyse] Prüfe {len(road_polygons)} Straßen auf Überlappungen...")
+    print(f"\n[Analyse] Pruefe {len(road_polygons)} Strassen auf Überlappungen...")
 
-    # Erstelle LineStrings aus den Straßenkoordinaten
+    # Erstelle LineStrings aus den Strassenkoordinaten
     linestrings = []
     valid_roads = []
 
@@ -40,12 +40,12 @@ def analyze_road_overlaps(road_polygons, threshold_distance=5.0):
             continue
 
     if len(linestrings) < 2:
-        print("  ⚠ Zu wenige gültige Straßen für Analyse")
+        print("  [!] Zu wenige gueltige Strassen fuer Analyse")
         return {"total_roads": len(road_polygons), "overlaps": []}
 
-    print(f"  Baue STRtree für {len(linestrings)} Straßen...")
+    print(f"  Baue STRtree fuer {len(linestrings)} Strassen...")
     tree = STRtree(linestrings)
-    # Mapping für robustes Index-Lookup (falls STRtree Indexe statt Geometrien liefert)
+    # Mapping fuer robustes Index-Lookup (falls STRtree Indexe statt Geometrien liefert)
     geom_to_index = {id(geom): idx for idx, geom in enumerate(linestrings)}
 
     overlapping_pairs = []
@@ -55,7 +55,7 @@ def analyze_road_overlaps(road_polygons, threshold_distance=5.0):
     print(f"  Suche Überlappungen...")
 
     for i, line in enumerate(linestrings):
-        # Finde alle Straßen in der Nähe (KD-Query via Buffer)
+        # Finde alle Strassen in der Nähe (KD-Query via Buffer)
         candidates = tree.query(line.buffer(threshold_distance))
 
         for candidate in candidates:
@@ -119,11 +119,11 @@ def analyze_road_overlaps(road_polygons, threshold_distance=5.0):
                     near_duplicates.append(overlap_info)
 
         if (i + 1) % 100 == 0:
-            print(f"  {i+1}/{len(linestrings)} Straßen geprüft...")
+            print(f"  {i+1}/{len(linestrings)} Strassen geprueft...")
 
     # Ausgabe der Ergebnisse
     print(f"\n  ERGEBNISSE:")
-    print(f"    • Geprüfte Straßen: {len(linestrings)}")
+    print(f"    • Gepruefte Strassen: {len(linestrings)}")
     print(f"    • Überlappungen gesamt: {len(overlapping_pairs)}")
     print(
         f"    • Wahrscheinliche Duplikate (>90% Überlappung): {len(duplicate_candidates)}"
@@ -158,9 +158,9 @@ def analyze_road_overlaps(road_polygons, threshold_distance=5.0):
 
 def get_road_statistics(road_polygons):
     """
-    Zeigt grundlegende Statistiken über die Straßen.
+    Zeigt grundlegende Statistiken ueber die Strassen.
     """
-    print(f"\n[Statistik] Straßen-Eigenschaften:")
+    print(f"\n[Statistik] Strassen-Eigenschaften:")
 
     lengths = []
     point_counts = []
@@ -180,25 +180,25 @@ def get_road_statistics(road_polygons):
         lengths.append(total_length)
         point_counts.append(len(coords))
 
-        # Zähle Straßennamen
+        # Zähle Strassennamen
         name = road.get("name", "unbenannt")
         names[name] = names.get(name, 0) + 1
 
     if lengths:
-        print(f"  Straßenlängen:")
+        print(f"  Strassenlaengen:")
         print(f"    • Min: {np.min(lengths):.1f}m")
         print(f"    • Max: {np.max(lengths):.1f}m")
         print(f"    • Durchschnitt: {np.mean(lengths):.1f}m")
         print(f"    • Median: {np.median(lengths):.1f}m")
 
-        print(f"\n  Punkte pro Straße:")
+        print(f"\n  Punkte pro Strasse:")
         print(f"    • Min: {np.min(point_counts)}")
         print(f"    • Max: {np.max(point_counts)}")
         print(f"    • Durchschnitt: {np.mean(point_counts):.1f}")
 
-        # Häufigste Straßennamen (könnte auf Duplikate hinweisen)
+        # Häufigste Strassennamen (koennte auf Duplikate hinweisen)
         sorted_names = sorted(names.items(), key=lambda x: x[1], reverse=True)
-        print(f"\n  Häufigste Straßennamen:")
+        print(f"\n  Haeufigste Strassennamen:")
         for name, count in sorted_names[:10]:
             if count > 1:
                 print(f"    • '{name}': {count}x")

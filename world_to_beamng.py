@@ -10,11 +10,16 @@ Benötigte Pakete:
 Alle Abhängigkeiten sind ERFORDERLICH - kein Fallback!!
 """
 
+import sys
 import time
 import os
 import glob
 import gc
+import copy
 import numpy as np
+
+# UTF-8 Encoding fuer Windows Console (fuer Unicode Zeichen in Status-Bar)
+sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 # Importiere alle Module
 from world_to_beamng import config
@@ -53,6 +58,8 @@ from world_to_beamng.mesh.stitching import (
 from world_to_beamng.io.obj import (
     save_unified_obj,
     save_roads_obj,
+    save_ebene1_roads,
+    save_ebene2_centerlines_junctions,
 )
 
 
@@ -120,11 +127,11 @@ def enforce_ccw_up(faces, vertices):
 def report_boundary_edges(faces, vertices, label="mesh", export_path=None):
     """Loggt offene und nicht-manifold Kanten (0-basiert). Optionaler Export der offenen Kanten als OBJ."""
     if not faces:
-        print(f"  {label}: Keine Faces → keine Kanten")
+        print(f"  {label}: Keine Faces -> keine Kanten")
         return
     f = np.asarray(faces, dtype=np.int64)
     if f.ndim != 2 or f.shape[1] != 3:
-        print(f"  {label}: Nicht-dreieckige Faces übersprungen")
+        print(f"  {label}: Nicht-dreieckige Faces uebersprungen")
         return
 
     edges = np.vstack([f[:, [0, 1]], f[:, [1, 2]], f[:, [2, 0]]])
@@ -233,10 +240,10 @@ def report_boundary_edges(faces, vertices, label="mesh", export_path=None):
                         fmtl.write("Ka 1 0 0\nKd 1 0 0\nKs 0 0 0\nd 1.0\nillum 1\n")
 
                 print(
-                    f"    → Boundary-Kanten als OBJ (Faces) exportiert nach {export_path}"
+                    f"    -> Boundary-Kanten als OBJ (Faces) exportiert nach {export_path}"
                 )
             except Exception as exc:
-                print(f"    ⚠ Export nach {export_path} fehlgeschlagen: {exc}")
+                print(f"    [!] Export nach {export_path} fehlgeschlagen: {exc}")
 
 
 def main():
@@ -252,16 +259,16 @@ def main():
 
     # ===== SCHRITT 1: Lade Höhendaten =====
     print("=" * 60)
-    print("WORLD-TO-BEAMNG - OSM zu BeamNG Straßen-Generator")
+    print("WORLD-TO-BEAMNG - OSM zu BeamNG Strassen-Generator")
     print("=" * 60)
 
-    print("\n[1] Lade Höhendaten...")
+    print("\n[1] Lade Hoehendaten...")
     step_start = time.time()
     height_points, height_elevations = load_height_data()
     timings["1_Höhendaten_laden"] = time.time() - step_start
 
     # ===== SCHRITT 2: Berechne BBOX =====
-    print("\n[2] Berechne BBOX aus Höhendaten...")
+    print("\n[2] Berechne BBOX aus Hoehendaten...")
     step_start = time.time()
     config.BBOX = calculate_bbox_from_height_data(height_points)
 
@@ -279,12 +286,12 @@ def main():
     height_points[:, 0] -= ox
     height_points[:, 1] -= oy
     height_elevations = height_elevations - oz  # Auch Z-Koordinaten transformieren!
-    print(f"  ✓ height_points + elevations zu lokalen Koordinaten transformiert")
+    print(f"  [OK] height_points + elevations zu lokalen Koordinaten transformiert")
 
     timings["2_BBOX_berechnen"] = time.time() - step_start
 
     # ===== SCHRITT 3: Prüfe OSM-Daten-Cache =====
-    print("\n[3] Prüfe OSM-Daten-Cache...")
+    print("\n[3] Pruefe OSM-Daten-Cache...")
     step_start = time.time()
     height_hash = get_height_data_hash()
     if not height_hash:
@@ -298,7 +305,7 @@ def main():
         with open(cache_height_hash_path, "r") as f:
             cached_hash = f.read().strip()
         if cached_hash != height_hash:
-            print("  ⚠ Höhendaten haben sich geändert - lade OSM-Daten neu")
+            print("  [!] Hoehendaten haben sich geaendert - lade OSM-Daten neu")
             need_reload = True
     else:
         need_reload = True
@@ -315,7 +322,7 @@ def main():
         for cache in old_caches:
             try:
                 os.remove(cache)
-                print(f"  Alter Cache gelöscht: {os.path.basename(cache)}")
+                print(f"  Alter Cache geloescht: {os.path.basename(cache)}")
             except:
                 pass
 
@@ -326,12 +333,12 @@ def main():
         return
 
     # ===== SCHRITT 4: Extrahiere Straßen =====
-    print("\n[4] Extrahiere Straßen aus OSM-Daten...")
+    print("\n[4] Extrahiere Strassen aus OSM-Daten...")
     step_start = time.time()
     roads = extract_roads_from_osm(osm_elements)
     timings["4_Straßen_extrahieren"] = time.time() - step_start
     if not roads:
-        print("Keine Straßen gefunden.")
+        print("Keine Strassen gefunden.")
         return
 
     # ===== SCHRITT 5: Erstelle Terrain-Grid =====
@@ -357,11 +364,11 @@ def main():
 
     # ===== SCHRITT 6: Extrahiere Straßen-Polygone =====
     step_start = time.time()
-    print(f"\n[6] Extrahiere {len(roads)} Straßen-Polygone...")
+    print(f"\n[6] Extrahiere {len(roads)} Strassen-Polygone...")
     road_polygons = get_road_polygons(
         roads, config.BBOX, height_points, height_elevations
     )
-    print(f"  ✓ {len(road_polygons)} Straßen-Polygone extrahiert")
+    print(f"  [OK] {len(road_polygons)} Strassen-Polygone extrahiert")
 
     # Clippe Straßen-Polygone am Grid-Rand (vor Mesh-Generierung!)
     if config.ROAD_CLIP_MARGIN > 0:
@@ -371,62 +378,69 @@ def main():
         road_polygons = clip_road_polygons(
             road_polygons, config.GRID_BOUNDS_LOCAL, margin=config.ROAD_CLIP_MARGIN
         )
-        print(f"  ✓ {len(road_polygons)} Straßen nach Clipping")
+        print(f"  [OK] {len(road_polygons)} Strassen nach Clipping")
 
     timings["6_Straßen_Polygone"] = time.time() - step_start
 
     # ===== SCHRITT 6a: Erkenne Straßen-Junctions in Centerlines =====
     step_start = time.time()
-    print("\n[6a] Erkenne Straßen-Junctions in Centerlines...")
+    print("\n[6a] Erkenne Strassen-Junctions in Centerlines...")
     junctions = detect_junctions_in_centerlines(road_polygons)
     road_polygons = mark_junction_endpoints(road_polygons, junctions)
-    debug_junctions(junctions, road_polygons)
+
+    # Backup der unkürzten Centerlines vor Truncation (für Debug/Analyse)
+    road_polygons_full = copy.deepcopy(road_polygons)
     timings["6a_Junctions_erkennen"] = time.time() - step_start
 
-    # ===== SCHRITT 6a.4: Kürze Straßen-Enden bei Junctions =====
-    print("\n[6a.4] Kürze Straßen-Enden bei Junctions...")
-    # Truncation mit ca. 10m Distanz für saubere Junction-Anschlüsse
-    truncation_distance = 10.0  # Meter - großzügig für saubere Verbindungen
-    road_polygons = truncate_roads_at_junctions(
-        road_polygons,
-        junctions,
-        road_width=config.ROAD_WIDTH,
-        truncation_distance=truncation_distance,
-    )
+    # ===== SCHRITT 6a.4: ÜBERSPRUNGEN (neuer Algorithmus in Planung) =====
+    if False:
+        print("\n[6a.4] Kuerze Strassen-Enden bei Junctions...")
+        # Truncation mit ca. 10m Distanz für saubere Junction-Anschlüsse
+        truncation_distance = 10.0  # Meter - großzügig für saubere Verbindungen
+        road_polygons = truncate_roads_at_junctions(
+            road_polygons,
+            junctions,
+            road_width=config.ROAD_WIDTH,
+            truncation_distance=truncation_distance,
+        )
 
-    # WICHTIG: Interpoliere Z-Werte aus DGM für alle coords (ersetzt UTM-Z-Werte!)
-    print("  Interpoliere Z-Koordinaten aus DGM...")
-    from scipy.interpolate import NearestNDInterpolator
+        # WICHTIG: Interpoliere Z-Werte aus DGM für alle coords (ersetzt UTM-Z-Werte!)
+        print("  Interpoliere Z-Koordinaten aus DGM...")
+        from scipy.interpolate import NearestNDInterpolator
 
-    height_interp = NearestNDInterpolator(height_points, height_elevations)
-    for road in road_polygons:
-        coords = road.get("coords", [])
-        if coords:
-            # Ersetze Z-Werte durch DGM-Interpolation
-            new_coords = []
-            for x, y, z_old in coords:
-                z_new = float(height_interp(x, y))
-                new_coords.append((x, y, z_new))
-            road["coords"] = new_coords
-    print(f"  ✓ Z-Koordinaten aus DGM interpoliert für {len(road_polygons)} Straßen")
-    timings["6a4_Road_Truncation"] = time.time() - step_start
+        height_interp = NearestNDInterpolator(height_points, height_elevations)
+        for road in road_polygons:
+            coords = road.get("coords", [])
+            if coords:
+                # Ersetze Z-Werte durch DGM-Interpolation
+                new_coords = []
+                for x, y, z_old in coords:
+                    z_new = float(height_interp(x, y))
+                    new_coords.append((x, y, z_new))
+                road["coords"] = new_coords
+        print(
+            f"  [OK] Z-Koordinaten aus DGM interpoliert fuer {len(road_polygons)} Strassen"
+        )
+        timings["6a4_Road_Truncation"] = time.time() - step_start
 
-    # HINWEIS: Junction-Polygone werden NACH dem Road-Meshing gebaut (Schritt 7a)!
-    # Wir nutzen die echten Mesh-Vertices der gekürzten Straßen.
+        # HINWEIS: Junction-Polygone werden NACH dem Road-Meshing gebaut (Schritt 7a)!
+        # Wir nutzen die echten Mesh-Vertices der gekürzten Straßen.
 
-    # HINWEIS: Snapping ist jetzt DEAKTIVIERT, da Truncation bereits die Straßen bei den
-    # Junctions positioniert. Snapping würde die Truncation nur wieder rückgängig machen.
-
-    # ===== SCHRITT 6b: Initialisiere VertexManager =====
-    step_start = time.time()
-    print("\n[6b] Initialisiere zentrale Vertex-Verwaltung...")
-    vertex_manager = VertexManager(tolerance=0.01)  # 1cm Toleranz für präzises Snapping
-    print(f"  ✓ VertexManager bereit (Toleranz: 1cm)")
-    timings["6b_VertexManager_Init"] = time.time() - step_start
+        # HINWEIS: Snapping ist jetzt DEAKTIVIERT, da Truncation bereits die Straßen bei den
+        # Junctions positioniert. Snapping würde die Truncation nur wieder rückgängig machen.
+    else:
+        print("\n[6a.4] ÜBERSPRUNGEN (neuer Algorithmus in Planung)")
+        timings["6a4_Road_Truncation"] = time.time() - step_start
 
     # ===== SCHRITT 7: Generiere Straßen-Mesh =====
-    print("\n[7] Generiere Straßen-Mesh-Streifen (mit Junctions)...")
+    print("\n[7] Generiere Strassen-Mesh-Streifen (mit Junctions)...")
     step_start = time.time()
+
+    # Initialisiere VertexManager
+    print("  Initialisiere zentrale Vertex-Verwaltung...")
+    vertex_manager = VertexManager(tolerance=0.01)  # 1cm Toleranz für präzises Snapping
+    print(f"    [OK] VertexManager bereit (Toleranz: 1cm)")
+    timings["6b_VertexManager_Init"] = time.time() - step_start
     (
         road_faces,
         road_face_to_idx,
@@ -441,129 +455,131 @@ def main():
     combined_junction_faces = []
 
     print(
-        f"  ✓ {len(road_slope_polygons_2d)} 2D-Polygone für Grid-Klassifizierung extrahiert"
+        f"  [OK] {len(road_slope_polygons_2d)} 2D-Polygone für Grid-Klassifizierung extrahiert"
     )
     print(
-        f"  ✓ {vertex_manager.get_count()} Vertices gesamt (inkl. Straßen+Böschungen+Junctions+Connectors)"
+        f"  [OK] {vertex_manager.get_count()} Vertices gesamt (inkl. Straßen+Böschungen+Junctions+Connectors)"
     )
     timings["7_Straßen_Mesh"] = time.time() - step_start
 
-    # ===== SCHRITT 7a: Extrahiere Junction-Vertices aus Road-Mesh =====
-    print("\n[7a] Baue Junction-Polygone aus Road-Mesh-Vertices...")
-    step_start = time.time()
+    # ===== SCHRITT 7a-7e: ÜBERSPRUNGEN (neuer Algorithmus in Planung) =====
+    if False:
+        # ===== SCHRITT 7a: Extrahiere Junction-Vertices aus Road-Mesh =====
+        print("\n[7a] Baue Junction-Polygone aus Road-Mesh-Vertices...")
+        step_start = time.time()
 
-    # Extrahiere die Edge-Vertices der gekürzten Straßen
-    junction_polys_dict = extract_junction_vertices_from_mesh(
-        junctions, road_polygons, vertex_manager
-    )
-
-    # Konvertiere zu junction_polys-Format
-    junction_polys = []
-    for junction_idx, junction_data in junction_polys_dict.items():
-        junction = junctions[junction_idx]
-        junction_polys.append(
-            {
-                "vertices_2d": junction_data["vertices_2d"],
-                "vertices_3d": junction_data["vertices_3d"],
-                "center": junction_data["center"],
-                "road_indices": junction_data["road_indices"],
-                "road_edge_data": junction_data.get(
-                    "road_edge_data", {}
-                ),  # WICHTIG für Connectoren!
-                "type": (
-                    "t_junction" if len(junction_data["road_indices"]) == 3 else "cross"
-                ),
-                "num_roads": len(junction_data["road_indices"]),
-            }
+        # Extrahiere die Edge-Vertices der gekürzten Straßen
+        junction_polys_dict = extract_junction_vertices_from_mesh(
+            junctions, road_polygons, vertex_manager
         )
 
-    print(f"  ✓ {len(junction_polys)} Junction-Polygone aus Mesh-Vertices gebaut")
-
-    # ===== SCHRITT 7b: Baue Connector-Quads =====
-    print("\n[7b] Baue Connector-Quads...")
-    truncation_distance = 10.0
-    connector_polys = build_junction_connectors(
-        junction_polys, junctions, road_polygons, truncation_distance, config.ROAD_WIDTH
-    )
-    print(f"  ✓ {len(connector_polys)} Connector-Quads gebaut")
-    if connector_polys:
-        print(
-            f"    → Erstes Connector: vertices_3d = {connector_polys[0].get('vertices_3d', 'NONE')}"
-        )
-
-    # ===== SCHRITT 7c: Meshe Junction-Polygone (separates Meshing) =====
-    print("\n[7c] Meshe Junction-Quads (Fan-Triangulation)...")
-
-    # DEBUG: Zeige erste paar Junction-Polygone
-    if junction_polys:
-        print(f"      DEBUG: junction_polys[0]:")
-        print(f"        vertices_3d: {junction_polys[0].get('vertices_3d', [])}")
-        print(f"        type: {type(junction_polys[0].get('vertices_3d'))}")
-        print(f"        len: {len(junction_polys[0].get('vertices_3d', []))}")
-
-    junction_faces, junction_face_indices = add_junction_polygons_to_mesh(
-        vertex_manager, junction_polys
-    )
-    print(f"  ✓ {len(junction_faces)} Junction-Faces generiert")
-
-    # WICHTIG: Speichere Junction-Faces SEPARAT für Material-Export!
-    combined_junction_faces.extend(junction_faces)
-
-    # ===== SCHRITT 7d: Meshe Connector-Quads (separates Meshing) =====
-    print("\n[7d] Meshe Connector-Quads (Fan-Triangulation)...")
-    print(f"  DEBUG: {len(connector_polys)} Connector-Polygone vorhanden")
-    if connector_polys:
-        print(
-            f"    → Erstes Connector-Poly: {connector_polys[0].get('vertices_3d', 'NONE')}"
-        )
-    connector_faces = connectors_to_faces(connector_polys, vertex_manager)
-    print(f"  ✓ {len(connector_faces)} Connector-Faces generiert")
-    if not connector_faces:
-        print(f"  ⚠ WARNUNG: Keine Connector-Faces generiert!")
-
-    # Integriere in road_faces VOR CCW-Normalisierung
-    road_faces.extend(junction_faces)
-    road_faces.extend(connector_faces)
-    print(
-        f"  ✓ {len(road_faces)} road_faces gesamt (inkl. Straßen+Junctions+Connectors)"
-    )
-    print(f"  ✓ {vertex_manager.get_count()} Vertices nach Junctions/Connectors")
-    timings["7ab_Junction_Connector_Mesh"] = time.time() - step_start
-
-    # ===== SCHRITT 7e: Füge Junction/Connector-Polygone für Terrain-Ausschnitt hinzu =====
-    print(
-        "\n[7e] Füge Junction+Connector-Polygone für Terrain-Klassifizierung hinzu..."
-    )
-    for junction_poly in junction_polys:
-        vertices_2d = junction_poly.get("vertices_2d", [])
-        if len(vertices_2d) >= 3:
-            road_slope_polygons_2d.append(
+        # Konvertiere zu junction_polys-Format
+        junction_polys = []
+        for junction_idx, junction_data in junction_polys_dict.items():
+            junction = junctions[junction_idx]
+            junction_polys.append(
                 {
-                    "road_polygon": vertices_2d,
-                    "slope_polygon": vertices_2d,  # Keine separaten Böschungen
-                    "original_coords": [],
-                    "road_vertex_indices": {"left": [], "right": []},
-                    "slope_outer_indices": {"left": [], "right": []},
+                    "vertices_2d": junction_data["vertices_2d"],
+                    "vertices_3d": junction_data["vertices_3d"],
+                    "center": junction_data["center"],
+                    "road_indices": junction_data["road_indices"],
+                    "road_edge_data": junction_data.get(
+                        "road_edge_data", {}
+                    ),  # WICHTIG für Connectoren!
+                    "type": (
+                        "t_junction"
+                        if len(junction_data["road_indices"]) == 3
+                        else "cross"
+                    ),
+                    "num_roads": len(junction_data["road_indices"]),
                 }
             )
 
-    for connector_poly in connector_polys:
-        vertices_2d = connector_poly.get("vertices_2d", [])
-        if len(vertices_2d) >= 3:
-            road_slope_polygons_2d.append(
-                {
-                    "road_polygon": vertices_2d,
-                    "slope_polygon": vertices_2d,  # Keine separaten Böschungen (vorerst)
-                    "original_coords": [],
-                    "road_vertex_indices": {"left": [], "right": []},
-                    "slope_outer_indices": {"left": [], "right": []},
-                }
+        print(
+            f"  [OK] {len(junction_polys)} Junction-Polygone aus Mesh-Vertices gebaut"
+        )
+
+        # ===== SCHRITT 7b: Baue Connector-Quads =====
+        print("\n[7b] Baue Connector-Quads...")
+        truncation_distance = 10.0
+        connector_polys = build_junction_connectors(
+            junction_polys,
+            junctions,
+            road_polygons,
+            truncation_distance,
+            config.ROAD_WIDTH,
+        )
+        print(f"  [OK] {len(connector_polys)} Connector-Quads gebaut")
+        if connector_polys:
+            print(
+                f"    -> Erstes Connector: vertices_3d = {connector_polys[0].get('vertices_3d', 'NONE')}"
             )
 
-    print(f"  ✓ {len(road_slope_polygons_2d)} Polygone gesamt für Terrain-Ausschnitt")
+        # ===== SCHRITT 7c: Meshe Junction-Polygone (separates Meshing) =====
+        print("\n[7c] Meshe Junction-Quads (Fan-Triangulation)...")
+
+        junction_faces, junction_face_indices = add_junction_polygons_to_mesh(
+            vertex_manager, junction_polys
+        )
+        print(f"  [OK] {len(junction_faces)} Junction-Faces generiert")
+
+        # WICHTIG: Speichere Junction-Faces SEPARAT für Material-Export!
+        combined_junction_faces.extend(junction_faces)
+
+        # ===== SCHRITT 7d: Meshe Connector-Quads (separates Meshing) =====
+        print("\n[7d] Meshe Connector-Quads (Fan-Triangulation)...")
+        connector_faces = connectors_to_faces(connector_polys, vertex_manager)
+
+        # Integriere in road_faces VOR CCW-Normalisierung
+        road_faces.extend(junction_faces)
+        road_faces.extend(connector_faces)
+        print(
+            f"  [OK] {len(road_faces)} road_faces gesamt (inkl. Straßen+Junctions+Connectors)"
+        )
+        print(f"  [OK] {vertex_manager.get_count()} Vertices nach Junctions/Connectors")
+        timings["7ab_Junction_Connector_Mesh"] = time.time() - step_start
+
+        # ===== SCHRITT 7e: Füge Junction/Connector-Polygone für Terrain-Ausschnitt hinzu =====
+        print(
+            "\n[7e] Füge Junction+Connector-Polygone für Terrain-Klassifizierung hinzu..."
+        )
+        for junction_poly in junction_polys:
+            vertices_2d = junction_poly.get("vertices_2d", [])
+            if len(vertices_2d) >= 3:
+                road_slope_polygons_2d.append(
+                    {
+                        "road_polygon": vertices_2d,
+                        "slope_polygon": vertices_2d,  # Keine separaten Böschungen
+                        "original_coords": [],
+                        "road_vertex_indices": {"left": [], "right": []},
+                        "slope_outer_indices": {"left": [], "right": []},
+                    }
+                )
+
+        for connector_poly in connector_polys:
+            vertices_2d = connector_poly.get("vertices_2d", [])
+            if len(vertices_2d) >= 3:
+                road_slope_polygons_2d.append(
+                    {
+                        "road_polygon": vertices_2d,
+                        "slope_polygon": vertices_2d,  # Keine separaten Böschungen (vorerst)
+                        "original_coords": [],
+                        "road_vertex_indices": {"left": [], "right": []},
+                        "slope_outer_indices": {"left": [], "right": []},
+                    }
+                )
+
+        print(
+            f"  [OK] {len(road_slope_polygons_2d)} Polygone gesamt fuer Terrain-Ausschnitt"
+        )
+    else:
+        # Initialisiere leere Listen
+        junction_polys = []
+        connector_polys = []
+        print("\n[7a-7e] ÜBERSPRUNGEN (neuer Algorithmus in Planung)")
 
     # ===== SCHRITT 8: Klassifiziere Grid-Vertices =====
-    print("\n[8] Klassifiziere Grid-Vertices (Schneide Straßen aus Terrain)...")
+    print("\n[8] Klassifiziere Grid-Vertices (Schneide Strassen aus Terrain)...")
     step_start = time.time()
     vertex_types, modified_heights = classify_grid_vertices(
         grid_points, grid_elevations, road_slope_polygons_2d
@@ -572,7 +588,7 @@ def main():
 
     # ===== SCHRITT 9: Regeneriere Terrain-Mesh (mit Straßenausschnitten) =====
     step_start = time.time()
-    print("\n[9] Regeneriere Terrain-Grid-Mesh (mit ausgeschnittenen Straßen)...")
+    print("\n[9] Regeneriere Terrain-Grid-Mesh (mit ausgeschnittenen Strassen)...")
     # WICHTIG: VertexManager dedupliziert automatisch - Terrain-Vertices werden wiederverwendet!
     terrain_faces_final, terrain_vertex_indices = generate_full_grid_mesh(
         grid_points,
@@ -583,24 +599,24 @@ def main():
         vertex_manager,
         dedup=False,
     )
-    print(f"  ✓ {vertex_manager.get_count()} Vertices final (gesamt)")
+    print(f"  [OK] {vertex_manager.get_count()} Vertices final (gesamt)")
     timings["9_Terrain_Grid_Final"] = time.time() - step_start
 
     # ===== SCHRITT 9a: Normalisiere CCW-Orientierung =====
     step_start = time.time()
-    print("\n[9a] Normalisiere CCW-Orientierung für alle Faces...")
+    print("\n[9a] Normalisiere CCW-Orientierung fuer alle Faces...")
     all_vertices_combined = np.asarray(vertex_manager.get_array())
 
     terrain_faces_final = enforce_ccw_up(terrain_faces_final, all_vertices_combined)
     road_faces = enforce_ccw_up(road_faces, all_vertices_combined)
     slope_faces = enforce_ccw_up(slope_faces, all_vertices_combined)
-    print(f"  ✓ CCW-Orientierung sichergestellt")
+    print(f"  [OK] CCW-Orientierung sichergestellt")
     timings["9a_CCW_Normalization"] = time.time() - step_start
 
     # ===== SCHRITT 9b: Stitching zwischen Terrain und Böschungen =====
     if config.HOLE_CHECK_ENABLED:
         step_start = time.time()
-        print("\n[9b] Fülle Lücken zwischen Terrain und Böschungen (Stitching)...")
+        print("\n[9b] Fuelle Luecken zwischen Terrain und Boeschungen (Stitching)...")
         stitch_faces = stitch_terrain_gaps(
             vertex_manager,
             terrain_vertex_indices,
@@ -610,7 +626,7 @@ def main():
             stitch_radius=10.0,
         )
         terrain_faces_final.extend(stitch_faces)
-        print(f"  ✓ {len(stitch_faces)} Stitch-Faces hinzugefügt")
+        print(f"  [OK] {len(stitch_faces)} Stitch-Faces hinzugefuegt")
         timings["9b_Terrain_Stitching"] = time.time() - step_start
     else:
         print("\n[9b] Stitching SKIP (HOLE_CHECK_ENABLED=False)")
@@ -656,17 +672,17 @@ def main():
             export_path=export_path,
         )
 
-    print(f"  ✓ {total_vertex_count:,} Vertices gesamt (dedupliziert)")
+    print(f"  [OK] {total_vertex_count:,} Vertices gesamt (dedupliziert)")
     print(f"    • Terrain: {len(combined_terrain_faces):,} Faces")
-    print(f"    • Straßen (inkl. Junctions): {len(combined_road_faces):,} Faces")
-    print(f"    • Böschungen: {len(combined_slope_faces):,} Faces")
+    print(f"    • Strassen (inkl. Junctions): {len(combined_road_faces):,} Faces")
+    print(f"    • Boeschungen: {len(combined_slope_faces):,} Faces")
     timings["10_Vertices_Finalisieren"] = time.time() - step_start
 
     # ===== SCHRITT 11: Terrain-Simplification (deaktiviert) =====
     step_start = time.time()
     if config.TERRAIN_REDUCTION > 0:
         print(
-            "\n[11] Terrain-Simplification aktuell deaktiviert (zentraler VertexManager) → bitte Terrain_REDUCTION=0 lassen."
+            "\n[11] Terrain-Simplification aktuell deaktiviert (zentraler VertexManager) -> bitte Terrain_REDUCTION=0 lassen."
         )
     else:
         print("\n[11] Überspringe Terrain-Simplification (TERRAIN_REDUCTION = 0)...")
@@ -674,7 +690,7 @@ def main():
 
     # ===== SCHRITT 12: Bereite Faces für Export vor =====
     step_start = time.time()
-    print("\n[12] Bereite Faces für OBJ-Export vor...")
+    print("\n[12] Bereite Faces fuer OBJ-Export vor...")
 
     terrain_faces_final = np.array(combined_terrain_faces, dtype=np.int32)
     road_faces_array = np.array(combined_road_faces, dtype=np.int32)
@@ -688,8 +704,8 @@ def main():
     junction_faces_final = junction_faces_array + 1
 
     print(f"    • Terrain: {len(terrain_faces_final):,} Faces")
-    print(f"    • Straßen: {len(road_faces_final):,} Faces")
-    print(f"    • Böschungen: {len(slope_faces_final):,} Faces")
+    print(f"    • Strassen: {len(road_faces_final):,} Faces")
+    print(f"    • Boeschungen: {len(slope_faces_final):,} Faces")
     print(f"    • Junctions: {len(junction_faces_final):,} Faces")
 
     timings["12_Faces_Vorbereiten"] = time.time() - step_start
@@ -700,10 +716,18 @@ def main():
     output_obj = "beamng.obj"
     print(f"  Schreibe: {output_obj}")
 
-    print(f"  Schreibe roads.obj (nur Straßen, pro road_idx Material)...")
-    export_start = time.time()
-    save_roads_obj("roads.obj", all_vertices_combined, road_faces, road_face_to_idx)
-    print(f"    → roads.obj: {time.time() - export_start:.2f}s")
+    # Exportiere Debug-Ebenen
+    print(f"  Exportiere Debug-Ebenen...")
+
+    # ebene1.obj: Roads (nur Straßen-Mesh)
+    print(f"  Schreibe ebene1.obj (Roads-Mesh)...")
+    save_ebene1_roads(all_vertices_combined, road_faces, road_face_to_idx)
+
+    # ebene2.obj: Centerlines + Junction-Points
+    print(f"  Schreibe ebene2.obj (Centerlines + Junction-Points)...")
+    # Nutze die unkürzten Centerlines aus dem Backup für Debug-Layer
+    # Koordinaten sind bereits in polygon.py transformiert (UTM -> Local, einmalig!)
+    save_ebene2_centerlines_junctions(road_polygons_full, junctions)
 
     export_start = time.time()
     print(
@@ -717,7 +741,7 @@ def main():
         terrain_faces_final,
         junction_faces_final,  # WICHTIG: Übergebe Junction-Faces separat!
     )
-    print(f"    → save_unified_obj(): {time.time() - export_start:.2f}s")
+    print(f"    -> save_unified_obj(): {time.time() - export_start:.2f}s")
 
     cleanup_start = time.time()
     del (
@@ -727,7 +751,7 @@ def main():
         road_faces_final,
     )
     gc.collect()
-    print(f"    → Cleanup + GC: {time.time() - cleanup_start:.2f}s")
+    print(f"    -> Cleanup + GC: {time.time() - cleanup_start:.2f}s")
 
     timings["14_Mesh_Export"] = time.time() - step_start
 
@@ -736,7 +760,7 @@ def main():
     elapsed_time = end_time - start_time
 
     print(f"\n{'=' * 60}")
-    print(f"✓ GENERATOR BEENDET!")
+    print(f"[OK] GENERATOR BEENDET!")
     print(f"{'=' * 60}")
     print(f"  Output-Datei: {output_obj}")
     if config.LOCAL_OFFSET:

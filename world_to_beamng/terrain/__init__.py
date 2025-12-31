@@ -1,3 +1,3 @@
 """
-Elevation/Höhendaten Module
+Elevation/Hoehendaten Module
 """

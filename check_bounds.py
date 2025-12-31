@@ -56,7 +56,7 @@ if center_bounds:
         scale_y = (mesh_bounds["max"][1] - mesh_bounds["min"][1]) / (
             center_bounds["max"][1] - center_bounds["min"][1]
         )
-        print(f"\nMöglicher Scale Factor X: {scale_x:.4f}")
-        print(f"Möglicher Scale Factor Y: {scale_y:.4f}")
+        print(f"\nMoeglicher Scale Factor X: {scale_x:.4f}")
+        print(f"Moeglicher Scale Factor Y: {scale_y:.4f}")
 else:
     print("Nicht gefunden")

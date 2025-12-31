@@ -12,17 +12,17 @@ def cleanup_duplicate_faces(all_faces):
 
     faces_np = np.array(all_faces, dtype=np.int64)
 
-    # Sortiere Vertices in jedem Face für Vergleich
+    # Sortiere Vertices in jedem Face fuer Vergleich
     faces_sorted = np.sort(faces_np, axis=1)
 
     # Finde eindeutige Faces
     _, unique_idx = np.unique(faces_sorted, axis=0, return_index=True)
 
-    # Behalte Originale Reihenfolge (für korrekte Normalen)
+    # Behalte Originale Reihenfolge (fuer korrekte Normalen)
     unique_faces = faces_np[np.sort(unique_idx)]
 
     num_removed = len(all_faces) - len(unique_faces)
     if num_removed > 0:
-        print(f"  ✓ {num_removed} doppelte Faces entfernt")
+        print(f"  [OK] {num_removed} doppelte Faces entfernt")
 
     return unique_faces.tolist()

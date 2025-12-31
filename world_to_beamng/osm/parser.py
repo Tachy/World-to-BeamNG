@@ -8,7 +8,7 @@ from ..geometry.coordinates import transformer_to_wgs84, transformer_to_utm
 
 
 def calculate_bbox_from_height_data(points):
-    """Berechnet die BBOX (WGS84) aus UTM-Höhendaten."""
+    """Berechnet die BBOX (WGS84) aus UTM-Hoehendaten."""
     # Finde Min/Max in UTM
     min_x, min_y = points.min(axis=0)
     max_x, max_y = points.max(axis=0)
@@ -24,7 +24,7 @@ def calculate_bbox_from_height_data(points):
 
 
 def extract_roads_from_osm(osm_elements):
-    """Extrahiert nur Straßen-Ways aus allen OSM-Daten."""
+    """Extrahiert nur Strassen-Ways aus allen OSM-Daten."""
     roads = [
         element
         for element in osm_elements
@@ -33,6 +33,6 @@ def extract_roads_from_osm(osm_elements):
         and "highway" in element["tags"]
     ]
     print(
-        f"  → {len(roads)} Straßensegmente aus {len(osm_elements)} OSM-Elementen extrahiert"
+        f"  [->] {len(roads)} Strassensegmente aus {len(osm_elements)} OSM-Elementen extrahiert"
     )
     return roads

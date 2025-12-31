@@ -11,7 +11,7 @@ class VertexManager:
     Verwaltet alle Mesh-Vertices zentral mit automatischer Deduplizierung.
 
     Verhindert doppelte Vertices innerhalb einer definierten Toleranz und
-    gibt konsistente globale Indices zurück.
+    gibt konsistente globale Indices zurueck.
     """
 
     def __init__(self, tolerance=0.001):
@@ -36,7 +36,7 @@ class VertexManager:
 
     def add_vertex(self, x, y, z):
         """
-        Fügt einen Vertex hinzu oder gibt Index eines existierenden zurück.
+        Fuegt einen Vertex hinzu oder gibt Index eines existierenden zurueck.
 
         Args:
             x, y, z: Koordinaten des Vertex
@@ -57,7 +57,7 @@ class VertexManager:
 
     def add_vertices_direct(self, xs, ys, zs):
         """
-        Fügt viele Vertices OHNE Deduplication hinzu (schnell).
+        Fuegt viele Vertices OHNE Deduplication hinzu (schnell).
 
         Hinweis: Nur nutzen, wenn sicher keine Überschneidung mit existierenden
         Vertices besteht (z. B. initialer Grid-Aufbau). Baut den KDTree am Ende
@@ -75,9 +75,9 @@ class VertexManager:
         return list(range(start_idx, start_idx + len(coords)))
 
     def add_vertices_direct_nohash(self, coords):
-        """Fügt viele Vertices ohne Dedup und ohne Hash/KDTree-Update hinzu (maximale Speed).
+        """Fuegt viele Vertices ohne Dedup und ohne Hash/KDTree-Update hinzu (maximale Speed).
 
-        Nur nutzen, wenn danach keine Dedup-Queries mehr nötig sind und keine Überschneidungen
+        Nur nutzen, wenn danach keine Dedup-Queries mehr noetig sind und keine Überschneidungen
         zu bestehenden Vertices zu erwarten sind.
         """
         coords_arr = np.asarray(coords, dtype=np.float32)
@@ -91,13 +91,13 @@ class VertexManager:
 
     def add_vertices_batch_dedup(self, coords):
         """
-        Fügt viele Vertices mit Deduplication auf einmal hinzu (vektorisiert).
+        Fuegt viele Vertices mit Deduplication auf einmal hinzu (vektorisiert).
 
         Args:
             coords: Iterable von (x, y, z)
 
         Returns:
-            list[int]: Globale Indices der eingefügten/gefundenen Vertices
+            list[int]: Globale Indices der eingefuegten/gefundenen Vertices
         """
         coords_arr = np.asarray(coords, dtype=np.float32)
         if coords_arr.size == 0:
@@ -113,7 +113,7 @@ class VertexManager:
 
         result_indices = [None] * len(coords_arr)
 
-        # Lokale Referenzen für Speed
+        # Lokale Referenzen fuer Speed
         v_list = self.vertices
         tol_sq = self.tolerance_sq
         cell_size = self.cell_size
@@ -163,7 +163,7 @@ class VertexManager:
 
     def add_vertices_batch(self, coords):
         """
-        Fügt mehrere Vertices auf einmal hinzu (effizient).
+        Fuegt mehrere Vertices auf einmal hinzu (effizient).
 
         Args:
             coords: Liste/Array von (x, y, z) Koordinaten
@@ -180,7 +180,7 @@ class VertexManager:
                 indices.append(self.add_vertex(*coord))
         return indices
 
-    # --- Interne Helfer für Spatial Hash ---
+    # --- Interne Helfer fuer Spatial Hash ---
     def _cell_key(self, point):
         return (
             int(np.floor(point[0] / self.cell_size)),
@@ -199,7 +199,7 @@ class VertexManager:
     def _find_existing(self, point):
         key = self._cell_key(point)
         px, py, pz = point
-        # Prüfe eigene und Nachbarzellen (3x3x3)
+        # Pruefe eigene und Nachbarzellen (3x3x3)
         for dx in (-1, 0, 1):
             for dy in (-1, 0, 1):
                 for dz in (-1, 0, 1):
@@ -216,7 +216,7 @@ class VertexManager:
 
     def add_vertex_tuple(self, vertex_tuple):
         """
-        Fügt einen Vertex als Tuple hinzu.
+        Fuegt einen Vertex als Tuple hinzu.
 
         Args:
             vertex_tuple: (x, y, z) Tuple
@@ -228,7 +228,7 @@ class VertexManager:
 
     def get_vertex(self, index):
         """
-        Gibt Vertex an gegebenem Index zurück.
+        Gibt Vertex an gegebenem Index zurueck.
 
         Args:
             index: Globaler Vertex-Index
@@ -240,7 +240,7 @@ class VertexManager:
 
     def get_array(self):
         """
-        Gibt alle Vertices als NumPy-Array zurück.
+        Gibt alle Vertices als NumPy-Array zurueck.
 
         Returns:
             np.ndarray: (N, 3) Array mit allen Vertices
@@ -251,7 +251,7 @@ class VertexManager:
 
     def get_count(self):
         """
-        Gibt Anzahl der Vertices zurück.
+        Gibt Anzahl der Vertices zurueck.
 
         Returns:
             int: Anzahl Vertices
@@ -265,7 +265,7 @@ class VertexManager:
             self.kdtree = cKDTree(vertex_array)
 
     def __len__(self):
-        """Gibt Anzahl der Vertices zurück."""
+        """Gibt Anzahl der Vertices zurueck."""
         return len(self.vertices)
 
     def __repr__(self):

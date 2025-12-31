@@ -13,7 +13,7 @@ def generate_full_grid_mesh(
 
     Args:
         grid_points: Grid-Punkte (x, y)
-        modified_heights: Höhenwerte
+        modified_heights: Hoehenwerte
         vertex_types: Vertex-Typen (0=Terrain, >0=Road/Slope)
         nx, ny: Grid-Dimensionen
         vertex_manager: Zentrale Vertex-Verwaltung
@@ -21,20 +21,20 @@ def generate_full_grid_mesh(
     Returns:
         terrain_faces: Liste von Face-Indizes (0-basiert)
     """
-    print("  Füge Grid-Vertices zum VertexManager hinzu...")
+    print("  Fuege Grid-Vertices zum VertexManager hinzu...")
 
-    # Grid-Punkte sind bereits in lokalen Koordinaten - keine Transformation mehr nötig!
-    # Füge alle Vertices zum Manager hinzu und speichere Indices (vektorisiert)
+    # Grid-Punkte sind bereits in lokalen Koordinaten - keine Transformation mehr noetig!
+    # Fuege alle Vertices zum Manager hinzu und speichere Indices (vektorisiert)
     coords = np.column_stack([grid_points[:, 0], grid_points[:, 1], modified_heights])
 
     if not dedup:
-        # Endphase: kein Dedup mehr nötig → schneller Append ohne Hash/KDTree
+        # Endphase: kein Dedup mehr noetig -> schneller Append ohne Hash/KDTree
         vertex_indices = vertex_manager.add_vertices_direct_nohash(coords)
     else:
         vertex_indices = vertex_manager.add_vertices_batch_dedup_fast(coords)
 
     print(
-        f"  ✓ {len(vertex_indices)} Grid-Vertices hinzugefügt (gesamt: {vertex_manager.get_count()})"
+        f"  [OK] {len(vertex_indices)} Grid-Vertices hinzugefuegt (gesamt: {vertex_manager.get_count()})"
     )
 
     print("  Generiere Grid-Faces (vektorisiert)...")
@@ -56,11 +56,11 @@ def generate_full_grid_mesh(
     mat_bl = vertex_types_2d[1:, :-1].ravel()
     quad_materials = np.maximum.reduce([mat_tl, mat_tr, mat_br, mat_bl])
 
-    # Erzeuge Faces NUR für Quads ohne markierte Vertices (alles material == 0)
+    # Erzeuge Faces NUR fuer Quads ohne markierte Vertices (alles material == 0)
     valid_quads = quad_materials == 0
     num_valid = np.count_nonzero(valid_quads)
 
-    # Erstelle nur notwendige Dreiecke (2 pro gültigem Quad)
+    # Erstelle nur notwendige Dreiecke (2 pro gueltigem Quad)
     if num_valid > 0:
         terrain_faces = np.empty((num_valid * 2, 3), dtype=np.int32)
         terrain_faces[0::2] = np.column_stack(
@@ -73,6 +73,6 @@ def generate_full_grid_mesh(
     else:
         terrain_faces = []
 
-    print(f"  ✓ {len(terrain_faces)} Terrain-Faces (Straßen ausgeschnitten)")
+    print(f"  [OK] {len(terrain_faces)} Terrain-Faces (Strassen ausgeschnitten)")
 
     return terrain_faces, vertex_indices

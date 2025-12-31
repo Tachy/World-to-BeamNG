@@ -18,18 +18,18 @@ def test_mtl_file(mtl_path):
         return False
 
     file_size = os.path.getsize(mtl_path)
-    print(f"✓ Dateigröße: {file_size:,} Bytes")
+    print(f"[OK] Dateigroesse: {file_size:,} Bytes")
 
     try:
         with open(mtl_path, "r", encoding="utf-8") as f:
             content = f.read()
             lines = content.splitlines()
 
-        print(f"✓ Datei lesbar: {len(lines)} Zeilen")
+        print(f"[OK] Datei lesbar: {len(lines)} Zeilen")
 
         # Finde alle Materialien
         materials = re.findall(r"^newmtl\s+(\S+)", content, re.MULTILINE)
-        print(f"\n✓ Gefundene Materialien ({len(materials)}):")
+        print(f"\n[OK] Gefundene Materialien ({len(materials)}):")
 
         expected_materials = {"road_surface", "road_slope", "terrain"}
         found_materials = set(materials)
@@ -37,9 +37,9 @@ def test_mtl_file(mtl_path):
         for mat in materials:
             print(f"  • {mat}")
             if mat in expected_materials:
-                print(f"    ✓ Erwartetes Material")
+                print(f"    [OK] Erwartetes Material")
             else:
-                print(f"    ⚠ Unerwartetes Material")
+                print(f"    [!] Unerwartetes Material")
 
         # Prüfe auf fehlende Materialien
         missing = expected_materials - found_materials
@@ -63,9 +63,9 @@ def test_mtl_file(mtl_path):
                     missing_props.append(prop)
 
             if missing_props:
-                print(f"\n⚠ Material '{mat}' fehlen Properties: {missing_props}")
+                print(f"\n[!] Material '{mat}' fehlen Properties: {missing_props}")
             else:
-                print(f"  ✓ Alle Properties vorhanden für '{mat}'")
+                print(f"  [OK] Alle Properties vorhanden fuer '{mat}'")
 
         print(f"\n✅ MTL-Datei ist KORREKT")
         return True
@@ -86,7 +86,7 @@ def test_obj_file(obj_path):
         return False
 
     file_size = os.path.getsize(obj_path)
-    print(f"✓ Dateigröße: {file_size:,} Bytes ({file_size / 1024 / 1024:.2f} MB)")
+    print(f"[OK] Dateigroesse: {file_size:,} Bytes ({file_size / 1024 / 1024:.2f} MB)")
 
     try:
         vertex_count = 0
@@ -127,7 +127,7 @@ def test_obj_file(obj_path):
                         "faces": 0,
                         "material": None,
                     }
-                    print(f"\n  → Objekt gefunden: '{current_object}'")
+                    print(f"\n  -> Objekt gefunden: '{current_object}'")
 
                 # Material-Verwendung
                 elif line.startswith("usemtl "):
@@ -153,10 +153,10 @@ def test_obj_file(obj_path):
         print(f"\n{'=' * 60}")
         print(f"ZUSAMMENFASSUNG")
         print(f"{'=' * 60}")
-        print(f"✓ MTL-Datei referenziert: {mtl_file}")
-        print(f"✓ Vertices gesamt: {vertex_count:,}")
-        print(f"✓ Faces gesamt: {face_count:,}")
-        print(f"✓ Objekte gefunden: {len(objects)}")
+        print(f"[OK] MTL-Datei referenziert: {mtl_file}")
+        print(f"[OK] Vertices gesamt: {vertex_count:,}")
+        print(f"[OK] Faces gesamt: {face_count:,}")
+        print(f"[OK] Objekte gefunden: {len(objects)}")
 
         # Erwartete Objekte
         expected_objects = {"road_surface", "road_slope", "terrain"}
@@ -165,7 +165,7 @@ def test_obj_file(obj_path):
         print(f"\n📦 OBJEKTE:")
         for obj in objects:
             stats = object_stats[obj]
-            status = "✓" if obj in expected_objects else "⚠"
+            status = "[v]" if obj in expected_objects else "[!]"
             print(f"  {status} {obj}")
             print(f"      Faces: {stats['faces']:,}")
             print(f"      Material: {stats['material']}")
@@ -180,15 +180,15 @@ def test_obj_file(obj_path):
         print(f"\n🎨 VERWENDETE MATERIALIEN:")
         expected_materials = {"road_surface", "road_slope", "terrain"}
         for mat in materials_used:
-            status = "✓" if mat in expected_materials else "⚠"
+            status = "[v]" if mat in expected_materials else "[!]"
             print(f"  {status} {mat}")
 
         missing_materials = expected_materials - set(materials_used)
         if missing_materials:
-            print(f"\n⚠ Warnung: Nicht verwendete Materialien: {missing_materials}")
+            print(f"\n[!] Warnung: Nicht verwendete Materialien: {missing_materials}")
 
         # Prüfe Vertex-Indizes in Faces (Sample)
-        print(f"\n🔍 Prüfe Face-Indizes (erste 1000 Faces)...")
+        print(f"\n🔍 Pruefe Face-Indizes (erste 1000 Faces)...")
         with open(obj_path, "r", encoding="utf-8") as f:
             face_samples = []
             for line in f:
@@ -213,20 +213,20 @@ def test_obj_file(obj_path):
             )
 
             if invalid_faces:
-                print(f"  ❌ FEHLER: {len(invalid_faces)} ungültige Faces gefunden:")
+                print(f"  ❌ FEHLER: {len(invalid_faces)} ungueltige Faces gefunden:")
                 for face, bad_idx in invalid_faces[:10]:
                     print(f"    Index {bad_idx} > {vertex_count}: {face}")
                 return False
             else:
-                print(f"  ✓ Alle Face-Indizes gültig (1 bis {vertex_count})")
+                print(f"  [OK] Alle Face-Indizes gueltig (1 bis {vertex_count})")
 
         # Prüfe auf leere Objekte
         print(f"\n📊 OBJEKT-STATISTIKEN:")
         for obj, stats in object_stats.items():
             if stats["faces"] == 0:
-                print(f"  ⚠ Warnung: Objekt '{obj}' hat keine Faces!")
+                print(f"  [!] Warnung: Objekt '{obj}' hat keine Faces!")
             else:
-                print(f"  ✓ {obj}: {stats['faces']:,} Faces")
+                print(f"  [OK] {obj}: {stats['faces']:,} Faces")
 
         print(f"\n✅ OBJ-Datei ist KORREKT")
         return True

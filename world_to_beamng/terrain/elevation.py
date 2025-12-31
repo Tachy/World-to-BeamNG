@@ -1,5 +1,5 @@
 """
-Höhendaten-Verwaltung (Laden, Caching, Interpolation).
+Hoehendaten-Verwaltung (Laden, Caching, Interpolation).
 """
 
 import os
@@ -33,10 +33,10 @@ def get_height_data_hash():
 
 
 def load_height_data():
-    """Lädt alle Höhendaten aus .xyz oder .zip Dateien (mit Caching)."""
-    print("\nLade Höhendaten...")
+    """Lädt alle Hoehendaten aus .xyz oder .zip Dateien (mit Caching)."""
+    print("\nLade Hoehendaten...")
 
-    # Prüfe ob gecachte Rohdaten existieren
+    # Pruefe ob gecachte Rohdaten existieren
     height_hash = get_height_data_hash()
     cache_file = None
 
@@ -44,11 +44,11 @@ def load_height_data():
         cache_file = os.path.join(config.CACHE_DIR, f"height_raw_{height_hash}.npz")
 
         if os.path.exists(cache_file):
-            print(f"  ✓ Cache gefunden: {os.path.basename(cache_file)}")
+            print(f"  [OK] Cache gefunden: {os.path.basename(cache_file)}")
             data = np.load(cache_file)
             points = data["points"]
             elevations = data["elevations"]
-            print(f"  ✓ {len(elevations)} Höhenpunkte aus Cache geladen")
+            print(f"  [OK] {len(elevations)} Hoehenpunkte aus Cache geladen")
             return points, elevations
         else:
             print(f"  Cache nicht gefunden, lade aus Dateien...")
@@ -90,7 +90,7 @@ def load_height_data():
     points = np.vstack(all_points)
     elevations = np.hstack(all_elevations)
 
-    print(f"  ✓ {len(elevations)} Höhenpunkte geladen")
+    print(f"  [OK] {len(elevations)} Hoehenpunkte geladen")
 
     # Cache die Rohdaten (immer wenn wir frisch geladen haben)
     if height_hash:
@@ -99,13 +99,13 @@ def load_height_data():
         )
         os.makedirs(config.CACHE_DIR, exist_ok=True)
         np.savez_compressed(cache_file_path, points=points, elevations=elevations)
-        print(f"  ✓ Cache erstellt: {os.path.basename(cache_file_path)}")
+        print(f"  [OK] Cache erstellt: {os.path.basename(cache_file_path)}")
 
     return points, elevations
 
 
 def get_elevation_cache(bbox):
-    """Lädt den Elevation-Cache für eine BBox (Koordinate -> Höhe)."""
+    """Lädt den Elevation-Cache fuer eine BBox (Koordinate -> Hoehe)."""
     from ..io.cache import get_cache_path
 
     cache_path = get_cache_path(bbox, "elevations")
@@ -113,7 +113,7 @@ def get_elevation_cache(bbox):
         try:
             with open(cache_path, "r", encoding="utf-8") as f:
                 cache_data = json.load(f)
-                print(f"  ✓ Elevation-Cache geladen: {len(cache_data)} Koordinaten")
+                print(f"  [OK] Elevation-Cache geladen: {len(cache_data)} Koordinaten")
                 return cache_data
         except:
             pass
@@ -129,13 +129,13 @@ def save_elevation_cache(bbox, cache_data):
         os.makedirs(config.CACHE_DIR, exist_ok=True)
         with open(cache_path, "w", encoding="utf-8") as f:
             json.dump(cache_data, f, indent=2)
-        print(f"  ✓ Elevation-Cache gespeichert: {len(cache_data)} Koordinaten")
+        print(f"  [OK] Elevation-Cache gespeichert: {len(cache_data)} Koordinaten")
     except Exception as e:
-        print(f"  ⚠ Fehler beim Speichern des Elevation-Cache: {e}")
+        print(f"  [!] Fehler beim Speichern des Elevation-Cache: {e}")
 
 
 def get_elevations_for_points(pts, bbox, height_points, height_elevations):
-    """Holt Höhendaten für Koordinaten - aus Cache oder durch Interpolation aus lokalen Daten."""
+    """Holt Hoehendaten fuer Koordinaten - aus Cache oder durch Interpolation aus lokalen Daten."""
     from ..geometry.coordinates import transformer_to_utm
     from scipy.interpolate import griddata
 
@@ -147,15 +147,15 @@ def get_elevations_for_points(pts, bbox, height_points, height_elevations):
     missing_indices = []
 
     for idx, pt in enumerate(pts):
-        # Erstelle eindeutigen Key für Koordinate (gerundet auf 6 Dezimalstellen)
+        # Erstelle eindeutigen Key fuer Koordinate (gerundet auf 6 Dezimalstellen)
         coord_key = f"{pt[0]:.6f},{pt[1]:.6f}"
         if coord_key not in elevation_cache:
             missing_pts.append(pt)
             missing_indices.append(idx)
 
-    # Berechne fehlende Höhen durch Interpolation
+    # Berechne fehlende Hoehen durch Interpolation
     if missing_pts:
-        print(f"  Interpoliere {len(missing_pts)} Höhenwerte...")
+        print(f"  Interpoliere {len(missing_pts)} Hoehenwerte...")
 
         # Konvertiere WGS84 zu UTM und dann zu lokal
         from .. import config
@@ -172,12 +172,12 @@ def get_elevations_for_points(pts, bbox, height_points, height_elevations):
 
         missing_pts_local = np.array(missing_pts_local)
 
-        # Interpoliere Höhen (nearest neighbor für schnellere Berechnung)
+        # Interpoliere Hoehen (nearest neighbor fuer schnellere Berechnung)
         new_elevations = griddata(
             height_points, height_elevations, missing_pts_local, method="nearest"
         )
 
-        # Füge zum Cache hinzu
+        # Fuege zum Cache hinzu
         for pt, elev in zip(missing_pts, new_elevations):
             coord_key = f"{pt[0]:.6f},{pt[1]:.6f}"
             elevation_cache[coord_key] = float(elev)
@@ -185,7 +185,7 @@ def get_elevations_for_points(pts, bbox, height_points, height_elevations):
         # Speichere aktualisierten Cache
         save_elevation_cache(bbox, elevation_cache)
 
-    # Erstelle Elevation-Array für alle Punkte
+    # Erstelle Elevation-Array fuer alle Punkte
     elevations = []
     for pt in pts:
         coord_key = f"{pt[0]:.6f},{pt[1]:.6f}"

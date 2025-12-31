@@ -1,8 +1,8 @@
 """
-Straßen-Mesh und Böschungs-Generierung.
+Strassen-Mesh und Boeschungs-Generierung.
 
 Hinweis: Junction-Detection wurde nach Schritt 6a verschoben (detect_junctions_in_centerlines).
-Die hier früher stattfindende nachträgliche T-Junction-Erkennung ist nicht mehr erforderlich.
+Die hier frueher stattfindende nachträgliche T-Junction-Erkennung ist nicht mehr erforderlich.
 """
 
 import numpy as np
@@ -17,21 +17,21 @@ from .. import config
 
 # DEPRECATED: Diese Funktion wird nicht mehr verwendet
 # Junction-Detection erfolgt jetzt in Schritt 6a via detect_junctions_in_centerlines()
-# und wird bereits beim Road-Polygon-Export berücksichtigt.
+# und wird bereits beim Road-Polygon-Export beruecksichtigt.
 #
-# Beibehalten für Backward-Compatibility, aber nicht mehr aufgerufen.
+# Beibehalten fuer Backward-Compatibility, aber nicht mehr aufgerufen.
 def detect_t_junctions(road_polygons, snap_distance=5.0):
     """
-    Erkennt T-Kreuzungen: Wo eine einmündende Straße auf eine durchgehende Straße trifft.
+    Erkennt T-Kreuzungen: Wo eine einmuendende Strasse auf eine durchgehende Strasse trifft.
 
     Returns:
         Liste von T-Junction Dictionaries:
         {
-            'through_road_idx': Index der durchgehenden Straße,
-            'joining_road_idx': Index der einmündenden Straße,
-            'junction_point': (x, y) Punkt der Einmündung,
-            'through_param': Parameter entlang der durchgehenden Straße (0-1),
-            'joining_is_start': True wenn joining road am Start einmündet
+            'through_road_idx': Index der durchgehenden Strasse,
+            'joining_road_idx': Index der einmuendenden Strasse,
+            'junction_point': (x, y) Punkt der Einmuendung,
+            'through_param': Parameter entlang der durchgehenden Strasse (0-1),
+            'joining_is_start': True wenn joining road am Start einmuendet
         }
     """
     from shapely.geometry import LineString, Point
@@ -39,7 +39,7 @@ def detect_t_junctions(road_polygons, snap_distance=5.0):
 
     t_junctions = []
 
-    # Erstelle LineStrings und Spatial-Index (STRtree) für schnelle Nachbarsuche
+    # Erstelle LineStrings und Spatial-Index (STRtree) fuer schnelle Nachbarsuche
     road_lines = []
     valid_lines = []
     valid_indices = []
@@ -77,7 +77,7 @@ def detect_t_junctions(road_polygons, snap_distance=5.0):
     if len(endpoints) < 2:
         return t_junctions
 
-    # Für jeden Endpunkt: prüfe nahe Straßen über Spatial-Index
+    # Fuer jeden Endpunkt: pruefe nahe Strassen ueber Spatial-Index
     search_radius = snap_distance
     for road_idx, is_start, ep in endpoint_info:
         ep_point = Point(ep)
@@ -96,7 +96,7 @@ def detect_t_junctions(road_polygons, snap_distance=5.0):
             if dist >= snap_distance:
                 continue
 
-            # Prüfe, ob nicht am Endpunkt der anderen Straße
+            # Pruefe, ob nicht am Endpunkt der anderen Strasse
             other_coords = road_polygons[other_road_idx]["coords"]
             other_start = Point(other_coords[0][0], other_coords[0][1])
             other_end = Point(other_coords[-1][0], other_coords[-1][1])
@@ -127,7 +127,7 @@ def detect_t_junctions(road_polygons, snap_distance=5.0):
 
 
 def clip_road_to_bounds(coords, bounds_local):
-    """Clippt eine Straße an den Grid-Bounds (lokale Koordinaten)."""
+    """Clippt eine Strasse an den Grid-Bounds (lokale Koordinaten)."""
     if not coords or bounds_local is None:
         return coords
 
@@ -159,7 +159,7 @@ def _process_road_batch(
     grid_bounds,
     lookup_mode,
 ):
-    """Worker-Funktion für Straßen-Batch (multiprocessing-fähig)."""
+    """Worker-Funktion fuer Strassen-Batch (multiprocessing-fähig)."""
     use_kdtree = lookup_mode == "kdtree"
     tree = cKDTree(height_points) if use_kdtree else None
     interpolator = (
@@ -172,8 +172,9 @@ def _process_road_batch(
         local_offset = (0.0, 0.0, 0.0)
 
     def _apply_offset(x, y, z):
-        ox, oy, oz = local_offset
-        return (x - ox, y - oy, z - oz)
+        # Koordinaten sind bereits in polygon.py transformiert (UTM -> Local)
+        # Keine zweite Transformation mehr!
+        return (x, y, z)
 
     batch_vertices = []
     batch_per_road = []
@@ -251,7 +252,7 @@ def _process_road_batch(
         slope_left_outer_z = z_vals + height_diff_left
         slope_right_outer_z = z_vals + height_diff_right
 
-        # Keine Transformation mehr nötig - ALLE Koordinaten sind bereits lokal
+        # Keine Transformation mehr noetig - ALLE Koordinaten sind bereits lokal
         left_local = (left_xy[:, 0], left_xy[:, 1], z_vals)
         right_local = (right_xy[:, 0], right_xy[:, 1], z_vals)
 
@@ -283,14 +284,14 @@ def _process_road_batch(
             )
         )
 
-        # Verwende LOKALE Koordinaten für 2D-Polygone (nach Offset-Transformation)
+        # Verwende LOKALE Koordinaten fuer 2D-Polygone (nach Offset-Transformation)
         road_left_2d = [(v[0], v[1]) for v in road_left_vertices]
         road_right_2d = [(v[0], v[1]) for v in road_right_vertices]
         road_poly_2d = road_left_2d + list(reversed(road_right_2d))
 
         slope_left_2d = [(v[0], v[1]) for v in slope_left_outer_vertices]
         slope_right_2d = [(v[0], v[1]) for v in slope_right_outer_vertices]
-        # Korrigierte Reihenfolge: Außenkontur gegen Uhrzeigersinn
+        # Korrigierte Reihenfolge: Aussenkontur gegen Uhrzeigersinn
         slope_poly_2d = slope_left_2d + list(reversed(slope_right_2d))
 
         left_start = len(batch_vertices)
@@ -330,12 +331,12 @@ def generate_road_mesh_strips(
     road_polygons, height_points, height_elevations, vertex_manager
 ):
     """
-    Generiert Straßen als separate Mesh-Streifen mit zentraler Vertex-Verwaltung.
+    Generiert Strassen als separate Mesh-Streifen mit zentraler Vertex-Verwaltung.
 
     Args:
-        road_polygons: Liste von Straßen-Polygonen
-        height_points: Terrain-Höhenpunkte
-        height_elevations: Terrain-Höhen
+        road_polygons: Liste von Strassen-Polygonen
+        height_points: Terrain-Hoehenpunkte
+        height_elevations: Terrain-Hoehen
         vertex_manager: Zentrale Vertex-Verwaltung (ERFORDERLICH)
 
     Returns:
@@ -349,8 +350,8 @@ def generate_road_mesh_strips(
     all_slope_faces = []
     road_slope_polygons_2d = []
 
-    # Mapping: original road_polygons index → road_slope_polygons_2d index
-    # (wegen Clipping können Indices unterschiedlich sein)
+    # Mapping: original road_polygons index -> road_slope_polygons_2d index
+    # (wegen Clipping koennen Indices unterschiedlich sein)
     original_to_mesh_idx = {}
 
     total_roads = len(road_polygons)
@@ -432,14 +433,16 @@ def generate_road_mesh_strips(
 
             processed = original_road_idx + 1
             if processed % 50 == 0:
-                print(f"  {processed}/{total_roads} Straßen (Geometrie)...")
+                print(f"  {processed}/{total_roads} Strassen (Geometrie)...")
 
     # === Globaler Insert in einem Rutsch ===
     print(
-        f"  Füge {len(all_vertices_concat):,} Straßen/Böschungs-Vertices in einem Rutsch hinzu..."
+        f"  Fuege {len(all_vertices_concat):,} Strassen/Boeschungs-Vertices in einem Rutsch hinzu..."
     )
     global_indices = vertex_manager.add_vertices_batch_dedup_fast(all_vertices_concat)
-    print(f"  ✓ VertexManager: {vertex_manager.get_count():,} Vertices nach Straßen")
+    print(
+        f"  [OK] VertexManager: {vertex_manager.get_count():,} Vertices nach Strassen"
+    )
 
     # === Faces und Polygone aufbauen mit globalen Indices ===
     for road_meta in per_road_data:
@@ -459,7 +462,7 @@ def generate_road_mesh_strips(
 
         road_id = road_meta["road_id"]
 
-        # Straßen-Faces
+        # Strassen-Faces
         for i in range(n - 1):
             left1 = road_vertex_indices_left[i]
             left2 = road_vertex_indices_left[i + 1]
@@ -471,7 +474,7 @@ def generate_road_mesh_strips(
             all_road_faces.append([left1, right2, left2])
             all_road_face_to_idx.append(road_id)
 
-        # Böschungs-Faces
+        # Boeschungs-Faces
         slope_road_left_indices = road_vertex_indices_left
         slope_road_right_indices = road_vertex_indices_right
 
@@ -492,7 +495,7 @@ def generate_road_mesh_strips(
             all_slope_faces.append([road_right1, slope_right2, slope_right1])
             all_slope_faces.append([road_right1, road_right2, slope_right2])
 
-        # 2D-Polygone + Mapping für Snapping/Klassifizierung
+        # 2D-Polygone + Mapping fuer Snapping/Klassifizierung
         road_slope_polygons_2d.append(
             {
                 "road_polygon": road_meta["road_poly_2d"],
@@ -512,21 +515,21 @@ def generate_road_mesh_strips(
         original_idx = road_meta["original_idx"]
         original_to_mesh_idx[original_idx] = len(road_slope_polygons_2d) - 1
 
-    print(f"  ✓ {len(all_road_faces)} Straßen-Faces")
-    print(f"  ✓ {len(all_slope_faces)} Böschungs-Faces")
+    print(f"  [OK] {len(all_road_faces)} Strassen-Faces")
+    print(f"  [OK] {len(all_slope_faces)} Boeschungs-Faces")
 
-    print(f"  ✓ Böschungen OK")
+    print(f"  [OK] Boeschungen OK")
     print(
-        f"  ✓ {len(road_slope_polygons_2d)} Road/Slope-Polygone für Grid-Ausschneiden (2D)"
+        f"  [OK] {len(road_slope_polygons_2d)} Road/Slope-Polygone fuer Grid-Ausschneiden (2D)"
     )
     if clipped_roads > 0:
-        print(f"  ℹ {clipped_roads} Straßen komplett außerhalb Grid (ignoriert)")
+        print(f"  [i] {clipped_roads} Strassen komplett ausserhalb Grid (ignoriert)")
 
     # T-Junction Snapping: JETZT DEAKTIVIERT - wird direkt in Schritt 6a erkannt
     # Die Junctions werden bereits in der Pipeline erkannt und in generate_road_mesh_strips verarbeitet
     if config.ENABLE_ROAD_EDGE_SNAPPING:
         print(
-            f"  ℹ Junction-Handling: wird direkt in Centerlines erkannt (nicht mehr nachträglich)"
+            f"  [i] Junction-Handling: wird direkt in Centerlines erkannt (nicht mehr nachträglich)"
         )
 
     return (

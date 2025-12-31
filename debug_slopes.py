@@ -54,16 +54,16 @@ if slope_faces:
         v = vertices[i - 1]
         print(f"v{i}: ({v[0]:.2f}, {v[1]:.2f}, {v[2]:.2f})")
 
-    print(f"\n=== Erste 10 Böschungs-Faces ===")
+    print(f"\n=== Erste 10 Boeschungs-Faces ===")
     for i, face in enumerate(slope_faces[:10]):
         print(f"Face {i}: {face}")
         # Prüfe ob Indices gültig sind
         for idx in face:
             if idx < 1 or idx > len(vertices):
-                print(f"  ⚠️ Ungültiger Index: {idx} (max: {len(vertices)})")
+                print(f"  [!]️ Ungueltiger Index: {idx} (max: {len(vertices)})")
             else:
                 v = vertices[idx - 1]
                 print(f"  v{idx}: ({v[0]:.2f}, {v[1]:.2f}, {v[2]:.2f})")
         print()
 else:
-    print("\n⚠️ KEINE Böschungs-Faces gefunden!")
+    print("\n[!]️ KEINE Boeschungs-Faces gefunden!")

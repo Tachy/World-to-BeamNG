@@ -22,21 +22,21 @@ def create_pyvista_mesh(vertices, faces):
     if not faces:
         return None
 
-    # Konvertiere zu NumPy für vektorisierte Operationen
+    # Konvertiere zu NumPy fuer vektorisierte Operationen
     faces_array = np.array(faces, dtype=np.int32)
 
     # Finde verwendete Vertices (VEKTORISIERT statt Set+Loop)
     used_indices_sorted = np.unique(faces_array)
 
-    # Erstelle Mapping: alter Index → neuer Index (0-basiert für PyVista)
-    # Nutze NumPy searchsorted für O(n log n) statt Dict-Lookup
+    # Erstelle Mapping: alter Index -> neuer Index (0-basiert fuer PyVista)
+    # Nutze NumPy searchsorted fuer O(n log n) statt Dict-Lookup
     index_map = np.arange(len(used_indices_sorted))
 
     # Extrahiere verwendete Vertices (NumPy fancy indexing statt List Comprehension)
     used_vertices = np.array(vertices)[used_indices_sorted - 1]  # Faces sind 1-basiert
 
-    # Konvertiere Faces (VEKTORISIERT: 1-basiert → 0-basiert)
-    # searchsorted mappt alte Indizes → neue Indizes in O(n log n)
+    # Konvertiere Faces (VEKTORISIERT: 1-basiert -> 0-basiert)
+    # searchsorted mappt alte Indizes -> neue Indizes in O(n log n)
     faces_remapped = np.searchsorted(used_indices_sorted, faces_array)
 
     # PyVista Face-Format: [3, v1, v2, v3, 3, v1, v2, v3, ...]
@@ -55,7 +55,7 @@ def create_pyvista_mesh(vertices, faces):
 def save_layer_obj(filename, vertices, faces, material_name):
     """Speichert ein einzelnes Layer-Mesh als OBJ (nur verwendete Vertices)."""
     if not faces:
-        print(f"  → {filename}: Keine Faces, überspringe")
+        print(f"  -> {filename}: Keine Faces, ueberspringe")
         return
 
     # Finde alle verwendeten Vertex-Indizes
@@ -63,7 +63,7 @@ def save_layer_obj(filename, vertices, faces, material_name):
     for face in faces:
         used_indices.update(face)
 
-    # Erstelle Mapping: alter Index → neuer Index
+    # Erstelle Mapping: alter Index -> neuer Index
     used_indices_sorted = sorted(used_indices)
     index_map = {
         old_idx: new_idx + 1 for new_idx, old_idx in enumerate(used_indices_sorted)
@@ -89,21 +89,13 @@ def save_layer_obj(filename, vertices, faces, material_name):
         face_lines = [f"f {face[0]} {face[1]} {face[2]}\n" for face in remapped_faces]
         f.write("".join(face_lines))
 
-    print(f"  ✓ {filename}: {len(used_vertices)} vertices, {len(faces)} faces")
+    print(f"  [OK] {filename}: {len(used_vertices)} vertices, {len(faces)} faces")
 
 
 def save_unified_obj(
     filename, vertices, road_faces, slope_faces, terrain_faces, junction_faces=None
 ):
-    """Speichert ein einheitliches Terrain-Mesh mit integrierten Straßen und Junctions."""
-    print(f"DEBUG save_unified_obj():")
-    print(f"  - vertices: {len(vertices)}")
-    print(f"  - road_faces: {len(road_faces)}")
-    print(f"  - slope_faces: {len(slope_faces)}")
-    print(f"  - terrain_faces: {len(terrain_faces)}")
-    print(
-        f"  - junction_faces: {len(junction_faces) if junction_faces is not None else 'None'}"
-    )
+    """Speichert ein einheitliches Terrain-Mesh mit integrierten Strassen und Junctions."""
 
     if junction_faces is None:
         junction_faces = np.array([], dtype=np.int32)
@@ -115,7 +107,7 @@ def save_unified_obj(
         f.write("# Material Library for BeamNG Terrain\n")
         f.write("# Auto-generated\n\n")
 
-        # Straßenoberfläche (Asphalt)
+        # Strassenoberfläche (Asphalt)
         f.write("newmtl road_surface\n")
         f.write("Ns 50.000000\n")
         f.write("Ka 0.200000 0.200000 0.200000\n")
@@ -125,7 +117,7 @@ def save_unified_obj(
         f.write("d 1.000000\n")
         f.write("illum 2\n\n")
 
-        # Böschungen (Erde)
+        # Boeschungen (Erde)
         f.write("newmtl road_slope\n")
         f.write("Ns 5.000000\n")
         f.write("Ka 0.200000 0.150000 0.100000\n")
@@ -145,7 +137,7 @@ def save_unified_obj(
         f.write("d 1.000000\n")
         f.write("illum 2\n\n")
 
-        # Junction-Quads (Grün für Sichtbarkeit)
+        # Junction-Quads (Gruen fuer Sichtbarkeit)
         f.write("newmtl junction_quad_surface\n")
         f.write("Ns 50.000000\n")
         f.write("Ka 0.200000 0.300000 0.200000\n")
@@ -159,7 +151,7 @@ def save_unified_obj(
     print(f"\nSchreibe OBJ-Datei: {filename}")
     with open(
         filename, "w", buffering=64 * 1024 * 1024
-    ) as f:  # 64MB Buffer für Ultra-Speed!
+    ) as f:  # 64MB Buffer fuer Ultra-Speed!
         f.write("# BeamNG Unified Terrain Mesh with integrated roads and junctions\n")
         f.write(f"# Generated from DGM1 data and OSM\n")
         f.write(f"mtllib {os.path.basename(mtl_filename)}\n\n")
@@ -169,7 +161,7 @@ def save_unified_obj(
             """Schreibt Faces 10x schneller als np.savetxt durch Bulk-String-Ops."""
             if len(faces) == 0:
                 return
-            # Erstelle Strings für alle 3 Spalten separat
+            # Erstelle Strings fuer alle 3 Spalten separat
             col1 = faces[:, 0].astype(str)
             col2 = faces[:, 1].astype(str)
             col3 = faces[:, 2].astype(str)
@@ -194,22 +186,24 @@ def save_unified_obj(
         f.write("\n".join(v_lines.tolist()) + "\n")
         del v_array, v1, v2, v3, v_lines
 
-        # Straßen-Objekt (inkl. Junction-Faces!)
-        print(f"  Schreibe {len(road_faces)} Straßen-Faces (ULTRA-FAST)...")
+        # Strassen-Objekt
+        print(f"  Schreibe {len(road_faces)} Strassen-Faces (ULTRA-FAST)...")
         f.write("\no road_surface\n")
         f.write("usemtl road_surface\n")
         write_faces_fast(f, road_faces, "f ")
 
-        # Junction-Faces INNERHALB road_surface Objekt (für Viewer-Kompatibilität)
+        # Junction-Quads mit eigenem Material (fuer sichtbare Visualisierung)
         if junction_faces is not None and len(junction_faces) > 0:
             print(
-                f"  Schreibe {len(junction_faces)} Junction-Faces (innerhalb road_surface)..."
+                f"  Schreibe {len(junction_faces)} Junction-Faces mit eigenem Material..."
             )
+            f.write("\no junction_quad\n")
+            f.write("usemtl junction_quad_surface\n")
             write_faces_fast(f, junction_faces, "f ")
-            print(f"    ✓ Junction-Faces geschrieben!")
+            print(f"    [OK] Junction-Faces geschrieben!")
 
-        # Böschungs-Objekt
-        print(f"  Schreibe {len(slope_faces)} Böschungs-Faces (ULTRA-FAST)...")
+        # Boeschungs-Objekt
+        print(f"  Schreibe {len(slope_faces)} Boeschungs-Faces (ULTRA-FAST)...")
         f.write("\no road_slope\n")
         f.write("usemtl road_slope\n")
         write_faces_fast(f, slope_faces, "f ")
@@ -220,15 +214,15 @@ def save_unified_obj(
         f.write("usemtl terrain\n")
         write_faces_fast(f, terrain_faces, "f ")
 
-    print(f"  ✓ {filename} erfolgreich erstellt!")
-    print(f"  ✓ {mtl_filename} erfolgreich erstellt!")
+    print(f"  [OK] {filename} erfolgreich erstellt!")
+    print(f"  [OK] {mtl_filename} erfolgreich erstellt!")
 
 
 def save_roads_obj(filename, vertices, road_faces, road_face_to_idx):
-    """Exportiert nur die Straßen als OBJ mit pro-Straße-Material (road_<id>)."""
+    """Exportiert nur die Strassen als OBJ mit pro-Strasse-Material (road_<id>)."""
 
     if len(road_faces) == 0:
-        print(f"  → {filename}: Keine Straßen-Faces, überspringe")
+        print(f"  -> {filename}: Keine Strassen-Faces, ueberspringe")
         return
 
     # Gruppiere Faces nach road_idx
@@ -283,7 +277,7 @@ def save_roads_obj(filename, vertices, road_faces, road_face_to_idx):
                 f.write(f"f {face[0]} {face[1]} {face[2]}\n")
 
     print(
-        f"  ✓ {filename}: {len(used_vertices)} vertices, {len(road_faces)} faces, {len(remapped_by_road)} roads"
+        f"  [OK] {filename}: {len(used_vertices)} vertices, {len(road_faces)} faces, {len(remapped_by_road)} roads"
     )
 
 
@@ -291,11 +285,11 @@ def save_centerlines_obj(
     filename, road_polygons, height_points, height_elevations, bbox, local_offset=None
 ):
     """
-    Exportiert Straßen-Centerlines als OBJ mit Höhendaten.
+    Exportiert Strassen-Centerlines als OBJ mit Hoehendaten.
 
     Args:
         filename: Zieldatei
-        road_polygons: Liste von Straßen-Polygonen (aus get_road_polygons)
+        road_polygons: Liste von Strassen-Polygonen (aus get_road_polygons)
         height_points: Nicht verwendet
         height_elevations: Nicht verwendet
         bbox: Nicht verwendet
@@ -334,7 +328,7 @@ def save_centerlines_obj(
             return points
 
         pts = np.array(points, dtype=float)
-        diffs = np.diff(pts[:, :2], axis=0)  # XY-Länge für Distanz
+        diffs = np.diff(pts[:, :2], axis=0)  # XY-Länge fuer Distanz
         seg_lengths = np.linalg.norm(diffs, axis=1)
         cumlen = np.concatenate([[0.0], np.cumsum(seg_lengths)])
         total = cumlen[-1]
@@ -372,7 +366,7 @@ def save_centerlines_obj(
 
     for road_poly in road_polygons:
         try:
-            # Extrahiere Centerline aus der Straße (coords sind BEREITS in lokalen Koordinaten!)
+            # Extrahiere Centerline aus der Strasse (coords sind BEREITS in lokalen Koordinaten!)
             if "coords" in road_poly:
                 centerline_orig = list(road_poly["coords"])
             else:
@@ -412,7 +406,7 @@ def save_centerlines_obj(
             continue
 
     if not centerline_vertices:
-        print(f"  Info: Keine gültigen Centerline-Vertices gefunden")
+        print(f"  Info: Keine gueltigen Centerline-Vertices gefunden")
         return
 
     # Schreibe MTL-Datei
@@ -457,5 +451,118 @@ def save_centerlines_obj(
             f.write(f"l {edge[0] + 1 + offset} {edge[1] + 1 + offset}\n")
 
     print(
-        f"  ✓ {filename}: {len(centerline_vertices)} centerline vertices, {len(centerline_edges)} centerline edges, {len(circle_vertices)} circle vertices, {len(circle_edges)} circle edges"
+        f"  [OK] {filename}: {len(centerline_vertices)} centerline vertices, {len(centerline_edges)} centerline edges, {len(circle_vertices)} circle vertices, {len(circle_edges)} circle edges"
+    )
+
+
+def save_ebene1_roads(vertices, road_faces, road_face_to_idx):
+    """Exportiert roads.obj als ebene1.obj"""
+    save_roads_obj("ebene1.obj", vertices, road_faces, road_face_to_idx)
+    print(f"  [OK] ebene1.obj: Roads exportiert")
+
+
+def save_ebene2_centerlines_junctions(road_polygons, junctions, all_vertices=None):
+    """
+    Exportiert Centerlines + Junction-Points als ebene2.obj.
+
+    Args:
+        road_polygons: Liste von Road-Dicts mit 'coords'
+        junctions: Liste von Junction-Dicts mit 'position'
+        all_vertices: Optional - Vertices aus VertexManager (für Konsistenz)
+    """
+    filename = "ebene2.obj"
+    mtl_filename = "ebene2.mtl"
+
+    # Sammle alle Centerline-Vertices und Edges
+    centerline_vertices = []
+    centerline_edges = []
+
+    for road in road_polygons:
+        coords = road.get("coords", [])
+        if len(coords) < 2:
+            continue
+
+        start_idx = len(centerline_vertices)
+
+        # Koordinaten sind bereits in polygon.py transformiert (UTM -> Local, einmalig!)
+        for coord in coords:
+            centerline_vertices.append([coord[0], coord[1], coord[2]])
+
+        # Erstelle Edges (verbinde aufeinanderfolgende Punkte)
+        for i in range(len(coords) - 1):
+            centerline_edges.append([start_idx + i, start_idx + i + 1])
+
+    # Junction-Points als separate Vertices (nach Centerlines)
+    junction_offset = len(centerline_vertices)
+    junction_vertices = []
+    junction_labels = []
+
+    for idx, junction in enumerate(junctions):
+        pos = junction.get("position", junction.get("pos", None))
+        if pos is None:
+            continue
+        # Konvertiere zu reinen Python floats (nicht NumPy scalars)
+        x_val = float(pos[0])
+        y_val = float(pos[1])
+        z_val = float(pos[2])
+        junction_vertices.append([x_val, y_val, z_val])
+        junction_labels.append(idx)  # Speichere die ursprüngliche Junction-ID
+
+    # Schreibe MTL-Datei
+    with open(mtl_filename, "w") as f:
+        f.write("# ebene2.mtl - Centerlines + Junctions\n\n")
+
+        # Material für Centerlines (grün)
+        f.write("newmtl centerline\n")
+        f.write("Ka 0.0 0.5 0.0\n")
+        f.write("Kd 0.0 0.8 0.0\n")
+        f.write("Ks 0.1 0.1 0.1\n")
+        f.write("d 1.0\n")
+        f.write("illum 2\n\n")
+
+        # Material für Junction-Points (rot)
+        f.write("newmtl junction_point\n")
+        f.write("Ka 0.5 0.0 0.0\n")
+        f.write("Kd 1.0 0.0 0.0\n")
+        f.write("Ks 0.3 0.3 0.3\n")
+        f.write("d 1.0\n")
+        f.write("illum 2\n\n")
+
+    # Schreibe OBJ-Datei
+    with open(filename, "w") as f:
+        f.write("# ebene2.obj - Centerlines + Junction Points\n")
+        f.write(f"mtllib {mtl_filename}\n\n")
+
+        # Centerline-Vertices
+        for v in centerline_vertices:
+            f.write(f"v {v[0]:.3f} {v[1]:.3f} {v[2]:.3f}\n")
+
+        # Junction-Vertices
+        for i, v in enumerate(junction_vertices):
+            f.write(f"v {v[0]:.3f} {v[1]:.3f} {v[2]:.3f}\n")
+
+        f.write("\n")
+
+        # Centerline-Edges (grün)
+        f.write("usemtl centerline\n")
+        for edge in centerline_edges:
+            f.write(f"l {edge[0] + 1} {edge[1] + 1}\n")
+
+        f.write("\n")
+
+        # Junction-Points als einzelne Vertices (rot)
+        # Schreibe als "Point" (p) mit Junction-Nummer als Label-Kommentar
+        # Format für mesh_viewer: "p <vertex_idx>  # Junction <junction_number>"
+        f.write("usemtl junction_point\n")
+        for i, label in enumerate(junction_labels):
+            # vertex_idx = Index im OBJ-File (1-basiert)
+            # i ist die Position in der junction_vertices Liste
+            # junction_offset ist wo die Junction-Vertices anfangen
+            vertex_idx = junction_offset + i + 1  # 1-basiert
+            # Label-Kommentar wird vom mesh_viewer geparst und als Text-Label angezeigt
+            f.write(f"p {vertex_idx}  # Junction {label}\n")
+
+    print(
+        f"  [OK] {filename}: {len(centerline_vertices)} centerline vertices, "
+        f"{len(centerline_edges)} edges, {len(junction_vertices)} junction points"
     )

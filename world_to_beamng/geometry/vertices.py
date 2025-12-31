@@ -14,11 +14,11 @@ from .. import config
 
 def classify_grid_vertices(grid_points, grid_elevations, road_slope_polygons_2d):
     """
-    Markiert Grid-Vertices unter Straßen/Böschungen.
+    Markiert Grid-Vertices unter Strassen/Boeschungen.
     SUPER-OPTIMIERT: Nutzt KDTree + geometrische Tests!
     """
     print(
-        "\nMarkiere Straßen-/Böschungsbereiche im Grid (KDTree + Face-Überlappung)..."
+        "\nMarkiere Strassen-/Boeschungsbereiche im Grid (KDTree + Face-Überlappung)..."
     )
 
     vertex_types = np.zeros(len(grid_points), dtype=int)
@@ -44,23 +44,23 @@ def classify_grid_vertices(grid_points, grid_elevations, road_slope_polygons_2d)
                 # Validiere Polygone
                 if not road_poly.is_valid:
                     road_poly = road_poly.buffer(0)
-                    # Nach buffer(0) kann MultiPolygon entstehen - nimm größtes Teil
+                    # Nach buffer(0) kann MultiPolygon entstehen - nimm groesstes Teil
                     if isinstance(road_poly, MultiPolygon):
                         road_poly = max(road_poly.geoms, key=lambda p: p.area)
 
                 if not slope_poly.is_valid:
                     slope_poly = slope_poly.buffer(0)
-                    # Nach buffer(0) kann MultiPolygon entstehen - nimm größtes Teil
+                    # Nach buffer(0) kann MultiPolygon entstehen - nimm groesstes Teil
                     if isinstance(slope_poly, MultiPolygon):
                         slope_poly = max(slope_poly.geoms, key=lambda p: p.area)
 
-                # Nochmal prüfen nach Fix
+                # Nochmal pruefen nach Fix
                 if not isinstance(road_poly, Polygon) or not isinstance(
                     slope_poly, Polygon
                 ):
                     continue
 
-                # Verwende die ORIGINALE OSM-Straßengeometrie für die Centerline!
+                # Verwende die ORIGINALE OSM-Strassengeometrie fuer die Centerline!
                 # (bereits in lokalen Koordinaten durch get_road_polygons)
                 if original_coords and len(original_coords) >= 2:
                     centerline_coords = np.array(
@@ -86,15 +86,15 @@ def classify_grid_vertices(grid_points, grid_elevations, road_slope_polygons_2d)
                 continue
 
     if not road_data:
-        print("  ⚠ Keine gültigen Polygone gefunden!")
+        print("  [!] Keine gueltigen Polygone gefunden!")
         return vertex_types, modified_heights
 
     print(f"  Loaded {len(road_data)} valid roads for processing")
 
     process_start = time_module.time()
 
-    # MEGA-OPTIMIERUNG: Baue KDTree über alle Grid-Punkte (EINMAL, dann reuse!)
-    print(f"  Baue KDTree für {len(grid_points_2d)} Grid-Punkte...")
+    # MEGA-OPTIMIERUNG: Baue KDTree ueber alle Grid-Punkte (EINMAL, dann reuse!)
+    print(f"  Baue KDTree fuer {len(grid_points_2d)} Grid-Punkte...")
     kdtree = cKDTree(grid_points_2d)
 
     print(f"  Teste {len(road_data)} Roads gegen Grid-Punkte...")
@@ -148,17 +148,17 @@ def classify_grid_vertices(grid_points, grid_elevations, road_slope_polygons_2d)
             continue
 
         # VEKTORISIERT: Markiere ALLE Vertices die der KDTree findet!
-        # Bei 3m Grid und 7m Straßenbreite können Vertices außerhalb des Polygons liegen
+        # Bei 3m Grid und 7m Strassenbreite koennen Vertices ausserhalb des Polygons liegen
         # Der KDTree-Radius (10m) erfasst alle relevanten Vertices
 
         candidate_points = grid_points_2d[buffer_indices]
 
-        # Test gegen Böschungs-Bereich (enthält Straße+Böschung komplett)
+        # Test gegen Boeschungs-Bereich (enthält Strasse+Boeschung komplett)
         slope_coords = np.array(road_info["slope_geom"].exterior.coords)
         slope_path = Path(slope_coords)
         inside_slope = slope_path.contains_points(candidate_points)
 
-        # Markiere alle Vertices innerhalb von Straße+Böschung
+        # Markiere alle Vertices innerhalb von Strasse+Boeschung
         for inside_idx in range(len(buffer_indices)):
             pt_idx = buffer_indices[inside_idx]
             if inside_slope[inside_idx]:
@@ -168,7 +168,7 @@ def classify_grid_vertices(grid_points, grid_elevations, road_slope_polygons_2d)
     marked_count = np.count_nonzero(vertex_types)
 
     print(
-        f"  ✓ Klassifizierung abgeschlossen ({elapsed_total:.1f}s, {marked_count} Punkte markiert)"
+        f"  [OK] Klassifizierung abgeschlossen ({elapsed_total:.1f}s, {marked_count} Punkte markiert)"
     )
 
     return vertex_types, modified_heights

@@ -1,5 +1,5 @@
 """
-Polygon-Operationen und Straßen-Extraktion.
+Polygon-Operationen und Strassen-Extraktion.
 """
 
 import numpy as np
@@ -12,15 +12,15 @@ from .. import config
 
 def clip_road_polygons(road_polygons, grid_bounds_local, margin=3.0):
     """
-    Clippt Straßen-Polygone am Grid-Rand mit Margin.
+    Clippt Strassen-Polygone am Grid-Rand mit Margin.
 
     Args:
-        road_polygons: Liste von Straßen-Dictionaries mit 'coords'
+        road_polygons: Liste von Strassen-Dictionaries mit 'coords'
         grid_bounds_local: (min_x, max_x, min_y, max_y) in lokalen Koordinaten
         margin: Abstand vom Grid-Rand in Metern (default 3.0)
 
     Returns:
-        Geclippte road_polygons (Straßen die komplett außerhalb liegen werden entfernt)
+        Geclippte road_polygons (Strassen die komplett ausserhalb liegen werden entfernt)
     """
     if not grid_bounds_local:
         return road_polygons
@@ -40,13 +40,13 @@ def clip_road_polygons(road_polygons, grid_bounds_local, margin=3.0):
         new_coords = []
 
         for x, y, z in coords:
-            # Hard Clip: Punkt außerhalb → verwerfen
+            # Hard Clip: Punkt ausserhalb -> verwerfen
             if clip_min_x <= x <= clip_max_x and clip_min_y <= y <= clip_max_y:
                 new_coords.append((x, y, z))
 
-        # Straße behalten wenn mindestens 2 Punkte übrig sind
+        # Strasse behalten wenn mindestens 2 Punkte uebrig sind
         if len(new_coords) >= 2:
-            # Unterteile lange Segmente nach Clipping (um große Lücken zu füllen)
+            # Unterteile lange Segmente nach Clipping (um grosse Luecken zu fuellen)
             final_coords = []
             for i, coord in enumerate(new_coords):
                 final_coords.append(coord)
@@ -83,17 +83,17 @@ def clip_road_polygons(road_polygons, grid_bounds_local, margin=3.0):
 
     if removed_count > 0 or segment_count > 0:
         print(
-            f"  Clipping: {removed_count} Straßen entfernt, {segment_count} Punkte außerhalb des Grids entfernt"
+            f"  Clipping: {removed_count} Strassen entfernt, {segment_count} Punkte ausserhalb des Grids entfernt"
         )
 
     return clipped_roads
 
 
 def get_road_polygons(roads, bbox, height_points, height_elevations):
-    """Extrahiert Straßen-Polygone mit ihren Koordinaten und Höhen (OPTIMIERT)."""
+    """Extrahiert Strassen-Polygone mit ihren Koordinaten und Hoehen (OPTIMIERT)."""
     road_polygons = []
 
-    # Sammle alle Koordinaten für Batch-Verarbeitung
+    # Sammle alle Koordinaten fuer Batch-Verarbeitung
     all_coords = []
     road_indices = []
 
@@ -112,7 +112,7 @@ def get_road_polygons(roads, bbox, height_points, height_elevations):
         return road_polygons
 
     # Batch-Elevation-Lookup
-    print(f"  Lade Elevations für {len(all_coords)} Straßen-Punkte...")
+    print(f"  Lade Elevations fuer {len(all_coords)} Strassen-Punkte...")
     all_elevations = get_elevations_for_points(
         all_coords, bbox, height_points, height_elevations
     )
@@ -132,7 +132,7 @@ def get_road_polygons(roads, bbox, height_points, height_elevations):
         # Transformiere auch Z-Koordinaten!
         all_elevations = [e - oz for e in all_elevations]
 
-    # Erstelle Straßen-Polygone (bereits in lokalen Koordinaten)
+    # Erstelle Strassen-Polygone (bereits in lokalen Koordinaten)
     for start_idx, end_idx, way in road_indices:
         utm_coords = [
             (xs[i], ys[i], all_elevations[i]) for i in range(start_idx, end_idx)
@@ -149,29 +149,29 @@ def get_road_polygons(roads, bbox, height_points, height_elevations):
     # DEPRECATED: snap_road_endpoints() wird nicht mehr verwendet
     # Junction-Detection erfolgt jetzt in Schritt 6a via detect_junctions_in_centerlines()
     if False and config.ENABLE_ROAD_EDGE_SNAPPING:
-        print(f"  DEPRECATED: Snap naher Straßenenden (jetzt in Schritt 6a erkannt)...")
+        print(f"  DEPRECATED: Snap naher Strassenenden (jetzt in Schritt 6a erkannt)...")
         road_polygons = snap_road_endpoints(road_polygons)
     else:
         pass  # Junctions werden in Schritt 6a erkannt
 
-    # Glätte Straßen und füge bei scharfen Kurven mehr Punkte ein
+    # Glätte Strassen und fuege bei scharfen Kurven mehr Punkte ein
     if config.ENABLE_ROAD_SMOOTHING:
-        print(f"  Glätte Straßen mit Spline-Interpolation...")
+        print(f"  Glaette Strassen mit Spline-Interpolation...")
         road_polygons = smooth_roads_with_spline(road_polygons)
     else:
-        print(f"  Glättung SKIP (config.ENABLE_ROAD_SMOOTHING=False)")
+        print(f"  Glaettung SKIP (config.ENABLE_ROAD_SMOOTHING=False)")
 
     return road_polygons
 
 
 def smooth_roads_with_spline(road_polygons):
     """
-    Glättet Straßen mit Catmull-Rom Spline und gleichmäßiger Punkt-Verteilung.
+    Glättet Strassen mit Catmull-Rom Spline und gleichmässiger Punkt-Verteilung.
 
     - Erstellt geglättete Centerline mit Spline
-    - Verteilt Punkte gleichmäßig entlang der Kurve
-    - Unterteilt lange gerade Segmente (auch Straßen mit nur 2 Punkten)
-    - WICHTIG: Behält Start/End-Punkte bei (wichtig für Junctions!)
+    - Verteilt Punkte gleichmässig entlang der Kurve
+    - Unterteilt lange gerade Segmente (auch Strassen mit nur 2 Punkten)
+    - WICHTIG: Behält Start/End-Punkte bei (wichtig fuer Junctions!)
 
     Returns:
         Modifizierte road_polygons mit geglätteten Koordinaten
@@ -191,11 +191,11 @@ def smooth_roads_with_spline(road_polygons):
 
         coords_array = np.array(coords)
 
-        # Speichere Original-Start und End (für Junction-Snapping!)
+        # Speichere Original-Start und End (fuer Junction-Snapping!)
         original_start = coords_array[0].copy()
         original_end = coords_array[-1].copy()
 
-        # Entferne Duplikate/sehr nahe Punkte (können Spline verwirren)
+        # Entferne Duplikate/sehr nahe Punkte (koennen Spline verwirren)
         unique_coords = [coords_array[0]]
         for i in range(1, len(coords_array)):
             dist = np.linalg.norm(coords_array[i, :2] - unique_coords[-1][:2])
@@ -214,11 +214,11 @@ def smooth_roads_with_spline(road_polygons):
         cumulative_dist = np.concatenate([[0], np.cumsum(segment_lengths)])
         total_length = cumulative_dist[-1]
 
-        if total_length < 0.5:  # Zu kurze Straße
+        if total_length < 0.5:  # Zu kurze Strasse
             total_points_after += len(coords)
             continue
 
-        # Für Straßen mit nur 2 Punkten: Unterteile das lange Segment
+        # Fuer Strassen mit nur 2 Punkten: Unterteile das lange Segment
         if len(unique_coords) == 2:
             max_segment = config.ROAD_SMOOTH_MAX_SEGMENT
             if total_length > max_segment:
@@ -249,7 +249,7 @@ def smooth_roads_with_spline(road_polygons):
                 total_points_after += len(coords)
             continue
 
-        # Verwende PCHIP (Piecewise Cubic Hermite Interpolating Polynomial) für 3+ Punkte
+        # Verwende PCHIP (Piecewise Cubic Hermite Interpolating Polynomial) fuer 3+ Punkte
         # Robuster als UnivariateSpline, geht durch alle Punkte, keine Randbedingungsprobleme
         try:
             # PchipInterpolator ist monoton und vermeidet Überschwingen
@@ -263,7 +263,7 @@ def smooth_roads_with_spline(road_polygons):
             total_points_after += len(coords)
             continue
 
-        # Sample gleichmäßig entlang der Kurve
+        # Sample gleichmässig entlang der Kurve
         # Stelle sicher, dass die Segmentlänge <= ROAD_SMOOTH_MAX_SEGMENT bleibt
         # (n-1) Segmente pro Kurve, daher +1 Samples
         num_samples = max(
@@ -272,7 +272,7 @@ def smooth_roads_with_spline(road_polygons):
             2,
         )
 
-        # Gleichmäßig verteilte Parameter entlang der Kurve
+        # Gleichmässig verteilte Parameter entlang der Kurve
         sample_params = np.linspace(0, total_length, num_samples)
 
         # Evaluiere Interpolation an Sample-Punkten
@@ -283,7 +283,7 @@ def smooth_roads_with_spline(road_polygons):
         # Erstelle geglättete Koordinaten
         smoothed_coords = list(zip(smooth_x, smooth_y, smooth_z))
 
-        # Stelle sicher, dass Start und End exakt die Original-Werte haben (für Junctions!)
+        # Stelle sicher, dass Start und End exakt die Original-Werte haben (fuer Junctions!)
         if len(smoothed_coords) > 0:
             smoothed_coords[0] = tuple(original_start)
             smoothed_coords[-1] = tuple(original_end)
@@ -292,7 +292,7 @@ def smooth_roads_with_spline(road_polygons):
         total_points_after += len(smoothed_coords)
 
     print(
-        f"    → {total_points_before} Punkte → {total_points_after} Punkte ({total_points_after - total_points_before:+d})"
+        f"    -> {total_points_before} Punkte -> {total_points_after} Punkte ({total_points_after - total_points_before:+d})"
     )
 
     return road_polygons
@@ -300,7 +300,7 @@ def smooth_roads_with_spline(road_polygons):
 
 def smooth_roads_adaptive(road_polygons):
     """
-    Glättet Straßen durch adaptive Unterteilung: Fügt bei scharfen Kurven mehr Punkte ein.
+    Glättet Strassen durch adaptive Unterteilung: Fuegt bei scharfen Kurven mehr Punkte ein.
 
     Nutzt Config-Werte:
         - ROAD_SMOOTH_ANGLE_THRESHOLD: Winkel in Grad - ab diesem Wert wird unterteilt
@@ -367,7 +367,7 @@ def smooth_roads_adaptive(road_polygons):
             if segment_length < min_segment_length and subdivisions > 1:
                 subdivisions = 1
 
-            # Füge interpolierte Punkte ein
+            # Fuege interpolierte Punkte ein
             if subdivisions > 1:
                 for j in range(1, subdivisions + 1):
                     t = j / subdivisions
@@ -376,12 +376,12 @@ def smooth_roads_adaptive(road_polygons):
             else:
                 smoothed.append(next_point)
 
-        # Konvertiere zurück zu Liste von Tupeln
+        # Konvertiere zurueck zu Liste von Tupeln
         road["coords"] = [(p[0], p[1], p[2]) for p in smoothed]
         total_points_after += len(smoothed)
 
     print(
-        f"    → {total_points_before} Punkte → {total_points_after} Punkte ({total_points_after - total_points_before:+d})"
+        f"    -> {total_points_before} Punkte -> {total_points_after} Punkte ({total_points_after - total_points_before:+d})"
     )
 
     return road_polygons
@@ -389,11 +389,11 @@ def smooth_roads_adaptive(road_polygons):
 
 def snap_road_endpoints(road_polygons, snap_distance=5.0):
     """
-    Findet Straßenenden, die nahe beieinander liegen und merged sie.
+    Findet Strassenenden, die nahe beieinander liegen und merged sie.
 
     Args:
-        road_polygons: Liste von Straßen-Dictionaries mit 'coords'
-        snap_distance: Maximale Distanz für Snap (in Metern)
+        road_polygons: Liste von Strassen-Dictionaries mit 'coords'
+        snap_distance: Maximale Distanz fuer Snap (in Metern)
 
     Returns:
         Modifizierte road_polygons mit gesnappten Endpunkten
@@ -403,7 +403,7 @@ def snap_road_endpoints(road_polygons, snap_distance=5.0):
     if len(road_polygons) < 2:
         return road_polygons
 
-    # Sammle alle Straßenenden (Anfang und Ende jeder Straße)
+    # Sammle alle Strassenenden (Anfang und Ende jeder Strasse)
     endpoints = []
     endpoint_info = []  # (road_idx, is_start, point_xy)
 
@@ -423,7 +423,7 @@ def snap_road_endpoints(road_polygons, snap_distance=5.0):
     if len(endpoints) < 2:
         return road_polygons
 
-    # Baue KDTree für schnelle Nachbarschaftssuche
+    # Baue KDTree fuer schnelle Nachbarschaftssuche
     endpoints_array = np.array(endpoints)
     kdtree = cKDTree(endpoints_array)
 
@@ -431,7 +431,7 @@ def snap_road_endpoints(road_polygons, snap_distance=5.0):
     pairs = kdtree.query_pairs(snap_distance)
 
     if len(pairs) == 0:
-        print(f"    → Keine nahen Endpunkte gefunden")
+        print(f"    -> Keine nahen Endpunkte gefunden")
         return road_polygons
 
     # Gruppiere zu Clustern (Union-Find)
@@ -482,7 +482,7 @@ def snap_road_endpoints(road_polygons, snap_distance=5.0):
             snapped_count += 1
 
     print(
-        f"    → {len(pairs)} Endpunkt-Paare gemerged in {len([c for c in clusters.values() if len(c) > 1])} Cluster"
+        f"    -> {len(pairs)} Endpunkt-Paare gemerged in {len([c for c in clusters.values() if len(c) > 1])} Cluster"
     )
 
     # Entferne doppelte aufeinanderfolgende Punkte (entstehen durch Snap)
@@ -494,7 +494,7 @@ def snap_road_endpoints(road_polygons, snap_distance=5.0):
         # Filtere aufeinanderfolgende Duplikate
         cleaned = [coords[0]]
         for i in range(1, len(coords)):
-            # Prüfe ob Punkt sich vom vorherigen unterscheidet (mind. 0.01m)
+            # Pruefe ob Punkt sich vom vorherigen unterscheidet (mind. 0.01m)
             dx = coords[i][0] - cleaned[-1][0]
             dy = coords[i][1] - cleaned[-1][1]
             dist_sq = dx * dx + dy * dy
@@ -513,10 +513,10 @@ def snap_road_endpoints(road_polygons, snap_distance=5.0):
 
 def get_road_centerline_robust(road_poly):
     """
-    Berechne die Mittellinie eines Straßen-Polygons mittels PCA und Mittelwertsbildung.
+    Berechne die Mittellinie eines Strassen-Polygons mittels PCA und Mittelwertsbildung.
 
     Args:
-        road_poly: Shapely Polygon der Straße
+        road_poly: Shapely Polygon der Strasse
 
     Returns:
         centerline: (N, 2) NumPy Array mit Mittellinie-Koordinaten
@@ -530,19 +530,19 @@ def get_road_centerline_robust(road_poly):
     centroid = coords.mean(axis=0)
     centered = coords - centroid
 
-    # PCA: Finde Hauptrichtung (längste Achse = Straßenrichtung)
+    # PCA: Finde Hauptrichtung (längste Achse = Strassenrichtung)
     cov = np.cov(centered.T)
     eigvals, eigvecs = np.linalg.eigh(cov)
 
-    # Hauptrichtung (Eigenvector mit größtem Eigenwert)
+    # Hauptrichtung (Eigenvector mit groesstem Eigenwert)
     main_direction = eigvecs[:, -1]
 
     # Senkrechte Richtung
     perp_direction = np.array([-main_direction[1], main_direction[0]])
 
     # Projiziere alle Punkte auf beide Richtungen
-    proj_along = centered @ main_direction  # Entlang der Straße
-    proj_perp = centered @ perp_direction  # Quer zur Straße (linke/rechte Seite)
+    proj_along = centered @ main_direction  # Entlang der Strasse
+    proj_perp = centered @ perp_direction  # Quer zur Strasse (linke/rechte Seite)
 
     # Teile Punkte in zwei Seiten: links und rechts des Mittels
     median_perp = np.median(proj_perp)
@@ -556,12 +556,12 @@ def get_road_centerline_robust(road_poly):
     if len(left_indices) < 2 or len(right_indices) < 2:
         return coords  # Fallback wenn Teilung nicht funktioniert
 
-    # Sortiere beide Seiten nach der Längsprojektion (entlang der Straße)
+    # Sortiere beide Seiten nach der Längsprojektion (entlang der Strasse)
     left_indices = left_indices[np.argsort(proj_along[left_indices])]
     right_indices = right_indices[np.argsort(proj_along[right_indices])]
 
     # Interpoliere beide Seiten auf die gleiche Anzahl von Punkten
-    # So können wir sie direkt miteinander vergleichen
+    # So koennen wir sie direkt miteinander vergleichen
     n_samples = max(len(left_indices), len(right_indices))
 
     # Interpoliere linke Seite

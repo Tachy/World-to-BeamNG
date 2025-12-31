@@ -1,5 +1,5 @@
 """
-Face-zu-Face Überlappungsprüfung (KDTree-basiert, ULTRA-OPTIMIERT).
+Face-zu-Face Überlappungspruefung (KDTree-basiert, ULTRA-OPTIMIERT).
 """
 
 import numpy as np
@@ -14,8 +14,8 @@ from .. import config
 
 def _process_road_chunk(args):
     """
-    Worker-Funktion für Multiprocessing: Prüft einen Chunk von Roads gegen Terrain-Faces.
-    Muss top-level Funktion sein (für pickle).
+    Worker-Funktion fuer Multiprocessing: Prueft einen Chunk von Roads gegen Terrain-Faces.
+    Muss top-level Funktion sein (fuer pickle).
     """
     (
         road_chunk,
@@ -33,10 +33,10 @@ def _process_road_chunk(args):
         triangle = ShapelyPolygon(tri_coords)
         terrain_triangles.append(triangle)
 
-    # Baue STRtree für diesen Worker
+    # Baue STRtree fuer diesen Worker
     spatial_index = STRtree(terrain_triangles)
 
-    # Lokale face_types für diesen Chunk
+    # Lokale face_types fuer diesen Chunk
     local_face_types = np.zeros(len(terrain_triangles), dtype=int)
     faces_deleted = 0
 
@@ -79,9 +79,9 @@ def check_face_overlaps(
     grid_points, terrain_faces, road_slope_polygons_2d, vertex_types=None
 ):
     """
-    Prüfe Terrain-Faces auf Überlappung mit Road/Slope Polygonen.
+    Pruefe Terrain-Faces auf Überlappung mit Road/Slope Polygonen.
     ULTRA-OPTIMIERT: Nutzt KDTree + Centerline-basierte Vorfilterung.
-    Prüft nur Faces, deren Vertices in 7m-Radius der Centerline liegen!
+    Prueft nur Faces, deren Vertices in 7m-Radius der Centerline liegen!
 
     Args:
         vertex_types: Optional array marking vertices as road (2), slope (1), or terrain (0)
@@ -100,7 +100,7 @@ def check_face_overlaps(
     print("  Baue Terrain-Face Arrays...")
     terrain_faces_array = np.array(terrain_faces, dtype=np.int32) - 1  # 0-basiert
 
-    # Baue inversen Index: Vertex → Liste von Face-Indizes
+    # Baue inversen Index: Vertex -> Liste von Face-Indizes
     print("  Baue Vertex-zu-Face Mapping...")
     vertex_to_faces = {}
     for face_idx, (v1, v2, v3) in enumerate(terrain_faces_array):
@@ -115,20 +115,20 @@ def check_face_overlaps(
         vertex_to_faces[v3].append(face_idx)
 
     print(
-        f"  Vertex-Mapping: {len(vertex_to_faces)} Vertices → {len(terrain_faces_array)} Faces"
+        f"  Vertex-Mapping: {len(vertex_to_faces)} Vertices -> {len(terrain_faces_array)} Faces"
     )
 
-    # Baue KDTree über Grid-Punkte (EINMAL!)
-    print("  Baue KDTree für Grid-Punkte...")
+    # Baue KDTree ueber Grid-Punkte (EINMAL!)
+    print("  Baue KDTree fuer Grid-Punkte...")
     kdtree = cKDTree(grid_points_2d)
 
     step_start = time_module.time()
     print("  Single-Thread-Modus mit KDTree-Vorfilterung")
 
     faces_deleted = 0
-    search_radius = 8.0  # Erhöht auf 8.0 für Grenzfall-Abdeckung
+    search_radius = 8.0  # Erhoeht auf 8.0 fuer Grenzfall-Abdeckung
 
-    # Prüfe jeden Road/Slope Bereich
+    # Pruefe jeden Road/Slope Bereich
     for road_num, road_info in enumerate(road_slope_polygons_2d):
         road_start = time_module.time()
 
@@ -147,7 +147,7 @@ def check_face_overlaps(
 
         # OPTIMIERUNG: Nutze EXAKT GLEICHE Centerline-Berechnung wie in Vertex-Klassifizierung!
         try:
-            # Verwende get_road_centerline_robust() für Konsistenz
+            # Verwende get_road_centerline_robust() fuer Konsistenz
             centerline_coords = get_road_centerline_robust(road_geom)
             if len(centerline_coords) < 2:
                 continue
@@ -180,7 +180,7 @@ def check_face_overlaps(
             continue
 
         # Finde alle Faces, die mindestens einen Candidate-Vertex verwenden
-        # OPTIMIERT: Nutze inversen Index statt Schleife über alle Faces!
+        # OPTIMIERT: Nutze inversen Index statt Schleife ueber alle Faces!
         candidate_face_indices = set()
         for vertex_idx in candidate_vertex_indices:
             if vertex_idx in vertex_to_faces:
@@ -201,14 +201,14 @@ def check_face_overlaps(
                 triangle_obj = ShapelyPolygon(tri_coords)
 
                 # KRITISCH: Nur markieren wenn Triangle ÜBERSCHNEIDET und mindestens ein Vertex NICHT markiert!
-                # Das bedeutet: Geometrische Verletzung (Lücke zwischen Grid und Straße)
+                # Das bedeutet: Geometrische Verletzung (Luecke zwischen Grid und Strasse)
                 triangle_intersects_road = road_prepared.intersects(triangle_obj)
                 triangle_intersects_slope = slope_prepared.intersects(triangle_obj)
 
-                # Prüfe ob alle 3 Vertices bereits als Straße/Böschung markiert sind
+                # Pruefe ob alle 3 Vertices bereits als Strasse/Boeschung markiert sind
                 if vertex_types is not None:
                     # BESSER: Nutze tatsächliche Markierung aus Vertex-Klassifizierung
-                    # (2=Straße, 1=Böschung, 0=Gelände)
+                    # (2=Strasse, 1=Boeschung, 0=Gelände)
                     v1_marked = vertex_types[v1] > 0
                     v2_marked = vertex_types[v2] > 0
                     v3_marked = vertex_types[v3] > 0
@@ -220,7 +220,7 @@ def check_face_overlaps(
 
                 all_vertices_marked = v1_marked and v2_marked and v3_marked
 
-                # Nur löschen wenn überschneidend UND nicht alle Vertices markiert
+                # Nur loeschen wenn ueberschneidend UND nicht alle Vertices markiert
                 # = echte geometrische Verletzung
                 if (
                     triangle_intersects_road or triangle_intersects_slope
@@ -238,12 +238,12 @@ def check_face_overlaps(
         if problematic_faces_this_road > 0:
             print(
                 f"    Road {road_num + 1}/{len(road_slope_polygons_2d)}: {road_elapsed:.3f}s | "
-                f"{len(candidate_face_indices)} Faces geprüft, {problematic_faces_this_road} PROBLEMATISCH!"
+                f"{len(candidate_face_indices)} Faces geprueft, {problematic_faces_this_road} PROBLEMATISCH!"
             )
 
     elapsed = time_module.time() - step_start
     print(
-        f"  ✓ Face-Überlappungsprüfung abgeschlossen ({elapsed:.1f}s, {faces_deleted} Faces zum Löschen markiert)"
+        f"  [OK] Face-Überlappungspruefung abgeschlossen ({elapsed:.1f}s, {faces_deleted} Faces zum Loeschen markiert)"
     )
 
     return face_types

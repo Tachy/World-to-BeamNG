@@ -1,20 +1,26 @@
 """
-Debug-Tool: Visualisiere Gelände, Straßen und Böschungen
+Mesh Viewer - Visualisiere Gelände, Straßen und Debug-Ebenen
 Steuerung:
   - SPACE: Nächste Straße (Einzeln-Modus)
   - B: Vorherige Straße
   - R: Toggle Roads (Straßen) an/aus
   - S: Toggle Slopes (Böschungen) an/aus
   - T: Toggle Terrain an/aus
-  - H: Toggle Holes (Lochpolygone) an/aus
   - A: Toggle Alle Straßen / Einzelne Straße
   - L: Toggle Punkt-Labels an/aus
   - I: Toggle road_idx-Labels an/aus
+  - 1-9: Toggle Debug-Ebenen (ebene1.obj - ebene9.obj)
   - Q: Beenden
 """
 
 import pyvista as pv
 import numpy as np
+import os
+import glob
+import sys
+
+# Füge Parent-Verzeichnis zum Path hinzu für world_to_beamng import
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # Konfigurationswerte für Suchkreise/Sampling
 try:
@@ -27,7 +33,7 @@ except Exception:
     _CENTERLINE_SAMPLE_SPACING = 10.0
 
 
-class RoadViewer:
+class MeshViewer:
     def __init__(
         self,
         obj_file="beamng.obj",
@@ -42,6 +48,10 @@ class RoadViewer:
         label_click_px_tol=30.0,
         preselect_road_idx=None,
     ):
+        # Wechsle zum Parent-Verzeichnis (wo beamng.obj liegt)
+        self.base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        os.chdir(self.base_dir)
+
         print(f"Lade OBJ: {obj_file}")
         (
             self.vertices,
@@ -52,11 +62,10 @@ class RoadViewer:
             self.road_face_to_idx,
         ) = self._parse_obj(obj_file, fallback_obj)
 
-        print(f"Lade Lochpolygone: lochpolygone.obj")
-        (
-            self.hole_vertices,
-            self.hole_edges,
-        ) = self._load_lochpolygone("lochpolygone.obj")
+        # Lade Debug-Ebenen (ebene1.obj bis ebene9.obj)
+        self.debug_layers = {}
+        self.debug_layer_visible = {}
+        self._load_debug_layers()
 
         if len(self.vertices) > 0:
             print(
@@ -69,9 +78,8 @@ class RoadViewer:
         self.current_road = 0
         self.max_roads = max(1, len(self.road_faces) // faces_per_road)
         self.show_roads = True
-        self.show_slopes = True
-        self.show_terrain = True
-        self.show_holes = False
+        self.show_slopes = False
+        self.show_terrain = False
         self.show_all = True
         self.label_distance_threshold = label_distance_threshold
         self.label_max_points = label_max_points
@@ -97,11 +105,14 @@ class RoadViewer:
         print("  R = Toggle Roads (Strassen)")
         print("  S = Toggle Slopes (Boeschungen)")
         print("  T = Toggle Terrain")
-        print("  H = Toggle Holes (Lochpolygone)")
         print("  A = Toggle ALLE Strassen / Einzelne Strasse")
         print("  Pfeil hoch/runter = Kamera vor/zurueck (statt Zoom)")
         print("  L = Toggle Punkt-Labels an/aus")
         print("  I = Toggle road_idx-Labels an/aus")
+        if len(self.debug_layers) > 0:
+            print(
+                f"  1-9 = Toggle Debug-Ebenen ({', '.join(sorted(self.debug_layers.keys()))})"
+            )
         print("  Q = Beenden")
 
         self.plotter = pv.Plotter()
@@ -110,12 +121,18 @@ class RoadViewer:
         self.plotter.add_key_event("r", self.toggle_roads)
         self.plotter.add_key_event("s", self.toggle_slopes)
         self.plotter.add_key_event("t", self.toggle_terrain)
-        self.plotter.add_key_event("h", self.toggle_holes)
         self.plotter.add_key_event("a", self.toggle_show_all)
         self.plotter.add_key_event("Up", self.dolly_forward)
         self.plotter.add_key_event("Down", self.dolly_backward)
         self.plotter.add_key_event("l", self.toggle_labels)
         self.plotter.add_key_event("i", self.toggle_road_idx_labels)
+
+        # Füge Key-Handler für Debug-Ebenen hinzu (1-9)
+        for i in range(1, 10):
+            self.plotter.add_key_event(
+                str(i), lambda layer=i: self.toggle_debug_layer(layer)
+            )
+
         # Mouse-Observer für Label-Klick (Bildschirm-Koordinaten)
         self.plotter.iren.add_observer("LeftButtonPressEvent", self.on_left_click)
 
@@ -135,7 +152,100 @@ class RoadViewer:
 
         self.update_view()
 
+    def _load_debug_layers(self):
+        """Suche und lade Debug-Ebenen (ebene1.obj bis ebene9.obj)"""
+        for i in range(1, 10):
+            layer_file = f"ebene{i}.obj"
+            if os.path.exists(layer_file):
+                print(f"Lade Debug-Ebene: {layer_file}")
+                try:
+                    vertices, edges, points, point_labels = self._load_line_obj(
+                        layer_file
+                    )
+                    if len(vertices) > 0:
+                        self.debug_layers[f"ebene{i}"] = {
+                            "vertices": vertices,
+                            "edges": edges,
+                            "points": points,
+                            "point_labels": point_labels,
+                            "file": layer_file,
+                        }
+                        self.debug_layer_visible[f"ebene{i}"] = (
+                            True  # Standardmäßig sichtbar
+                        )
+                        print(
+                            f"  -> {len(vertices)} vertices, {len(edges)} edges, {len(points)} points"
+                        )
+                except Exception as e:
+                    print(f"  Fehler beim Laden von {layer_file}: {e}")
+
+    def _load_line_obj(self, obj_file):
+        """Lade OBJ-Datei mit Linien und optionalen Punkten (p-Statements)."""
+        vertices = []
+        edges = []
+        points = []
+        point_labels = []
+
+        try:
+            with open(obj_file, "r", encoding="utf-8") as f:
+                for line in f:
+                    if line.startswith("v "):
+                        parts = line.strip().split()
+                        vertices.append(
+                            [float(parts[1]), float(parts[2]), float(parts[3])]
+                        )
+                    elif line.startswith("l "):
+                        # Linie: "l v1 v2 ..." oder "l v1 v2"
+                        parts = line.split("#", 1)[0].strip().split()[1:]
+                        indices = [int(p.split("/")[0]) - 1 for p in parts]
+                        for i in range(len(indices) - 1):
+                            edges.append([indices[i], indices[i + 1]])
+                    elif line.startswith("p "):
+                        # Punkte: "p v1" (optional Kommentar: # Junction X)
+                        payload, *comment = line.split("#", 1)
+                        parts = payload.strip().split()[1:]
+                        indices = [int(p.split("/")[0]) - 1 for p in parts]
+                        points.extend(indices)
+
+                        label = None
+                        if comment:
+                            text = comment[0].strip().lower()
+                            if text.startswith("junction"):
+                                try:
+                                    label = int(text.split()[1])
+                                except Exception:
+                                    label = None
+                        # Falls mehrere Punkte in einer Zeile: gleiche Label-Reihenfolge
+                        for _ in indices:
+                            point_labels.append(label)
+                    elif line.startswith("f "):
+                        # Falls Faces vorhanden: überspringe fürs Erste
+                        pass
+
+            return (
+                np.array(vertices) if vertices else np.array([]),
+                edges,
+                points,
+                point_labels,
+            )
+        except FileNotFoundError:
+            return np.array([]), [], [], []
+
+    def toggle_debug_layer(self, layer_num):
+        """Toggle Sichtbarkeit einer Debug-Ebene"""
+        layer_name = f"ebene{layer_num}"
+        if layer_name in self.debug_layer_visible:
+            self.debug_layer_visible[layer_name] = not self.debug_layer_visible[
+                layer_name
+            ]
+            state = "AN" if self.debug_layer_visible[layer_name] else "AUS"
+            print(f"\nDebug-Ebene {layer_name}: {state}")
+            self.update_view(reset_camera=False)
+        else:
+            print(f"\nDebug-Ebene {layer_name} nicht gefunden")
+
     def _parse_obj(self, obj_file, fallback_obj="roads.obj"):
+        """Parse OBJ file and extract vertices, faces, etc."""
         vertices = []
         road_faces = []
         slope_faces = []
@@ -237,132 +347,6 @@ class RoadViewer:
             road_face_to_idx,
         )
 
-    def _load_centerlines(self, obj_file):
-        """Lade Centerline-Geometrie und Suchkreise direkt aus OBJ-Datei (bereits vom Generator erstellt)."""
-        centerline_vertices = []
-        centerline_edges = []
-        circle_vertices = []
-        circle_edges = []
-
-        current_material = None
-        all_vertices = []
-
-        try:
-            # Versuche verschiedene Encodings
-            for encoding in ["utf-8", "latin-1", "cp1252", "iso-8859-1"]:
-                try:
-                    with open(obj_file, "r", encoding=encoding) as f:
-                        for line in f:
-                            if line.startswith("usemtl "):
-                                current_material = line.strip().split()[1]
-                            elif line.startswith("v "):
-                                parts = line.strip().split()
-                                all_vertices.append(
-                                    [float(parts[1]), float(parts[2]), float(parts[3])]
-                                )
-                            elif line.startswith("l "):
-                                # Linie: "l v1 v2 v3 ..."
-                                parts = line.strip().split()[1:]
-                                indices = [int(p.split("/")[0]) - 1 for p in parts]
-                                for i in range(len(indices) - 1):
-                                    edge = [indices[i], indices[i + 1]]
-                                    if current_material == "centerline":
-                                        centerline_edges.append(edge)
-                                    elif current_material == "search_circle":
-                                        circle_edges.append(edge)
-
-                    if all_vertices:
-                        # Die OBJ enthält: erst Centerline-Vertices, dann Circle-Vertices
-                        # Finde den Split-Punkt basierend auf den Indizes
-                        if centerline_edges and circle_edges:
-                            max_centerline_idx = max(max(e) for e in centerline_edges)
-                            centerline_vertices = all_vertices[: max_centerline_idx + 1]
-                            circle_vertices = all_vertices[max_centerline_idx + 1 :]
-
-                            # Remap circle edges (offset entfernen)
-                            offset = max_centerline_idx + 1
-                            circle_edges = [
-                                [e[0] - offset, e[1] - offset] for e in circle_edges
-                            ]
-                        elif centerline_edges:
-                            centerline_vertices = all_vertices
-                            circle_vertices = []
-                        else:
-                            centerline_vertices = []
-                            circle_vertices = all_vertices
-
-                        print(
-                            f"  Centerlines geladen: {len(centerline_vertices)} Vertices, {len(centerline_edges)} Kanten"
-                        )
-                        print(
-                            f"  Suchkreise geladen: {len(circle_vertices)} Circle-Vertices, {len(circle_edges)} Circle-Edges"
-                        )
-                        return (
-                            np.array(centerline_vertices),
-                            centerline_edges,
-                            np.array(circle_vertices),
-                            circle_edges,
-                        )
-                except (UnicodeDecodeError, ValueError):
-                    continue
-
-            # Fallback: wenn alle Encodings fehlschlagen
-            print(f"  Warnung: {obj_file} konnte mit keinem Encoding gelesen werden.")
-            return np.array([]), [], np.array([]), []
-        except FileNotFoundError:
-            print(f"  Info: {obj_file} nicht gefunden. Keine Centerlines geladen.")
-            return np.array([]), [], np.array([]), []
-
-    def _load_lochpolygone(self, obj_file):
-        """Lade Lochpolygone-Geometrie aus OBJ-Datei."""
-        vertices = []
-        edges = []
-
-        try:
-            # Versuche verschiedene Encodings
-            for encoding in ["utf-8", "latin-1", "cp1252", "iso-8859-1"]:
-                try:
-                    with open(obj_file, "r", encoding=encoding) as f:
-                        for line in f:
-                            if line.startswith("v "):
-                                parts = line.strip().split()
-                                vertices.append(
-                                    [float(parts[1]), float(parts[2]), float(parts[3])]
-                                )
-                            elif line.startswith("l "):
-                                # Linie: "l v1 v2 v3 ... v1"
-                                parts = line.strip().split()[1:]
-                                indices = [int(p.split("/")[0]) - 1 for p in parts]
-                                for i in range(len(indices) - 1):
-                                    edges.append([indices[i], indices[i + 1]])
-
-                    print(
-                        f"  Lochpolygone geladen: {len(vertices)} Vertices, {len(edges)} Kanten"
-                    )
-                    return np.array(vertices), edges
-                except (UnicodeDecodeError, ValueError):
-                    vertices = []
-                    edges = []
-                    continue
-
-            # Fallback: wenn alle Encodings fehlschlagen
-            print(f"  Warnung: {obj_file} konnte mit keinem Encoding gelesen werden.")
-            return np.array([]), []
-        except FileNotFoundError:
-            print(f"  Info: {obj_file} nicht gefunden. Keine Lochpolygone geladen.")
-            return np.array([]), []
-
-    def _create_search_circle(self, center, radius, num_segments=16):
-        """Erstelle Kreis-Vertices um einen Mittelpunkt (Projektion in XY-Ebene)."""
-        angles = np.linspace(0, 2 * np.pi, num_segments, endpoint=False)
-        circle_vertices = []
-        for angle in angles:
-            x = center[0] + radius * np.cos(angle)
-            y = center[1] + radius * np.sin(angle)
-            z = center[2]  # Gleiche Z wie Mittelpunkt
-            circle_vertices.append([x, y, z])
-        return circle_vertices
-
     def toggle_roads(self):
         self.show_roads = not self.show_roads
         state = "AN" if self.show_roads else "AUS"
@@ -379,12 +363,6 @@ class RoadViewer:
         self.show_terrain = not self.show_terrain
         state = "AN" if self.show_terrain else "AUS"
         print(f"\nTerrain: {state}")
-        self.update_view(reset_camera=False)
-
-    def toggle_holes(self):
-        self.show_holes = not self.show_holes
-        state = "AN" if self.show_holes else "AUS"
-        print(f"\nLochpolygone: {state}")
         self.update_view(reset_camera=False)
 
     def toggle_show_all(self):
@@ -534,6 +512,7 @@ class RoadViewer:
                 show_edges=True,
                 edge_color="red",
                 line_width=2,
+                opacity=0.5,
                 label="Road",
             )
 
@@ -626,40 +605,90 @@ class RoadViewer:
                     f"Keine Faces für selektierte road_idx {self.selected_road_idx} im aktuellen Ausschnitt gefunden"
                 )
 
+        # Debug-Ebenen rendern (mit verschiedenen Farben)
+        layer_colors = {
+            "ebene1": "red",
+            "ebene2": "blue",
+            "ebene3": "yellow",
+            "ebene4": "cyan",
+            "ebene5": "magenta",
+            "ebene6": "orange",
+            "ebene7": "purple",
+            "ebene8": "pink",
+            "ebene9": "brown",
+        }
+
+        for layer_name, layer_data in self.debug_layers.items():
+            if self.debug_layer_visible.get(layer_name, False):
+                vertices = layer_data["vertices"]
+                edges = layer_data["edges"]
+                points = layer_data.get("points", [])
+                point_labels = layer_data.get("point_labels", [])
+
+                if len(vertices) > 0 and len(edges) > 0:
+                    layer_mesh = pv.PolyData()
+                    layer_mesh.points = vertices
+
+                    # Konvertiere edges zu PyVista line format
+                    lines = np.hstack([[2, edge[0], edge[1]] for edge in edges])
+                    layer_mesh.lines = lines
+
+                    color = layer_colors.get(layer_name, "white")
+                    self.plotter.add_mesh(
+                        layer_mesh,
+                        color=color,
+                        line_width=3,
+                        label=layer_name,
+                    )
+
+                if len(vertices) > 0 and len(points) > 0:
+                    pts = vertices[points]
+                    color = layer_colors.get(layer_name, "white")
+                    self.plotter.add_points(
+                        pts,
+                        color=color,
+                        point_size=12,
+                        render_points_as_spheres=True,
+                    )
+
+                    if (
+                        point_labels
+                        and len(point_labels) == len(points)
+                        and len(point_labels)
+                        <= 2000  # Erhöht für Junction-Labels (war: 500)
+                    ):
+                        labels = [
+                            str(lbl) if lbl is not None else "" for lbl in point_labels
+                        ]
+                        self.plotter.add_point_labels(
+                            pts,
+                            labels,
+                            point_size=0,
+                            font_size=10,
+                            text_color=color,
+                            shape_color="white",
+                            shape_opacity=0.6,
+                        )
+
         roads_info = "ON" if self.show_roads else "OFF"
         slopes_info = "ON" if self.show_slopes else "OFF"
         terrain_info = "ON" if self.show_terrain else "OFF"
-        holes_info = "ON" if self.show_holes else "OFF"
         mode_info = "ALLE" if self.show_all else f"{self.current_road}/{self.max_roads}"
         road_info = "ALLE" if self.show_all else f"road_idx ~ {current_road_idx}"
         label_state = "ON" if self.show_point_labels else "OFF"
         road_label_state = "ON" if self.show_road_idx_labels else "AUS"
 
-        # Rendering von Lochpolygonen (nur wenn show_holes=True)
-        if self.show_holes and len(self.hole_vertices) > 0 and len(self.hole_edges) > 0:
-            print(
-                f"[Rendering] Lochpolygone: {len(self.hole_vertices)} vertices, {len(self.hole_edges)} edges"
-            )
-            try:
-                hole_mesh = pv.PolyData()
-                hole_mesh.points = self.hole_vertices
-
-                # Konvertiere edges zu PyVista line format: [2, idx0, idx1, 2, idx0, idx1, ...]
-                lines = np.hstack([[2, edge[0], edge[1]] for edge in self.hole_edges])
-                hole_mesh.lines = lines
-
-                self.plotter.add_mesh(
-                    hole_mesh,
-                    color="red",
-                    line_width=4,
-                    label="Lochpolygone",
-                )
-                print(f"[Rendering] Lochpolygone mesh added to plotter")
-            except Exception as e:
-                print(f"[Rendering] ERROR beim Rendering von Lochpolygonen: {e}")
+        # Info-Text mit Debug-Layer Status
+        debug_info = ""
+        if len(self.debug_layers) > 0:
+            visible_layers = [
+                name for name, vis in self.debug_layer_visible.items() if vis
+            ]
+            if visible_layers:
+                debug_info = f" | Debug: {', '.join(visible_layers)}"
 
         self.plotter.add_text(
-            f"Straße: {mode_info} | Roads: {roads_info} | Terrain: {terrain_info} | Slopes: {slopes_info} | Holes: {holes_info} | {road_info} | Labels: {label_state} | road_idx: {road_label_state} | R=roads, S=slopes, T=terrain, H=holes, A=all, SPACE=next, B=prev, L=labels, I=road_idx, Q=quit",
+            f"Straße: {mode_info} | Roads: {roads_info} | Terrain: {terrain_info} | Slopes: {slopes_info} | {road_info} | Labels: {label_state} | road_idx: {road_label_state}{debug_info}",
             position="upper_left",
             font_size=10,
         )
@@ -677,10 +706,7 @@ class RoadViewer:
         ]
 
         if reset_camera:
-            print(f"[Camera] Setting focal_point to {center} and fitting bounds")
-            # Verwende fit_bounds statt reset_camera - das funktioniert besser mit großen Bereichen
-            # Füge Padding hinzu um sicherzustellen, dass alles sichtbar ist
-            padding = 50  # 50m Padding um alle Objekte
+            padding = 50
             bounds_with_padding = [
                 bounds[0] - padding,
                 bounds[1] + padding,
@@ -689,23 +715,18 @@ class RoadViewer:
                 bounds[4] - padding,
                 bounds[5] + padding,
             ]
-            print(f"[Camera] Calling fit_bounds with: {bounds_with_padding}")
-            self.plotter.camera_position = None  # Reset first
-            self.plotter.view_isometric()  # Isometric view
-            # Setze camera basierend auf bounds
+            self.plotter.camera_position = None
+            self.plotter.view_isometric()
             self.plotter.camera.focal_point = center
-            # Position ist wichtig: diagonal vom center weg
             cam_dist = (
                 max(bounds[1] - bounds[0], bounds[3] - bounds[2], bounds[5] - bounds[4])
                 * 1.5
-            )  # 1.5x der größten Ausdehnung
+            )
             self.plotter.camera.position = [
                 center[0] + cam_dist,
                 center[1] + cam_dist,
                 center[2] + cam_dist,
             ]
-            print(f"[Camera] Camera position set to: {self.plotter.camera.position}")
-            print(f"[Camera] Camera focal_point: {self.plotter.camera.focal_point}")
 
         cam_pos = (
             np.array(self.plotter.camera.position) if self.plotter.camera else None
@@ -737,7 +758,7 @@ class RoadViewer:
                 shape_opacity=0.7,
             )
 
-        # Road-Index-Labels: immer darstellen, keine Kappung
+        # Road-Index-Labels
         if self.show_road_idx_labels and len(self.road_face_to_idx) > 0:
             road_to_vertices = {}
 
@@ -818,11 +839,10 @@ class RoadViewer:
 
 
 if __name__ == "__main__":
-    # Primär beamng.obj (unified mesh mit Terrain), Fallback auf roads.obj
-    viewer = RoadViewer(
+    viewer = MeshViewer(
         "beamng.obj",
         fallback_obj="roads.obj",
         faces_per_road=10000,
-        preselect_road_idx=84076071,
+        preselect_road_idx=None,
     )
     viewer.show()

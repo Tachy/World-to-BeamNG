@@ -1,5 +1,5 @@
 """
-Stitching von Lücken zwischen Terrain und Böschungen.
+Stitching von Luecken zwischen Terrain und Boeschungen.
 Globale Loch-Suche: Findet alle Boundary-Polygone auf der Map.
 """
 
@@ -21,10 +21,10 @@ def stitch_terrain_gaps(
     """Findet globale Loch-Polygone und exportiert sie zur Visualisierung.
 
     Globaler Ansatz:
-    - Finde alle Boundary-Edges (Löcher) auf der kompletten Map
+    - Finde alle Boundary-Edges (Loecher) auf der kompletten Map
     - Baue geschlossene Polygone daraus
-    - Exportiere als OBJ (Linienzüge) für debug_road_viewer
-    - Noch KEIN Earcut/Füllen
+    - Exportiere als OBJ (Linienzuege) fuer debug_road_viewer
+    - Noch KEIN Earcut/Fuellen
     """
 
     verts = np.asarray(vertex_manager.get_array())
@@ -52,10 +52,10 @@ def stitch_terrain_gaps(
         if len(face_list) == 1:
             boundary_edges.append(edge)
 
-    print(f"  ✓ {len(boundary_edges)} Boundary-Edges gefunden")
+    print(f"  [OK] {len(boundary_edges)} Boundary-Edges gefunden")
 
     if len(boundary_edges) == 0:
-        print("  ⚠ Keine Löcher gefunden")
+        print("  [!] Keine Loecher gefunden")
         return []
 
     # Klassifiziere Vertices: Terrain vs Slope
@@ -74,9 +74,9 @@ def stitch_terrain_gaps(
         boundary_edges, terrain_vertex_set, slope_vertex_set
     )
 
-    print(f"  ✓ {len(hole_polygons)} Loch-Polygone gefunden")
+    print(f"  [OK] {len(hole_polygons)} Loch-Polygone gefunden")
 
-    # Exportiere als OBJ für visuelle Inspektion
+    # Exportiere als OBJ fuer visuelle Inspektion
     if hole_polygons:
         _export_hole_polygons_obj(hole_polygons, verts)
 
@@ -129,7 +129,7 @@ def _build_hole_polygons(edges, terrain_vertex_set, slope_vertex_set):
 
             if not neighbors:
                 # Keine unbesuchten Nachbarn mehr
-                # Prüfe ob wir zum Start zurückkönnen (Loop)
+                # Pruefe ob wir zum Start zurueckkoennen (Loop)
                 if len(path) > 2 and start_v in adj[current]:
                     # Geschlossener Loop
                     pass
@@ -174,7 +174,7 @@ def _build_hole_polygons(edges, terrain_vertex_set, slope_vertex_set):
 
 
 def _export_hole_polygons_obj(polygons, verts):
-    """Exportiert Loch-Polygone als OBJ für visuelle Inspektion.
+    """Exportiert Loch-Polygone als OBJ fuer visuelle Inspektion.
 
     Exportiert alle Boundary-Komponenten (nicht nur Loops):
     - Vertices werden in sortierter Reihenfolge geschrieben
@@ -204,24 +204,24 @@ def _export_hole_polygons_obj(polygons, verts):
         f.write("\n")
         f.write("usemtl boundary_edges\n")
 
-        # Schreibe Komponenten als Linienzüge (Punktwolken verbunden)
+        # Schreibe Komponenten als Linienzuege (Punktwolken verbunden)
         for poly in polygons:
             # Einfach alle Punkte hintereinander verbinden
             f.write("l")
             for v_idx in poly:
                 f.write(f" {vertex_index_map[v_idx]}")
-            # Schließe zurück zum ersten Punkt
+            # Schliesse zurueck zum ersten Punkt
             if len(poly) > 1:
                 f.write(f" {vertex_index_map[poly[0]]}")
             f.write("\n")
 
     # Schreibe MTL
     with open(mtl_path, "w") as f:
-        f.write("# Material für Boundary-Komponenten\n")
+        f.write("# Material fuer Boundary-Komponenten\n")
         f.write("newmtl boundary_edges\n")
         f.write("Ka 1.0 0.0 0.0\n")  # Rot
         f.write("Kd 1.0 0.0 0.0\n")
         f.write("Ks 0.0 0.0 0.0\n")
         f.write("d 1.0\n")
 
-    print(f"  ✓ Exportiert: {output_path} und {mtl_path}")
+    print(f"  [OK] Exportiert: {output_path} und {mtl_path}")

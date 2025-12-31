@@ -1,21 +1,21 @@
 """
-Zentrale Konfiguration für World-to-BeamNG.
+Zentrale Konfiguration fuer World-to-BeamNG.
 """
 
 # === MESH-PARAMETER ===
 ROAD_WIDTH = 7.0
-# Minimale Böschungsbreite (Meter) unabhängig von Höhenunterschieden
+# Minimale Boeschungsbreite (Meter) unabhängig von Hoehenunterschieden
 MIN_SLOPE_WIDTH = 2
 # Loch-Check schaltbar: False = kein Check/Export, True = Check + immer Export
 HOLE_CHECK_ENABLED = False
-# Exportpfad für offene Kanten als OBJ (mit MTL), wenn HOLE_CHECK_ENABLED=True
+# Exportpfad fuer offene Kanten als OBJ (mit MTL), wenn HOLE_CHECK_ENABLED=True
 BOUNDARY_EDGES_EXPORT = "boundary_edges.obj"
-SLOPE_ANGLE = 45.0  # Neigungswinkel der Böschung in Grad (45° = 1:1 Steigung)
-# Vorab-Reduktion über gröberes Grid (Strategie 2). Für feineres Terrain z.B. 1.0 setzen.
+SLOPE_ANGLE = 45.0  # Neigungswinkel der Boeschung in Grad (45° = 1:1 Steigung)
+# Vorab-Reduktion ueber groeberes Grid (Strategie 2). Fuer feineres Terrain z.B. 1.0 setzen.
 GRID_SPACING = (
     2.0  # Abstand zwischen Grid-Punkten in Metern (1.0 = sehr fein, 10.0 = grob)
 )
-TERRAIN_REDUCTION = 0  # Decimation bleibt aus; steuern wir über GRID_SPACING
+TERRAIN_REDUCTION = 0  # Decimation bleibt aus; steuern wir ueber GRID_SPACING
 LEVEL_NAME = "osm_generated_map"
 
 # === STRASSENGLÄTTUNG / OPTIONEN ===
@@ -41,22 +41,22 @@ ROAD_CLIP_MARGIN = 10.0  # Clipping-Abstand vom Grid-Rand in Metern (Faces < 3m 
 
 
 # === VERZEICHNISSE ===
-CACHE_DIR = "cache"  # Verzeichnis für Cache-Dateien
-HEIGHT_DATA_DIR = "height-data"  # Verzeichnis mit Höhendaten
+CACHE_DIR = "cache"  # Verzeichnis fuer Cache-Dateien
+HEIGHT_DATA_DIR = "height-data"  # Verzeichnis mit Hoehendaten
 
 # === MULTIPROCESSING ===
 # WARNUNG: Unter Windows kann Multiprocessing hängen bleiben!
 # Bei Problemen: False setzen
 USE_MULTIPROCESSING = True  # False = Single-Thread (langsamer, aber stabil)
 NUM_WORKERS = 4  # None = Automatisch (alle CPU-Kerne), oder Anzahl (z.B. 4)
-# Höhenabfrage: "kdtree" (schnell, NN) oder "interpolator" (NearestNDInterpolator)
+# Hoehenabfrage: "kdtree" (schnell, NN) oder "interpolator" (NearestNDInterpolator)
 HEIGHT_LOOKUP_MODE = "kdtree"
-# Maximale Straßen pro Batch im Multiprocessing
+# Maximale Strassen pro Batch im Multiprocessing
 MAX_ROADS_PER_BATCH = 500
 
 # === GLOBALE ZUSTANDSVARIABLEN (werden in main() initialisiert) ===
 BBOX = None
-LOCAL_OFFSET = None  # Globaler Offset für lokale Koordinaten
+LOCAL_OFFSET = None  # Globaler Offset fuer lokale Koordinaten
 GRID_BOUNDS_LOCAL = None  # Grid Bounds in lokalen Koordinaten
 
 # === OVERPASS API ENDPOINTS ===
