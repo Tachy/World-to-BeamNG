@@ -230,6 +230,9 @@ def merge_and_triangulate(remesh_data):
     else:
         merged_polygon = merged
 
+    # Kleiner Puffer, damit vereinfachte Union-Kanten Randdreiecke nicht abschneiden
+    merged_polygon = merged_polygon.buffer(0.001)
+
     # FILTER: Welche der ursprünglichen Faces überlappen wirklich mit dem Union-Polygon?
     # Das ist der echte Junction-Bereich (7-14m), nicht die ganzen 18m!
     overlapping_polygons = []
@@ -533,7 +536,9 @@ def reconstruct_z_values(triangulation_data, original_vertices, original_faces=N
     }
 
 
-def remesh_single_junction(junction_idx, junction, vertices, faces, vertex_manager):
+def remesh_single_junction(
+    junction_idx, junction, vertices, faces, vertex_manager, debug_dump=False
+):
     """
     Remesht einen einzelnen Junction komplett.
     WICHTIG: 'faces' sollte nur Straßen-Faces enthalten (Terrain-Filter im Caller!)
@@ -671,32 +676,40 @@ def remesh_single_junction(junction_idx, junction, vertices, faces, vertex_manag
         # WICHTIG: Aktualisiere die Z-Werte der gesnappten Vertices im VertexManager!
         # Für nicht-gesnappte Vertices: nutze add_vertex() mit korrigierter Z
 
-        vertex_indices = []
+        vertex_indices = [None] * len(new_vertices_3d)
         updated_vertices_count = 0
 
+        # Zunächst gesnappte Vertices direkt aktualisieren
         for i, vertex in enumerate(new_vertices_3d):
-            if i in gesnapped_to_global_idx:
-                # Nutze direkt den globalen Index
-                idx = gesnapped_to_global_idx[i]
+            if i not in gesnapped_to_global_idx:
+                continue
 
-                # CRUCIAL: Aktualisiere die Z-Koordinate der bestehenden Vertex!
-                # Diese hat die alte falsche Z, wir setzen die neue korrekte Z
-                old_vertex = vertex_manager.vertices[idx]
-                new_z = vertex[2]
+            idx = gesnapped_to_global_idx[i]
+            old_vertex = vertex_manager.vertices[idx]
+            new_z = vertex[2]
 
-                if abs(old_vertex[2] - new_z) > 0.0001:  # Nur wenn Unterschied > 0.1mm
-                    # Aktualisiere die Z-Koordinate direkt im VertexManager
-                    vertex_manager.vertices[idx] = np.array(
-                        [old_vertex[0], old_vertex[1], new_z], dtype=np.float32
-                    )
-                    updated_vertices_count += 1
+            if abs(old_vertex[2] - new_z) > 0.0001:  # Nur wenn Unterschied > 0.1mm
+                vertex_manager.vertices[idx] = np.array(
+                    [old_vertex[0], old_vertex[1], new_z], dtype=np.float32
+                )
+                updated_vertices_count += 1
 
-                vertex_indices.append(idx)
-            else:
-                # Nicht gesnapped: add_vertex() erlaubt 1cm Merging
-                # Aber wenigstens die Z-Wert ist interpoliert
-                idx = vertex_manager.add_vertex(vertex[0], vertex[1], vertex[2])
-                vertex_indices.append(idx)
+            vertex_indices[i] = idx
+
+        # Unsnapped Vertices gebündelt deduplizieren und hinzufügen
+        unsnapped_coords = []
+        unsnapped_map = []  # speichert ursprüngliche Indizes
+
+        for i, vertex in enumerate(new_vertices_3d):
+            if vertex_indices[i] is not None:
+                continue
+            unsnapped_coords.append(vertex)
+            unsnapped_map.append(i)
+
+        if unsnapped_coords:
+            new_indices = vertex_manager.add_vertices_batch_dedup_fast(unsnapped_coords)
+            for local_idx, global_idx in enumerate(new_indices):
+                vertex_indices[unsnapped_map[local_idx]] = global_idx
 
         # 6. Konvertiere Face-Indizes auf neue Vertex-Indizes
         remeshed_faces = []
@@ -723,42 +736,46 @@ def remesh_single_junction(junction_idx, junction, vertices, faces, vertex_manag
             )
             boundary_coords_3d = np.column_stack([boundary_coords_2d, boundary_z])
 
-        # DEBUG: Exportiere Debug-Daten für Analyse
-        # Erstelle Kreis-Punkte für Suchradius-Visualisierung
-        junction_pos = junction["position"]
-        radius = geometry_data["radius"]
-        num_circle_points = 64
-        circle_points = []
-        import math
+        # DEBUG: Exportiere Debug-Daten nur bei Bedarf
+        circle_points = None
+        if debug_dump:
+            # Erstelle Kreis-Punkte für Suchradius-Visualisierung
+            junction_pos = junction["position"]
+            radius = geometry_data["radius"]
+            num_circle_points = 64
+            circle_points = []
+            import math
 
-        for i in range(num_circle_points):
-            angle = 2 * math.pi * i / num_circle_points
-            x = junction_pos[0] + radius * math.cos(angle)
-            y = junction_pos[1] + radius * math.sin(angle)
-            z = junction_pos[2]  # Gleiche Z wie Junction-Mitte
-            circle_points.append([float(x), float(y), float(z)])
+            for i in range(num_circle_points):
+                angle = 2 * math.pi * i / num_circle_points
+                x = junction_pos[0] + radius * math.cos(angle)
+                y = junction_pos[1] + radius * math.sin(angle)
+                z = junction_pos[2]  # Gleiche Z wie Junction-Mitte
+                circle_points.append([float(x), float(y), float(z)])
 
-        debug_data = {
-            "vertex_indices": [int(idx) for idx in vertex_indices],
-            "new_vertices_3d": [
-                [float(v[0]), float(v[1]), float(v[2])] for v in new_vertices_3d
-            ],
-            "gesnapped_indices": [int(idx) for idx in gesnapped_to_global_idx.values()],
-            "boundary_vertices_before": boundary_vertices_before,
-            "remeshed_faces": [
-                [int(f[0]), int(f[1]), int(f[2])] for f in remeshed_faces
-            ],
-            "search_radius_circle": circle_points,  # NEU: Kreis für Visualisierung
-            "junction_center": [
-                float(junction_pos[0]),
-                float(junction_pos[1]),
-                float(junction_pos[2]),
-            ],
-            "search_radius": float(radius),
-        }
+            debug_data = {
+                "vertex_indices": [int(idx) for idx in vertex_indices],
+                "new_vertices_3d": [
+                    [float(v[0]), float(v[1]), float(v[2])] for v in new_vertices_3d
+                ],
+                "gesnapped_indices": [
+                    int(idx) for idx in gesnapped_to_global_idx.values()
+                ],
+                "boundary_vertices_before": boundary_vertices_before,
+                "remeshed_faces": [
+                    [int(f[0]), int(f[1]), int(f[2])] for f in remeshed_faces
+                ],
+                "search_radius_circle": circle_points,
+                "junction_center": [
+                    float(junction_pos[0]),
+                    float(junction_pos[1]),
+                    float(junction_pos[2]),
+                ],
+                "search_radius": float(radius),
+            }
 
-        with open("remesh_debug_data.json", "w") as f:
-            json.dump(debug_data, f, indent=2)
+            with open("remesh_debug_data.json", "w") as f:
+                json.dump(debug_data, f, indent=2)
 
         return {
             "success": True,

@@ -80,11 +80,17 @@ def main():
         default=None,
         help="Optional: Nur diese Junction-ID remeshen (für Debugging/Profiling)",
     )
+    parser.add_argument(
+        "--remesh-debug-dump",
+        action="store_true",
+        help="Remesh-Debugdaten (remesh_debug_data.json) schreiben",
+    )
     args = parser.parse_args()
 
     debug_junction_id = args.junction_id
     if debug_junction_id is not None:
         print(f"[DEBUG] Junction-Remeshing nur für Junction #{debug_junction_id}")
+    remesh_debug_dump = args.remesh_debug_dump
 
     # Reset globale Zustände
     config.LOCAL_OFFSET = None
@@ -454,7 +460,12 @@ def main():
 
         t_remesh = time_module.time()
         result = remesh_single_junction(
-            junction_idx, junction, all_vertices, road_faces_array, vertex_manager
+            junction_idx,
+            junction,
+            all_vertices,
+            road_faces_array,
+            vertex_manager,
+            debug_dump=remesh_debug_dump,
         )
         t_remesh_done = time_module.time()
 

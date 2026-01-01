@@ -7,7 +7,8 @@ Diese Module erkennt Kreuzungen und T-Junctions direkt aus den Centerline-Koordi
 
 import numpy as np
 from scipy.spatial import cKDTree
-from shapely.geometry import LineString, Point, MultiPoint, GeometryCollection
+from shapely.geometry import LineString, Point, MultiPoint, GeometryCollection, box
+from shapely.strtree import STRtree
 
 
 def detect_junctions_in_centerlines(road_polygons):
@@ -31,11 +32,15 @@ def detect_junctions_in_centerlines(road_polygons):
     if not road_polygons:
         return []
 
-    # Sammle alle Strassenenden (Anfang und Ende)
+    # Sammle alle Strassenenden (Anfang und Ende) und precompute Segmentdaten
     endpoints = []  # (x, y, z, road_idx, is_start)
+    road_cache = (
+        []
+    )  # pro Straße: vorberechnete Segmentdaten für Direction/Interpolation
 
     for road_idx, road in enumerate(road_polygons):
         coords = road["coords"]
+
         if len(coords) >= 2:
             # Anfangspunkt
             start = coords[0]
@@ -44,6 +49,79 @@ def detect_junctions_in_centerlines(road_polygons):
             # Endpunkt
             end = coords[-1]
             endpoints.append((end[0], end[1], end[2], road_idx, False))
+
+            coords_xy = (
+                coords[:, :2]
+                if isinstance(coords, np.ndarray)
+                else np.array(coords)[:, :2]
+            )
+            coords_z = (
+                coords[:, 2]
+                if isinstance(coords, np.ndarray)
+                else np.array(coords)[:, 2]
+            )
+
+            p1 = coords_xy[:-1]
+            p2 = coords_xy[1:]
+            seg = p2 - p1
+            seg_len_sq = np.sum(seg * seg, axis=1)
+            valid = seg_len_sq > 1e-12
+
+            seg_valid = seg[valid]
+            seg_len_sq_valid = seg_len_sq[valid]
+            p1_valid = p1[valid]
+
+            # Vorbereitete Start/End-Richtungen (normalisiert) für _direction_at_endpoint
+            start_dir = seg_valid[0] if len(seg_valid) else np.array([1.0, 0.0])
+            end_dir = seg_valid[-1] if len(seg_valid) else np.array([1.0, 0.0])
+            sd_norm = np.sqrt(start_dir.dot(start_dir))
+            ed_norm = np.sqrt(end_dir.dot(end_dir))
+            if sd_norm > 0.01:
+                start_dir = start_dir / sd_norm
+            else:
+                start_dir = np.array([1.0, 0.0])
+            if ed_norm > 0.01:
+                end_dir = end_dir / ed_norm
+            else:
+                end_dir = np.array([1.0, 0.0])
+
+            # Für Z-Interpolation: Segment-Mittelpunkte und mittleres Z pro Segment
+            seg_mids = (p1 + p2) / 2.0
+            z_mid = (coords_z[:-1] + coords_z[1:]) / 2.0
+
+            road_cache.append(
+                {
+                    "coords": coords,
+                    "coords_xy": coords_xy,
+                    "coords_z": coords_z,
+                    "p1_valid": p1_valid,
+                    "seg_valid": seg_valid,
+                    "seg_len_sq_valid": seg_len_sq_valid,
+                    "seg_mids": seg_mids,
+                    "z_mid": z_mid,
+                    "start_dir": start_dir,
+                    "end_dir": end_dir,
+                }
+            )
+        else:
+            road_cache.append(
+                {
+                    "coords": coords,
+                    "coords_xy": (
+                        np.array(coords)[:, :2] if len(coords) else np.empty((0, 2))
+                    ),
+                    "coords_z": (
+                        np.array(coords)[:, 2] if len(coords) else np.empty((0,))
+                    ),
+                    "p1_valid": np.empty((0, 2)),
+                    "seg_valid": np.empty((0, 2)),
+                    "seg_len_sq_valid": np.empty((0,)),
+                    "seg_mids": np.empty((0, 2)),
+                    "z_mid": np.empty((0,)),
+                    "start_dir": np.array([1.0, 0.0]),
+                    "end_dir": np.array([1.0, 0.0]),
+                }
+            )
 
     if len(endpoints) < 2:
         return []
@@ -86,99 +164,57 @@ def detect_junctions_in_centerlines(road_polygons):
     # Baue Junctions aus Clustern
     junctions = []
 
-    def _direction_at_endpoint(coords, is_start):
-        if is_start and len(coords) >= 2:
-            p1 = np.array(coords[0][:2])
-            p2 = np.array(coords[1][:2])
-        elif not is_start and len(coords) >= 2:
-            p1 = np.array(coords[-2][:2])
-            p2 = np.array(coords[-1][:2])
-        else:
-            return np.array([1.0, 0.0])
-        direction = p2 - p1
-        norm = np.linalg.norm(direction)
-        if norm > 0.01:
-            direction = direction / norm
-        return direction
+    def _direction_at_endpoint(road_idx, is_start):
+        cache = road_cache[road_idx]
+        return cache["start_dir"] if is_start else cache["end_dir"]
 
     def _get_direction_at_point(road_idx, proj_xy):
         """Berechnet Straßenrichtung an einem beliebigen Punkt (NumPy-vektorisiert)."""
-        coords = road_polygons[road_idx].get("coords", [])
-        if len(coords) < 2:
+        cache = road_cache[road_idx]
+        seg_valid = cache["seg_valid"]
+        seg_len_sq_valid = cache["seg_len_sq_valid"]
+        p1_valid = cache["p1_valid"]
+
+        if seg_valid.size == 0:
             return np.array([1.0, 0.0])
-
-        # Vektorisierte Segment-Berechnung
-        coords_xy = np.array(
-            (
-                coords[:, :2]
-                if isinstance(coords, np.ndarray)
-                else [c[:2] for c in coords]
-            ),
-            dtype=np.float64,
-        )
-
-        # Alle Segmente: p1 = coords[0:-1], p2 = coords[1:]
-        p1 = coords_xy[:-1]  # (n_segs, 2)
-        p2 = coords_xy[1:]  # (n_segs, 2)
-        seg = p2 - p1  # (n_segs, 2)
-        seg_len_sq = np.sum(seg**2, axis=1, keepdims=True)  # (n_segs, 1)
-
-        # Filtere zu kurze Segmente
-        valid = seg_len_sq.ravel() > 1e-12
-        if not np.any(valid):
-            return np.array([1.0, 0.0])
-
-        p1_valid = p1[valid]
-        p2_valid = p2[valid]
-        seg_valid = seg[valid]
-        seg_len_sq_valid = seg_len_sq[valid]
 
         # Projiziere Punkt auf alle gültigen Segmente (Broadcasting)
         vec_to_point = np.array(proj_xy) - p1_valid  # (n_valid, 2)
-        t = (
-            np.sum(vec_to_point * seg_valid, axis=1, keepdims=True) / seg_len_sq_valid
-        )  # (n_valid, 1)
+        # Halte t als (n_valid, 1) fuer korrektes Broadcasting
+        t = (np.sum(vec_to_point * seg_valid, axis=1) / seg_len_sq_valid)[:, None]
         t = np.clip(t, 0, 1)
 
         # Nächste Punkte auf Segmenten
         proj_pts = p1_valid + t * seg_valid  # (n_valid, 2)
 
-        # Abstände zum Punkt (Broadcasting)
-        dists = np.linalg.norm(np.array(proj_xy) - proj_pts, axis=1)  # (n_valid,)
-        best_idx = np.argmin(dists)
+        # Abstände zum Punkt (Broadcasting) ohne np.linalg.norm-Overhead
+        diff = proj_pts - np.array(proj_xy)
+        dists_sq = np.sum(diff * diff, axis=1)
+        best_idx = int(np.argmin(dists_sq))
 
-        # Richtung des besten Segments
+        # Richtung des besten Segments (norm bereits aus seg_len_sq_valid)
         best_seg = seg_valid[best_idx]
-        norm = np.linalg.norm(best_seg)
-
-        return best_seg / norm if norm > 0.01 else np.array([1.0, 0.0])
+        seg_norm = np.sqrt(seg_len_sq_valid[best_idx])
+        return best_seg / seg_norm if seg_norm > 0.01 else np.array([1.0, 0.0])
 
     def _get_z_at_point(road_idx, xy_point):
         """Interpoliert Z-Koordinate an einem XY-Punkt auf der Straße (NumPy-vektorisiert)."""
-        coords = road_polygons[road_idx].get("coords", [])
+        cache = road_cache[road_idx]
+        coords = cache["coords"]
         if not coords or len(coords) < 2:
             return 0.0 if not coords else coords[0][2]
 
-        # Konvertiere zu NumPy Arrays
-        coords_array = np.array(coords, dtype=np.float64)
-        coords_xy = coords_array[:, :2]
-        coords_z = coords_array[:, 2]
+        seg_mids = cache["seg_mids"]
+        z_mid = cache["z_mid"]
 
-        # Vektorisierte Segment-Berechnung
-        p1 = coords_xy[:-1]  # (n_segs, 2)
-        p2 = coords_xy[1:]  # (n_segs, 2)
-        z1 = coords_z[:-1]  # (n_segs,)
-        z2 = coords_z[1:]  # (n_segs,)
+        if seg_mids.size == 0:
+            return coords[0][2]
 
-        # Mittelpunkte aller Segmente
-        seg_mids = (p1 + p2) / 2  # (n_segs, 2)
+        diff = seg_mids - np.array(xy_point)
+        dists_sq = np.sum(diff * diff, axis=1)
+        best_idx = int(np.argmin(dists_sq))
 
-        # Abstände aller Mittelpunkte zum Punkt (Broadcasting)
-        dists = np.linalg.norm(seg_mids - np.array(xy_point), axis=1)  # (n_segs,)
-        best_idx = np.argmin(dists)
-
-        # Z-Wert des nächsten Segments
-        return (z1[best_idx] + z2[best_idx]) / 2
+        return z_mid[best_idx]
 
     def _add_junction(position_xyz, cluster_indices, extra_connections=None):
         cluster_points = [endpoints[i] for i in cluster_indices]
@@ -194,8 +230,7 @@ def detect_junctions_in_centerlines(road_polygons):
             connection_type = "start" if is_start else "end"
 
             junction_roads.setdefault(road_idx, []).append(connection_type)
-            coords = road_polygons[road_idx]["coords"]
-            direction_vectors[road_idx] = _direction_at_endpoint(coords, is_start)
+            direction_vectors[road_idx] = _direction_at_endpoint(road_idx, is_start)
 
         if extra_connections:
             for road_idx, conn_type, direction in extra_connections:
@@ -233,18 +268,34 @@ def detect_junctions_in_centerlines(road_polygons):
     # (typisch für T-Junctions mit durchgehender Straße).
     t_search_radius = 10.0  # Meter - breite Vorauswahl mit KDTree
     t_line_tol = 0.5  # Meter - Toleranz für Punkt-zu-Linie Entfernung (50cm)
+    t_line_tol_sq = t_line_tol * t_line_tol
     merge_tol = 1.0  # Zusammenführungs-Toleranz zu bestehenden Junctions (1.0m)
+    merge_tol_sq = merge_tol * merge_tol
     t_count = 0
 
-    # Sammmle alle Linienpunkte mit ihrem Straßen-Index
+    # Sammle alle Linienpunkte mit ihrem Straßen-Index und baue LineStrings/Indexe
     all_line_points = []  # [(x, y, road_idx, point_idx)]
     line_points_xy = []
+    line_strings = []  # index-aligniert zu road_polygons (None für zu kurze Straßen)
+    indexed_geoms = []  # Geometrien, die in den STRtree kommen
+    geom_to_idx = {}  # STRtree-Geometrie → road_idx
 
     for road_idx, road in enumerate(road_polygons):
         coords = road.get("coords", [])
+
+        # Punkte sammeln (für KDTree aus T-Erkennung)
         for pt_idx, coord in enumerate(coords):
             all_line_points.append((coord[0], coord[1], road_idx, pt_idx))
             line_points_xy.append([coord[0], coord[1]])
+
+        # LineString einmalig bauen
+        if len(coords) >= 2:
+            ls = LineString([(c[0], c[1]) for c in coords])
+            line_strings.append(ls)
+            indexed_geoms.append(ls)
+            geom_to_idx[ls] = road_idx
+        else:
+            line_strings.append(None)
 
     if not line_points_xy:
         pass
@@ -290,12 +341,10 @@ def detect_junctions_in_centerlines(road_polygons):
                 proj_xy = (proj_pt.x, proj_pt.y)
 
                 # Berechne echte Punkt-zu-Linie Entfernung
-                point_to_line_dist = np.linalg.norm(
-                    np.array([ep_x - proj_pt.x, ep_y - proj_pt.y])
-                )
-
                 # STUFE 3: Nur akzeptieren, wenn Punkt wirklich nah bei der Linie liegt (10cm)
-                if point_to_line_dist > t_line_tol:
+                dist_vec = np.array([ep_x - proj_pt.x, ep_y - proj_pt.y])
+                point_to_line_dist_sq = np.sum(dist_vec * dist_vec)
+                if point_to_line_dist_sq > t_line_tol_sq:
                     continue  # Punkt ist zu weit weg von der Linie
 
                 proj_z = ep_z
@@ -303,12 +352,10 @@ def detect_junctions_in_centerlines(road_polygons):
                 # Prüfe ob bereits eine Junction an DIESER Position existiert (positionsbasiert!)
                 # Erlaubt mehrere Junctions zwischen denselben Straßen an verschiedenen Positionen
                 already_exists_here = False
+                proj_xy_vec = np.array([proj_xy[0], proj_xy[1]])
                 for j in junctions:
                     j_pos = np.array(j["position"][:2])
-                    if (
-                        np.linalg.norm(j_pos - np.array([proj_xy[0], proj_xy[1]]))
-                        <= merge_tol
-                    ):
+                    if np.sum((j_pos - proj_xy_vec) ** 2) <= merge_tol_sq:
                         # Junction existiert bereits an dieser Position
                         already_exists_here = True
                         break
@@ -322,16 +369,17 @@ def detect_junctions_in_centerlines(road_polygons):
 
                 # Versuche mit bestehender Junction zu mergen
                 merged = False
+                new_junc_xy = np.array(new_junc_pos[:2])
                 for j in junctions:
                     j_pos = np.array(j["position"][:2])
-                    if np.linalg.norm(j_pos - np.array(new_junc_pos[:2])) <= merge_tol:
+                    if np.sum((j_pos - new_junc_xy) ** 2) <= merge_tol_sq:
                         if road_idx not in j["road_indices"]:
                             j["road_indices"].append(road_idx)
                             j["connection_types"][road_idx] = [
                                 "start" if is_start else "end"
                             ]
                             j["direction_vectors"][road_idx] = _direction_at_endpoint(
-                                road_polygons[road_idx]["coords"], is_start
+                                road_idx, is_start
                             )
                         if other_road_idx not in j["road_indices"]:
                             j["road_indices"].append(other_road_idx)
@@ -346,9 +394,7 @@ def detect_junctions_in_centerlines(road_polygons):
                         (
                             road_idx,
                             "start" if is_start else "end",
-                            _direction_at_endpoint(
-                                road_polygons[road_idx]["coords"], is_start
-                            ),
+                            _direction_at_endpoint(road_idx, is_start),
                         ),
                         (other_road_idx, "mid", through_dir),
                     ]
@@ -365,162 +411,121 @@ def detect_junctions_in_centerlines(road_polygons):
     ll_count = 0
 
     # Verwende den bereits erstellten KDTree der Linienpunkte für Performance
-    if line_points_xy:
-        # Iteriere über alle Road-Paare
+    if line_points_xy and indexed_geoms:
+        tree = STRtree(indexed_geoms)
 
         for road_idx, road in enumerate(road_polygons):
-            coords = road.get("coords", [])
-            if len(coords) < 2:
+            road_line = line_strings[road_idx]
+            if road_line is None:
                 continue
 
-            # Erstelle LineString für diese Straße
-            road_line = LineString([(c[0], c[1]) for c in coords])
             road_bounds = road_line.bounds  # (minx, miny, maxx, maxy)
-
-            # Finde Linienpunkte anderer Straßen in der Nähe (KDTree-Vorauswahl)
-            # Nutze Mittelpunkt der Straße als Suchpunkt
-            center_x = (road_bounds[0] + road_bounds[2]) / 2
-            center_y = (road_bounds[1] + road_bounds[3]) / 2
-            search_dist = (
-                max(road_bounds[2] - road_bounds[0], road_bounds[3] - road_bounds[1])
-                / 2
-                + ll_search_radius
+            pad = ll_search_radius + ll_line_tol
+            query_geom = box(
+                road_bounds[0] - pad,
+                road_bounds[1] - pad,
+                road_bounds[2] + pad,
+                road_bounds[3] + pad,
             )
 
-            nearby_indices = line_kdtree.query_ball_point(
-                [center_x, center_y], r=search_dist
-            )
+            candidates = tree.query(query_geom)
 
-            # Extrahiere die Straßen-IDs der nahen Punkte
-            nearby_road_ids = set()
-            for idx in nearby_indices:
-                if idx < len(all_line_points):
-                    _, _, other_road_idx, _ = all_line_points[idx]
-                    if other_road_idx != road_idx:
-                        nearby_road_ids.add(other_road_idx)
-
-            # Prüfe jede Straße in der Nähe
-            for other_road_idx in nearby_road_ids:
-                # Prüfe nur aufsteigende Paare um Duplikate zu vermeiden (road_idx < other_road_idx)
-                if road_idx >= other_road_idx:
+            for other_geom in candidates:
+                other_road_idx = geom_to_idx.get(other_geom)
+                if other_road_idx is None or other_road_idx <= road_idx:
                     continue
 
-                # Berechne Line-zu-Line Distanz mit Shapely
-                other_coords = road_polygons[other_road_idx].get("coords", [])
-                if len(other_coords) < 2:
-                    continue
-
-                other_line = LineString([(c[0], c[1]) for c in other_coords])
+                other_line = other_geom
                 line_dist = road_line.distance(other_line)
 
-                if line_dist <= ll_line_tol:
-                    # Die Linien sind sehr nah beieinander oder kreuzen sich!
-                    # Finde den Kreuzungspunkt oder den nächsten Punkt
-                    intersection = road_line.intersection(other_line)
+                if line_dist > ll_line_tol:
+                    continue
 
-                    if intersection.is_empty:
-                        # Kein Schnittpunkt, aber sehr nah - finde nächsten Punkt
-                        # Nutze den Punkt auf Line1 der am nächsten zu Line2 ist
-                        # und den Punkt auf Line2 der am nächsten zu Line1 ist
+                intersection = road_line.intersection(other_line)
 
-                        # Finde den Punkt auf road_line am nächsten zu other_line
-                        nearest_dist = float("inf")
-                        nearest_pt1 = None
-                        for coord in coords:
-                            dist = other_line.distance(Point(coord[0], coord[1]))
-                            if dist < nearest_dist:
-                                nearest_dist = dist
-                                nearest_pt1 = Point(coord[0], coord[1])
+                if intersection.is_empty:
+                    nearest_dist = float("inf")
+                    nearest_pt1 = None
+                    for coord in road.get("coords", []):
+                        dist = other_line.distance(Point(coord[0], coord[1]))
+                        if dist < nearest_dist:
+                            nearest_dist = dist
+                            nearest_pt1 = Point(coord[0], coord[1])
 
-                        # Finde den Punkt auf other_line am nächsten zu road_line
-                        nearest_dist = float("inf")
-                        nearest_pt2 = None
-                        for coord in other_coords:
-                            dist = road_line.distance(Point(coord[0], coord[1]))
-                            if dist < nearest_dist:
-                                nearest_dist = dist
-                                nearest_pt2 = Point(coord[0], coord[1])
+                    nearest_dist = float("inf")
+                    nearest_pt2 = None
+                    other_coords = road_polygons[other_road_idx].get("coords", [])
+                    for coord in other_coords:
+                        dist = road_line.distance(Point(coord[0], coord[1]))
+                        if dist < nearest_dist:
+                            nearest_dist = dist
+                            nearest_pt2 = Point(coord[0], coord[1])
 
-                        if nearest_pt1 and nearest_pt2:
-                            # Mittelpunkt zwischen den zwei nächsten Punkten
-                            cross_x = (nearest_pt1.x + nearest_pt2.x) / 2
-                            cross_y = (nearest_pt1.y + nearest_pt2.y) / 2
-                        else:
-                            continue  # Kann keinen gültigen Punkt finden
+                    if nearest_pt1 and nearest_pt2:
+                        cross_x = (nearest_pt1.x + nearest_pt2.x) / 2
+                        cross_y = (nearest_pt1.y + nearest_pt2.y) / 2
                     else:
-                        # Schnittpunkt gefunden
-                        from shapely.geometry import MultiPoint, GeometryCollection
-
-                        if isinstance(intersection, Point):
-                            cross_x, cross_y = intersection.x, intersection.y
-                        elif isinstance(intersection, (MultiPoint, GeometryCollection)):
-                            # Mehrere Schnittpunkte - nutze den ersten
-                            geoms = (
-                                list(intersection.geoms)
-                                if hasattr(intersection, "geoms")
-                                else [intersection]
-                            )
-                            if geoms and isinstance(geoms[0], Point):
-                                cross_x, cross_y = geoms[0].x, geoms[0].y
-                            else:
-                                continue  # Kann nicht als Punkt interpretiert werden
+                        continue
+                else:
+                    if isinstance(intersection, Point):
+                        cross_x, cross_y = intersection.x, intersection.y
+                    elif isinstance(intersection, (MultiPoint, GeometryCollection)):
+                        geoms = (
+                            list(intersection.geoms)
+                            if hasattr(intersection, "geoms")
+                            else [intersection]
+                        )
+                        if geoms and isinstance(geoms[0], Point):
+                            cross_x, cross_y = geoms[0].x, geoms[0].y
                         else:
-                            continue  # LineString oder Polygon - zu komplex
+                            continue
+                    else:
+                        continue
 
-                    # FRÜHE Duplikatsprüfung BEVOR teure Z-Berechnung
-                    already_exists_here = False
-                    for j in junctions:
-                        j_pos = np.array(j["position"][:2])
-                        if (
-                            np.linalg.norm(j_pos - np.array([cross_x, cross_y]))
-                            <= merge_tol
-                        ):
-                            already_exists_here = True
-                            break
+                already_exists_here = False
+                cross_xy = np.array([cross_x, cross_y])
+                for j in junctions:
+                    j_pos = np.array(j["position"][:2])
+                    if np.sum((j_pos - cross_xy) ** 2) <= merge_tol_sq:
+                        already_exists_here = True
+                        break
 
-                    if already_exists_here:
-                        continue  # Junction an dieser Position bereits vorhanden
+                if already_exists_here:
+                    continue
 
-                    # Interpoliere Z-Koordinate aus beiden Straßen (Durchschnitt)
-                    best_z1 = _get_z_at_point(road_idx, (cross_x, cross_y))
-                    best_z2 = _get_z_at_point(other_road_idx, (cross_x, cross_y))
-                    cross_z = (best_z1 + best_z2) / 2
+                best_z1 = _get_z_at_point(road_idx, (cross_x, cross_y))
+                best_z2 = _get_z_at_point(other_road_idx, (cross_x, cross_y))
+                cross_z = (best_z1 + best_z2) / 2
 
-                    # Berechne Richtungen an der Kreuzungsstelle für beide Straßen
-                    dir1 = _get_direction_at_point(road_idx, (cross_x, cross_y))
-                    dir2 = _get_direction_at_point(other_road_idx, (cross_x, cross_y))
+                dir1 = _get_direction_at_point(road_idx, (cross_x, cross_y))
+                dir2 = _get_direction_at_point(other_road_idx, (cross_x, cross_y))
 
-                    new_junc_pos = (cross_x, cross_y, cross_z)
+                new_junc_pos = (cross_x, cross_y, cross_z)
 
-                    # Versuche mit bestehender Junction zu mergen
-                    merged = False
-                    for j in junctions:
-                        j_pos = np.array(j["position"][:2])
-                        if (
-                            np.linalg.norm(j_pos - np.array(new_junc_pos[:2]))
-                            <= merge_tol
-                        ):
-                            # Füge beide Straßen als "mid" hinzu (Kreuzung, nicht Endpoint)
-                            if road_idx not in j["road_indices"]:
-                                j["road_indices"].append(road_idx)
-                                j["connection_types"][road_idx] = ["mid"]
-                                j["direction_vectors"][road_idx] = dir1
-                            if other_road_idx not in j["road_indices"]:
-                                j["road_indices"].append(other_road_idx)
-                                j["connection_types"][other_road_idx] = ["mid"]
-                                j["direction_vectors"][other_road_idx] = dir2
-                            merged = True
-                            ll_count += 1
-                            break
-
-                    if not merged:
-                        # Neue Junction erstellen - beide Straßen als "mid" (durchgehend)
-                        extra_conns = [
-                            (road_idx, "mid", dir1),
-                            (other_road_idx, "mid", dir2),
-                        ]
-                        _add_junction(new_junc_pos, [], extra_connections=extra_conns)
+                merged = False
+                new_ll_xy = np.array(new_junc_pos[:2])
+                for j in junctions:
+                    j_pos = np.array(j["position"][:2])
+                    if np.sum((j_pos - new_ll_xy) ** 2) <= merge_tol_sq:
+                        if road_idx not in j["road_indices"]:
+                            j["road_indices"].append(road_idx)
+                            j["connection_types"][road_idx] = ["mid"]
+                            j["direction_vectors"][road_idx] = dir1
+                        if other_road_idx not in j["road_indices"]:
+                            j["road_indices"].append(other_road_idx)
+                            j["connection_types"][other_road_idx] = ["mid"]
+                            j["direction_vectors"][other_road_idx] = dir2
+                        merged = True
                         ll_count += 1
+                        break
+
+                if not merged:
+                    extra_conns = [
+                        (road_idx, "mid", dir1),
+                        (other_road_idx, "mid", dir2),
+                    ]
+                    _add_junction(new_junc_pos, [], extra_connections=extra_conns)
+                    ll_count += 1
 
         # Statistik-Ausgabe erfolgt zentral über junction_stats
 
