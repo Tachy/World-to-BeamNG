@@ -1,9 +1,4 @@
 #!/usr/bin/env python3
-import sys
-import os
-
-# Importiere MeshViewer
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "tools"))
 
 from mesh_viewer import MeshViewer
 
