@@ -204,20 +204,21 @@ def report_boundary_edges(faces, vertices, label="mesh", export_path=None):
 
 def main():
     """Hauptfunktion der Anwendung - koordiniert alle Module."""
-    
+
     import time as time_module  # Umbenennen um Konflikt zu vermeiden
-    
+
     # === Command-Line Arguments ===
     import argparse
-    parser = argparse.ArgumentParser(description='World-to-BeamNG Straßen-Generator')
+
+    parser = argparse.ArgumentParser(description="World-to-BeamNG Straßen-Generator")
     parser.add_argument(
-        '--junction-id',
+        "--junction-id",
         type=int,
         default=None,
-        help='Optional: Nur diese Junction-ID remeshen (für Debugging/Profiling)'
+        help="Optional: Nur diese Junction-ID remeshen (für Debugging/Profiling)",
     )
     args = parser.parse_args()
-    
+
     debug_junction_id = args.junction_id
     if debug_junction_id is not None:
         print(f"[DEBUG] Junction-Remeshing nur für Junction #{debug_junction_id}")
@@ -580,28 +581,30 @@ def main():
     remesh_candidates = [
         (idx, j) for idx, j in enumerate(junctions) if _connection_count(j) >= 3
     ]
-    
+
     # === DEBUG: Filtere nur auf eine Junction wenn --junction-id gegeben ===
     if debug_junction_id is not None:
         remesh_candidates = [
             (idx, j) for idx, j in remesh_candidates if idx == debug_junction_id
         ]
         if not remesh_candidates:
-            print(f"  [WARN] Junction #{debug_junction_id} nicht gefunden oder hat <3 Verbindungen!")
+            print(
+                f"  [WARN] Junction #{debug_junction_id} nicht gefunden oder hat <3 Verbindungen!"
+            )
         else:
             print(f"  [DEBUG] Remeshe nur Junction #{debug_junction_id}")
 
     t_loop_start = time_module.time()
     processed_count = 0
     total_junctions = len(remesh_candidates)
-    
+
     # OPTIMIZATION: Cacle all_vertices - nur updaten wenn neue Vertices hinzugekommen
     all_vertices = vertex_manager.get_array()
     vertices_version = 0
-    
+
     for junction_idx, junction in remesh_candidates:
         t_iter = time_module.time()
-        
+
         # Aktualisiere all_vertices nur wenn Vertices hinzugekommen sind
         current_version = vertex_manager.get_count()  # Zähle Vertices
         if current_version != vertices_version:
@@ -621,7 +624,7 @@ def main():
 
         if result is not None and result["success"]:
             t_process = time_module.time()
-            
+
             faces_to_remove = result.get("faces_to_remove", [])
             if faces_to_remove:
                 # NumPy boolean indexing für effiziente Filterung
@@ -631,7 +634,7 @@ def main():
                 road_face_to_idx_array = road_face_to_idx_array[keep_mask]
 
             t_remove = time_module.time()
-            
+
             # Integriere neue Faces mit NumPy concatenate
             new_faces = np.array(result["new_faces"], dtype=np.int32)
             new_face_idx = np.full(len(new_faces), -1, dtype=np.int32)
@@ -643,9 +646,9 @@ def main():
             road_face_to_idx_array = np.concatenate(
                 [road_face_to_idx_array, new_face_idx]
             )
-            
+
             t_vstack = time_module.time()
-            
+
             remesh_stats["success"] += 1
             boundary_coords = result.get("boundary_coords_3d")
             if boundary_coords is not None:
@@ -656,15 +659,19 @@ def main():
                 remesh_radius_circles.append(
                     {"junction_idx": junction_idx, "circle": circle}
                 )
-            
+
             processed_count += 1
         else:
             remesh_stats["failed"] += 1
             print(f"  [FEHLER] Junction {junction_idx} remesh fehlgeschlagen")
 
         # Fortschritt alle 100 Junctions oder am Ende melden
-        if total_junctions > 0 and (processed_count % 100 == 0 or processed_count == total_junctions):
-            print(f"  [Fortschritt] Schritt 10: {processed_count}/{total_junctions} Junctions")
+        if total_junctions > 0 and (
+            processed_count % 100 == 0 or processed_count == total_junctions
+        ):
+            print(
+                f"  [Fortschritt] Schritt 10: {processed_count}/{total_junctions} Junctions"
+            )
 
     # Konvertiere zurück zu Listen für Kompatibilität mit nachfolgendem Code
     road_faces = road_faces_array.tolist()

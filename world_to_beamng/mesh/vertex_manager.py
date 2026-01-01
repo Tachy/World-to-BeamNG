@@ -12,7 +12,7 @@ class VertexManager:
 
     Verhindert doppelte Vertices innerhalb einer definierten Toleranz und
     gibt konsistente globale Indices zurueck.
-    
+
     OPTIMIZATION: Vertices werden intern als NumPy-Array gehalten für Performance!
     """
 
@@ -150,7 +150,7 @@ class VertexManager:
         # Sammle neue Vertices, dann mache batch vstack
         new_vertices_to_add = []
         new_vertex_keys = []
-        
+
         for i, (px, py, pz) in enumerate(coords_arr):
             key = cell_key_from_point(px, py, pz)
             existing = lookup(px, py, pz, key)
@@ -167,7 +167,7 @@ class VertexManager:
             start_idx = len(self.vertices)
             new_arr = np.array(new_vertices_to_add, dtype=np.float32)
             self.vertices = np.vstack([self.vertices, new_arr])
-            
+
             # Update Hash für neue Vertices
             for local_i, key in enumerate(new_vertex_keys):
                 new_idx = start_idx + local_i

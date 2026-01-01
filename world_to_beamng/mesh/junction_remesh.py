@@ -38,6 +38,7 @@ def collect_nearby_geometry(junction_pos, vertices, faces, radius=15.0):
         - center_point: Junction-Position (x, y)
     """
     import time
+
     t_start = time.time()
 
     center_xy = np.array(junction_pos[:2])  # Nur X, Y
@@ -45,10 +46,10 @@ def collect_nearby_geometry(junction_pos, vertices, faces, radius=15.0):
     # OPTIMIERUNG: Reduziere Suchbereich - nicht jede Vertex einzeln, sondern:
     # Finde FACE-Centroids im Radius, dann nimm alle Vertices dieser Faces
     # Das ist viel schneller als KDTree auf allen Vertices!
-    
+
     # Berechne Centroids aller Faces
     face_centroids = vertices[faces, :2].mean(axis=1)  # Nx2 array of (x,y) centroids
-    
+
     # KDTree EINMAL auf Face-Centroids (nicht auf Vertices!)
     centroid_tree = cKDTree(face_centroids)
     candidate_face_indices = centroid_tree.query_ball_point(center_xy, radius)
@@ -58,13 +59,13 @@ def collect_nearby_geometry(junction_pos, vertices, faces, radius=15.0):
     for face_idx in candidate_face_indices:
         for v_idx in faces[face_idx]:
             nearby_vertex_set.add(v_idx)
-    
+
     nearby_vertex_indices = np.array(sorted(nearby_vertex_set), dtype=np.int32)
-    
+
     if len(nearby_vertex_indices) == 0:
         print(f"    [Remesh] FEHLER: Keine Vertices gefunden!")
         return None
-    
+
     # Nearby-Face-Indizes sind einfach die Kandidaten
     nearby_face_indices = np.array(candidate_face_indices, dtype=np.int32)
 
@@ -233,12 +234,12 @@ def merge_and_triangulate(remesh_data):
     # Das ist der echte Junction-Bereich (7-14m), nicht die ganzen 18m!
     overlapping_polygons = []
     overlapping_count = 0
-    
+
     for i, poly in enumerate(polygons_2d):
         if poly.intersects(merged_polygon):
             overlapping_polygons.append(poly)
             overlapping_count += 1
-    
+
     # Nutze nur die überlappenden Polygone - und mache NOCHMAL unary_union
     # Das eliminiert Rauschen von weit entfernten Faces!
     if overlapping_count > 0 and overlapping_count < len(polygons_2d):
@@ -281,7 +282,7 @@ def merge_and_triangulate(remesh_data):
     # 3. Trianguliere das Polygon robust mit shapely.triangulate (respektiert Concavity)
     try:
         tri_polys = triangulate(merged_polygon)
-        
+
         vertices = []
         vertex_map = {}
         faces = []
@@ -305,7 +306,7 @@ def merge_and_triangulate(remesh_data):
                 face_idx.append(idx)
             if len(face_idx) == 3:
                 faces.append(face_idx)
-        
+
         new_vertices_2d = np.array(vertices, dtype=np.float32)
         new_faces = np.array(faces, dtype=np.int32)
 
@@ -706,7 +707,7 @@ def remesh_single_junction(junction_idx, junction, vertices, faces, vertex_manag
                 vertex_indices[face[2]],
             ]
             remeshed_faces.append(remeshed_face)
-        
+
         # Nutze interpolierte Boundary-Z-Werte statt Durchschnitt
         boundary_z_values = result_data.get("boundary_z_values")
         if boundary_z_values is not None and len(boundary_z_values) == len(
