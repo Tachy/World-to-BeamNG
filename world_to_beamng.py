@@ -679,9 +679,7 @@ def main():
     timer.begin("Verarbeite Luftbilder")
     print("\n[17] Verarbeite Luftbilder...")
     tile_count = process_aerial_images(
-        aerial_dir="aerial",
-        output_dir=config.BEAMNG_DIR_TEXTURES,
-        tile_size=1000
+        aerial_dir="aerial", output_dir=config.BEAMNG_DIR_TEXTURES, tile_size=1000
     )
     if tile_count > 0:
         print(f"  [OK] {tile_count} Luftbild-Kacheln exportiert")
