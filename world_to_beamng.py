@@ -472,6 +472,10 @@ def main():
     print("\n[7x] Junction Remeshing mit lokaler Delaunay-Triangulation...")
     step_start = time.time()
 
+    # Konvertiere zu NumPy für effiziente Operationen
+    road_faces_array = np.array(road_faces, dtype=np.int32) if road_faces else np.empty((0, 3), dtype=np.int32)
+    road_face_to_idx_array = np.array(road_face_to_idx, dtype=np.int32) if road_face_to_idx else np.empty(0, dtype=np.int32)
+    
     remesh_boundaries = []
     remesh_radius_circles = []
     remesh_stats = {"success": 0, "failed": 0}
@@ -498,31 +502,25 @@ def main():
     for junction_idx, junction in remesh_candidates:
         # Nutze jeweils den aktuellen Stand von Vertices/Faces
         all_vertices = vertex_manager.get_array()
-        all_faces = (
-            np.array(road_faces, dtype=np.int32)
-            if len(road_faces) > 0
-            else np.array([], dtype=np.int32).reshape(0, 3)
-        )
-
+        
         result = remesh_single_junction(
-            junction_idx, junction, all_vertices, all_faces, vertex_manager
+            junction_idx, junction, all_vertices, road_faces_array, vertex_manager
         )
 
         if result is not None and result["success"]:
             faces_to_remove = result.get("faces_to_remove", [])
             if faces_to_remove:
-                keep_mask = np.ones(len(road_faces), dtype=bool)
+                # NumPy boolean indexing für effiziente Filterung
+                keep_mask = np.ones(len(road_faces_array), dtype=bool)
                 keep_mask[faces_to_remove] = False
-                removed_before = len(road_faces)
-                road_faces = [f for i, f in enumerate(road_faces) if keep_mask[i]]
-                road_face_to_idx = [
-                    rid for i, rid in enumerate(road_face_to_idx) if keep_mask[i]
-                ]
-                removed_count = removed_before - len(road_faces)
+                road_faces_array = road_faces_array[keep_mask]
+                road_face_to_idx_array = road_face_to_idx_array[keep_mask]
 
-            # Integriere neue Faces
-            road_faces.extend(result["new_faces"])
-            road_face_to_idx.extend([-1] * len(result["new_faces"]))
+            # Integriere neue Faces mit NumPy concatenate
+            new_faces = np.array(result["new_faces"], dtype=np.int32)
+            new_face_idx = np.full(len(new_faces), -1, dtype=np.int32)
+            road_faces_array = np.vstack([road_faces_array, new_faces]) if len(road_faces_array) > 0 else new_faces
+            road_face_to_idx_array = np.concatenate([road_face_to_idx_array, new_face_idx])
             remesh_stats["success"] += 1
             boundary_coords = result.get("boundary_coords_3d")
             if boundary_coords is not None:
@@ -530,13 +528,17 @@ def main():
 
             circle = result.get("search_radius_circle")
             if circle:
-                remesh_radius_circles.append({"junction_idx": junction_idx, "circle": circle})
+                remesh_radius_circles.append(
+                    {"junction_idx": junction_idx, "circle": circle}
+                )
         else:
             remesh_stats["failed"] += 1
             print(f"  [FEHLER] Junction {junction_idx} remesh fehlgeschlagen")
 
-
-
+    # Konvertiere zurück zu Listen für Kompatibilität mit nachfolgendem Code
+    road_faces = road_faces_array.tolist()
+    road_face_to_idx = road_face_to_idx_array.tolist()
+    
     timings["7x_Junction_Remesh"] = time.time() - step_start
 
     # ===== SCHRITT 7a-7e: ÜBERSPRUNGEN (neuer Algorithmus in Planung) =====

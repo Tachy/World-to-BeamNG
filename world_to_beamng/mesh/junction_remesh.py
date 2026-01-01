@@ -48,14 +48,25 @@ def collect_nearby_geometry(junction_pos, vertices, faces, radius=15.0):
         return None
 
     # 2. Finde alle Faces, die mindestens einen Vertex im Radius haben
+    # Optimierung: Nutze KDTree auf Face-Centroids für schnelle räumliche Suche
     nearby_vertex_set = set(nearby_vertex_indices)
+    
+    # Berechne Centroids aller Faces
+    face_centroids = vertices[faces, :2].mean(axis=1)  # Nx2 array of (x,y) centroids
+    
+    # KDTree auf Centroids mit erweiterten Radius (Sicherheitsmarge für große Dreiecke)
+    # Max Triangle Edge ~ sqrt(2) * radius bei worst case -> nutze radius * 1.5
+    centroid_tree = cKDTree(face_centroids)
+    candidate_face_indices = centroid_tree.query_ball_point(center_xy, radius * 1.5)
+    
+    # Verfeinere: Prüfe nur Kandidaten ob mindestens ein Vertex im Radius
     nearby_face_indices = []
-
-    for face_idx, face in enumerate(faces):
+    for face_idx in candidate_face_indices:
+        face = faces[face_idx]
         if any(v_idx in nearby_vertex_set for v_idx in face):
             nearby_face_indices.append(face_idx)
-
-    nearby_face_indices = np.array(nearby_face_indices)
+    
+    nearby_face_indices = np.array(nearby_face_indices, dtype=np.int32)
 
     # 3. Identifiziere Boundary-Edges (Kanten die nur teilweise im Radius sind)
     boundary_edges = []
