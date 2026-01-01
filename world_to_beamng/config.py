@@ -2,6 +2,12 @@
 Zentrale Konfiguration fuer World-to-BeamNG.
 """
 
+# BEAMNG Zielordner (Anpassbar)
+BEAMNG_DIR = (
+    "C:\\Users\\johan\\AppData\\Local\\BeamNG.drive\\0.36\\levels\\World_to_BeamNG"
+)
+BEAMNG_DIR_SHAPES = BEAMNG_DIR + "\\art\\shapes"
+BEAMNG_DIR_TEXTURES = BEAMNG_DIR_SHAPES + "\\textures"
 # === MESH-PARAMETER ===
 ROAD_WIDTH = 7.0
 # Böschungs-Generierung (vorübergehend deaktiviert bis Remeshing stabil)

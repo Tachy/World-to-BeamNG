@@ -1,5 +1,6 @@
 # Height data files (large DGM1 tiles)
 height-data/
+aerial/
 
 # Cache files
 cache/

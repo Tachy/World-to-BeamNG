@@ -62,6 +62,7 @@ from world_to_beamng.io.obj import (
     save_ebene1_roads,
     save_ebene2_centerlines_junctions,
 )
+from world_to_beamng.io.aerial import process_aerial_images
 from world_to_beamng.utils.timing import StepTimer
 
 
@@ -673,6 +674,19 @@ def main():
     )
     gc.collect()
     print(f"    -> Cleanup + GC: {time.time() - cleanup_start:.2f}s")
+
+    # ===== SCHRITT 17: Verarbeite Luftbilder =====
+    timer.begin("Verarbeite Luftbilder")
+    print("\n[17] Verarbeite Luftbilder...")
+    tile_count = process_aerial_images(
+        aerial_dir="aerial",
+        output_dir=config.BEAMNG_DIR_TEXTURES,
+        tile_size=1000
+    )
+    if tile_count > 0:
+        print(f"  [OK] {tile_count} Luftbild-Kacheln exportiert")
+    else:
+        print("  [i] Keine Luftbilder verarbeitet")
 
     # ===== ZUSAMMENFASSUNG =====
     print(f"\n{'=' * 60}")
