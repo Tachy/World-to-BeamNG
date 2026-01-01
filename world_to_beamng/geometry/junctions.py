@@ -355,7 +355,7 @@ def detect_junctions_in_centerlines(road_polygons):
                     _add_junction(new_junc_pos, [], extra_connections=extra_conns)
                     t_count += 1
 
-        print(f"    -> {t_count} zusätzliche T-Junction(s) erkannt")
+        # Statistik-Ausgabe erfolgt zentral über junction_stats
 
     # ---- Dritte Erkennung: Line-on-Line Kreuzungen (X-Junctions ohne Endpoint-Match) ----
     # Erkennt Kreuzungen, wo zwei Straßen sich kreuzen, aber die Endpunkte nicht exakt aufeinander treffen
@@ -522,7 +522,7 @@ def detect_junctions_in_centerlines(road_polygons):
                         _add_junction(new_junc_pos, [], extra_connections=extra_conns)
                         ll_count += 1
 
-        print(f"    -> {ll_count} zusätzliche Line-on-Line Kreuzung(en) erkannt")
+        # Statistik-Ausgabe erfolgt zentral über junction_stats
 
     return junctions
 
@@ -615,14 +615,8 @@ def analyze_junction_types(junctions):
     return stats
 
 
-def debug_junctions(junctions, road_polygons):
-    """
-    Gibt Debug-Info ueber erkannte Junctions aus.
-
-    Args:
-        junctions: Liste von Junctions
-        road_polygons: Strassen (fuer Kontext)
-    """
+def junction_stats(junctions, road_polygons):
+    """Gibt Statistik über erkannte Junctions aus (Produktiv-Einsatz)."""
     if not junctions:
         print("  [i] Keine Junctions erkannt")
         return
@@ -650,175 +644,3 @@ def debug_junctions(junctions, road_polygons):
         print(f"\n      Straßen-Beteiligung:")
         print(f"      - Strassen mit >1 Junction:        {multi_junction_roads}")
         print(f"      - Max. Junctions pro Strasse:      {max_junctions}")
-
-
-def debug_junction_details(junction_idx, junctions, road_polygons):
-    """
-    Gibt detaillierte Informationen über eine spezifische Junction aus.
-
-    Args:
-        junction_idx: Index der Junction
-        junctions: Liste aller Junctions
-        road_polygons: Liste aller Straßen
-    """
-    if junction_idx >= len(junctions):
-        print(
-            f"  [!] Junction {junction_idx} existiert nicht (max: {len(junctions)-1})"
-        )
-        return
-
-    junction = junctions[junction_idx]
-    pos = junction["position"]
-    road_indices = junction["road_indices"]
-    conn_types = junction.get("connection_types", {})
-
-    print(f"\n=== JUNCTION {junction_idx} DEBUG ===")
-    print(f"Position: ({pos[0]:.2f}, {pos[1]:.2f}, {pos[2]:.2f})")
-    print(f"Anzahl Straßen: {len(road_indices)}")
-
-    # Bei Line-on-Line Kreuzungen: Berechne die exakte Line-zu-Line Distanz
-    if len(road_indices) == 2:
-        r1_idx, r2_idx = road_indices[0], road_indices[1]
-        if r1_idx < len(road_polygons) and r2_idx < len(road_polygons):
-            coords1 = road_polygons[r1_idx].get("coords", [])
-            coords2 = road_polygons[r2_idx].get("coords", [])
-
-            if len(coords1) >= 2 and len(coords2) >= 2:
-                line1 = LineString([(c[0], c[1]) for c in coords1])
-                line2 = LineString([(c[0], c[1]) for c in coords2])
-                line_to_line_dist = line1.distance(line2)
-                print(f"Line-zu-Line Distanz: {line_to_line_dist:.4f} m")
-
-                # Prüfe ob echte Kreuzung oder nur nah vorbei
-                intersection = line1.intersection(line2)
-                if intersection.is_empty:
-                    print(
-                        f"  -> Kein echter Schnittpunkt (Linien laufen nur nah vorbei)"
-                    )
-                    # Finde nächste Punkte auf beiden Linien
-                    from shapely.ops import nearest_points
-
-                    pt1, pt2 = nearest_points(line1, line2)
-                    print(
-                        f"  -> Nächster Punkt auf Road {r1_idx}: ({pt1.x:.2f}, {pt1.y:.2f})"
-                    )
-                    print(
-                        f"  -> Nächster Punkt auf Road {r2_idx}: ({pt2.x:.2f}, {pt2.y:.2f})"
-                    )
-                else:
-                    if isinstance(intersection, Point):
-                        print(
-                            f"  -> Echter Schnittpunkt: ({intersection.x:.2f}, {intersection.y:.2f})"
-                        )
-                    else:
-                        print(f"  -> Intersection Type: {type(intersection).__name__}")
-
-    print(f"\nBeteiligte Straßen:")
-
-    for road_idx in road_indices:
-        if road_idx >= len(road_polygons):
-            print(f"  - Road {road_idx}: INVALID INDEX")
-            continue
-
-        road = road_polygons[road_idx]
-        coords = road.get("coords", [])
-        name = road.get("name", "unnamed")
-        osm_id = road.get("id", "no_id")
-
-        # Connection Type
-        conn = conn_types.get(road_idx, ["unknown"])
-        conn_str = ", ".join(conn)
-
-        print(f"  - Road {road_idx} (OSM: {osm_id}, '{name}')")
-        print(f"    Connection: {conn_str}")
-        print(f"    Punkte: {len(coords)}")
-
-        # VOLLSTÄNDIGE KOORDINATEN-AUSGABE
-        print(f"    ALLE Koordinaten:")
-        for i, c in enumerate(coords):
-            print(f"      [{i}] ({c[0]:.2f}, {c[1]:.2f}, {c[2]:.2f})")
-
-        # Zeige Start/End-Koordinaten
-        if len(coords) >= 2:
-            start = coords[0]
-            end = coords[-1]
-            print(f"    Start: ({start[0]:.2f}, {start[1]:.2f}, {start[2]:.2f})")
-            print(f"    Ende:  ({end[0]:.2f}, {end[1]:.2f}, {end[2]:.2f})")
-
-            # Distanzen zur Junction
-            dist_start = np.linalg.norm(
-                np.array([start[0] - pos[0], start[1] - pos[1]])
-            )
-            dist_end = np.linalg.norm(np.array([end[0] - pos[0], end[1] - pos[1]]))
-            print(
-                f"    Distanz zur Junction: Start={dist_start:.3f}m, Ende={dist_end:.3f}m"
-            )
-
-            # Prüfe ob "mid" (durchgehende Straße)
-            if "mid" in conn:
-                # Finde nächsten Punkt auf der Centerline zur Junction
-                min_dist = float("inf")
-                closest_idx = -1
-                for i, c in enumerate(coords):
-                    dist = np.linalg.norm(np.array([c[0] - pos[0], c[1] - pos[1]]))
-                    if dist < min_dist:
-                        min_dist = dist
-                        closest_idx = i
-                print(
-                    f"    Nächster Punkt auf Centerline: Index {closest_idx}, Distanz {min_dist:.3f}m"
-                )
-
-    print("=" * 40)
-
-
-def snap_road_endpoints_to_junctions(road_polygons, junctions):
-    """
-    Snapptt Strassen-Endpunkte auf die exakten Junction-Positionen.
-
-    WICHTIG: Dies muss VOR der Glättung (smooth_roads_with_spline) geschehen,
-    damit die Spline die korrekten End-Positionen hat.
-
-    Args:
-        road_polygons: Liste von Strassen (wird modifiziert)
-        junctions: Liste von Junctions mit 'position' und 'road_indices'
-
-    Returns:
-        Modifizierte road_polygons mit gesnappten Endpunkten
-    """
-    if not junctions:
-        return road_polygons
-
-    snapped_count = 0
-
-    for junction_idx, junction in enumerate(junctions):
-        junction_pos = junction["position"]  # (x, y, z)
-
-        for road_idx in junction["road_indices"]:
-            if road_idx >= len(road_polygons):
-                continue
-
-            road = road_polygons[road_idx]
-            coords = road["coords"]
-
-            if len(coords) < 2:
-                continue
-
-            # Pruefe Connection-Typ fuer diese Strasse an dieser Junction
-            conn_types = junction["connection_types"].get(road_idx, [])
-
-            # Snapp den Start-Punkt wenn diese Strasse am Start in dieser Junction anfängt
-            if "start" in conn_types:
-                # Ersetze den Anfangspunkt
-                coords[0] = junction_pos
-                snapped_count += 1
-
-            # Snapp den End-Punkt wenn diese Strasse am End in dieser Junction endet
-            if "end" in conn_types:
-                # Ersetze den Endpunkt
-                coords[-1] = junction_pos
-                snapped_count += 1
-
-    if snapped_count > 0:
-        print(f"  [i] {snapped_count} Strassen-Endpunkte auf Junctions gesnappt")
-
-    return road_polygons

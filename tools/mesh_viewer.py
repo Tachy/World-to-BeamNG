@@ -1,25 +1,25 @@
 """
 Mesh Viewer - Visualisiere Gelände, Straßen und Debug-Ebenen
 Steuerung:
-  - SPACE: Nächste Straße (Einzeln-Modus)
-  - B: Vorherige Straße
-  - R: Toggle Roads (Straßen) an/aus
-  - S: Toggle Slopes (Böschungen) an/aus
-  - T: Toggle Terrain an/aus
-  - A: Toggle Alle Straßen / Einzelne Straße
-  - L: Toggle Punkt-Labels an/aus
-  - I: Toggle road_idx-Labels an/aus
-  - 1-9: Toggle Debug-Ebenen (ebene1.obj - ebene9.obj)
-  - Q: Beenden
+    1-6 = Toggle Debug-Ebenen
+    7 = Toggle Terrain
+    8 = Toggle Roads
+    9 = Toggle Slopes
+    K/Shift+K = Kamera laden/speichern
+    L = Reload OBJ
+
+    Maus-Steuerung:
+        Rechtsklick-Drag = Kamera drehen
+        Scroll = Zoom
+        Mittelklick-Drag = Verschieben
+        F = Fly-To Mode (VTK Standard)
 """
 
+import json
 import pyvista as pv
 import numpy as np
 import os
-import glob
 import sys
-import time
-import threading
 
 # Füge Parent-Verzeichnis zum Path hinzu für world_to_beamng import
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -40,15 +40,11 @@ class MeshViewer:
         self,
         obj_file="beamng.obj",
         fallback_obj="roads.obj",
-        faces_per_road=10000,
         label_distance_threshold=1e9,
         label_max_points=50000000,
         dolly_step=10.0,
         show_point_labels=False,
-        road_idx_label_max=5000000,
-        show_road_idx_labels=False,
         label_click_px_tol=30.0,
-        preselect_road_idx=None,
     ):
         # Wechsle zum Parent-Verzeichnis (wo beamng.obj liegt)
         self.base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -76,96 +72,65 @@ class MeshViewer:
                 f"Z=[{self.vertices[:, 2].min():.1f}, {self.vertices[:, 2].max():.1f}]"
             )
 
-        self.faces_per_road = faces_per_road
-        self.current_road = 0
-        self.max_roads = max(1, len(self.road_faces) // faces_per_road)
         self.show_roads = True
         self.show_slopes = False
         self.show_terrain = False
-        self.show_all = True
         self.label_distance_threshold = label_distance_threshold
         self.label_max_points = label_max_points
-        self.dolly_step = dolly_step
         self.show_point_labels = show_point_labels
-        self.road_idx_label_max = road_idx_label_max
-        self.show_road_idx_labels = show_road_idx_labels
-        self.selected_road_idx = None
         self.current_label_points = None
-        self.current_label_ridx = None
         self.label_click_px_tol = label_click_px_tol
-        self.preselect_road_idx = preselect_road_idx
-
-        # Auto-Reload Support
         self.obj_file = obj_file
-        self.last_modification_time = (
-            os.path.getmtime(obj_file) if os.path.exists(obj_file) else 0
-        )
-        self.last_file_size = (
-            os.path.getsize(obj_file) if os.path.exists(obj_file) else 0
-        )
-        self.auto_reload_enabled = True
-        self.file_changed = False
-        self.reload_lock = threading.Lock()
-        self.watcher_thread = None
+        self.config_path = os.path.join(self.base_dir, "tools", "mesh_viewer.cfg")
 
         print(
             f"Gefunden: {len(self.vertices)} Vertices, {len(self.road_faces)} Road Faces, "
             f"{len(self.slope_faces)} Slope Faces, {len(self.terrain_faces)} Terrain Faces, "
             f"{len(self.junction_faces)} Junction Faces"
         )
-        print(f"Ca. {self.max_roads} Strassen (je {faces_per_road} Faces)")
         print("\nSteuerung:")
-        print("  SPACE = Naechste Strasse")
-        print("  B = Vorherige Strasse")
-        print("  R = Toggle Roads (Strassen)")
-        print("  S = Toggle Slopes (Boeschungen)")
-        print("  T = Toggle Terrain")
-        print("  A = Toggle ALLE Strassen / Einzelne Strasse")
-        print("  Pfeil hoch/runter = Kamera vor/zurueck (statt Zoom)")
-        print("  L = Toggle Punkt-Labels an/aus")
-        print("  I = Toggle road_idx-Labels an/aus")
-        if len(self.debug_layers) > 0:
-            print(
-                f"  1-9 = Toggle Debug-Ebenen ({', '.join(sorted(self.debug_layers.keys()))})"
-            )
-        print("  Q = Beenden")
+        print("  1-6 = Toggle Debug-Ebenen")
+        print("  7 = Toggle Terrain")
+        print("  8 = Toggle Roads (Strassen)")
+        print("  9 = Toggle Slopes (Boeschungen)")
+        print("  K = Kamera laden | Shift+K = Kamera speichern")
+        print("  L = Reload OBJ")
+        print("\n  Maus-Steuerung:")
+        print("    Rechtsklick-Drag = Kamera drehen")
+        print("    Scroll = Zoom")
+        print("    Mittelklick-Drag = Verschieben")
+        print("    F = Fly-To Mode (VTK Standard)")
 
         self.plotter = pv.Plotter()
-        self.plotter.add_key_event("space", self.next_road)
-        self.plotter.add_key_event("b", self.prev_road)
-        self.plotter.add_key_event("r", self.toggle_roads)
-        self.plotter.add_key_event("s", self.toggle_slopes)
-        self.plotter.add_key_event("t", self.toggle_terrain)
-        self.plotter.add_key_event("a", self.toggle_show_all)
-        self.plotter.add_key_event("Up", self.dolly_forward)
-        self.plotter.add_key_event("Down", self.dolly_backward)
-        self.plotter.add_key_event("l", self.toggle_labels)
-        self.plotter.add_key_event("i", self.toggle_road_idx_labels)
+        self._reload_actor = None
+        self._camera_status_actor = None
+        self._active_layers_actor = None
+        self._render_update_counter = 0  # Für RenderEvent Drosslung
+        self._debug_layer_actors = {}  # Speichere Debug-Layer Actors für Performance
+        self._terrain_actors = []  # Speichere Terrain Actors
+        self._roads_actors = []  # Speichere Roads Actors
+        self._slopes_actors = []  # Speichere Slopes Actors
+        # Stelle zuletzt gespeicherte Fensterposition/-größe wieder her (falls vorhanden)
+        self._apply_saved_window_state()
 
-        # Füge Key-Handler für Debug-Ebenen hinzu (1-9)
-        for i in range(1, 10):
-            self.plotter.add_key_event(
-                str(i), lambda layer=i: self.toggle_debug_layer(layer)
-            )
+        # Verwende VTK Standard Interactor (Trackball-Modus, Zoom, etc.)
 
         # Mouse-Observer für Label-Klick (Bildschirm-Koordinaten)
         self.plotter.iren.add_observer("LeftButtonPressEvent", self.on_left_click)
 
-        # Optional vorselektieren: springe in den Road-Slot und markiere
-        if self.preselect_road_idx is not None and len(self.road_face_to_idx) > 0:
-            try:
-                idx = self.road_face_to_idx.index(self.preselect_road_idx)
-                self.current_road = idx // self.faces_per_road
-                self.selected_road_idx = self.preselect_road_idx
-                print(
-                    f"Vorauswahl road_idx {self.preselect_road_idx} in Slot {self.current_road}"
-                )
-            except ValueError:
-                print(
-                    f"Warnung: road_idx {self.preselect_road_idx} nicht im Mapping gefunden"
-                )
+        # KeyPressEvent-Observer für unsere Custom Keys (1-6, 7-9, K, L)
+        self.plotter.iren.add_observer("KeyPressEvent", self._on_key_press)
+        self.plotter.iren.add_observer("ExitEvent", self._on_close_save_window_state)
+
+        # Observer für Kamera-Änderungen (nur bei expliziten Aktionen, nicht bei Maus-Move)
+        self.plotter.iren.add_observer("ScrollEvent", self._on_camera_change)
+        self.plotter.iren.add_observer("EndInteractionEvent", self._on_camera_change)
+        self.plotter.iren.add_observer("InteractionEvent", self._on_camera_change)
+        # RenderEvent für Fly-To und andere kontinuierliche Kamera-Änderungen (mit Drosslung)
+        self.plotter.iren.add_observer("RenderEvent", self._on_render_event)
 
         self.update_view()
+        self._apply_saved_camera_state()
 
     def _load_debug_layers(self):
         """Suche und lade Debug-Ebenen (ebene1.obj bis ebene9.obj)"""
@@ -193,6 +158,16 @@ class MeshViewer:
                         )
                 except Exception as e:
                     print(f"  Fehler beim Laden von {layer_file}: {e}")
+
+    def _reload_debug_layers(self):
+        """Lade Debug-Layer neu und erhalte Sichtbarkeits-Status nach Namen."""
+        previous_visibility = dict(self.debug_layer_visible)
+        self.debug_layers = {}
+        self.debug_layer_visible = {}
+        self._load_debug_layers()
+        for name, vis in previous_visibility.items():
+            if name in self.debug_layer_visible:
+                self.debug_layer_visible[name] = vis
 
     def _load_line_obj(self, obj_file):
         """Lade OBJ-Datei mit Linien und optionalen Punkten (p-Statements)."""
@@ -247,17 +222,148 @@ class MeshViewer:
             return np.array([]), [], [], []
 
     def toggle_debug_layer(self, layer_num):
-        """Toggle Sichtbarkeit einer Debug-Ebene"""
+        """Toggle Sichtbarkeit einer Debug-Ebene ohne kompletten Rebuild."""
         layer_name = f"ebene{layer_num}"
-        if layer_name in self.debug_layer_visible:
-            self.debug_layer_visible[layer_name] = not self.debug_layer_visible[
-                layer_name
-            ]
-            state = "AN" if self.debug_layer_visible[layer_name] else "AUS"
-            print(f"\nDebug-Ebene {layer_name}: {state}")
-            self.update_view(reset_camera=False)
-        else:
+        if layer_name not in self.debug_layer_visible:
             print(f"\nDebug-Ebene {layer_name} nicht gefunden")
+            return
+
+        # Toggle Sichtbarkeit
+        self.debug_layer_visible[layer_name] = not self.debug_layer_visible[layer_name]
+        state = "AN" if self.debug_layer_visible[layer_name] else "AUS"
+        print(f"\nDebug-Ebene {layer_name}: {state}")
+
+        # Stelle sicher, dass die Actors für diesen Layer existieren (lazy build)
+        if layer_name not in self._debug_layer_actors:
+            self._build_debug_layer_actors(layer_name)
+
+        # Visibility schalten, auch wenn Build nichts ergeben hat (kein Rebuild mehr)
+        actors = self._debug_layer_actors.get(layer_name, [])
+        visible = self.debug_layer_visible[layer_name]
+        for actor in actors:
+            try:
+                actor.SetVisibility(visible)
+            except Exception:
+                pass
+        self._update_active_layers_text()
+        self._update_camera_status()
+        try:
+            self.plotter.render()
+        except Exception:
+            pass
+
+    def _get_layer_color(self, layer_name):
+        layer_colors = {
+            "ebene1": "red",
+            "ebene2": "blue",
+            "ebene3": "yellow",
+            "ebene4": "cyan",
+            "ebene5": "magenta",
+            "ebene6": "orange",
+            "ebene7": "purple",
+            "ebene8": "pink",
+            "ebene9": "brown",
+        }
+        return layer_colors.get(layer_name, "white")
+
+    def _build_debug_layer_actors(self, layer_name):
+        """Erzeuge Actors für einen Debug-Layer einmalig, ohne komplette Szene zu löschen."""
+        data = self.debug_layers.get(layer_name)
+        if not data:
+            return
+
+        vertices = data.get("vertices", [])
+        edges = data.get("edges", [])
+        points = data.get("points", [])
+        point_labels = data.get("point_labels", [])
+
+        if len(vertices) == 0:
+            return
+
+        color = self._get_layer_color(layer_name)
+        actors_for_layer = []
+        visible = self.debug_layer_visible.get(layer_name, False)
+
+        if len(edges) > 0:
+            layer_mesh = pv.PolyData()
+            layer_mesh.points = vertices
+            try:
+                layer_mesh.lines = np.hstack([[2, edge[0], edge[1]] for edge in edges])
+            except Exception:
+                layer_mesh.lines = None
+
+            actor = self.plotter.add_mesh(
+                layer_mesh,
+                color=color,
+                line_width=3,
+                label=layer_name,
+            )
+            actor.SetVisibility(visible)
+            actors_for_layer.append(actor)
+
+        if len(points) > 0:
+            pts = vertices[points]
+            actor = self.plotter.add_points(
+                pts,
+                color=color,
+                point_size=12,
+                render_points_as_spheres=True,
+            )
+            actor.SetVisibility(visible)
+            actors_for_layer.append(actor)
+
+            if (
+                point_labels
+                and len(point_labels) == len(points)
+                and len(point_labels) <= 2000
+            ):
+                labels = [str(lbl) if lbl is not None else "" for lbl in point_labels]
+                actor = self.plotter.add_point_labels(
+                    pts,
+                    labels,
+                    point_size=0,
+                    font_size=10,
+                    text_color=color,
+                    shape_color="white",
+                    shape_opacity=0.6,
+                )
+                actor.SetVisibility(visible)
+                actors_for_layer.append(actor)
+
+        if actors_for_layer:
+            self._debug_layer_actors[layer_name] = actors_for_layer
+
+    def _update_active_layers_text(self):
+        """Aktualisiere den Status-Text oben rechts (aktive Ebenen)."""
+        active_items = []
+        if self.show_terrain:
+            active_items.append("T")
+        if self.show_slopes:
+            active_items.append("S")
+        if self.show_roads:
+            active_items.append("R")
+
+        for i in range(1, 7):
+            layer_name = f"ebene{i}"
+            if self.debug_layer_visible.get(layer_name, False):
+                active_items.append(str(i))
+
+        active_text = " ".join(active_items) if active_items else "-"
+
+        try:
+            self.plotter.remove_actor("active_layers_text")
+        except Exception:
+            pass
+
+        try:
+            self._active_layers_actor = self.plotter.add_text(
+                active_text,
+                position="upper_right",
+                font_size=10,
+                name="active_layers_text",
+            )
+        except Exception:
+            self._active_layers_actor = None
 
     def _parse_obj(self, obj_file, fallback_obj="roads.obj"):
         """Parse OBJ file and extract vertices, faces, etc. (optimized read)."""
@@ -375,131 +481,110 @@ class MeshViewer:
         self.show_roads = not self.show_roads
         state = "AN" if self.show_roads else "AUS"
         print(f"\nRoads (Strassen): {state}")
-        self.update_view(reset_camera=False)
+        self._update_active_layers_text()
+        self._toggle_actors_visibility(self._roads_actors, self.show_roads)
 
     def toggle_slopes(self):
         self.show_slopes = not self.show_slopes
         state = "AN" if self.show_slopes else "AUS"
         print(f"\nBoeschungen: {state}")
-        self.update_view(reset_camera=False)
+        self._update_active_layers_text()
+        self._toggle_actors_visibility(self._slopes_actors, self.show_slopes)
 
     def toggle_terrain(self):
         self.show_terrain = not self.show_terrain
         state = "AN" if self.show_terrain else "AUS"
         print(f"\nTerrain: {state}")
-        self.update_view(reset_camera=False)
+        self._update_active_layers_text()
+        self._toggle_actors_visibility(self._terrain_actors, self.show_terrain)
 
-    def toggle_show_all(self):
-        self.show_all = not self.show_all
-        state = "ALLE" if self.show_all else "EINZELN"
-        print(f"\nAnzeige-Modus: {state}")
-        self.update_view(reset_camera=False)
+    def _toggle_actors_visibility(self, actors, visible):
+        """Setze Visibility für Liste von Actors (performant)"""
+        for actor in actors:
+            try:
+                actor.SetVisibility(visible)
+            except Exception:
+                pass
 
-    def toggle_labels(self):
-        self.show_point_labels = not self.show_point_labels
-        state = "AN" if self.show_point_labels else "AUS"
-        print(f"\nPunkt-Labels: {state}")
-        self.update_view(reset_camera=False)
+        # Immer rendern, auch wenn Liste leer (harmlos)
+        try:
+            self._update_camera_status()
+            self.plotter.render()
+        except Exception:
+            pass
 
-    def toggle_road_idx_labels(self):
-        self.show_road_idx_labels = not self.show_road_idx_labels
-        state = "AN" if self.show_road_idx_labels else "AUS"
-        print(f"\nroad_idx Labels: {state}")
-        self.update_view(reset_camera=False)
+    def _on_camera_change(self, obj, event):
+        """Update Statuszeile nach Kamera-Änderungen (Maus, Scroll, etc.)"""
+        try:
+            self._update_camera_status()
+        except Exception:
+            pass
 
-    def next_road(self):
-        self.current_road = min(self.current_road + 1, self.max_roads - 1)
-        print(f"\nStrasse {self.current_road}/{self.max_roads}")
-        self.update_view()
+    def _on_render_event(self, obj, event):
+        """Update Statuszeile bei RenderEvent mit Drosslung (für Fly-To etc.)"""
+        try:
+            # Drossle auf jeden 5. Frame (ca. 12 FPS statt 60 FPS)
+            self._render_update_counter += 1
+            if self._render_update_counter >= 5:
+                self._render_update_counter = 0
+                self._update_camera_status()
+        except Exception:
+            pass
 
-    def prev_road(self):
-        self.current_road = max(self.current_road - 1, 0)
-        print(f"\nStrasse {self.current_road}/{self.max_roads}")
-        self.update_view()
-
-    def dolly_forward(self):
-        self._dolly(self.dolly_step)
-
-    def dolly_backward(self):
-        self._dolly(-self.dolly_step)
-
-    def _dolly(self, step):
-        cam = self.plotter.camera
-        if cam is None:
+    def _on_key_press(self, obj, event):
+        """Key-Handler für Custom Keys: 1-6, 7, 8, 9, K, L"""
+        try:
+            key = obj.GetKeySym()
+        except Exception:
             return
 
-        pos = np.array(cam.position)
-        focal = np.array(cam.focal_point)
-        direction = focal - pos
-        norm = np.linalg.norm(direction)
-        if norm < 1e-9:
-            return
+        # === Debug-Ebenen (1-6) ===
+        if key in "123456":
+            layer_num = int(key)
+            self.toggle_debug_layer(layer_num)
 
-        direction = direction / norm
-        pos_new = pos + direction * step
-        focal_new = focal + direction * step
+        # === 7 = Terrain an/aus ===
+        elif key == "7":
+            self.toggle_terrain()
 
-        cam.position = pos_new.tolist()
-        cam.focal_point = focal_new.tolist()
-        self.plotter.reset_camera_clipping_range()
-        self.plotter.render()
+        # === 8 = Roads an/aus ===
+        elif key == "8":
+            self.toggle_roads()
+
+        # === 9 = Slopes an/aus ===
+        elif key == "9":
+            self.toggle_slopes()
+
+        # === Kamera-State ===
+        elif key == "k":
+            self.load_camera_state()
+        elif key == "K":
+            self.save_camera_state()
+
+        # === Cursor Up/Down = Zoom ändern ===
+        elif key == "Up":
+            self._adjust_zoom(-5.0)  # Zoom rein (kleinerer Winkel)
+        elif key == "Down":
+            self._adjust_zoom(5.0)  # Zoom raus (größerer Winkel)
+
+        # === Reload OBJ ===
+        elif key == "l" or key == "L":
+            self.reload_obj_file()
 
     def update_view(self, reset_camera=True):
         self.plotter.clear()
         self.current_label_points = None
-        self.current_label_ridx = None
 
-        if self.show_all:
-            start_face = 0
-            end_face = len(self.road_faces)
-            subset_road_faces = self.road_faces
-            subset_slope_faces = self.slope_faces if self.show_slopes else []
-            subset_terrain_faces = self.terrain_faces if self.show_terrain else []
-            current_road_idx = None
-            print(
-                f"Zeige alle {len(subset_road_faces)} Road, {len(subset_slope_faces)} Slope, "
-                f"{len(subset_terrain_faces)} Terrain Faces..."
-            )
-        else:
-            start_face = self.current_road * self.faces_per_road
-            end_face = min(start_face + self.faces_per_road, len(self.road_faces))
-            subset_road_faces = self.road_faces[start_face:end_face]
+        # Zeige ALLE Faces (keine Einzelne-Straße-Auswahl mehr)
+        subset_road_faces = self.road_faces
+        # Erzeuge alle Geometrien, Sichtbarkeit wird später per Actor gesetzt
+        subset_slope_faces = self.slope_faces
+        subset_terrain_faces = self.terrain_faces
 
-            # Bestimme road_idx aus Mapping (falls vorhanden)
-            if len(self.road_face_to_idx) == len(self.road_faces) and start_face < len(
-                self.road_face_to_idx
-            ):
-                current_road_idx = self.road_face_to_idx[start_face]
-            else:
-                current_road_idx = self.current_road
-
-            if len(subset_road_faces) == 0:
-                print("Keine Faces mehr!")
-                return
-
-            subset_slope_faces = []
-            if self.show_slopes:
-                slope_start = start_face * 2
-                slope_end = min(
-                    slope_start + self.faces_per_road * 2, len(self.slope_faces)
-                )
-                subset_slope_faces = self.slope_faces[slope_start:slope_end]
-
-            subset_terrain_faces = []
-            if self.show_terrain:
-                terrain_start = start_face * 10
-                terrain_end = min(
-                    terrain_start + self.faces_per_road * 10, len(self.terrain_faces)
-                )
-                subset_terrain_faces = self.terrain_faces[terrain_start:terrain_end]
-
-        # Mapping für den aktuellen Ausschnitt (Road-Indices pro Face)
-        if len(self.road_face_to_idx) > 0:
-            face_indices = self.road_face_to_idx[
-                start_face : min(end_face, len(self.road_face_to_idx))
-            ]
-        else:
-            face_indices = []
+        print(
+            f"Zeige alle {len(subset_road_faces)} Road, {len(subset_slope_faces)} Slope, "
+            f"{len(subset_terrain_faces)} Terrain Faces..."
+        )
 
         subset_road_faces_array = np.array(subset_road_faces)
         used_vertices = set(subset_road_faces_array.flatten().tolist())
@@ -521,31 +606,37 @@ class MeshViewer:
         vertex_map = {old: new for new, old in enumerate(used_vertices)}
         subset_points = self.vertices[used_vertices]
 
-        if self.show_roads:
-            remapped_road_faces = np.array(
-                [[vertex_map[v] for v in face] for face in subset_road_faces]
-            )
-            pyvista_road_faces = np.hstack(
-                [[3] + face.tolist() for face in remapped_road_faces]
-            )
-            road_mesh = pv.PolyData(subset_points, pyvista_road_faces)
+        # Falls keine Punkte übrig sind: Szene leeren, Status updaten, rendern und zurück
+        if subset_points.size == 0:
+            self.plotter.clear()
+            self.plotter.render()
+            self._update_camera_status()
+            print("[Hinweis] Keine Geometrie vorhanden (alle Ebenen leer/ausgeblendet)")
+            return
+        # Roads rendern (immer erstellen, Visibility nach show_roads)
+        self._roads_actors = []
+        remapped_road_faces = np.array(
+            [[vertex_map[v] for v in face] for face in subset_road_faces]
+        )
+        pyvista_road_faces = np.hstack(
+            [[3] + face.tolist() for face in remapped_road_faces]
+        )
+        road_mesh = pv.PolyData(subset_points, pyvista_road_faces)
 
-            self.plotter.add_mesh(
-                road_mesh,
-                color="lightgray",
-                show_edges=True,
-                edge_color="red",
-                line_width=2,
-                opacity=0.5,
-                label="Road",
-            )
+        actor = self.plotter.add_mesh(
+            road_mesh,
+            color="lightgray",
+            show_edges=True,
+            edge_color="red",
+            line_width=2,
+            opacity=0.5,
+            label="Road",
+        )
+        actor.SetVisibility(self.show_roads)
+        self._roads_actors.append(actor)
 
-        # Junction-Quads (grün, deutlich sichtbar, leicht erhöht)
-        if (
-            self.show_roads
-            and hasattr(self, "junction_faces")
-            and len(self.junction_faces) > 0
-        ):
+        # Junction-Quads (immer erstellen, gleiche Visibility wie Roads)
+        if hasattr(self, "junction_faces") and len(self.junction_faces) > 0:
             subset_junction_faces = self.junction_faces
             if len(subset_junction_faces) > 0:
                 remapped_junction_faces = np.array(
@@ -554,12 +645,11 @@ class MeshViewer:
                 pyvista_junction_faces = np.hstack(
                     [[3] + face.tolist() for face in remapped_junction_faces]
                 )
-                # Erstelle Junction-Mesh mit leichtem Z-Offset (0.1m höher)
                 junction_points = subset_points.copy()
-                junction_points[:, 2] += 0.1  # 10cm höher für bessere Sichtbarkeit
+                junction_points[:, 2] += 0.1
                 junction_mesh = pv.PolyData(junction_points, pyvista_junction_faces)
 
-                self.plotter.add_mesh(
+                actor = self.plotter.add_mesh(
                     junction_mesh,
                     color="limegreen",
                     show_edges=True,
@@ -568,8 +658,12 @@ class MeshViewer:
                     opacity=1.0,
                     label="Junction-Quads",
                 )
+                actor.SetVisibility(self.show_roads)
+                self._roads_actors.append(actor)
 
-        if self.show_terrain and len(subset_terrain_faces) > 0:
+        # Terrain rendern (immer erstellen, Visibility nach show_terrain)
+        self._terrain_actors = []
+        if len(subset_terrain_faces) > 0:
             remapped_terrain_faces = np.array(
                 [[vertex_map[v] for v in face] for face in subset_terrain_faces]
             )
@@ -578,15 +672,19 @@ class MeshViewer:
             )
             terrain_mesh = pv.PolyData(subset_points, pyvista_terrain_faces)
 
-            self.plotter.add_mesh(
+            actor = self.plotter.add_mesh(
                 terrain_mesh,
                 color="green",
                 show_edges=False,
                 opacity=0.5,
                 label="Terrain",
             )
+            actor.SetVisibility(self.show_terrain)
+            self._terrain_actors.append(actor)
 
-        if self.show_slopes and len(subset_slope_faces) > 0:
+        # Slopes rendern (immer erstellen, Visibility nach show_slopes)
+        self._slopes_actors = []
+        if len(subset_slope_faces) > 0:
             remapped_slope_faces = np.array(
                 [[vertex_map[v] for v in face] for face in subset_slope_faces]
             )
@@ -595,7 +693,7 @@ class MeshViewer:
             )
             slope_mesh = pv.PolyData(subset_points, pyvista_slope_faces)
 
-            self.plotter.add_mesh(
+            actor = self.plotter.add_mesh(
                 slope_mesh,
                 color="tan",
                 show_edges=True,
@@ -604,121 +702,87 @@ class MeshViewer:
                 opacity=0.7,
                 label="Slope",
             )
+            actor.SetVisibility(self.show_slopes)
+            self._slopes_actors.append(actor)
 
-        # Hervorhebung einer selektierten Straße (gleicher Vertex-Ausschnitt)
-        if self.selected_road_idx is not None and len(face_indices) > 0:
-            highlight_faces = []
-            for face, ridx in zip(subset_road_faces, face_indices):
-                if ridx == self.selected_road_idx:
-                    highlight_faces.append([vertex_map[v] for v in face])
-
-            if len(highlight_faces) > 0:
-                pyvista_highlight_faces = np.hstack([[3] + f for f in highlight_faces])
-                highlight_mesh = pv.PolyData(subset_points, pyvista_highlight_faces)
-                self.plotter.add_mesh(
-                    highlight_mesh,
-                    color="magenta",
-                    show_edges=True,
-                    edge_color="black",
-                    line_width=3,
-                    opacity=0.75,
-                    label="Selected Road",
-                )
-            else:
-                print(
-                    f"Keine Faces für selektierte road_idx {self.selected_road_idx} im aktuellen Ausschnitt gefunden"
-                )
-
-        # Debug-Ebenen rendern (mit verschiedenen Farben)
-        layer_colors = {
-            "ebene1": "red",
-            "ebene2": "blue",
-            "ebene3": "yellow",
-            "ebene4": "cyan",
-            "ebene5": "magenta",
-            "ebene6": "orange",
-            "ebene7": "purple",
-            "ebene8": "pink",
-            "ebene9": "brown",
-        }
-
+        # Debug-Ebenen rendern und Actors speichern für Performance
+        self._debug_layer_actors = {}  # Reset actors
         for layer_name, layer_data in self.debug_layers.items():
-            if self.debug_layer_visible.get(layer_name, False):
-                vertices = layer_data["vertices"]
-                edges = layer_data["edges"]
-                points = layer_data.get("points", [])
-                point_labels = layer_data.get("point_labels", [])
+            actors_for_layer = []
+            visible = self.debug_layer_visible.get(layer_name, False)
 
-                if len(vertices) > 0 and len(edges) > 0:
-                    layer_mesh = pv.PolyData()
-                    layer_mesh.points = vertices
+            vertices = layer_data["vertices"]
+            edges = layer_data["edges"]
+            points = layer_data.get("points", [])
+            point_labels = layer_data.get("point_labels", [])
 
-                    # Konvertiere edges zu PyVista line format
-                    lines = np.hstack([[2, edge[0], edge[1]] for edge in edges])
-                    layer_mesh.lines = lines
+            if len(vertices) > 0 and len(edges) > 0:
+                layer_mesh = pv.PolyData()
+                layer_mesh.points = vertices
+                lines = np.hstack([[2, edge[0], edge[1]] for edge in edges])
+                layer_mesh.lines = lines
 
-                    color = layer_colors.get(layer_name, "white")
-                    self.plotter.add_mesh(
-                        layer_mesh,
-                        color=color,
-                        line_width=3,
-                        label=layer_name,
-                    )
+                color = self._get_layer_color(layer_name)
+                actor = self.plotter.add_mesh(
+                    layer_mesh,
+                    color=color,
+                    line_width=3,
+                    label=layer_name,
+                )
+                actor.SetVisibility(visible)
+                actors_for_layer.append(actor)
 
-                if len(vertices) > 0 and len(points) > 0:
-                    pts = vertices[points]
-                    color = layer_colors.get(layer_name, "white")
-                    self.plotter.add_points(
+            if len(vertices) > 0 and len(points) > 0:
+                pts = vertices[points]
+                color = self._get_layer_color(layer_name)
+                actor = self.plotter.add_points(
+                    pts,
+                    color=color,
+                    point_size=12,
+                    render_points_as_spheres=True,
+                )
+                actor.SetVisibility(visible)
+                actors_for_layer.append(actor)
+
+                if (
+                    point_labels
+                    and len(point_labels) == len(points)
+                    and len(point_labels) <= 2000
+                ):
+                    labels = [
+                        str(lbl) if lbl is not None else "" for lbl in point_labels
+                    ]
+                    actor = self.plotter.add_point_labels(
                         pts,
-                        color=color,
-                        point_size=12,
-                        render_points_as_spheres=True,
+                        labels,
+                        point_size=0,
+                        font_size=10,
+                        text_color=color,
+                        shape_color="white",
+                        shape_opacity=0.6,
                     )
+                    actor.SetVisibility(visible)
+                    actors_for_layer.append(actor)
 
-                    if (
-                        point_labels
-                        and len(point_labels) == len(points)
-                        and len(point_labels)
-                        <= 2000  # Erhöht für Junction-Labels (war: 500)
-                    ):
-                        labels = [
-                            str(lbl) if lbl is not None else "" for lbl in point_labels
-                        ]
-                        self.plotter.add_point_labels(
-                            pts,
-                            labels,
-                            point_size=0,
-                            font_size=10,
-                            text_color=color,
-                            shape_color="white",
-                            shape_opacity=0.6,
-                        )
+            # Speichere Actors für diesen Layer
+            if actors_for_layer:
+                self._debug_layer_actors[layer_name] = actors_for_layer
 
-        roads_info = "ON" if self.show_roads else "OFF"
-        slopes_info = "ON" if self.show_slopes else "OFF"
-        terrain_info = "ON" if self.show_terrain else "OFF"
-        mode_info = "ALLE" if self.show_all else f"{self.current_road}/{self.max_roads}"
-        road_info = "ALLE" if self.show_all else f"road_idx ~ {current_road_idx}"
-        label_state = "ON" if self.show_point_labels else "OFF"
-        road_label_state = "ON" if self.show_road_idx_labels else "AUS"
-
-        # Info-Text mit Debug-Layer Status
-        debug_info = ""
-        if len(self.debug_layers) > 0:
-            visible_layers = [
-                name for name, vis in self.debug_layer_visible.items() if vis
-            ]
-            if visible_layers:
-                debug_info = f" | Debug: {', '.join(visible_layers)}"
-
+        # Linke Seite: Bedienungsanleitung (statisch)
+        bedienung = (
+            "1-6: Debug | 7: Terrain | 8: Roads | 9: Slopes | K: Cam | L: Reload"
+        )
         self.plotter.add_text(
-            f"Straße: {mode_info} | Roads: {roads_info} | Terrain: {terrain_info} | Slopes: {slopes_info} | {road_info} | Labels: {label_state} | road_idx: {road_label_state}{debug_info}",
+            bedienung,
             position="upper_left",
             font_size=10,
         )
+
+        # Rechte Seite: Aktive Ebenen mit gleicher Schriftgröße wie links
+        self._update_active_layers_text()
+
         self.plotter.show_grid()
 
-        # Berechne Camera-Bounds
         center = subset_points.mean(axis=0)
         bounds = [
             subset_points[:, 0].min(),
@@ -782,66 +846,11 @@ class MeshViewer:
                 shape_opacity=0.7,
             )
 
-        # Road-Index-Labels
-        if self.show_road_idx_labels and len(self.road_face_to_idx) > 0:
-            road_to_vertices = {}
-
-            for face, ridx in zip(subset_road_faces, face_indices):
-                if ridx is None:
-                    continue
-                if ridx not in road_to_vertices:
-                    road_to_vertices[ridx] = []
-                road_to_vertices[ridx].extend(face)
-
-            if len(road_to_vertices) > 0:
-                labels = []
-                points = []
-                for ridx, face_vertices in road_to_vertices.items():
-                    verts_unique = np.unique(face_vertices)
-                    pts = self.vertices[verts_unique]
-                    centroid = pts.mean(axis=0)
-                    labels.append(str(ridx))
-                    points.append(centroid)
-
-                self.plotter.add_point_labels(
-                    np.array(points),
-                    labels,
-                    point_size=12,
-                    font_size=12,
-                    text_color="black",
-                    shape_color="white",
-                    shape_opacity=0.6,
-                )
-
-                self.current_label_points = np.array(points)
-                self.current_label_ridx = labels
-            else:
-                self.current_label_points = None
-                self.current_label_ridx = None
-        else:
-            self.current_label_points = None
-            self.current_label_ridx = None
-
+        self._update_camera_status()
         self.plotter.render()
 
     def show(self):
-        """Starte Viewer mit Auto-Reload bei Dateiänderung"""
-        # Starte File-Watcher Thread
-        if self.auto_reload_enabled:
-            self.watcher_thread = threading.Thread(
-                target=self._file_watcher, daemon=True
-            )
-            self.watcher_thread.start()
-            print("[Auto-Reload] Überwache beamng.obj auf Änderungen...")
-
-        # Periodischer Callback im Render-Loop zum Reload (Hauptthread)
-        if self.auto_reload_enabled:
-            try:
-                self.plotter.add_callback(self.reload_obj_file, interval=1.0)
-            except Exception:
-                pass
-
-        # Starte Hauptschleife (ohne interactive_update - nicht unterstützt)
+        """Starte Viewer. Reload erfolgt manuell über L-Taste."""
         try:
             self.plotter.show()
         except Exception as e:
@@ -850,76 +859,13 @@ class MeshViewer:
 
             traceback.print_exc()
 
-    def _file_watcher(self):
-        """Background Thread: Überwache OBJ-Datei auf Änderungen"""
-        pending_mtime = None
-        pending_size = None
-        pending_since = None
-
-        while self.auto_reload_enabled:
-            try:
-                if not os.path.exists(self.obj_file):
-                    time.sleep(1)
-                    size_stable_count = 0
-                    continue
-
-                current_mtime = os.path.getmtime(self.obj_file)
-                current_size = os.path.getsize(self.obj_file)
-
-                # Neue Schreibaktivität erkannt -> Timer neu starten
-                if current_mtime > self.last_modification_time:
-                    if (
-                        pending_mtime is None
-                        or current_mtime != pending_mtime
-                        or current_size != pending_size
-                    ):
-                        pending_mtime = current_mtime
-                        pending_size = current_size
-                        pending_since = time.time()
-
-                # Wenn eine Änderung ansteht: warte 3 Sekunden Stabilität (mtime+size)
-                if pending_mtime is not None:
-                    still_same = (
-                        os.path.getmtime(self.obj_file) == pending_mtime
-                        and os.path.getsize(self.obj_file) == pending_size
-                    )
-
-                    if still_same and (time.time() - pending_since) >= 3.0:
-                        with self.reload_lock:
-                            self.file_changed = True
-                        self.last_modification_time = pending_mtime
-                        self.last_file_size = pending_size
-                        print(
-                            f"\n[Auto-Reload] {self.obj_file} fertig geschrieben ({pending_size/1e6:.1f} MB)"
-                        )
-                        pending_mtime = None
-                        pending_size = None
-                        pending_since = None
-                    elif not still_same:
-                        # Datei schreibt weiter -> Timer neu starten
-                        pending_mtime = os.path.getmtime(self.obj_file)
-                        pending_size = os.path.getsize(self.obj_file)
-                        pending_since = time.time()
-
-                # Prüfe jede Sekunde
-                time.sleep(1)
-            except Exception as e:
-                pass
-
     def reload_obj_file(self):
-        """Lade OBJ-Datei neu (wird periodisch aufgerufen)"""
-        if not self.file_changed:
-            return False
+        """Lade OBJ + Debug-Layer manuell neu (L-Taste), Kamera bleibt erhalten."""
 
-        with self.reload_lock:
-            if not self.file_changed:
-                return False
-            self.file_changed = False
-
+        self._show_reload_overlay()
         try:
-            print(f"  [Lade neu...] {self.obj_file}")
+            print(f"  [Reload] {self.obj_file}")
 
-            # Speichere aktuelle Kameraposition (sicher)
             camera_pos = None
             camera_focal = None
             camera_up = None
@@ -927,10 +873,9 @@ class MeshViewer:
                 camera_pos = self.plotter.camera.position
                 camera_focal = self.plotter.camera.focal_point
                 camera_up = self.plotter.camera.up_vector
-            except:
-                pass  # Kamera-Info nicht verfügbar
+            except Exception:
+                pass
 
-            # Lade OBJ neu
             (
                 self.vertices,
                 self.road_faces,
@@ -940,22 +885,25 @@ class MeshViewer:
                 self.road_face_to_idx,
             ) = self._parse_obj(self.obj_file, "roads.obj")
 
+            self._reload_debug_layers()
+
+            self.max_roads = max(1, len(self.road_faces) // self.faces_per_road)
+            self.current_road = min(self.current_road, self.max_roads - 1)
+
             print(
                 f"  ✓ Neu geladen: {len(self.vertices)} Vertices, {len(self.road_faces)} Faces"
             )
 
-            # Update View
             self.update_view(reset_camera=False)
 
-            # Stelle Kameraposition wieder her (sicher)
             if camera_pos is not None:
                 try:
                     self.plotter.camera.position = camera_pos
                     self.plotter.camera.focal_point = camera_focal
                     self.plotter.camera.up_vector = camera_up
-                    print(f"  ✓ Kamera-Position beibehalten")
-                except:
-                    pass  # Kamera-Restore fehlgeschlagen
+                    print("  ✓ Kamera-Position beibehalten")
+                except Exception:
+                    pass
 
             return True
 
@@ -965,6 +913,8 @@ class MeshViewer:
 
             traceback.print_exc()
             return False
+        finally:
+            self._hide_reload_overlay()
 
     def _world_to_display(self, pts):
         ren = self.plotter.renderer
@@ -975,37 +925,273 @@ class MeshViewer:
             coords.append(ren.GetDisplayPoint())
         return np.array(coords)
 
-    def on_left_click(self, obj, event):
-        if self.current_label_points is None or len(self.current_label_points) == 0:
+    def _show_reload_overlay(self):
+        """Zeige zentrierten Reload-Hinweis während des Nachladens."""
+        if self._reload_actor is not None:
+            self._hide_reload_overlay()
+        try:
+            self._reload_actor = self.plotter.add_text(
+                "Reload...",
+                position=(0.45, 0.5),
+                viewport=True,
+                font_size=18,
+                color="white",
+                shadow=True,
+                name="reload_overlay",
+            )
+            self.plotter.render()
+        except Exception:
+            self._reload_actor = None
+
+    def _hide_reload_overlay(self):
+        if self._reload_actor is not None:
+            try:
+                self.plotter.remove_actor(self._reload_actor)
+                self.plotter.render()
+            except Exception:
+                pass
+            self._reload_actor = None
+
+    # _update_camera_status entfernt - keine Status-Zeile mehr gewünscht
+
+    def _update_camera_status(self):
+        """Zeige Kamera-Status-Zeile mit Position, Tilt, Roll, Yaw, Zoom"""
+        cam = self.plotter.camera
+        if cam is None:
             return
 
         try:
-            x, y = obj.GetEventPosition()
-        except AttributeError:
-            return
-        disp = self._world_to_display(self.current_label_points)
-        diffs = disp[:, :2] - np.array([x, y])
-        dist2 = np.einsum("ij,ij->i", diffs, diffs)
-        idx = int(np.argmin(dist2))
-        if dist2[idx] > self.label_click_px_tol**2:
-            return
+            # Setze Roll auf 0 und Zoom auf 30° immer
+            try:
+                cam.SetViewUp(0.0, 0.0, 1.0)
+                cam.view_angle = 30.0
+            except Exception:
+                try:
+                    # Fallback: versuche direkt zu setzen
+                    cam.up_vector = [0.0, 0.0, 1.0]
+                    cam.view_angle = 30.0
+                except Exception:
+                    pass
 
-        chosen = self.current_label_ridx[idx]
+            pos = np.array(cam.position, dtype=float)
+            focal = np.array(cam.focal_point, dtype=float)
+
+            # up_vector korrekt auslesen
+            try:
+                up = np.array(cam.up_vector, dtype=float)
+            except AttributeError:
+                # Fallback: verwende GetViewUp() oder default [0, 0, 1]
+                try:
+                    up = np.array(cam.GetViewUp(), dtype=float)
+                except Exception:
+                    up = np.array([0.0, 0.0, 1.0], dtype=float)
+
+            forward = focal - pos
+            f_norm = np.linalg.norm(forward)
+            if f_norm > 1e-9:
+                forward = forward / f_norm
+            else:
+                forward = np.array([0.0, 0.0, 1.0])
+
+            yaw = np.degrees(np.arctan2(forward[1], forward[0]))
+            tilt = np.degrees(
+                np.arctan2(forward[2], np.linalg.norm(forward[:2]) + 1e-9)
+            )
+
+            up_proj = up - np.dot(up, forward) * forward
+            u_norm = np.linalg.norm(up_proj)
+            if u_norm > 1e-9:
+                up_proj /= u_norm
+            else:
+                up_proj = np.array([0.0, 0.0, 1.0])
+            roll = np.degrees(
+                np.arctan2(
+                    np.dot(np.cross(up_proj, [0, 0, 1]), forward),
+                    np.dot(up_proj, [0, 0, 1]) + 1e-9,
+                )
+            )
+
+            # Zoom aus view_angle lesen
+            try:
+                zoom = cam.view_angle
+            except Exception:
+                zoom = 30.0
+
+            text = (
+                f"Pos: ({pos[0]:.1f}, {pos[1]:.1f}, {pos[2]:.1f}) | "
+                f"Tilt: {tilt:.1f}° | Roll: {roll:.1f}° | Yaw: {yaw:.1f}° | Zoom: {zoom:.1f}°"
+            )
+
+            # Entferne alten Text-Actor
+            try:
+                self.plotter.remove_actor("camera_status_text")
+            except Exception:
+                pass
+
+            try:
+                self._camera_status_actor = self.plotter.add_text(
+                    text,
+                    position="lower_left",
+                    font_size=10,
+                    color="black",
+                    shadow=True,
+                    name="camera_status_text",
+                )
+            except Exception:
+                self._camera_status_actor = None
+        except Exception:
+            pass
+
+    def _load_config(self):
         try:
-            chosen_idx = int(chosen)
+            if os.path.exists(self.config_path):
+                with open(self.config_path, "r", encoding="utf-8") as f:
+                    return json.load(f)
+        except Exception:
+            return {}
+        return {}
+
+    def _save_config(self, data):
+        try:
+            os.makedirs(os.path.dirname(self.config_path), exist_ok=True)
+            with open(self.config_path, "w", encoding="utf-8") as f:
+                json.dump(data, f)
+        except Exception:
+            pass
+
+    def _load_camera_state(self):
+        cfg = self._load_config()
+        return cfg.get("camera")
+
+    def load_camera_state(self):
+        state = self._load_camera_state()
+        if not state:
+            print("[Kamera] Keine gespeicherte Kamera gefunden")
+            return
+        cam = self.plotter.camera
+        if cam is None:
+            print("[Kamera] Kamera nicht verfügbar")
+            return
+        try:
+            pos = state.get("position")
+            focal = state.get("focal_point")
+            up = state.get("up_vector")
+            if pos and focal and up:
+                cam.position = pos
+                cam.focal_point = focal
+                cam.up_vector = up
+                self.plotter.reset_camera_clipping_range()
+                self.plotter.render()
+                print("[Kamera] Geladen")
+            else:
+                print("[Kamera] Ungültiger Kamera-State")
+        except Exception as e:
+            print(f"[Kamera] Fehler beim Laden: {e}")
+
+    def _apply_saved_camera_state(self):
+        state = self._load_camera_state()
+        if not state:
+            return
+        cam = self.plotter.camera
+        if cam is None:
+            return
+        try:
+            pos = state.get("position")
+            focal = state.get("focal_point")
+            up = state.get("up_vector")
+            if pos and focal and up:
+                cam.position = pos
+                cam.focal_point = focal
+                cam.up_vector = up
+                self.plotter.reset_camera_clipping_range()
+                self.plotter.render()
+        except Exception:
+            pass
+
+    def save_camera_state(self):
+        cam = self.plotter.camera
+        if cam is None:
+            print("[Kamera] Kamera nicht verfügbar")
+            return
+        try:
+            state = {
+                "position": list(cam.position),
+                "focal_point": list(cam.focal_point),
+                "up_vector": list(cam.up_vector),
+            }
+            cfg = self._load_config()
+            cfg["camera"] = state
+            self._save_config(cfg)
+            print(f"[Kamera] Gespeichert nach {self.config_path}")
+        except Exception as e:
+            print(f"[Kamera] Fehler beim Speichern: {e}")
+        self._save_window_state()  # Konfig konsistent halten
+
+    def _load_window_state(self):
+        cfg = self._load_config()
+        return cfg.get("window")
+
+    def _apply_saved_window_state(self):
+        state = self._load_window_state()
+        if not state:
+            return
+        try:
+            x = int(state.get("x", 0))
+            y = int(state.get("y", 0))
+            w = int(state.get("w", 0))
+            h = int(state.get("h", 0))
         except Exception:
             return
 
-        self.selected_road_idx = chosen_idx
-        print(f"Selektierte road_idx: {chosen_idx}")
-        self.update_view(reset_camera=False)
+        # Mindestgrößen und einfache Bounds-Prüfung
+        if w < 200 or h < 150:
+            return
+        if x < -5000 or y < -5000:
+            return
+
+        try:
+            win = self.plotter.ren_win
+            win.SetSize(w, h)
+            win.SetPosition(x, y)
+        except Exception:
+            pass
+
+    def _save_window_state(self):
+        try:
+            win = self.plotter.ren_win
+            pos = win.GetPosition()
+            size = win.GetSize()
+            state = {
+                "x": int(pos[0]),
+                "y": int(pos[1]),
+                "w": int(size[0]),
+                "h": int(size[1]),
+            }
+            cfg = self._load_config()
+            cfg["window"] = state
+            # Speichere auch aktuelle Kamera, um immer synchron zu bleiben
+            cam = self.plotter.camera
+            if cam is not None:
+                cfg["camera"] = {
+                    "position": list(cam.position),
+                    "focal_point": list(cam.focal_point),
+                    "up_vector": list(cam.up_vector),
+                }
+            self._save_config(cfg)
+        except Exception:
+            pass
+
+    def _on_close_save_window_state(self, *args, **kwargs):
+        self._save_window_state()
+
+    def on_left_click(self, obj, event):
+        """Label-Klick-Handler (nicht mehr verwendet, da keine road_idx-Labels)"""
+        pass
 
 
 if __name__ == "__main__":
     viewer = MeshViewer(
         "beamng.obj",
         fallback_obj="roads.obj",
-        faces_per_road=10000,
-        preselect_road_idx=None,
     )
     viewer.show()

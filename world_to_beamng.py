@@ -34,7 +34,7 @@ from world_to_beamng.geometry.polygon import get_road_polygons, clip_road_polygo
 from world_to_beamng.geometry.junctions import (
     detect_junctions_in_centerlines,
     mark_junction_endpoints,
-    debug_junctions,
+    junction_stats,
 )
 from world_to_beamng.mesh.junction_remesh import (
     collect_nearby_geometry,
@@ -43,9 +43,6 @@ from world_to_beamng.mesh.junction_remesh import (
     merge_and_triangulate,
     reconstruct_z_values,
     remesh_single_junction,
-)
-from world_to_beamng.geometry.junction_geometry import (
-    truncate_roads_at_junctions,
 )
 from world_to_beamng.geometry.vertices import classify_grid_vertices
 from world_to_beamng.mesh.road_mesh import generate_road_mesh_strips
@@ -61,47 +58,6 @@ from world_to_beamng.io.obj import (
     save_ebene1_roads,
     save_ebene2_centerlines_junctions,
 )
-
-
-def clip_faces_near_boundary(faces, vertices, grid_bounds_local, margin=3.0):
-    """Entfernt Faces, die näher als margin am Grid-Rand liegen.
-
-    Args:
-        faces: Liste von Faces (0-basiert)
-        vertices: Vertex-Array
-        grid_bounds_local: (min_x, max_x, min_y, max_y)
-        margin: Mindestabstand vom Grid-Rand in Metern
-
-    Returns:
-        Gefilterte Face-Liste
-    """
-    if not grid_bounds_local or margin <= 0:
-        return faces
-
-    min_x, max_x, min_y, max_y = grid_bounds_local
-    clip_min_x = min_x + margin
-    clip_max_x = max_x - margin
-    clip_min_y = min_y + margin
-    clip_max_y = max_y - margin
-
-    filtered_faces = []
-    removed_count = 0
-
-    for face in faces:
-        # Prüfe ob alle Vertices des Faces innerhalb der Clip-Bounds liegen
-        all_inside = True
-        for v_idx in face:
-            x, y = vertices[v_idx][:2]
-            if not (clip_min_x <= x <= clip_max_x and clip_min_y <= y <= clip_max_y):
-                all_inside = False
-                break
-
-        if all_inside:
-            filtered_faces.append(face)
-        else:
-            removed_count += 1
-
-    return filtered_faces, removed_count
 
 
 def enforce_ccw_up(faces, vertices):
@@ -387,50 +343,11 @@ def main():
     print("\n[6a] Erkenne Strassen-Junctions in Centerlines...")
     junctions = detect_junctions_in_centerlines(road_polygons)
     road_polygons = mark_junction_endpoints(road_polygons, junctions)
+    junction_stats(junctions, road_polygons)
 
     # Backup der unkürzten Centerlines vor Truncation (für Debug/Analyse)
     road_polygons_full = copy.deepcopy(road_polygons)
     timings["6a_Junctions_erkennen"] = time.time() - step_start
-
-    # ===== SCHRITT 6a.4: ÜBERSPRUNGEN (neuer Algorithmus in Planung) =====
-    if False:
-        print("\n[6a.4] Kuerze Strassen-Enden bei Junctions...")
-        # Truncation mit ca. 10m Distanz für saubere Junction-Anschlüsse
-        truncation_distance = 10.0  # Meter - großzügig für saubere Verbindungen
-        road_polygons = truncate_roads_at_junctions(
-            road_polygons,
-            junctions,
-            road_width=config.ROAD_WIDTH,
-            truncation_distance=truncation_distance,
-        )
-
-        # WICHTIG: Interpoliere Z-Werte aus DGM für alle coords (ersetzt UTM-Z-Werte!)
-        print("  Interpoliere Z-Koordinaten aus DGM...")
-        from scipy.interpolate import NearestNDInterpolator
-
-        height_interp = NearestNDInterpolator(height_points, height_elevations)
-        for road in road_polygons:
-            coords = road.get("coords", [])
-            if coords:
-                # Ersetze Z-Werte durch DGM-Interpolation
-                new_coords = []
-                for x, y, z_old in coords:
-                    z_new = float(height_interp(x, y))
-                    new_coords.append((x, y, z_new))
-                road["coords"] = new_coords
-        print(
-            f"  [OK] Z-Koordinaten aus DGM interpoliert fuer {len(road_polygons)} Strassen"
-        )
-        timings["6a4_Road_Truncation"] = time.time() - step_start
-
-        # HINWEIS: Junction-Polygone werden NACH dem Road-Meshing gebaut (Schritt 7a)!
-        # Wir nutzen die echten Mesh-Vertices der gekürzten Straßen.
-
-        # HINWEIS: Snapping ist jetzt DEAKTIVIERT, da Truncation bereits die Straßen bei den
-        # Junctions positioniert. Snapping würde die Truncation nur wieder rückgängig machen.
-    else:
-        print("\n[6a.4] ÜBERSPRUNGEN (neuer Algorithmus in Planung)")
-        timings["6a4_Road_Truncation"] = time.time() - step_start
 
     # ===== SCHRITT 7: Generiere Straßen-Mesh =====
     print("\n[7] Generiere Strassen-Mesh-Streifen (mit Junctions)...")
@@ -473,9 +390,17 @@ def main():
     step_start = time.time()
 
     # Konvertiere zu NumPy für effiziente Operationen
-    road_faces_array = np.array(road_faces, dtype=np.int32) if road_faces else np.empty((0, 3), dtype=np.int32)
-    road_face_to_idx_array = np.array(road_face_to_idx, dtype=np.int32) if road_face_to_idx else np.empty(0, dtype=np.int32)
-    
+    road_faces_array = (
+        np.array(road_faces, dtype=np.int32)
+        if road_faces
+        else np.empty((0, 3), dtype=np.int32)
+    )
+    road_face_to_idx_array = (
+        np.array(road_face_to_idx, dtype=np.int32)
+        if road_face_to_idx
+        else np.empty(0, dtype=np.int32)
+    )
+
     remesh_boundaries = []
     remesh_radius_circles = []
     remesh_stats = {"success": 0, "failed": 0}
@@ -502,7 +427,7 @@ def main():
     for junction_idx, junction in remesh_candidates:
         # Nutze jeweils den aktuellen Stand von Vertices/Faces
         all_vertices = vertex_manager.get_array()
-        
+
         result = remesh_single_junction(
             junction_idx, junction, all_vertices, road_faces_array, vertex_manager
         )
@@ -519,8 +444,14 @@ def main():
             # Integriere neue Faces mit NumPy concatenate
             new_faces = np.array(result["new_faces"], dtype=np.int32)
             new_face_idx = np.full(len(new_faces), -1, dtype=np.int32)
-            road_faces_array = np.vstack([road_faces_array, new_faces]) if len(road_faces_array) > 0 else new_faces
-            road_face_to_idx_array = np.concatenate([road_face_to_idx_array, new_face_idx])
+            road_faces_array = (
+                np.vstack([road_faces_array, new_faces])
+                if len(road_faces_array) > 0
+                else new_faces
+            )
+            road_face_to_idx_array = np.concatenate(
+                [road_face_to_idx_array, new_face_idx]
+            )
             remesh_stats["success"] += 1
             boundary_coords = result.get("boundary_coords_3d")
             if boundary_coords is not None:
@@ -538,7 +469,7 @@ def main():
     # Konvertiere zurück zu Listen für Kompatibilität mit nachfolgendem Code
     road_faces = road_faces_array.tolist()
     road_face_to_idx = road_face_to_idx_array.tolist()
-    
+
     timings["7x_Junction_Remesh"] = time.time() - step_start
 
     # ===== SCHRITT 7a-7e: ÜBERSPRUNGEN (neuer Algorithmus in Planung) =====

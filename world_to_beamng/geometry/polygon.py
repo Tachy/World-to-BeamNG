@@ -146,13 +146,7 @@ def get_road_polygons(roads, bbox, height_points, height_elevations):
             }
         )
 
-    # DEPRECATED: snap_road_endpoints() wird nicht mehr verwendet
-    # Junction-Detection erfolgt jetzt in Schritt 6a via detect_junctions_in_centerlines()
-    if False and config.ENABLE_ROAD_EDGE_SNAPPING:
-        print(f"  DEPRECATED: Snap naher Strassenenden (jetzt in Schritt 6a erkannt)...")
-        road_polygons = snap_road_endpoints(road_polygons)
-    else:
-        pass  # Junctions werden in Schritt 6a erkannt
+    # DEPRECATED: Strassenenden-Snapping wird nicht mehr verwendet (Junction-Erkennung in Schritt 6a)
 
     # Glätte Strassen und fuege bei scharfen Kurven mehr Punkte ein
     if config.ENABLE_ROAD_SMOOTHING:
@@ -385,131 +379,6 @@ def smooth_roads_adaptive(road_polygons):
     )
 
     return road_polygons
-
-
-def snap_road_endpoints(road_polygons, snap_distance=5.0):
-    """
-    Findet Strassenenden, die nahe beieinander liegen und merged sie.
-
-    Args:
-        road_polygons: Liste von Strassen-Dictionaries mit 'coords'
-        snap_distance: Maximale Distanz fuer Snap (in Metern)
-
-    Returns:
-        Modifizierte road_polygons mit gesnappten Endpunkten
-    """
-    from scipy.spatial import cKDTree
-
-    if len(road_polygons) < 2:
-        return road_polygons
-
-    # Sammle alle Strassenenden (Anfang und Ende jeder Strasse)
-    endpoints = []
-    endpoint_info = []  # (road_idx, is_start, point_xy)
-
-    for road_idx, road in enumerate(road_polygons):
-        coords = road["coords"]
-        if len(coords) >= 2:
-            # Anfangspunkt
-            start_xy = (coords[0][0], coords[0][1])
-            endpoints.append(start_xy)
-            endpoint_info.append((road_idx, True, start_xy))
-
-            # Endpunkt
-            end_xy = (coords[-1][0], coords[-1][1])
-            endpoints.append(end_xy)
-            endpoint_info.append((road_idx, False, end_xy))
-
-    if len(endpoints) < 2:
-        return road_polygons
-
-    # Baue KDTree fuer schnelle Nachbarschaftssuche
-    endpoints_array = np.array(endpoints)
-    kdtree = cKDTree(endpoints_array)
-
-    # Finde Cluster von nahen Endpunkten
-    pairs = kdtree.query_pairs(snap_distance)
-
-    if len(pairs) == 0:
-        print(f"    -> Keine nahen Endpunkte gefunden")
-        return road_polygons
-
-    # Gruppiere zu Clustern (Union-Find)
-    from collections import defaultdict
-
-    parent = list(range(len(endpoints)))
-
-    def find(x):
-        if parent[x] != x:
-            parent[x] = find(parent[x])
-        return parent[x]
-
-    def union(x, y):
-        px, py = find(x), find(y)
-        if px != py:
-            parent[px] = py
-
-    for i, j in pairs:
-        union(i, j)
-
-    # Sammle Cluster
-    clusters = defaultdict(list)
-    for i in range(len(endpoints)):
-        clusters[find(i)].append(i)
-
-    # Merge jeden Cluster zu einem gemeinsamen Punkt
-    snapped_count = 0
-    for cluster_indices in clusters.values():
-        if len(cluster_indices) <= 1:
-            continue  # Keine Nachbarn
-
-        # Berechne Schwerpunkt des Clusters
-        cluster_points = endpoints_array[cluster_indices]
-        centroid = cluster_points.mean(axis=0)
-
-        # Snap alle Punkte im Cluster zum Schwerpunkt
-        for idx in cluster_indices:
-            road_idx, is_start, _ = endpoint_info[idx]
-            coords = road_polygons[road_idx]["coords"]
-
-            if is_start:
-                # Ändere Startpunkt
-                coords[0] = (centroid[0], centroid[1], coords[0][2])
-            else:
-                # Ändere Endpunkt
-                coords[-1] = (centroid[0], centroid[1], coords[-1][2])
-
-            snapped_count += 1
-
-    print(
-        f"    -> {len(pairs)} Endpunkt-Paare gemerged in {len([c for c in clusters.values() if len(c) > 1])} Cluster"
-    )
-
-    # Entferne doppelte aufeinanderfolgende Punkte (entstehen durch Snap)
-    for road in road_polygons:
-        coords = road["coords"]
-        if len(coords) < 2:
-            continue
-
-        # Filtere aufeinanderfolgende Duplikate
-        cleaned = [coords[0]]
-        for i in range(1, len(coords)):
-            # Pruefe ob Punkt sich vom vorherigen unterscheidet (mind. 0.01m)
-            dx = coords[i][0] - cleaned[-1][0]
-            dy = coords[i][1] - cleaned[-1][1]
-            dist_sq = dx * dx + dy * dy
-
-            if dist_sq > 0.0001:  # > 1cm Abstand
-                cleaned.append(coords[i])
-
-        # Nur updaten wenn sich was geändert hat
-        if len(cleaned) != len(coords):
-            if len(cleaned) >= 2:
-                road["coords"] = cleaned
-            # Wenn zu kurz: coords bleibt, wird später gefiltert
-
-    return road_polygons
-
 
 def get_road_centerline_robust(road_poly):
     """
