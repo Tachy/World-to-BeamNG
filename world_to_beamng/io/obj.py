@@ -15,6 +15,8 @@ try:
 except Exception:
     _CENTERLINE_SEARCH_RADIUS = 10.0
     _CENTERLINE_SAMPLE_SPACING = 10.0
+
+
 def save_unified_obj(
     filename, vertices, road_faces, slope_faces, terrain_faces, junction_faces=None
 ):
@@ -202,6 +204,7 @@ def save_roads_obj(filename, vertices, road_faces, road_face_to_idx):
     print(
         f"  [OK] {filename}: {len(used_vertices)} vertices, {len(road_faces)} faces, {len(remapped_by_road)} roads"
     )
+
 
 def save_ebene1_roads(vertices, road_faces, road_face_to_idx):
     """Exportiert roads.obj als ebene1.obj"""

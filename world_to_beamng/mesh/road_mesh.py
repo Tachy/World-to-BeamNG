@@ -15,7 +15,6 @@ from math import ceil
 from .. import config
 
 
-
 def clip_road_to_bounds(coords, bounds_local):
     """Clippt eine Strasse an den Grid-Bounds (lokale Koordinaten)."""
     if not coords or bounds_local is None:

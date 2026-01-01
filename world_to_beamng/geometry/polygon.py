@@ -380,6 +380,7 @@ def smooth_roads_adaptive(road_polygons):
 
     return road_polygons
 
+
 def get_road_centerline_robust(road_poly):
     """
     Berechne die Mittellinie eines Strassen-Polygons mittels PCA und Mittelwertsbildung.
