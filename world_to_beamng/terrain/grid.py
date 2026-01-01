@@ -12,7 +12,7 @@ from .elevation import get_height_data_hash
 
 def create_terrain_grid(height_points, height_elevations, grid_spacing=10.0):
     """Erstellt ein reguläres Grid aus den Hoehendaten (OPTIMIERT mit Caching)."""
-    print(f"\nErstelle Terrain-Grid (Abstand: {grid_spacing}m)...")
+    print(f"  Erstelle Terrain-Grid (Abstand: {grid_spacing}m)...")
 
     # Finde Bounds in lokalen Koordinaten (IMMER berechnen, auch fuer Cache-Fall!)
     min_x, max_x = height_points[:, 0].min(), height_points[:, 0].max()

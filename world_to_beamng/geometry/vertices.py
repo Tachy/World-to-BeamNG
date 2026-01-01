@@ -18,7 +18,7 @@ def classify_grid_vertices(grid_points, grid_elevations, road_slope_polygons_2d)
     SUPER-OPTIMIERT: Nutzt KDTree + geometrische Tests!
     """
     print(
-        "\nMarkiere Strassen-/Boeschungsbereiche im Grid (KDTree + Face-Überlappung)..."
+        "  Markiere Strassen-/Boeschungsbereiche im Grid (KDTree + Face-Überlappung)..."
     )
 
     vertex_types = np.zeros(len(grid_points), dtype=int)

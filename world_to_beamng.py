@@ -48,7 +48,11 @@ from world_to_beamng.geometry.vertices import classify_grid_vertices
 from world_to_beamng.mesh.road_mesh import generate_road_mesh_strips
 from world_to_beamng.mesh.vertex_manager import VertexManager
 from world_to_beamng.mesh.terrain_mesh import generate_full_grid_mesh
-from world_to_beamng.mesh.cleanup import cleanup_duplicate_faces
+from world_to_beamng.mesh.cleanup import (
+    cleanup_duplicate_faces,
+    enforce_ccw_up,
+    report_boundary_edges,
+)
 from world_to_beamng.mesh.stitching import (
     stitch_terrain_gaps,
 )
@@ -58,148 +62,7 @@ from world_to_beamng.io.obj import (
     save_ebene1_roads,
     save_ebene2_centerlines_junctions,
 )
-
-
-def enforce_ccw_up(faces, vertices):
-    """Sorgt dafür, dass Dreiecke mit +Z-Normalen (CCW nach oben) angeordnet sind."""
-    if not faces:
-        return faces
-    faces_np = np.asarray(faces, dtype=np.int64)
-    if faces_np.ndim != 2 or faces_np.shape[1] != 3:
-        return faces
-
-    verts_np = np.asarray(vertices, dtype=np.float64)
-    tri_pts = verts_np[faces_np]
-    normals = np.cross(tri_pts[:, 1] - tri_pts[:, 0], tri_pts[:, 2] - tri_pts[:, 0])
-    flip_idx = np.where(normals[:, 2] < 0)[0]
-    if flip_idx.size:
-        f1 = faces_np[flip_idx, 1].copy()
-        f2 = faces_np[flip_idx, 2].copy()
-        faces_np[flip_idx, 1] = f2
-        faces_np[flip_idx, 2] = f1
-    return faces_np.tolist()
-
-
-def report_boundary_edges(faces, vertices, label="mesh", export_path=None):
-    """Loggt offene und nicht-manifold Kanten (0-basiert). Optionaler Export der offenen Kanten als OBJ."""
-    if not faces:
-        print(f"  {label}: Keine Faces -> keine Kanten")
-        return
-    f = np.asarray(faces, dtype=np.int64)
-    if f.ndim != 2 or f.shape[1] != 3:
-        print(f"  {label}: Nicht-dreieckige Faces uebersprungen")
-        return
-
-    edges = np.vstack([f[:, [0, 1]], f[:, [1, 2]], f[:, [2, 0]]])
-    edges = np.sort(edges, axis=1)
-
-    # Entferne Kanten, die vollständig auf dem äußeren Bounding-Box-Rand liegen
-    verts_np = np.asarray(vertices, dtype=np.float64)
-    xs = verts_np[:, 0]
-    ys = verts_np[:, 1]
-    min_x, max_x = xs.min(), xs.max()
-    min_y, max_y = ys.min(), ys.max()
-    tol = max(getattr(config, "GRID_SPACING", 1.0) * 0.5, 0.05)
-
-    on_min_x = np.abs(xs - min_x) <= tol
-    on_max_x = np.abs(xs - max_x) <= tol
-    on_min_y = np.abs(ys - min_y) <= tol
-    on_max_y = np.abs(ys - max_y) <= tol
-
-    a_idx = edges[:, 0]
-    b_idx = edges[:, 1]
-    border_mask = (
-        (on_min_x[a_idx] & on_min_x[b_idx])
-        | (on_max_x[a_idx] & on_max_x[b_idx])
-        | (on_min_y[a_idx] & on_min_y[b_idx])
-        | (on_max_y[a_idx] & on_max_y[b_idx])
-    )
-
-    edges_filtered = edges[~border_mask]
-    if edges_filtered.size == 0:
-        print(f"  {label}: Keine Kanten nach Rand-Filter")
-        return
-
-    # Nutzung von np.unique über axis=0 vermeidet View-Probleme
-    unique, counts = np.unique(edges_filtered, axis=0, return_counts=True)
-
-    boundary_mask = counts == 1
-    nonmanifold_mask = counts > 2
-    num_boundary = int(np.count_nonzero(boundary_mask))
-    num_nonmanifold = int(np.count_nonzero(nonmanifold_mask))
-
-    print(f"  {label}: Boundary-Kanten={num_boundary}, Non-manifold={num_nonmanifold}")
-    if num_boundary:
-        sample = unique[boundary_mask][:10]
-        print(f"    Beispiel offene Kanten (0-basiert): {sample.tolist()}")
-        if export_path:
-            try:
-                edges_to_export = unique[boundary_mask]
-                verts_np = np.asarray(vertices, dtype=np.float32)
-                used_idx = np.unique(edges_to_export)
-
-                # Dünne Quads aus zwei Dreiecken mit angehobenen Duplikaten, damit Fläche sichtbar ist
-                epsilon = 0.1  # Sichtbarer Offset
-
-                # Mapping alt->neu (1-basiert für OBJ)
-                new_idx = {int(old): i + 1 for i, old in enumerate(used_idx)}
-                elev_idx = {}
-                extra_vertices = []
-                next_idx = len(used_idx) + 1
-
-                for vid in used_idx:
-                    v = verts_np[int(vid)].copy()
-                    v[2] += epsilon
-                    extra_vertices.append(v)
-                    elev_idx[int(vid)] = next_idx
-                    next_idx += 1
-
-                faces = []
-                for a, b in edges_to_export:
-                    a = int(a)
-                    b = int(b)
-                    fa = new_idx[a]
-                    fb = new_idx[b]
-                    fa_up = elev_idx[a]
-                    fb_up = elev_idx[b]
-                    # Zwei Dreiecke pro Edge (dünnes Band)
-                    faces.append([fa_up, fa, fb])
-                    faces.append([fa_up, fb, fb_up])
-
-                mtl_path = (
-                    export_path.replace(".obj", ".mtl")
-                    if export_path.lower().endswith(".obj")
-                    else None
-                )
-
-                with open(export_path, "w") as fobj:
-                    if mtl_path:
-                        fobj.write(f"mtllib {os.path.basename(mtl_path)}\n")
-                    # Vertices (bestehende)
-                    for vid in used_idx:
-                        x, y, z = verts_np[int(vid)]
-                        fobj.write(f"v {x:.3f} {y:.3f} {z:.3f}\n")
-                    # Angehoene Duplikate
-                    for mv in extra_vertices:
-                        fobj.write(f"v {mv[0]:.3f} {mv[1]:.3f} {mv[2]:.3f}\n")
-
-                    fobj.write("o boundary_edges\n")
-                    if mtl_path:
-                        fobj.write("usemtl boundary_edges\n")
-                    # Faces (dünne Bänder über jeder Kante)
-                    for fa, fb, fc in faces:
-                        fobj.write(f"f {fa} {fb} {fc}\n")
-
-                if mtl_path:
-                    with open(mtl_path, "w") as fmtl:
-                        fmtl.write("newmtl boundary_edges\n")
-                        fmtl.write("Ka 1 0 0\nKd 1 0 0\nKs 0 0 0\nd 1.0\nillum 1\n")
-
-                print(
-                    f"    -> Boundary-Kanten als OBJ (Faces) exportiert nach {export_path}"
-                )
-            except Exception as exc:
-                print(f"    [!] Export nach {export_path} fehlgeschlagen: {exc}")
+from world_to_beamng.utils.timing import StepTimer
 
 
 def main():
@@ -229,21 +92,18 @@ def main():
     config.GRID_BOUNDS_LOCAL = None
 
     start_time = time_module.time()
-    timings = {}
+    timer = StepTimer()
 
     # ===== SCHRITT 1: Lade Höhendaten =====
     print("=" * 60)
     print("WORLD-TO-BEAMNG - OSM zu BeamNG Strassen-Generator")
     print("=" * 60)
 
-    print("\n[1] Lade Hoehendaten...")
-    step_start = time.time()
+    timer.begin("Lade Hoehendaten")
     height_points, height_elevations = load_height_data()
-    timings["1_Höhendaten_laden"] = time.time() - step_start
 
     # ===== SCHRITT 2: Berechne BBOX =====
-    print("\n[2] Berechne BBOX aus Hoehendaten...")
-    step_start = time.time()
+    timer.begin("Berechne BBOX aus Hoehendaten")
     config.BBOX = calculate_bbox_from_height_data(height_points)
 
     # WICHTIG: Setze Local Offset SOFORT (vor allen weiteren Transformationen)
@@ -262,11 +122,8 @@ def main():
     height_elevations = height_elevations - oz  # Auch Z-Koordinaten transformieren!
     print(f"  [OK] height_points + elevations zu lokalen Koordinaten transformiert")
 
-    timings["2_BBOX_berechnen"] = time.time() - step_start
-
     # ===== SCHRITT 3: Prüfe OSM-Daten-Cache =====
-    print("\n[3] Pruefe OSM-Daten-Cache...")
-    step_start = time.time()
+    timer.begin("Pruefe OSM-Daten-Cache")
     height_hash = get_height_data_hash()
     if not height_hash:
         height_hash = "no_files"
@@ -301,27 +158,22 @@ def main():
                 pass
 
     osm_elements = get_osm_data(config.BBOX)
-    timings["3_OSM_Daten_holen"] = time.time() - step_start
     if not osm_elements:
         print("Keine Daten gefunden.")
         return
 
     # ===== SCHRITT 4: Extrahiere Straßen =====
-    print("\n[4] Extrahiere Strassen aus OSM-Daten...")
-    step_start = time.time()
+    timer.begin("Extrahiere Strassen aus OSM")
     roads = extract_roads_from_osm(osm_elements)
-    timings["4_Straßen_extrahieren"] = time.time() - step_start
     if not roads:
         print("Keine Strassen gefunden.")
         return
 
     # ===== SCHRITT 5: Erstelle Terrain-Grid =====
-    print("\n[5] Erstelle Terrain-Grid...")
-    step_start = time.time()
+    timer.begin("Erstelle Terrain-Grid")
     grid_points, grid_elevations, nx, ny = create_terrain_grid(
         height_points, height_elevations, grid_spacing=config.GRID_SPACING
     )
-    timings["5_Grid_erstellen"] = time.time() - step_start
 
     # LOCAL_OFFSET wurde bereits in Schritt 2 gesetzt
 
@@ -337,8 +189,7 @@ def main():
     )
 
     # ===== SCHRITT 6: Extrahiere Straßen-Polygone =====
-    step_start = time.time()
-    print(f"\n[6] Extrahiere {len(roads)} Strassen-Polygone...")
+    timer.begin(f"Extrahiere {len(roads)} Strassen-Polygone")
     road_polygons = get_road_polygons(
         roads, config.BBOX, height_points, height_elevations
     )
@@ -354,28 +205,20 @@ def main():
         )
         print(f"  [OK] {len(road_polygons)} Strassen nach Clipping")
 
-    timings["6_Straßen_Polygone"] = time.time() - step_start
-
     # ===== SCHRITT 6a: Erkenne Straßen-Junctions in Centerlines =====
-    step_start = time.time()
-    print("\n[6a] Erkenne Strassen-Junctions in Centerlines...")
+    timer.begin("Erkenne Junctions in Centerlines")
     junctions = detect_junctions_in_centerlines(road_polygons)
     road_polygons = mark_junction_endpoints(road_polygons, junctions)
     junction_stats(junctions, road_polygons)
 
     # Backup der unkürzten Centerlines vor Truncation (für Debug/Analyse)
     road_polygons_full = copy.deepcopy(road_polygons)
-    timings["6a_Junctions_erkennen"] = time.time() - step_start
-
-    # ===== SCHRITT 7: Generiere Straßen-Mesh =====
-    print("\n[7] Generiere Strassen-Mesh-Streifen (mit Junctions)...")
-    step_start = time.time()
-
-    # Initialisiere VertexManager
-    print("  Initialisiere zentrale Vertex-Verwaltung...")
+    # ===== SCHRITT 6b: Initialisiere VertexManager =====
+    timer.begin("Initialisiere Vertex-Manager")
     vertex_manager = VertexManager(tolerance=0.01)  # 1cm Toleranz für präzises Snapping
     print(f"    [OK] VertexManager bereit (Toleranz: 1cm)")
-    timings["6b_VertexManager_Init"] = time.time() - step_start
+    # ===== SCHRITT 7: Generiere Straßen-Mesh =====
+    timer.begin("Generiere Strassen-Mesh")
     (
         road_faces,
         road_face_to_idx,
@@ -395,7 +238,6 @@ def main():
     print(
         f"  [OK] {vertex_manager.get_count()} Vertices gesamt (inkl. Straßen+Böschungen+Junctions+Connectors)"
     )
-    timings["7_Straßen_Mesh"] = time.time() - step_start
 
     # Initialisiere Combined-Lists für spätere Verwendung
     combined_junction_faces = []
@@ -475,7 +317,6 @@ def main():
             f"  [OK] {len(road_faces)} road_faces gesamt (inkl. Straßen+Junctions+Connectors)"
         )
         print(f"  [OK] {vertex_manager.get_count()} Vertices nach Junctions/Connectors")
-        timings["7ab_Junction_Connector_Mesh"] = time.time() - step_start
 
         # ===== SCHRITT 7e: Füge Junction/Connector-Polygone für Terrain-Ausschnitt hinzu =====
         print(
@@ -516,16 +357,13 @@ def main():
         connector_polys = []
 
     # ===== SCHRITT 8: Klassifiziere Grid-Vertices =====
-    print("\n[8] Klassifiziere Grid-Vertices (Schneide Strassen aus Terrain)...")
-    step_start = time.time()
+    timer.begin("Klassifiziere Grid-Vertices")
     vertex_types, modified_heights = classify_grid_vertices(
         grid_points, grid_elevations, road_slope_polygons_2d
     )
-    timings["8_Vertex_Klassifizierung"] = time.time() - step_start
 
     # ===== SCHRITT 9: Regeneriere Terrain-Mesh (mit Straßenausschnitten) =====
-    step_start = time.time()
-    print("\n[9] Regeneriere Terrain-Grid-Mesh (mit ausgeschnittenen Strassen)...")
+    timer.begin("Regeneriere Terrain-Mesh")
     # WICHTIG: VertexManager dedupliziert automatisch - Terrain-Vertices werden wiederverwendet!
     terrain_faces_final, terrain_vertex_indices = generate_full_grid_mesh(
         grid_points,
@@ -537,11 +375,9 @@ def main():
         dedup=False,
     )
     print(f"  [OK] {vertex_manager.get_count()} Vertices final (gesamt)")
-    timings["9_Terrain_Grid_Final"] = time.time() - step_start
 
     # ===== SCHRITT 10: Junction Remeshing (mit sauberem Terrain) =====
-    print("\n[10] Junction Remeshing mit lokaler Delaunay-Triangulation...")
-    step_start = time.time()
+    timer.begin("Junction Remesh (Delaunay)")
 
     # Konvertiere zu NumPy für effiziente Operationen
     road_faces_array = (
@@ -677,26 +513,21 @@ def main():
     road_faces = road_faces_array.tolist()
     road_face_to_idx = road_face_to_idx_array.tolist()
 
-    timings["10_Junction_Remesh"] = time.time() - step_start
-
     # Initialisiere Combined-Lists für spätere Verwendung
     combined_junction_faces = []
 
     # ===== SCHRITT 11: Normalisiere CCW-Orientierung =====
-    step_start = time.time()
-    print("\n[9a] Normalisiere CCW-Orientierung fuer alle Faces...")
+    timer.begin("CCW-Orientierung herstellen")
     all_vertices_combined = np.asarray(vertex_manager.get_array())
 
     terrain_faces_final = enforce_ccw_up(terrain_faces_final, all_vertices_combined)
     road_faces = enforce_ccw_up(road_faces, all_vertices_combined)
     slope_faces = enforce_ccw_up(slope_faces, all_vertices_combined)
     print(f"  [OK] CCW-Orientierung sichergestellt")
-    timings["9a_CCW_Normalization"] = time.time() - step_start
 
     # ===== SCHRITT 12: Stiching zwischen Terrain und Böschungen =====
+    timer.begin("Stitching Terrain/Boeschungen")
     if config.HOLE_CHECK_ENABLED and len(slope_faces) > 0:
-        step_start = time.time()
-        print("\n[12] Fuelle Luecken zwischen Terrain und Boeschungen (Stitching)...")
         stitch_faces = stitch_terrain_gaps(
             vertex_manager,
             terrain_vertex_indices,
@@ -707,19 +538,17 @@ def main():
         )
         terrain_faces_final.extend(stitch_faces)
         print(f"  [OK] {len(stitch_faces)} Stitch-Faces hinzugefuegt")
-        timings["12_Terrain_Stitching"] = time.time() - step_start
     else:
         reason = (
             "HOLE_CHECK_ENABLED=False"
             if not config.HOLE_CHECK_ENABLED
             else "Boeschungen deaktiviert"
         )
-        print(f"\n[12] Stitching SKIP ({reason})")
-        timings["12_Terrain_Stitching"] = 0.0
+        print(f"\n[{timer.current_label}] Stitching SKIP ({reason})")
+        timer.set_duration(0.0)
 
     # ===== SCHRITT 13: Hole finale Vertex-Daten =====
-    step_start = time.time()
-    print("\n[13] Extrahiere finale Vertex-Daten...")
+    timer.begin("Extrahiere finale Vertex-Daten")
 
     # Cleanup: Entferne doppelte Faces
     terrain_faces_final = cleanup_duplicate_faces(terrain_faces_final)
@@ -731,7 +560,7 @@ def main():
 
     # WICHTIG: Junction+Connector-Faces sind bereits in road_faces integriert (Schritt 7a/7b)
     # Sie durchlaufen damit automatisch CCW-Normalisierung, cleanup, etc.
-    print(f"\n[10b] Road-Faces bereits komplett (inkl. Junctions+Connectors)...")
+    print(f"  [Info] Road-Faces bereits komplett (inkl. Junctions+Connectors)...")
     combined_road_faces = (
         road_faces  # Enthält bereits: Straßen + Junction-Quads + Connectors
     )
@@ -761,21 +590,18 @@ def main():
     print(f"    • Terrain: {len(combined_terrain_faces):,} Faces")
     print(f"    • Strassen (inkl. Junctions): {len(combined_road_faces):,} Faces")
     print(f"    • Boeschungen: {len(combined_slope_faces):,} Faces")
-    timings["10_Vertices_Finalisieren"] = time.time() - step_start
 
-    # ===== SCHRITT 11: Terrain-Simplification (deaktiviert) =====
-    step_start = time.time()
+    # ===== SCHRITT 14: Terrain-Simplification (deaktiviert) =====
+    timer.begin("Terrain-Simplification")
     if config.TERRAIN_REDUCTION > 0:
         print(
-            "\n[11] Terrain-Simplification aktuell deaktiviert (zentraler VertexManager) -> bitte Terrain_REDUCTION=0 lassen."
+            "\n[14] Terrain-Simplification aktuell deaktiviert (zentraler VertexManager) -> bitte Terrain_REDUCTION=0 lassen."
         )
     else:
-        print("\n[11] Überspringe Terrain-Simplification (TERRAIN_REDUCTION = 0)...")
-    timings["11_Terrain_Simplification"] = time.time() - step_start
+        print("\n[14] Überspringe Terrain-Simplification (TERRAIN_REDUCTION = 0)...")
 
-    # ===== SCHRITT 14: Bereite Faces für Export vor =====
-    step_start = time.time()
-    print("\n[12] Bereite Faces fuer OBJ-Export vor...")
+    # ===== SCHRITT 15: Bereite Faces für Export vor =====
+    timer.begin("Faces f. OBJ-Export vorbereiten")
 
     terrain_faces_final = np.array(combined_terrain_faces, dtype=np.int32)
     road_faces_array = np.array(combined_road_faces, dtype=np.int32)
@@ -793,11 +619,8 @@ def main():
     print(f"    • Boeschungen: {len(slope_faces_final):,} Faces")
     print(f"    • Junctions: {len(junction_faces_final):,} Faces")
 
-    timings["12_Faces_Vorbereiten"] = time.time() - step_start
-
-    # ===== SCHRITT 15: Exportiere Meshes als OBJ =====
-    print("\n[13] Exportiere Meshes als OBJ...")
-    step_start = time.time()
+    # ===== SCHRITT 16: Exportiere Meshes als OBJ =====
+    timer.begin("Exportiere Meshes als OBJ")
     output_obj = "beamng.obj"
     print(f"  Schreibe: {output_obj}")
 
@@ -840,12 +663,7 @@ def main():
     gc.collect()
     print(f"    -> Cleanup + GC: {time.time() - cleanup_start:.2f}s")
 
-    timings["14_Mesh_Export"] = time.time() - step_start
-
     # ===== ZUSAMMENFASSUNG =====
-    end_time = time.time()
-    elapsed_time = end_time - start_time
-
     print(f"\n{'=' * 60}")
     print(f"[OK] GENERATOR BEENDET!")
     print(f"{'=' * 60}")
@@ -855,17 +673,7 @@ def main():
             f"  Lokaler Offset: X={config.LOCAL_OFFSET[0]:.2f}m, Y={config.LOCAL_OFFSET[1]:.2f}m, Z={config.LOCAL_OFFSET[2]:.2f}m"
         )
 
-    # DETAILLIERTE TIMING-ÜBERSICHT
-    print(f"\n{'=' * 60}")
-    print(f"ZEITMESSUNG (Gesamtzeit: {elapsed_time:.2f}s / {elapsed_time/60:.1f} min)")
-    print(f"{'=' * 60}")
-    for step_name, step_time in timings.items():
-        percentage = (step_time / elapsed_time) * 100
-        step_display = step_name.replace("_", " ").replace("  ", " ")
-        bar_length = int(percentage / 2)  # 50 chars = 100%
-        bar = "█" * bar_length + "░" * (50 - bar_length)
-        print(f"  {step_display:.<35} {step_time:>6.2f}s ({percentage:>5.1f}%) {bar}")
-    print(f"{'=' * 60}")
+    timer.report()
 
 
 if __name__ == "__main__":

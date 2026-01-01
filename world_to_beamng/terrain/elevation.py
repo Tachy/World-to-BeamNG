@@ -34,7 +34,6 @@ def get_height_data_hash():
 
 def load_height_data():
     """Lädt alle Hoehendaten aus .xyz oder .zip Dateien (mit Caching)."""
-    print("\nLade Hoehendaten...")
 
     # Pruefe ob gecachte Rohdaten existieren
     height_hash = get_height_data_hash()
