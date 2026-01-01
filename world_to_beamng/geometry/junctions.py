@@ -629,18 +629,3 @@ def junction_stats(junctions, road_polygons):
     print(f"      - 3 Strassen (T-Junctions):        {stats['three_roads']}")
     print(f"      - 4 Strassen (X-Junctions):        {stats['four_roads']}")
     print(f"      - 5+ Strassen:                     {stats['five_plus']}")
-
-    # Statistik ueber Strassenbeteiligung
-    road_participation = {}
-    for junction_idx, junction in enumerate(junctions):
-        for road_idx in junction["road_indices"]:
-            if road_idx not in road_participation:
-                road_participation[road_idx] = 0
-            road_participation[road_idx] += 1
-
-    if road_participation:
-        max_junctions = max(road_participation.values())
-        multi_junction_roads = sum(1 for v in road_participation.values() if v > 1)
-        print(f"\n      Straßen-Beteiligung:")
-        print(f"      - Strassen mit >1 Junction:        {multi_junction_roads}")
-        print(f"      - Max. Junctions pro Strasse:      {max_junctions}")

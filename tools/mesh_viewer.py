@@ -887,9 +887,6 @@ class MeshViewer:
 
             self._reload_debug_layers()
 
-            self.max_roads = max(1, len(self.road_faces) // self.faces_per_road)
-            self.current_road = min(self.current_road, self.max_roads - 1)
-
             print(
                 f"  ✓ Neu geladen: {len(self.vertices)} Vertices, {len(self.road_faces)} Faces"
             )

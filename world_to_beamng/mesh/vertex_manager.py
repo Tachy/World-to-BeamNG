@@ -12,6 +12,8 @@ class VertexManager:
 
     Verhindert doppelte Vertices innerhalb einer definierten Toleranz und
     gibt konsistente globale Indices zurueck.
+    
+    OPTIMIZATION: Vertices werden intern als NumPy-Array gehalten für Performance!
     """
 
     def __init__(self, tolerance=0.001):
@@ -22,7 +24,9 @@ class VertexManager:
             tolerance: Minimaler Abstand zwischen Vertices (in Metern).
                       Vertices näher als dieser Wert werden als identisch behandelt.
         """
-        self.vertices = []  # Liste aller Vertices als [x, y, z]
+        # OPTIMIZATION: Vertices als NumPy-Array statt Liste
+        # Startet mit kapazität für ~1000 Vertices, wird bei Bedarf erweitert
+        self.vertices = np.empty((0, 3), dtype=np.float32)
         self.tolerance = tolerance
         self.tolerance_sq = tolerance * tolerance
 
@@ -51,7 +55,8 @@ class VertexManager:
             return existing_idx
 
         new_idx = len(self.vertices)
-        self.vertices.append(new_point)
+        # OPTIMIZATION: Append zu NumPy-Array durch vstack statt append zu Liste
+        self.vertices = np.vstack([self.vertices, new_point])
         self._add_to_hash(new_idx, new_point)
         return new_idx
 
@@ -67,8 +72,8 @@ class VertexManager:
         """
         start_idx = len(self.vertices)
         coords = np.column_stack([xs, ys, zs]).astype(np.float32)
-        start_idx = len(self.vertices)
-        self.vertices.extend(coords)
+        # OPTIMIZATION: vstack statt extend
+        self.vertices = np.vstack([self.vertices, coords])
         for i, pt in enumerate(coords):
             self._add_to_hash(start_idx + i, pt)
         self._rebuild_kdtree()
@@ -85,7 +90,8 @@ class VertexManager:
             return []
 
         start_idx = len(self.vertices)
-        self.vertices.extend(coords_arr)
+        # OPTIMIZATION: vstack statt extend
+        self.vertices = np.vstack([self.vertices, coords_arr])
         end_idx = start_idx + len(coords_arr)
         return list(range(start_idx, end_idx))
 
@@ -114,7 +120,6 @@ class VertexManager:
         result_indices = [None] * len(coords_arr)
 
         # Lokale Referenzen fuer Speed
-        v_list = self.vertices
         tol_sq = self.tolerance_sq
         cell_size = self.cell_size
         s_hash = self.spatial_hash
@@ -136,12 +141,16 @@ class VertexManager:
                         if not bucket:
                             continue
                         for vidx in bucket:
-                            vx, vy, vz = v_list[vidx]
+                            vx, vy, vz = self.vertices[vidx]
                             dist_sq = (vx - px) ** 2 + (vy - py) ** 2 + (vz - pz) ** 2
                             if dist_sq < tol_sq:
                                 return vidx
             return None
 
+        # Sammle neue Vertices, dann mache batch vstack
+        new_vertices_to_add = []
+        new_vertex_keys = []
+        
         for i, (px, py, pz) in enumerate(coords_arr):
             key = cell_key_from_point(px, py, pz)
             existing = lookup(px, py, pz, key)
@@ -149,15 +158,24 @@ class VertexManager:
                 result_indices[i] = int(existing)
                 continue
 
-            new_idx = len(v_list)
-            v_list.append((px, py, pz))
-            result_indices[i] = new_idx
+            result_indices[i] = len(self.vertices) + len(new_vertices_to_add)
+            new_vertices_to_add.append([px, py, pz])
+            new_vertex_keys.append(key)
 
-            bucket = s_hash.get(key)
-            if bucket is None:
-                s_hash[key] = [new_idx]
-            else:
-                bucket.append(new_idx)
+        # Batch-Add neue Vertices
+        if new_vertices_to_add:
+            start_idx = len(self.vertices)
+            new_arr = np.array(new_vertices_to_add, dtype=np.float32)
+            self.vertices = np.vstack([self.vertices, new_arr])
+            
+            # Update Hash für neue Vertices
+            for local_i, key in enumerate(new_vertex_keys):
+                new_idx = start_idx + local_i
+                bucket = s_hash.get(key)
+                if bucket is None:
+                    s_hash[key] = [new_idx]
+                else:
+                    bucket.append(new_idx)
 
         return result_indices
 
@@ -245,9 +263,7 @@ class VertexManager:
         Returns:
             np.ndarray: (N, 3) Array mit allen Vertices
         """
-        if len(self.vertices) == 0:
-            return np.array([], dtype=np.float32).reshape(0, 3)
-        return np.array(self.vertices, dtype=np.float32)
+        return self.vertices
 
     def get_count(self):
         """

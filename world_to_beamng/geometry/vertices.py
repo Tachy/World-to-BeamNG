@@ -36,54 +36,61 @@ def classify_grid_vertices(grid_points, grid_elevations, road_slope_polygons_2d)
         slope_poly_xy = poly_data["slope_polygon"]
         original_coords = poly_data.get("original_coords", [])
 
-        if len(slope_poly_xy) >= 3 and len(road_poly_xy) >= 3:
-            try:
-                road_poly = Polygon(road_poly_xy)
+        # Road-Polygon muss immer vorhanden sein, Slope-Polygon ist optional
+        if len(road_poly_xy) < 3:
+            continue
+
+        try:
+            road_poly = Polygon(road_poly_xy)
+
+            # Slope-Polygon nur verwenden, wenn vorhanden (falls Böschungen aktiviert)
+            if len(slope_poly_xy) >= 3:
                 slope_poly = Polygon(slope_poly_xy)
+            else:
+                # Fallback: Nutze road_poly auch als slope_poly (keine separate Böschung)
+                slope_poly = road_poly
 
-                # Validiere Polygone
-                if not road_poly.is_valid:
-                    road_poly = road_poly.buffer(0)
-                    # Nach buffer(0) kann MultiPolygon entstehen - nimm groesstes Teil
-                    if isinstance(road_poly, MultiPolygon):
-                        road_poly = max(road_poly.geoms, key=lambda p: p.area)
+            # Validiere Polygone
+            if not road_poly.is_valid:
+                road_poly = road_poly.buffer(0)
+                # Nach buffer(0) kann MultiPolygon entstehen - nimm groesstes Teil
+                if isinstance(road_poly, MultiPolygon):
+                    road_poly = max(road_poly.geoms, key=lambda p: p.area)
 
-                if not slope_poly.is_valid:
-                    slope_poly = slope_poly.buffer(0)
-                    # Nach buffer(0) kann MultiPolygon entstehen - nimm groesstes Teil
-                    if isinstance(slope_poly, MultiPolygon):
-                        slope_poly = max(slope_poly.geoms, key=lambda p: p.area)
+            if not slope_poly.is_valid:
+                slope_poly = slope_poly.buffer(0)
+                # Nach buffer(0) kann MultiPolygon entstehen - nimm groesstes Teil
+                if isinstance(slope_poly, MultiPolygon):
+                    slope_poly = max(slope_poly.geoms, key=lambda p: p.area)
 
-                # Nochmal pruefen nach Fix
-                if not isinstance(road_poly, Polygon) or not isinstance(
-                    slope_poly, Polygon
-                ):
-                    continue
-
-                # Verwende die ORIGINALE OSM-Strassengeometrie fuer die Centerline!
-                # (bereits in lokalen Koordinaten durch get_road_polygons)
-                if original_coords and len(original_coords) >= 2:
-                    centerline_coords = np.array(
-                        [(x, y) for x, y, z in original_coords]
-                    )
-                else:
-                    # Fallback: Berechne aus Polygon (bereits in lokalen Coords)
-                    centerline_coords = get_road_centerline_robust(road_poly)
-
-                centerline = LineString(centerline_coords)
-                buffer_zone = centerline.buffer(7.0)
-
-                road_data.append(
-                    {
-                        "road_geom": road_poly,
-                        "slope_geom": slope_poly,
-                        "centerline_points": centerline_coords,
-                        "buffer_zone": buffer_zone,
-                        "buffer_bounds": buffer_zone.bounds,
-                    }
-                )
-            except Exception:
+            # Nochmal pruefen nach Fix
+            if not isinstance(road_poly, Polygon) or not isinstance(
+                slope_poly, Polygon
+            ):
                 continue
+
+            # Verwende die ORIGINALE OSM-Strassengeometrie fuer die Centerline!
+            # (bereits in lokalen Koordinaten durch get_road_polygons)
+            if original_coords and len(original_coords) >= 2:
+                centerline_coords = np.array([(x, y) for x, y, z in original_coords])
+            else:
+                # Fallback: Berechne aus Polygon (bereits in lokalen Coords)
+                centerline_coords = get_road_centerline_robust(road_poly)
+
+            centerline = LineString(centerline_coords)
+            buffer_zone = centerline.buffer(7.0)
+
+            road_data.append(
+                {
+                    "road_geom": road_poly,
+                    "slope_geom": slope_poly,
+                    "centerline_points": centerline_coords,
+                    "buffer_zone": buffer_zone,
+                    "buffer_bounds": buffer_zone.bounds,
+                }
+            )
+        except Exception:
+            continue
 
     if not road_data:
         print("  [!] Keine gueltigen Polygone gefunden!")

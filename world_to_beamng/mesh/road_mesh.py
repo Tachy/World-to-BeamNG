@@ -136,61 +136,76 @@ def _process_road_batch(
         slope_width_left = np.clip(np.maximum(min_slope, abs_left), None, 30.0)
         slope_width_right = np.clip(np.maximum(min_slope, abs_right), None, 30.0)
 
-        slope_left_outer_xy = left_xy + perp * slope_width_left[:, np.newaxis]
-        slope_right_outer_xy = right_xy - perp * slope_width_right[:, np.newaxis]
-        slope_left_outer_z = z_vals + height_diff_left
-        slope_right_outer_z = z_vals + height_diff_right
-
         # Keine Transformation mehr noetig - ALLE Koordinaten sind bereits lokal
         left_local = (left_xy[:, 0], left_xy[:, 1], z_vals)
         right_local = (right_xy[:, 0], right_xy[:, 1], z_vals)
 
-        slope_left_outer_local = (
-            slope_left_outer_xy[:, 0],
-            slope_left_outer_xy[:, 1],
-            slope_left_outer_z,
-        )
-        slope_right_outer_local = (
-            slope_right_outer_xy[:, 0],
-            slope_right_outer_xy[:, 1],
-            slope_right_outer_z,
-        )
-
         road_left_vertices = list(zip(left_local[0], left_local[1], left_local[2]))
         road_right_vertices = list(zip(right_local[0], right_local[1], right_local[2]))
-        slope_left_outer_vertices = list(
-            zip(
-                slope_left_outer_local[0],
-                slope_left_outer_local[1],
-                slope_left_outer_local[2],
+
+        # Böschungs-Vertices nur erzeugen, wenn aktiviert
+        if config.GENERATE_SLOPES:
+            slope_left_outer_xy = left_xy + perp * slope_width_left[:, np.newaxis]
+            slope_right_outer_xy = right_xy - perp * slope_width_right[:, np.newaxis]
+            slope_left_outer_z = z_vals + height_diff_left
+            slope_right_outer_z = z_vals + height_diff_right
+
+            slope_left_outer_local = (
+                slope_left_outer_xy[:, 0],
+                slope_left_outer_xy[:, 1],
+                slope_left_outer_z,
             )
-        )
-        slope_right_outer_vertices = list(
-            zip(
-                slope_right_outer_local[0],
-                slope_right_outer_local[1],
-                slope_right_outer_local[2],
+            slope_right_outer_local = (
+                slope_right_outer_xy[:, 0],
+                slope_right_outer_xy[:, 1],
+                slope_right_outer_z,
             )
-        )
+
+            slope_left_outer_vertices = list(
+                zip(
+                    slope_left_outer_local[0],
+                    slope_left_outer_local[1],
+                    slope_left_outer_local[2],
+                )
+            )
+            slope_right_outer_vertices = list(
+                zip(
+                    slope_right_outer_local[0],
+                    slope_right_outer_local[1],
+                    slope_right_outer_local[2],
+                )
+            )
+        else:
+            slope_left_outer_vertices = []
+            slope_right_outer_vertices = []
 
         # Verwende LOKALE Koordinaten fuer 2D-Polygone (nach Offset-Transformation)
         road_left_2d = [(v[0], v[1]) for v in road_left_vertices]
         road_right_2d = [(v[0], v[1]) for v in road_right_vertices]
         road_poly_2d = road_left_2d + list(reversed(road_right_2d))
 
-        slope_left_2d = [(v[0], v[1]) for v in slope_left_outer_vertices]
-        slope_right_2d = [(v[0], v[1]) for v in slope_right_outer_vertices]
-        # Korrigierte Reihenfolge: Aussenkontur gegen Uhrzeigersinn
-        slope_poly_2d = slope_left_2d + list(reversed(slope_right_2d))
+        # Slope-2D-Polygone nur erzeugen, wenn aktiviert
+        if config.GENERATE_SLOPES:
+            slope_left_2d = [(v[0], v[1]) for v in slope_left_outer_vertices]
+            slope_right_2d = [(v[0], v[1]) for v in slope_right_outer_vertices]
+            slope_poly_2d = slope_left_2d + list(reversed(slope_right_2d))
+        else:
+            slope_poly_2d = []
 
         left_start = len(batch_vertices)
         batch_vertices.extend(road_left_vertices)
         right_start = len(batch_vertices)
         batch_vertices.extend(road_right_vertices)
-        slope_left_start = len(batch_vertices)
-        batch_vertices.extend(slope_left_outer_vertices)
-        slope_right_start = len(batch_vertices)
-        batch_vertices.extend(slope_right_outer_vertices)
+
+        # Böschungs-Vertices nur hinzufügen, wenn aktiviert
+        if config.GENERATE_SLOPES:
+            slope_left_start = len(batch_vertices)
+            batch_vertices.extend(slope_left_outer_vertices)
+            slope_right_start = len(batch_vertices)
+            batch_vertices.extend(slope_right_outer_vertices)
+        else:
+            slope_left_start = -1
+            slope_right_start = -1
 
         batch_per_road.append(
             {
@@ -363,51 +378,59 @@ def generate_road_mesh_strips(
             all_road_faces.append([left1, right2, left2])
             all_road_face_to_idx.append(road_id)
 
-        # Boeschungs-Faces
-        slope_road_left_indices = road_vertex_indices_left
-        slope_road_right_indices = road_vertex_indices_right
+        # Boeschungs-Faces nur erzeugen, wenn aktiviert
+        if config.GENERATE_SLOPES:
+            slope_road_left_indices = road_vertex_indices_left
+            slope_road_right_indices = road_vertex_indices_right
 
-        for i in range(n - 1):
-            road_left1 = slope_road_left_indices[i]
-            road_left2 = slope_road_left_indices[i + 1]
-            slope_left1 = slope_left_outer_indices[i]
-            slope_left2 = slope_left_outer_indices[i + 1]
+            for i in range(n - 1):
+                road_left1 = slope_road_left_indices[i]
+                road_left2 = slope_road_left_indices[i + 1]
+                slope_left1 = slope_left_outer_indices[i]
+                slope_left2 = slope_left_outer_indices[i + 1]
 
-            all_slope_faces.append([road_left1, slope_left1, slope_left2])
-            all_slope_faces.append([road_left1, slope_left2, road_left2])
+                all_slope_faces.append([road_left1, slope_left1, slope_left2])
+                all_slope_faces.append([road_left1, slope_left2, road_left2])
 
-            road_right1 = slope_road_right_indices[i]
-            road_right2 = slope_road_right_indices[i + 1]
-            slope_right1 = slope_right_outer_indices[i]
-            slope_right2 = slope_right_outer_indices[i + 1]
+                road_right1 = slope_road_right_indices[i]
+                road_right2 = slope_road_right_indices[i + 1]
+                slope_right1 = slope_right_outer_indices[i]
+                slope_right2 = slope_right_outer_indices[i + 1]
 
-            all_slope_faces.append([road_right1, slope_right2, slope_right1])
-            all_slope_faces.append([road_right1, road_right2, slope_right2])
+                all_slope_faces.append([road_right1, slope_right2, slope_right1])
+                all_slope_faces.append([road_right1, road_right2, slope_right2])
 
         # 2D-Polygone + Mapping fuer Snapping/Klassifizierung
-        road_slope_polygons_2d.append(
-            {
-                "road_polygon": road_meta["road_poly_2d"],
-                "slope_polygon": road_meta["slope_poly_2d"],
-                "original_coords": road_meta["original_coords"],
-                "road_vertex_indices": {
-                    "left": road_vertex_indices_left,
-                    "right": road_vertex_indices_right,
-                },
-                "slope_outer_indices": {
-                    "left": slope_left_outer_indices,
-                    "right": slope_right_outer_indices,
-                },
+        poly_data = {
+            "road_polygon": road_meta["road_poly_2d"],
+            "slope_polygon": road_meta["slope_poly_2d"],
+            "original_coords": road_meta["original_coords"],
+            "road_vertex_indices": {
+                "left": road_vertex_indices_left,
+                "right": road_vertex_indices_right,
+            },
+        }
+
+        # slope_outer_indices nur hinzufügen, wenn Slopes aktiviert sind
+        if config.GENERATE_SLOPES:
+            poly_data["slope_outer_indices"] = {
+                "left": slope_left_outer_indices,
+                "right": slope_right_outer_indices,
             }
-        )
+
+        road_slope_polygons_2d.append(poly_data)
 
         original_idx = road_meta["original_idx"]
         original_to_mesh_idx[original_idx] = len(road_slope_polygons_2d) - 1
 
     print(f"  [OK] {len(all_road_faces)} Strassen-Faces")
-    print(f"  [OK] {len(all_slope_faces)} Boeschungs-Faces")
-
-    print(f"  [OK] Boeschungen OK")
+    if config.GENERATE_SLOPES:
+        print(f"  [OK] {len(all_slope_faces)} Boeschungs-Faces")
+        print(f"  [OK] Boeschungen OK")
+    else:
+        print(
+            f"  [i] Boeschungs-Generierung deaktiviert (config.GENERATE_SLOPES=False)"
+        )
     print(
         f"  [OK] {len(road_slope_polygons_2d)} Road/Slope-Polygone fuer Grid-Ausschneiden (2D)"
     )

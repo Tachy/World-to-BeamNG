@@ -4,6 +4,8 @@ Zentrale Konfiguration fuer World-to-BeamNG.
 
 # === MESH-PARAMETER ===
 ROAD_WIDTH = 7.0
+# Böschungs-Generierung (vorübergehend deaktiviert bis Remeshing stabil)
+GENERATE_SLOPES = False
 # Minimale Boeschungsbreite (Meter) unabhängig von Hoehenunterschieden
 MIN_SLOPE_WIDTH = 2
 # Loch-Check schaltbar: False = kein Check/Export, True = Check + immer Export
@@ -35,6 +37,9 @@ CENTERLINE_SAMPLE_SPACING = (
     10.0  # Abstand zwischen Sample-Punkten entlang der Centerline (m)
 )
 CENTERLINE_SEARCH_RADIUS = 10.0  # Suchradius um Centerline-Punkte (m)
+
+# === JUNCTION REMESHING ===
+JUNCTION_REMESH_RADIUS = 18.0  # Suchradius für Junction-Remesh in Metern
 
 # === CLIPPING ===
 ROAD_CLIP_MARGIN = 10.0  # Clipping-Abstand vom Grid-Rand in Metern (Faces < 3m vom Rand werden entfernt)

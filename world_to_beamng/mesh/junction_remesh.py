@@ -15,15 +15,18 @@ from scipy.spatial import cKDTree, Delaunay
 from shapely.geometry import Polygon, Point, LineString, MultiPolygon
 from shapely.ops import unary_union, triangulate
 
+from .. import config
+
 
 def collect_nearby_geometry(junction_pos, vertices, faces, radius=15.0):
     """
     Sammelt alle Vertices und Faces im Suchradius um einen Junction-Point.
+    WICHTIG: 'faces' sollte schon gefiltert sein (nur Straßen-Faces!)
 
     Args:
         junction_pos: (x, y, z) Position des Junction-Points
         vertices: Nx3 Array aller Mesh-Vertices
-        faces: Mx3 Array aller Face-Indizes
+        faces: Mx3 Array aller Face-Indizes (sollte nur Straßen-Faces sein!)
         radius: Suchradius in Metern (default 10m)
 
     Returns:
@@ -34,43 +37,41 @@ def collect_nearby_geometry(junction_pos, vertices, faces, radius=15.0):
         - boundary_edge_indices: Kanten am Rand des Suchradius
         - center_point: Junction-Position (x, y)
     """
+    import time
+    t_start = time.time()
 
     center_xy = np.array(junction_pos[:2])  # Nur X, Y
 
-    # 1. KDTree: Finde alle Vertices im Radius (XY-Projektion)
-    vertices_xy = vertices[:, :2]
-    tree = cKDTree(vertices_xy)
-    nearby_vertex_indices = tree.query_ball_point(center_xy, radius)
-    nearby_vertex_indices = np.array(nearby_vertex_indices)
-
-    if len(nearby_vertex_indices) == 0:
-        print(f"    [Remesh] FEHLER: Keine Vertices gefunden! Radius zu klein?")
-        return None
-
-    # 2. Finde alle Faces, die mindestens einen Vertex im Radius haben
-    # Optimierung: Nutze KDTree auf Face-Centroids für schnelle räumliche Suche
-    nearby_vertex_set = set(nearby_vertex_indices)
-
+    # OPTIMIERUNG: Reduziere Suchbereich - nicht jede Vertex einzeln, sondern:
+    # Finde FACE-Centroids im Radius, dann nimm alle Vertices dieser Faces
+    # Das ist viel schneller als KDTree auf allen Vertices!
+    
     # Berechne Centroids aller Faces
     face_centroids = vertices[faces, :2].mean(axis=1)  # Nx2 array of (x,y) centroids
-
-    # KDTree auf Centroids mit erweiterten Radius (Sicherheitsmarge für große Dreiecke)
-    # Max Triangle Edge ~ sqrt(2) * radius bei worst case -> nutze radius * 1.5
+    
+    # KDTree EINMAL auf Face-Centroids (nicht auf Vertices!)
     centroid_tree = cKDTree(face_centroids)
-    candidate_face_indices = centroid_tree.query_ball_point(center_xy, radius * 1.5)
+    candidate_face_indices = centroid_tree.query_ball_point(center_xy, radius)
 
-    # Verfeinere: Prüfe nur Kandidaten ob mindestens ein Vertex im Radius
-    nearby_face_indices = []
+    # Sammle ALLE Vertices aus diesen Faces
+    nearby_vertex_set = set()
     for face_idx in candidate_face_indices:
-        face = faces[face_idx]
-        if any(v_idx in nearby_vertex_set for v_idx in face):
-            nearby_face_indices.append(face_idx)
-
-    nearby_face_indices = np.array(nearby_face_indices, dtype=np.int32)
+        for v_idx in faces[face_idx]:
+            nearby_vertex_set.add(v_idx)
+    
+    nearby_vertex_indices = np.array(sorted(nearby_vertex_set), dtype=np.int32)
+    
+    if len(nearby_vertex_indices) == 0:
+        print(f"    [Remesh] FEHLER: Keine Vertices gefunden!")
+        return None
+    
+    # Nearby-Face-Indizes sind einfach die Kandidaten
+    nearby_face_indices = np.array(candidate_face_indices, dtype=np.int32)
 
     # 3. Identifiziere Boundary-Edges (Kanten die nur teilweise im Radius sind)
     boundary_edges = []
-    for face_idx, face in enumerate(faces[nearby_face_indices]):
+    for face_idx in nearby_face_indices:
+        face = faces[face_idx]
         for i in range(3):
             v1_idx = face[i]
             v2_idx = face[(i + 1) % 3]
@@ -82,10 +83,6 @@ def collect_nearby_geometry(junction_pos, vertices, faces, radius=15.0):
             if v1_in != v2_in:
                 boundary_edges.append((v1_idx, v2_idx))
 
-    # Sammle alle Original-Vertices für Z-Snapping (nicht nur Boundary)
-    # Die Idee: Neue Vertices können überall auf/nahe der Boundary snappen
-    all_nearby_vertex_indices = np.array(sorted(nearby_vertex_set))
-
     return {
         "center_point": center_xy,
         "junction_pos_3d": junction_pos,
@@ -93,7 +90,7 @@ def collect_nearby_geometry(junction_pos, vertices, faces, radius=15.0):
         "nearby_face_indices": nearby_face_indices,
         "nearby_vertices_3d": vertices[nearby_vertex_indices],
         "boundary_edges": boundary_edges,
-        "all_nearby_vertex_indices": all_nearby_vertex_indices,
+        "all_nearby_vertex_indices": nearby_vertex_indices,
         "radius": radius,
     }
 
@@ -150,6 +147,7 @@ def prepare_remesh_data(geometry_data, vertices, faces):
 
     # 2D-Projektion: Alle Faces als Shapely-Polygone
     all_polygons_2d = []
+    all_face_indices = []  # Speichere Original-Face-Indizes
     z_values_per_face = []  # Speichere Z-Werte für Interpolation
 
     for f_idx in nearby_f_indices:
@@ -165,33 +163,19 @@ def prepare_remesh_data(geometry_data, vertices, faces):
             polygon = Polygon(xy_coords)
             if polygon.is_valid and polygon.area > 1e-6:  # Nur gültige Polygone
                 all_polygons_2d.append(polygon)
+                all_face_indices.append(f_idx)  # Speichere den Index!
                 z_values_per_face.append(z_coords.mean())  # Mittlerer Z pro Face
         except Exception as e:
             pass  # Ungültiges Polygon ignorieren
 
-    # KRITISCH: Filtere nur ÜBERLAPPENDE Polygone (Junction-Bereich)!
-    # Ein Polygon überlappt, wenn es mit mindestens einem anderen Polygon schneidet
-    overlapping_polygons = []
-    for i, poly in enumerate(all_polygons_2d):
-        has_overlap = False
-        for j, other_poly in enumerate(all_polygons_2d):
-            if (
-                i != j
-                and poly.intersects(other_poly)
-                and poly.intersection(other_poly).area > 1e-6
-            ):
-                has_overlap = True
-                break
-        if has_overlap:
-            overlapping_polygons.append(poly)
-
-    polygons_2d = (
-        overlapping_polygons if len(overlapping_polygons) > 0 else all_polygons_2d
-    )
-
-    if len(polygons_2d) == 0:
+    if len(all_polygons_2d) == 0:
         print(f"    [Remesh] FEHLER: Keine gültigen Polygone gefunden!")
         return None
+
+    # OPTIMIZATION: Skip overlap filtering entirely!
+    # unary_union() below will handle all polygon merging automatically
+    # This eliminates the O(n²) or even O(n log n) check - unary_union is efficient
+    polygons_2d = all_polygons_2d
 
     # Boundary-Edges als Constraints (für später)
     boundary_edges_2d = []
@@ -202,6 +186,7 @@ def prepare_remesh_data(geometry_data, vertices, faces):
 
     return {
         "polygons_2d": polygons_2d,
+        "polygon_face_indices": all_face_indices,  # NEU: Welche Face gehört zu welchem Polygon
         "z_values_per_face": z_values_per_face,
         "boundary_edges_2d": boundary_edges_2d,
         "center_point": center_point,
@@ -244,6 +229,25 @@ def merge_and_triangulate(remesh_data):
     else:
         merged_polygon = merged
 
+    # FILTER: Welche der ursprünglichen Faces überlappen wirklich mit dem Union-Polygon?
+    # Das ist der echte Junction-Bereich (7-14m), nicht die ganzen 18m!
+    overlapping_polygons = []
+    overlapping_count = 0
+    
+    for i, poly in enumerate(polygons_2d):
+        if poly.intersects(merged_polygon):
+            overlapping_polygons.append(poly)
+            overlapping_count += 1
+    
+    # Nutze nur die überlappenden Polygone - und mache NOCHMAL unary_union
+    # Das eliminiert Rauschen von weit entfernten Faces!
+    if overlapping_count > 0 and overlapping_count < len(polygons_2d):
+        merged_filtered = unary_union(overlapping_polygons)
+        if isinstance(merged_filtered, MultiPolygon):
+            merged_polygon = max(merged_filtered.geoms, key=lambda p: p.area)
+        else:
+            merged_polygon = merged_filtered
+
     # 2. Extrahiere die äußere Boundary - und snappe sie zu Original-Vertices
     boundary_coords_raw = np.array(
         merged_polygon.exterior.coords[:-1]
@@ -277,6 +281,7 @@ def merge_and_triangulate(remesh_data):
     # 3. Trianguliere das Polygon robust mit shapely.triangulate (respektiert Concavity)
     try:
         tri_polys = triangulate(merged_polygon)
+        
         vertices = []
         vertex_map = {}
         faces = []
@@ -300,7 +305,7 @@ def merge_and_triangulate(remesh_data):
                 face_idx.append(idx)
             if len(face_idx) == 3:
                 faces.append(face_idx)
-
+        
         new_vertices_2d = np.array(vertices, dtype=np.float32)
         new_faces = np.array(faces, dtype=np.int32)
 
@@ -530,6 +535,7 @@ def reconstruct_z_values(triangulation_data, original_vertices, original_faces=N
 def remesh_single_junction(junction_idx, junction, vertices, faces, vertex_manager):
     """
     Remesht einen einzelnen Junction komplett.
+    WICHTIG: 'faces' sollte nur Straßen-Faces enthalten (Terrain-Filter im Caller!)
 
     Pipeline:
     1. Sammle Geometrie im Radius
@@ -543,7 +549,7 @@ def remesh_single_junction(junction_idx, junction, vertices, faces, vertex_manag
         junction_idx: Index des Junction in junctions-Liste
         junction: Junction-Dict mit 'position' etc.
         vertices: Alle Mesh-Vertices (Nx3)
-        faces: Alle Mesh-Faces (Mx3)
+        faces: Nur Straßen-Faces (Mx3) - Terrain-Faces müssen vorher gefiltert sein!
         vertex_manager: VertexManager-Instanz für neue Vertices
 
     Returns:
@@ -556,9 +562,11 @@ def remesh_single_junction(junction_idx, junction, vertices, faces, vertex_manag
     """
 
     try:
-        # 1. Sammle Geometrie
+        import time
+
+        # 1. Sammle Geometrie (Faces sind bereits nur Straßen-Faces!)
         geometry_data = collect_nearby_geometry(
-            junction["position"], vertices, faces, radius=18.0
+            junction["position"], vertices, faces, radius=config.JUNCTION_REMESH_RADIUS
         )
 
         if geometry_data is None:
@@ -681,9 +689,6 @@ def remesh_single_junction(junction_idx, junction, vertices, faces, vertex_manag
                         [old_vertex[0], old_vertex[1], new_z], dtype=np.float32
                     )
                     updated_vertices_count += 1
-                    print(
-                        f"    [UPDATE] Vertex {idx}: Z {old_vertex[2]:.4f} -> {new_z:.4f} (Delta={abs(old_vertex[2]-new_z):.4f})"
-                    )
 
                 vertex_indices.append(idx)
             else:
@@ -701,7 +706,7 @@ def remesh_single_junction(junction_idx, junction, vertices, faces, vertex_manag
                 vertex_indices[face[2]],
             ]
             remeshed_faces.append(remeshed_face)
-
+        
         # Nutze interpolierte Boundary-Z-Werte statt Durchschnitt
         boundary_z_values = result_data.get("boundary_z_values")
         if boundary_z_values is not None and len(boundary_z_values) == len(
