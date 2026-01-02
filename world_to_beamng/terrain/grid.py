@@ -19,11 +19,11 @@ def create_terrain_grid(height_points, height_elevations, grid_spacing=10.0):
     min_y, max_y = height_points[:, 1].min(), height_points[:, 1].max()
     config.GRID_BOUNDS_LOCAL = (min_x, min_y, max_x, max_y)
 
-    # Pruefe ob gecachtes Grid existiert (Version 2 fuer lokale Koordinaten!)
+    # Pruefe ob gecachtes Grid existiert (Version 3 mit korrekten Bounds!)
     height_hash = get_height_data_hash()
     if height_hash:
         cache_file = os.path.join(
-            config.CACHE_DIR, f"grid_v2_{height_hash}_spacing{grid_spacing:.1f}m.npz"
+            config.CACHE_DIR, f"grid_v3_{height_hash}_spacing{grid_spacing:.1f}m.npz"
         )
 
         if os.path.exists(cache_file):
@@ -41,9 +41,10 @@ def create_terrain_grid(height_points, height_elevations, grid_spacing=10.0):
             # Wir muessen hier nichts tun - grid_points sind schon im gleichen System wie height_points
             return grid_points, grid_elevations, nx, ny
 
-    # Erstelle Grid-Punkte
-    x_coords = np.arange(min_x, max_x, grid_spacing)
-    y_coords = np.arange(min_y, max_y, grid_spacing)
+    # Erstelle Grid-Punkte (inklusiv max_x und max_y!)
+    # WICHTIG: np.arange schließt max nicht ein, daher + grid_spacing
+    x_coords = np.arange(min_x, max_x + grid_spacing * 0.5, grid_spacing)
+    y_coords = np.arange(min_y, max_y + grid_spacing * 0.5, grid_spacing)
 
     grid_x, grid_y = np.meshgrid(x_coords, y_coords)
     grid_points = np.column_stack([grid_x.ravel(), grid_y.ravel()])
@@ -72,10 +73,10 @@ def create_terrain_grid(height_points, height_elevations, grid_spacing=10.0):
     ny = len(y_coords)
     print(f"  Grid: {nx} x {ny} = {len(grid_points)} Vertices")
 
-    # Cache das Grid fuer zukuenftige Verwendung (Version 2 fuer lokale Koordinaten!)
+    # Cache das Grid fuer zukuenftige Verwendung (Version 3 mit korrekten Bounds!)
     if height_hash:
         cache_file = os.path.join(
-            config.CACHE_DIR, f"grid_v2_{height_hash}_spacing{grid_spacing:.1f}m.npz"
+            config.CACHE_DIR, f"grid_v3_{height_hash}_spacing{grid_spacing:.1f}m.npz"
         )
         print(f"  Speichere Grid-Cache: {os.path.basename(cache_file)}")
         os.makedirs(config.CACHE_DIR, exist_ok=True)

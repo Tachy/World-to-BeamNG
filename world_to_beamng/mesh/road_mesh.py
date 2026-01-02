@@ -15,6 +15,78 @@ from math import ceil
 from .. import config
 
 
+def calculate_stop_distance(
+    centerline_coords, junction_center, road_width, min_edge_distance=1.0
+):
+    """
+    Berechnet, wo eine Straße stoppen soll, um die Junction zu erreichen.
+
+    Constraint: Beide Kanten (Links/Rechts) müssen mindestens min_edge_distance
+    vom Junction-Center entfernt bleiben.
+
+    Args:
+        centerline_coords: (N, 2) Array - Centerline-Punkte (x, y)
+        junction_center: (2,) - Junction-Koordinaten (x, y)
+        road_width: float - Straßenbreite (z.B. 7m)
+        min_edge_distance: float - Minimum Abstand Kante zu Center (default 1m)
+
+    Returns:
+        stop_index: int - Index, wo Quad-Bauen stoppen soll (oder len(coords) wenn vor Junction)
+    """
+    if len(centerline_coords) < 2:
+        return len(centerline_coords)
+
+    half_width = road_width / 2.0
+    coords_2d = np.asarray(centerline_coords, dtype=np.float64)
+    center_2d = np.asarray(junction_center, dtype=np.float64)
+
+    # Berechne Abstand jedes Punktes zur Junction
+    dists = np.linalg.norm(coords_2d - center_2d[np.newaxis, :], axis=1)
+
+    # Berechne Richtungen zwischen aufeinanderfolgenden Punkten
+    diffs = np.diff(coords_2d, axis=0)
+    lengths = np.linalg.norm(diffs, axis=1)
+    lengths = np.maximum(lengths, 0.001)
+    directions = diffs / lengths[:, np.newaxis]
+
+    # Erweitere auf alle Punkte (erste/letzte Punkt besonders behandelt)
+    point_dirs = np.zeros((len(coords_2d), 2))
+    point_dirs[0] = directions[0]
+    point_dirs[-1] = directions[-1]
+    for i in range(1, len(coords_2d) - 1):
+        avg_dir = (directions[i - 1] + directions[i]) / 2.0
+        norm = np.linalg.norm(avg_dir)
+        point_dirs[i] = avg_dir / norm if norm > 1e-6 else directions[i]
+
+    # Senkrechte zu Strassenrichtung
+    perp = np.column_stack([-point_dirs[:, 1], point_dirs[:, 0]])
+
+    # Berechne linke und rechte Kante-Punkte
+    left_edges = coords_2d + perp * half_width
+    right_edges = coords_2d - perp * half_width
+
+    # Abstand von Kanten zur Junction
+    dist_left_to_center = np.linalg.norm(left_edges - center_2d[np.newaxis, :], axis=1)
+    dist_right_to_center = np.linalg.norm(
+        right_edges - center_2d[np.newaxis, :], axis=1
+    )
+
+    # Constraint: Beide Kanten müssen >= min_edge_distance vom Center entfernt sein
+    valid_indices = np.where(
+        (dist_left_to_center >= min_edge_distance)
+        & (dist_right_to_center >= min_edge_distance)
+    )[0]
+
+    if len(valid_indices) == 0:
+        # Straße startet schon zu nah an Junction
+        return 0
+
+    # Finde den letzten gültigen Index
+    stop_index = int(valid_indices[-1]) + 1
+
+    return min(stop_index, len(coords_2d))
+
+
 def clip_road_to_bounds(coords, bounds_local):
     """Clippt eine Strasse an den Grid-Bounds (lokale Koordinaten)."""
     if not coords or bounds_local is None:
@@ -113,6 +185,38 @@ def _process_road_batch(
             point_dirs[i] = avg_dir / length if length > 1e-6 else incoming_dir
 
         perp = np.column_stack([-point_dirs[:, 1], point_dirs[:, 0]])
+
+        # === WICHTIG: Stelle sicher, dass perp-Richtung konsistent bleibt ===
+        # Bestimme die "richtige" Perpendikular-Richtung basierend auf der Gesamtrichtung
+        # Erste und letzte Perpendikular sollten in gleiche Richtung zeigen
+        angle_first = np.arctan2(perp[0, 1], perp[0, 0])
+        angle_last = np.arctan2(perp[-1, 1], perp[-1, 0])
+
+        # Berechne die kleinste Drehung
+        angle_diff = angle_last - angle_first
+        while angle_diff > np.pi:
+            angle_diff -= 2 * np.pi
+        while angle_diff < -np.pi:
+            angle_diff += 2 * np.pi
+
+        # Wenn sich perp von Anfang zu Ende um > 90° dreht, flippe alle Punkte ab der Hälfte
+        # Das deutet darauf hin, dass die Richtung zwischendurch verkehrt wurde
+        if abs(angle_diff) > np.pi / 2:
+            # Finde den Punkt mit dem größten Richtungswechsel
+            for i in range(1, num_points):
+                angle_prev = np.arctan2(perp[i - 1, 1], perp[i - 1, 0])
+                angle_curr = np.arctan2(perp[i, 1], perp[i, 0])
+
+                angle_change = angle_curr - angle_prev
+                while angle_change > np.pi:
+                    angle_change -= 2 * np.pi
+                while angle_change < -np.pi:
+                    angle_change += 2 * np.pi
+
+                # Wenn großer Sprung, flippe ab hier
+                if abs(angle_change) > np.pi / 2:
+                    perp[i:] = -perp[i:]
+                    break
 
         left_xy = coords_array[:, :2] + perp * half_width
         right_xy = coords_array[:, :2] - perp * half_width
@@ -316,16 +420,24 @@ def generate_road_mesh_strips(
                     f"  Batch {idx}/{len(batches)} fertig (Vertices: {len(batch_vertices):,})"
                 )
     else:
-        # Single-thread fallback
-        for original_road_idx, road in enumerate(road_polygons):
+        # Single-thread fallback - AUCH mit Batching für Performance!
+        max_roads_per_batch = getattr(config, "MAX_ROADS_PER_BATCH", 500) or 500
+        batches = []
+        for start in range(0, total_roads, max_roads_per_batch):
+            end = min(start + max_roads_per_batch, total_roads)
+            batch = list(zip(range(start, end), road_polygons[start:end]))
+            batches.append(batch)
+
+        for idx, batch in enumerate(batches, 1):
             (
                 batch_per_road,
                 batch_vertices,
                 clipped_local,
-            ) = worker_func([(original_road_idx, road)])
+            ) = worker_func(batch)
 
             offset = len(all_vertices_concat)
             all_vertices_concat.extend(batch_vertices)
+
             for entry in batch_per_road:
                 entry["left_start"] += offset
                 entry["right_start"] += offset
@@ -335,15 +447,22 @@ def generate_road_mesh_strips(
             per_road_data.extend(batch_per_road)
             clipped_roads += clipped_local
 
-            processed = original_road_idx + 1
-            if processed % 50 == 0:
-                print(f"  {processed}/{total_roads} Strassen (Geometrie)...")
+            print(
+                f"  Batch {idx}/{len(batches)} fertig (Vertices: {len(batch_vertices):,})"
+            )
 
     # === Globaler Insert in einem Rutsch ===
     print(
         f"  Fuege {len(all_vertices_concat):,} Strassen/Boeschungs-Vertices in einem Rutsch hinzu..."
     )
-    global_indices = vertex_manager.add_vertices_batch_dedup_fast(all_vertices_concat)
+    # WICHTIG: Keine globale Deduplizierung über Roads hinweg!
+    # Jede Road hat ihre eigenen Vertices - sie dürfen nicht mit anderen Roads geteilt werden
+    # Das würde zu falschen Verbindungen zwischen verschiedenen Roads führen
+    global_indices = []
+    for i, vertex in enumerate(all_vertices_concat):
+        idx = vertex_manager.add_vertex(vertex[0], vertex[1], vertex[2])
+        global_indices.append(idx)
+
     print(
         f"  [OK] VertexManager: {vertex_manager.get_count():,} Vertices nach Strassen"
     )
@@ -373,9 +492,11 @@ def generate_road_mesh_strips(
             right1 = road_vertex_indices_right[i]
             right2 = road_vertex_indices_right[i + 1]
 
-            all_road_faces.append([left1, right1, right2])
+            # KORRIGIERTE Triangulation mit CCW Winding-Order (gegen Uhrzeigersinn)
+            # Diese Reihenfolge erzeugt positive Z-Normals
+            all_road_faces.append([left1, right2, right1])
             all_road_face_to_idx.append(road_id)
-            all_road_faces.append([left1, right2, left2])
+            all_road_faces.append([left1, left2, right2])
             all_road_face_to_idx.append(road_id)
 
         # Boeschungs-Faces nur erzeugen, wenn aktiviert
@@ -444,10 +565,20 @@ def generate_road_mesh_strips(
             f"  [i] Junction-Handling: wird direkt in Centerlines erkannt (nicht mehr nachträglich)"
         )
 
+    # Sammle alle Road-Polygone (2D) für Grid-Conforming
+    all_road_polygons_2d = [
+        poly_data["road_polygon"] for poly_data in road_slope_polygons_2d
+    ]
+    all_slope_polygons_2d = [
+        poly_data["slope_polygon"] for poly_data in road_slope_polygons_2d
+    ]
+
     return (
         all_road_faces,
         all_road_face_to_idx,
         all_slope_faces,
         road_slope_polygons_2d,
         original_to_mesh_idx,
+        all_road_polygons_2d,  # ← NEU
+        all_slope_polygons_2d,  # ← NEU
     )

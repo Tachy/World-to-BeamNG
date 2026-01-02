@@ -117,67 +117,18 @@ class VertexManager:
         if coords_arr.size == 0:
             return []
 
-        result_indices = [None] * len(coords_arr)
-
-        # Lokale Referenzen fuer Speed
-        tol_sq = self.tolerance_sq
-        cell_size = self.cell_size
-        s_hash = self.spatial_hash
-
-        def cell_key_from_point(px, py, pz):
-            return (
-                int(np.floor(px / cell_size)),
-                int(np.floor(py / cell_size)),
-                int(np.floor(pz / cell_size)),
-            )
-
-        # Hilfsfunktion: lookup existing in neighboring buckets
-        def lookup(px, py, pz, key):
-            kx, ky, kz = key
-            for dx in (-1, 0, 1):
-                for dy in (-1, 0, 1):
-                    for dz in (-1, 0, 1):
-                        bucket = s_hash.get((kx + dx, ky + dy, kz + dz))
-                        if not bucket:
-                            continue
-                        for vidx in bucket:
-                            vx, vy, vz = self.vertices[vidx]
-                            dist_sq = (vx - px) ** 2 + (vy - py) ** 2 + (vz - pz) ** 2
-                            if dist_sq < tol_sq:
-                                return vidx
-            return None
-
-        # Sammle neue Vertices, dann mache batch vstack
-        new_vertices_to_add = []
-        new_vertex_keys = []
-
-        for i, (px, py, pz) in enumerate(coords_arr):
-            key = cell_key_from_point(px, py, pz)
-            existing = lookup(px, py, pz, key)
-            if existing is not None:
-                result_indices[i] = int(existing)
-                continue
-
-            result_indices[i] = len(self.vertices) + len(new_vertices_to_add)
-            new_vertices_to_add.append([px, py, pz])
-            new_vertex_keys.append(key)
-
-        # Batch-Add neue Vertices
-        if new_vertices_to_add:
-            start_idx = len(self.vertices)
-            new_arr = np.array(new_vertices_to_add, dtype=np.float32)
-            self.vertices = np.vstack([self.vertices, new_arr])
-
-            # Update Hash für neue Vertices
-            for local_i, key in enumerate(new_vertex_keys):
-                new_idx = start_idx + local_i
-                bucket = s_hash.get(key)
-                if bucket is None:
-                    s_hash[key] = [new_idx]
-                else:
-                    bucket.append(new_idx)
-
-        return result_indices
+        # Deduplizierung aktiv
+        indices = []
+        for coord in coords_arr:
+            existing_idx = self._find_existing(coord)
+            if existing_idx is not None:
+                indices.append(existing_idx)
+            else:
+                new_idx = len(self.vertices)
+                self.vertices = np.vstack([self.vertices, coord.reshape(1, 3)])
+                self._add_to_hash(new_idx, coord)
+                indices.append(new_idx)
+        return indices
 
     def add_vertices_batch(self, coords):
         """

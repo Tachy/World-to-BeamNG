@@ -50,6 +50,10 @@ JUNCTION_REMESH_RADIUS = 18.0  # Suchradius für Junction-Remesh in Metern
 # === CLIPPING ===
 ROAD_CLIP_MARGIN = 10.0  # Clipping-Abstand vom Grid-Rand in Metern (Faces < 3m vom Rand werden entfernt)
 
+# === TILE-EXPORT (DAE) ===
+TILE_SIZE = 500  # Größe pro DAE-Tile in Metern
+MATERIAL_TYPES = ["terrain", "road"]  # Verfügbare Materialien (später erweiterbar)
+
 
 # === VERZEICHNISSE ===
 CACHE_DIR = "cache"  # Verzeichnis fuer Cache-Dateien
