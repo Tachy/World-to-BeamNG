@@ -16,6 +16,7 @@ import os
 import glob
 import gc
 import copy
+import json
 import numpy as np
 
 # UTF-8 Encoding fuer Windows Console (fuer Unicode Zeichen in Status-Bar)
@@ -35,6 +36,7 @@ from world_to_beamng.geometry.junctions import (
     detect_junctions_in_centerlines,
     mark_junction_endpoints,
     junction_stats,
+    split_roads_at_mid_junctions,
 )
 from world_to_beamng.mesh.junction_remesh import (
     collect_nearby_geometry,
@@ -214,8 +216,40 @@ def main():
     # ===== SCHRITT 6a: Erkenne Junctions in Centerlines (NUR mit Centerlines!) =====
     timer.begin("Erkenne Junctions in Centerlines")
     junctions = detect_junctions_in_centerlines(road_polygons)
+    road_polygons, junctions = split_roads_at_mid_junctions(
+        road_polygons, junctions
+    )  # TEMP DEAKTIVIERT
     road_polygons = mark_junction_endpoints(road_polygons, junctions)
     junction_stats(junctions, road_polygons)
+
+    # Exportiere Debug-Daten für Viewer (neben terrain.dae)
+    debug_junctions_path = os.path.join(
+        config.BEAMNG_DIR_SHAPES, "debug_junctions.json"
+    )
+    debug_data = {
+        "junctions": [
+            {
+                "position": list(j["position"]),
+                "road_indices": j["road_indices"],
+                "num_connections": len(j["road_indices"]),
+            }
+            for j in junctions
+        ],
+        "roads": [
+            {
+                "coords": (
+                    road["coords"].tolist()
+                    if isinstance(road["coords"], np.ndarray)
+                    else road["coords"]
+                ),
+                "id": road.get("id", idx),
+            }
+            for idx, road in enumerate(road_polygons)
+        ],
+    }
+    with open(debug_junctions_path, "w", encoding="utf-8") as f:
+        json.dump(debug_data, f, indent=2)
+    print(f"  [Debug] Junction-Daten exportiert: {debug_junctions_path}")
 
     # ===== SCHRITT 7: Initialisiere Vertex-Manager =====
     timer.begin("Initialisiere Vertex-Manager")
@@ -236,7 +270,7 @@ def main():
         all_road_polygons_2d,
         all_slope_polygons_2d,
     ) = generate_road_mesh_strips(
-        road_polygons, height_points, height_elevations, vertex_manager
+        road_polygons, height_points, height_elevations, vertex_manager, junctions
     )
 
     # Füge Straßen-Faces zum Mesh hinzu
@@ -244,13 +278,77 @@ def main():
     for face in road_faces:
         mesh.add_face(face[0], face[1], face[2], material="road")
 
+    # Debug-Export: Getrimmte Straßen-Koordinaten (NACH Mesh-Generierung)
+    debug_trimmed_path = os.path.join(config.CACHE_DIR, "debug_trimmed_roads.json")
+    trimmed_roads_data = []
+    for road_meta in road_slope_polygons_2d:
+        if "original_coords" in road_meta and road_meta["original_coords"]:
+            coords = road_meta["original_coords"]
+            trimmed_roads_data.append(
+                {
+                    "road_id": road_meta.get("road_id"),
+                    "original_idx": road_meta.get("original_idx"),
+                    "coords": coords if isinstance(coords, list) else coords.tolist(),
+                    "num_points": len(coords),
+                    "junction_start_id": road_meta.get("junction_start_id"),
+                    "junction_end_id": road_meta.get("junction_end_id"),
+                }
+            )
+    with open(debug_trimmed_path, "w", encoding="utf-8") as f:
+        json.dump(
+            {
+                "roads": trimmed_roads_data,
+                "junctions": [
+                    {"position": list(j["position"]), "road_indices": j["road_indices"]}
+                    for j in junctions
+                ],
+            },
+            f,
+            indent=2,
+        )
+    print(f"  [Debug] Getrimmte Straßen exportiert: {debug_trimmed_path}")
+
     timer.end()
 
     # ===== SCHRITT 8: Klassifiziere Grid-Vertices =====
     timer.begin("Klassifiziere Grid-Vertices")
+    # Verwende all_road_polygons_2d (enthält auch Junction-Fan-Bereiche)
+    all_road_and_slope_polygons = []
+    for idx, poly in enumerate(all_road_polygons_2d):
+        # Hole original_coords aus road_slope_polygons_2d wenn verfügbar
+        original_coords = []
+        if idx < len(road_slope_polygons_2d):
+            original_coords = road_slope_polygons_2d[idx].get("original_coords", [])
+
+        all_road_and_slope_polygons.append(
+            {
+                "road_polygon": (
+                    poly if isinstance(poly, np.ndarray) else np.array(poly)
+                ),
+                "slope_polygon": (
+                    poly if isinstance(poly, np.ndarray) else np.array(poly)
+                ),
+                "original_coords": original_coords,
+            }
+        )
+
     vertex_types, modified_heights = classify_grid_vertices(
-        grid_points, grid_elevations, road_slope_polygons_2d
+        grid_points, grid_elevations, all_road_and_slope_polygons
     )
+
+    # Debug-Export: Grid-Klassifizierung für Analyse
+    debug_grid_path = os.path.join(
+        config.BEAMNG_DIR_SHAPES, "debug_grid_classification.npz"
+    )
+    np.savez_compressed(
+        debug_grid_path,
+        grid_points=grid_points,
+        vertex_types=vertex_types,
+        nx=nx,
+        ny=ny,
+        grid_spacing=config.GRID_SPACING,
+    )
+    print(f"  [Debug] Grid-Klassifizierung exportiert: {debug_grid_path}")
 
     # ===== SCHRITT 9a: Regeneriere Terrain-Mesh (mit Straßenausschnitten) =====
     timer.begin("Regeneriere Terrain-Mesh")

@@ -285,12 +285,17 @@ def process_aerial_images(aerial_dir, output_dir, tile_size=1000, grid_bounds=No
                 tiles_y = int(grid_height / tile_world_size)
 
                 if 0 <= global_x_idx < tiles_x and 0 <= global_y_idx < tiles_y:
-                    # Prüfe ob dieses Tile bereits geschrieben wurde
+                    filename = f"tile_{global_x_idx}_{global_y_idx}.jpg"
+                    filepath = output_path / filename
+
+                    # Prüfe ob dieses Tile bereits geschrieben wurde (in unique_tiles oder auf Disk)
                     if (global_x_idx, global_y_idx) in unique_tiles:
                         continue  # Skip - Tile existiert bereits
 
-                    filename = f"tile_{global_x_idx}_{global_y_idx}.jpg"
-                    filepath = output_path / filename
+                    # Prüfe ob Datei bereits existiert
+                    if filepath.exists():
+                        unique_tiles.add((global_x_idx, global_y_idx))
+                        continue  # Skip - Tile bereits auf Disk
 
                     # Konvertiere zu RGB falls nötig
                     if tile_img.mode != "RGB":

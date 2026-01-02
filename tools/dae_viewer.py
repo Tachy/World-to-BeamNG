@@ -45,10 +45,13 @@ class DAETileViewer:
         self.show_terrain = True
         self.show_roads = True
         self.use_textures = True  # Texturen standardmäßig an
+        self.show_debug = False  # Debug-Layer (Junctions, Centerlines)
 
         # Speichere Actor-Referenzen für Sichtbarkeits-Toggles
         self.terrain_actors = []  # Liste von Terrain-Mesh-Actors
         self.road_actors = []  # Liste von Road-Mesh-Actors
+        self.debug_actors = []  # Liste von Debug-Actors (Junctions, Centerlines)
+        self.debug_loaded = False  # Flag: Debug-Layer bereits geladen?
 
         # Lade Texturen
         self.textures_dir = os.path.join(config.BEAMNG_DIR_SHAPES, "textures")
@@ -88,6 +91,7 @@ class DAETileViewer:
         print("  R = Nur Roads")
         print("  T = Toggle Materials")
         print("  X = Toggle Texturen")
+        print("  D = Toggle Debug-Layer (Junctions, Centerlines)")
         print("  K = Kamera laden | Shift+K = Kamera speichern")
         print("  L = Reload DAE")
         print("  Up/Down = Zoom ändern")
@@ -125,6 +129,11 @@ class DAETileViewer:
             print(f"\n[Texturen] {'AN' if self.use_textures else 'AUS'}")
             self.update_view()
 
+        elif key_lower == "d":
+            self.show_debug = not self.show_debug
+            print(f"\n[Debug] {'AN' if self.show_debug else 'AUS'}")
+            self._update_debug_visibility()
+
         elif key == "K":  # Shift+K (MUSS VOR "k" kommen!)
             self.save_camera_state()
         elif key_lower == "k":
@@ -144,6 +153,20 @@ class DAETileViewer:
             actor.SetVisibility(self.show_terrain)
         for actor in self.road_actors:
             actor.SetVisibility(self.show_roads)
+
+        self._update_active_layers_text()
+        self.plotter.render()
+
+    def _update_debug_visibility(self):
+        """Aktualisiere Sichtbarkeit der Debug-Actors ohne Reload."""
+        if not self.debug_loaded:
+            # Debug-Layer erstmalig laden
+            self._load_debug_layer()
+            self.debug_loaded = True
+
+        # Toggle Visibility
+        for actor in self.debug_actors:
+            actor.SetVisibility(self.show_debug)
 
         self._update_active_layers_text()
         self.plotter.render()
@@ -168,6 +191,7 @@ class DAETileViewer:
         # Leere Actor-Listen
         self.terrain_actors = []
         self.road_actors = []
+        self.debug_actors = []
 
         vertices = self.tile_data.get("vertices", [])
         faces = self.tile_data.get("faces", [])
@@ -286,9 +310,7 @@ class DAETileViewer:
 
         # Statuszeilen
         # Oben links: Bedienungsanleitung
-        bedienung = (
-            "M/R/T: Materials | X: Texturen | K: Cam | L: Reload | Up/Down: Zoom"
-        )
+        bedienung = "M/R/T: Materials | X: Texturen | D: Debug | K: Cam | L: Reload | Up/Down: Zoom"
         self.plotter.add_text(
             bedienung,
             position="upper_left",
@@ -378,6 +400,8 @@ class DAETileViewer:
             active_items.append("R")
         if self.use_textures:
             active_items.append("X")
+        if self.show_debug:
+            active_items.append("D")
 
         active_text = " ".join(active_items) if active_items else "-"
 
@@ -676,10 +700,12 @@ class DAETileViewer:
         try:
             print(f"  [Reload] {self.dae_path}")
 
-            # Speichere Kamera
+            # Speichere Kamera UND Debug-Layer-Status
             camera_pos = None
             camera_focal = None
             camera_up = None
+            debug_was_visible = self.show_debug
+
             try:
                 camera_pos = self.plotter.camera.position
                 camera_focal = self.plotter.camera.focal_point
@@ -697,7 +723,16 @@ class DAETileViewer:
 
             print(f"  ✓ Neu geladen")
 
+            # Debug-Layer zurücksetzen (wird neu geladen wenn aktiv)
+            self.debug_loaded = False
+            self.debug_actors = []
+
             self.update_view()
+
+            # Stelle Debug-Layer wieder her wenn er aktiv war
+            if debug_was_visible:
+                self.show_debug = True
+                self._update_debug_visibility()
 
             # Stelle Kamera wieder her
             if camera_pos is not None:
@@ -747,6 +782,109 @@ class DAETileViewer:
             except Exception as e:
                 print(f"[!] Fehler beim Verstecken des Reload-Overlays: {e}")
             self._reload_actor = None
+
+    def _load_debug_layer(self):
+        """Lade Debug-Layer mit Junctions und Centerlines (einmalig)."""
+        print("  [Debug] Lade Debug-Layer...")
+
+        # Lade Junction-Daten aus dem selben Verzeichnis wie die .dae
+        debug_junctions_path = os.path.join(
+            os.path.dirname(self.dae_path), "debug_junctions.json"
+        )
+
+        if not os.path.exists(debug_junctions_path):
+            print(f"  [Debug] Keine Junction-Daten gefunden: {debug_junctions_path}")
+            return
+
+        try:
+            with open(debug_junctions_path, "r", encoding="utf-8") as f:
+                debug_data = json.load(f)
+        except Exception as e:
+            print(f"  [!] Fehler beim Laden der Debug-Daten: {e}")
+            return
+
+        junctions = debug_data.get("junctions", [])
+        roads = debug_data.get("roads", [])
+
+        print(f"  [Debug] Lade {len(junctions)} Junctions, {len(roads)} Roads")
+
+        # === JUNCTIONS: Kombiniere alle Spheres in ein MultiBlock ===
+        junction_blocks = pv.MultiBlock()
+        label_positions = []
+        label_texts = []
+
+        for j_idx, junction in enumerate(junctions):
+            pos = junction.get("position")
+            if not pos or len(pos) < 3:
+                continue
+
+            # Füge Sphere zum MultiBlock hinzu
+            sphere = pv.Sphere(radius=2.0, center=pos)
+            junction_blocks.append(sphere)
+
+            # Sammle Label-Position und Text
+            label_positions.append([pos[0], pos[1], pos[2] + 3.0])
+            label_texts.append(str(j_idx))
+
+        # Rendere alle Junctions als EINEN Actor
+        if len(junction_blocks) > 0:
+            actor = self.plotter.add_mesh(
+                junction_blocks, color="blue", opacity=0.8, label="Junctions"
+            )
+            self.debug_actors.append(actor)
+
+        # Rendere alle Labels als EINEN Actor
+        if len(label_positions) > 0:
+            actor = self.plotter.add_point_labels(
+                label_positions,
+                label_texts,
+                point_size=0,
+                font_size=12,
+                text_color="blue",
+                shape_opacity=0.0,
+            )
+            self.debug_actors.append(actor)
+
+        # === CENTERLINES: Kombiniere alle Linien in ein PolyData ===
+        all_points = []
+        all_lines = []
+        point_offset = 0
+
+        for road in roads:
+            coords = road.get("coords", [])
+            if len(coords) < 2:
+                continue
+
+            coords_array = np.array(coords)
+            n = len(coords_array)
+
+            # Füge Punkte hinzu
+            all_points.extend(coords_array)
+
+            # Erstelle Line-Connectivity
+            for i in range(n - 1):
+                all_lines.append([2, point_offset + i, point_offset + i + 1])
+
+            point_offset += n
+
+        # Rendere alle Centerlines als EINEN Actor
+        if len(all_points) > 0:
+            all_points = np.array(all_points)
+            all_lines = np.array(all_lines)
+
+            centerlines_mesh = pv.PolyData(all_points, lines=all_lines)
+            actor = self.plotter.add_mesh(
+                centerlines_mesh,
+                color="blue",
+                line_width=2.0,
+                opacity=0.6,
+                label="Centerlines",
+            )
+            self.debug_actors.append(actor)
+
+        print(
+            f"  [Debug] {len(self.debug_actors)} Debug-Actors gerendert ({len(junctions)} Junctions, {len(roads)} Centerlines)"
+        )
 
     def show(self):
         """Zeige das Viewer-Fenster."""

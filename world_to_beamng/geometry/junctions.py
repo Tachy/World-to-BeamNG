@@ -620,6 +620,217 @@ def analyze_junction_types(junctions):
     return stats
 
 
+def split_roads_at_mid_junctions(road_polygons, junctions, merge_tol=0.5):
+    """
+    Splittet Strassen an Junction-Punkten, die als "mid" erkannt wurden.
+
+    Ergebnis: neue Road-Liste, in der jeder Abschnitt eine eigene Strasse mit
+    Start/End-Junction besitzt. Alle Eigenschaften der Originalstrasse werden
+    kopiert, die IDs werden um einen Teil-Suffix erweitert.
+    """
+
+    if not junctions or not road_polygons:
+        return road_polygons, junctions
+
+    junction_positions = [np.asarray(j["position"], dtype=float) for j in junctions]
+
+    def _dir_start(coords_arr):
+        if len(coords_arr) < 2:
+            return np.array([1.0, 0.0])
+        v = coords_arr[1, :2] - coords_arr[0, :2]
+        n = np.linalg.norm(v)
+        return v / n if n > 1e-6 else np.array([1.0, 0.0])
+
+    def _dir_end(coords_arr):
+        if len(coords_arr) < 2:
+            return np.array([1.0, 0.0])
+        v = coords_arr[-1, :2] - coords_arr[-2, :2]
+        n = np.linalg.norm(v)
+        return v / n if n > 1e-6 else np.array([1.0, 0.0])
+
+    def _new_id(base_id, part_idx):
+        if isinstance(base_id, int):
+            return base_id * 1000 + part_idx
+        return f"{base_id}_p{part_idx}"
+
+    new_roads = []
+    old_to_new_map = {}  # old road idx -> list of new road indices
+
+    for road_idx, road in enumerate(road_polygons):
+        coords = np.asarray(road.get("coords", []), dtype=float)
+        if len(coords) < 2:
+            # Unveraendert uebernehmen
+            new_road = road.copy()
+            new_road.setdefault("junction_indices", {"start": None, "end": None})
+            new_road["start_junction_id"] = None
+            new_road["end_junction_id"] = None
+            new_roads.append(new_road)
+            # Mapping setzen, damit Junctions ihre Verbindungen behalten
+            old_to_new_map[road_idx] = [len(new_roads) - 1]
+            continue
+
+        # Sammle bekannte Start/End-Junctions aus originalen connection_types
+        start_junc_id = None
+        end_junc_id = None
+        for j_idx, j in enumerate(junctions):
+            conn = j.get("connection_types", {}).get(road_idx, [])
+            if "start" in conn:
+                start_junc_id = j_idx
+            if "end" in conn:
+                end_junc_id = j_idx
+
+        # Sammle alle mid-Junctions fuer diese Strasse
+        cut_marks = []
+        for j_idx, j in enumerate(junctions):
+            conn = j.get("connection_types", {}).get(road_idx, [])
+            if "mid" not in conn:
+                continue
+            pos = junction_positions[j_idx]
+            p = coords[:, :2]
+            seg = p[1:] - p[:-1]
+            seg_len = np.linalg.norm(seg, axis=1)
+            valid = seg_len > 1e-6
+            if not np.any(valid):
+                continue
+            seg_len_sq = np.maximum(seg_len * seg_len, 1e-12)
+            vec = pos[:2] - p[:-1]
+            t = np.sum(vec * seg, axis=1) / seg_len_sq
+            t = np.clip(t, 0.0, 1.0)
+            proj = p[:-1] + seg * t[:, None]
+            dist_sq = np.sum((proj - pos[:2]) ** 2, axis=1)
+            best = int(np.argmin(dist_sq))
+            best_t = float(t[best])
+            best_proj = proj[best]
+            best_z = coords[best, 2] + best_t * (coords[best + 1, 2] - coords[best, 2])
+            # Arc-Position als segmentindex + t
+            cut_marks.append((best + best_t, best_proj[0], best_proj[1], best_z, j_idx))
+
+        if not cut_marks:
+            new_road = road.copy()
+            new_road.setdefault("junction_indices", {"start": None, "end": None})
+            new_road["start_junction_id"] = None
+            new_road["end_junction_id"] = None
+            new_roads.append(new_road)
+            # Mapping setzen, damit unveraenderte Strassen in Junctions verbleiben
+            old_to_new_map[road_idx] = [len(new_roads) - 1]
+            continue
+
+        # Doppelte Schnitte (nahe beieinander) zusammenfassen
+        cut_marks.sort(key=lambda x: x[0])
+        merged_cuts = []
+        for c in cut_marks:
+            if not merged_cuts:
+                merged_cuts.append(c)
+                continue
+            last = merged_cuts[-1]
+            if abs(c[0] - last[0]) <= 1e-4:
+                merged_cuts[-1] = c  # ersetze mit letzter (gleiches Segment)
+            else:
+                merged_cuts.append(c)
+
+        # Map Segment -> Cuts
+        cuts_by_seg = {}
+        for c in merged_cuts:
+            s_pos = c[0]
+            seg_idx = int(np.floor(s_pos))
+            t_seg = s_pos - seg_idx
+            cuts_by_seg.setdefault(seg_idx, []).append((t_seg, c[1], c[2], c[3], c[4]))
+
+        current_coords = [coords[0]]
+        current_start_j = start_junc_id
+        parts = []
+
+        for seg_idx in range(len(coords) - 1):
+            if seg_idx in cuts_by_seg:
+                seg_cuts = sorted(cuts_by_seg[seg_idx], key=lambda x: x[0])
+                for t_seg, x_cut, y_cut, z_cut, j_idx in seg_cuts:
+                    cut_pt = np.array([x_cut, y_cut, z_cut])
+                    current_coords.append(cut_pt)
+                    parts.append((current_coords, current_start_j, j_idx))
+                    current_coords = [cut_pt]
+                    current_start_j = j_idx
+            # füge Ende des Segments hinzu, falls kein Cut dort endet
+            next_pt = coords[seg_idx + 1]
+            current_coords.append(next_pt)
+
+        # letztes Teilstück
+        parts.append((current_coords, current_start_j, end_junc_id))
+
+        # Baue neue Roads aus Parts
+        base_id = road.get("id", f"road{road_idx}")
+        new_ids_for_this = []
+        for idx, (coords_part, start_j, end_j) in enumerate(parts, 1):
+            coords_arr = np.asarray(coords_part)
+            if len(coords_arr) < 2:
+                continue
+            new_road = road.copy()
+            new_road["id"] = _new_id(base_id, idx)
+            new_road["coords"] = coords_arr.tolist()
+            new_road["start_junction_id"] = start_j
+            new_road["end_junction_id"] = end_j
+            new_road["junction_indices"] = {"start": start_j, "end": end_j}
+            new_roads.append(new_road)
+            new_ids_for_this.append(len(new_roads) - 1)
+
+        if new_ids_for_this:
+            old_to_new_map[road_idx] = new_ids_for_this
+        else:
+            old_to_new_map[road_idx] = []
+
+    # Rebaue Junction-Liste basierend auf den neuen Roads, bewahre Junction-Zahl
+    new_junctions = []
+    for j_idx, j in enumerate(junctions):
+        pos = junction_positions[j_idx]
+        roads_here = []
+        conn_types = {}
+        dir_vectors = {}
+
+        for old_ridx, conn_list in j.get("connection_types", {}).items():
+            mapped = old_to_new_map.get(old_ridx, [])
+            for new_ridx in mapped:
+                road = new_roads[new_ridx]
+                coords_arr = np.asarray(road.get("coords", []), dtype=float)
+
+                # Setze fehlende Start/End IDs falls nötig
+                if "start" in conn_list and road.get("start_junction_id") is None:
+                    road["start_junction_id"] = j_idx
+                    road["junction_indices"]["start"] = j_idx
+                if "end" in conn_list and road.get("end_junction_id") is None:
+                    road["end_junction_id"] = j_idx
+                    road["junction_indices"]["end"] = j_idx
+
+                # Nur zählen, wenn das Teilstück tatsächlich an dieser Junction startet/endet
+                if road.get("start_junction_id") == j_idx:
+                    roads_here.append(new_ridx)
+                    conn_types.setdefault(new_ridx, []).append("start")
+                    dir_vectors[new_ridx] = _dir_start(coords_arr)
+                if road.get("end_junction_id") == j_idx:
+                    roads_here.append(new_ridx)
+                    conn_types.setdefault(new_ridx, []).append("end")
+                    dir_vectors[new_ridx] = _dir_end(coords_arr)
+
+        roads_unique = sorted(set(roads_here))
+        if len(roads_unique) >= 2:
+            new_junctions.append(
+                {
+                    "position": tuple(pos.tolist()),
+                    "road_indices": roads_unique,
+                    "connection_types": {
+                        r: conn_types.get(r, []) for r in roads_unique
+                    },
+                    "direction_vectors": {
+                        r: dir_vectors.get(r, np.array([1.0, 0.0]))
+                        for r in roads_unique
+                    },
+                    "num_connections": sum(
+                        len(conn_types.get(r, [])) for r in roads_unique
+                    ),
+                }
+            )
+
+    return new_roads, new_junctions
+
+
 def junction_stats(junctions, road_polygons):
     """Gibt Statistik über erkannte Junctions aus (Produktiv-Einsatz)."""
     if not junctions:

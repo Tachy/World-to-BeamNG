@@ -10,6 +10,8 @@ BEAMNG_DIR_SHAPES = BEAMNG_DIR + "\\art\\shapes"
 BEAMNG_DIR_TEXTURES = BEAMNG_DIR_SHAPES + "\\textures"
 # === MESH-PARAMETER ===
 ROAD_WIDTH = 7.0
+# Abstand, um Straßen vor Junction-Centern zu stoppen (zusätzlich zur halben Breite)
+JUNCTION_STOP_BUFFER = 5.0
 # Böschungs-Generierung (vorübergehend deaktiviert bis Remeshing stabil)
 GENERATE_SLOPES = False
 # Minimale Boeschungsbreite (Meter) unabhängig von Hoehenunterschieden
