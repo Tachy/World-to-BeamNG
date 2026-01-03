@@ -66,6 +66,10 @@ from world_to_beamng.mesh.cleanup import (
 from world_to_beamng.mesh.stitching import (
     stitch_terrain_gaps,
 )
+from world_to_beamng.mesh.stitch_local import (
+    find_boundary_polygons_in_circle,
+    export_boundary_polygons_to_obj,
+)
 from world_to_beamng.io.aerial import process_aerial_images
 from world_to_beamng.mesh.tile_slicer import slice_mesh_into_tiles
 from world_to_beamng.io.dae import export_merged_dae
@@ -209,7 +213,7 @@ def main():
 
     # ===== SCHRITT 6a: Erkenne Junctions in Centerlines (NUR mit Centerlines!) =====
     timer.begin("Erkenne Junctions in Centerlines")
-    junctions = detect_junctions_in_centerlines(road_polygons)
+    junctions = detect_junctions_in_centerlines(road_polygons, height_points, height_elevations)
     road_polygons, junctions = split_roads_at_mid_junctions(road_polygons, junctions)
     road_polygons = mark_junction_endpoints(road_polygons, junctions)
     junction_stats(junctions, road_polygons)
@@ -357,10 +361,20 @@ def main():
             }
         )
 
+    # Erfasse den ersten Suchkreis (Centerline-Punkt + Radius) für lokales Stitching
+    stitch_circle_requests = []
+
+    def _capture_stitch_circle(centerline_point, search_radius):
+        if stitch_circle_requests:
+            return
+        stitch_circle_requests.append((centerline_point, search_radius))
+
     vertex_types, modified_heights = classify_grid_vertices(
         grid_points,
         grid_elevations,
         road_data_for_classification,
+        on_centerline_circle=_capture_stitch_circle,
+        max_circles=1,
     )
 
     # Debug-Export: Grid-Klassifizierung für Analyse
@@ -391,6 +405,81 @@ def main():
         print(f"  [OK] {vertex_manager.get_count()} Vertices final (gesamt)")
         print(f"  [OK] {len(terrain_faces_final)} Terrain-Faces generiert")
 
+    # Debug-Dump: Z-Vergleich Terrain vs. Straßen
+    os.makedirs(config.CACHE_DIR, exist_ok=True)
+    z_comparison_path = os.path.join(config.CACHE_DIR, "z_height_comparison.json")
+    verts_array = np.asarray(vertex_manager.get_array())
+    z_comparison = {
+        "terrain_sample": [],
+        "road_sample": [],
+        "stats": {
+            "terrain_z_min": float(np.min(verts_array[list(terrain_vertex_indices), 2])) if terrain_vertex_indices else None,
+            "terrain_z_max": float(np.max(verts_array[list(terrain_vertex_indices), 2])) if terrain_vertex_indices else None,
+            "terrain_z_mean": float(np.mean(verts_array[list(terrain_vertex_indices), 2])) if terrain_vertex_indices else None,
+        }
+    }
+    
+    # Sample Terrain-Vertices
+    if terrain_vertex_indices:
+        terrain_sample_indices = list(terrain_vertex_indices)[:10]
+        for idx in terrain_sample_indices:
+            v = verts_array[idx]
+            z_comparison["terrain_sample"].append({
+                "vertex_idx": int(idx),
+                "x": float(v[0]),
+                "y": float(v[1]),
+                "z": float(v[2]),
+            })
+    
+    # Sample Road-Vertices (aus road_faces)
+    road_vertices_seen = set()
+    if road_faces:
+        for face_idx, face in enumerate(road_faces[:50]):
+            for v_idx in face:
+                if v_idx not in road_vertices_seen and len(z_comparison["road_sample"]) < 10:
+                    road_vertices_seen.add(v_idx)
+                    v = verts_array[v_idx]
+                    z_comparison["road_sample"].append({
+                        "vertex_idx": int(v_idx),
+                        "face_idx": int(face_idx),
+                        "x": float(v[0]),
+                        "y": float(v[1]),
+                        "z": float(v[2]),
+                    })
+    
+    with open(z_comparison_path, "w") as f:
+        json.dump(z_comparison, f, indent=2)
+    print(f"  [Debug] Z-Höhen-Vergleich exportiert: {z_comparison_path}")
+    print(f"    Terrain Z: min={z_comparison['stats']['terrain_z_min']:.2f}, "
+          f"max={z_comparison['stats']['terrain_z_max']:.2f}, "
+          f"mean={z_comparison['stats']['terrain_z_mean']:.2f}")
+    if z_comparison["road_sample"]:
+        road_z_values = [s["z"] for s in z_comparison["road_sample"]]
+        print(f"    Straßen Z: min={min(road_z_values):.2f}, max={max(road_z_values):.2f}, mean={np.mean(road_z_values):.2f}")
+
+    # Lokales Stitching: nur erster Suchkreis (aus classify_grid_vertices Callback)
+    if stitch_circle_requests:
+        cl_point, search_radius = stitch_circle_requests[0]
+        try:
+            polygons_local = find_boundary_polygons_in_circle(
+                centerline_point=cl_point,
+                search_radius=search_radius,
+                vertex_manager=vertex_manager,
+                terrain_faces=terrain_faces_final,
+                slope_faces=road_faces,
+                terrain_vertex_indices=terrain_vertex_indices,
+                debug=True,
+            )
+
+            export_boundary_polygons_to_obj(polygons_local, cl_point, search_radius=search_radius)
+
+            if polygons_local:
+                print(f"  [OK] {len(polygons_local)} Boundary-Polygone (lokal) exportiert")
+            else:
+                print("  [i] Keine Boundary-Polygone im ersten Suchkreis gefunden (Kreis + Centerline exportiert)")
+        except Exception as e:
+            print(f"  [!] Lokales Stitching fehlgeschlagen: {e}")
+
     # ===== SCHRITT 9b: Füge Terrain-Faces zum Mesh hinzu =====
     for face in terrain_faces_final:
         mesh.add_face(face[0], face[1], face[2], material="terrain")
@@ -400,22 +489,8 @@ def main():
     if config.DEBUG_VERBOSE:
         print(f"  [OK] {len(all_road_polygons_2d)} Road-Polygone klassifiziert")
 
-    # ===== SCHRITT 9d: Suche und exportiere Loch-Polygone (Gaps) =====
-    timer.begin("Suche Terrain-Luecken (Gaps)")
-    stitch_faces = stitch_terrain_gaps(
-        vertex_manager,
-        terrain_vertex_indices,
-        road_slope_polygons_2d,
-        terrain_faces_final,
-        road_faces,  # Verwende Road-Faces statt slope_faces (keine Slopes mehr)
-        stitch_radius=10.0,
-    )
-    if stitch_faces:
-        print(f"  [OK] {len(stitch_faces)} Stitch-Faces hinzugefuegt")
-        for face in stitch_faces:
-            mesh.add_face(face[0], face[1], face[2], material="terrain")
-    else:
-        print(f"  [i] Keine Stitch-Faces generiert (nur Analyse)")
+    # ===== SCHRITT 9d: Suche Terrain-Luecken (Gaps) =====
+    print("Suche Terrain-Luecken (Gaps) deaktiviert (lokales Boundary-Obj aktiv)")
 
     # ===== SCHRITT 10: Slice Mesh in Tiles und exportiere als DAE =====
     timer.begin(f"Slice Mesh in {config.TILE_SIZE}×{config.TILE_SIZE}m Tiles")
@@ -469,3 +544,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

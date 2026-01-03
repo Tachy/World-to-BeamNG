@@ -12,10 +12,20 @@ from ..geometry.polygon import get_road_centerline_robust
 from .. import config
 
 
-def classify_grid_vertices(grid_points, grid_elevations, road_slope_polygons_2d):
+def classify_grid_vertices(
+    grid_points,
+    grid_elevations,
+    road_slope_polygons_2d,
+    on_centerline_circle=None,
+    max_circles=None,
+):
     """
     Markiert Grid-Vertices unter Straßen.
     SUPER-OPTIMIERT: Nutzt KDTree + geometrische Tests!
+
+    Optional: Callback je Centerline-Suchkreis (z.B. um lokale Stitch-Scans zu triggern).
+    Der Callback wird nur für die ersten ``max_circles`` Aufrufe ausgeführt; die
+    eigentliche Klassifizierung läuft weiterhin über alle Samples.
     """
     print("  Markiere Strassen-Bereiche im Grid (KDTree + Face-Überlappung)...")
 
@@ -54,18 +64,21 @@ def classify_grid_vertices(grid_points, grid_elevations, road_slope_polygons_2d)
             # Verwende die GETRIMTE Centerline (nach Junction-Trimming)!
             # (bereits in lokalen Koordinaten durch get_road_polygons)
             if trimmed_centerline and len(trimmed_centerline) >= 2:
-                centerline_coords = np.array([(x, y) for x, y, z in trimmed_centerline])
+                centerline_3d = np.array(trimmed_centerline, dtype=float)
+                centerline_coords = centerline_3d[:, :2]
                 has_real_centerline = True
             else:
                 # Fallback für Junction-Fans: Nutze Polygon-Center als "Centerline"
                 # (Fans werden später per Polygon-Bounds statt Centerline-Sampling verarbeitet)
                 centerline_coords = np.array([road_poly.centroid.coords[0]])
+                centerline_3d = None
                 has_real_centerline = False
 
             road_data.append(
                 {
                     "road_geom": road_poly,
                     "centerline_points": centerline_coords,
+                    "centerline_3d": centerline_3d,
                     "has_real_centerline": has_real_centerline,
                     "buffer_bounds": road_poly.bounds,
                 }
@@ -87,6 +100,8 @@ def classify_grid_vertices(grid_points, grid_elevations, road_slope_polygons_2d)
 
     print(f"  Teste {len(road_data)} Roads gegen Grid-Punkte...")
 
+    circles_triggered = 0  # zählt Callback-Aufrufe
+
     for road_num, road_info in enumerate(road_data):
         centerline_points = road_info["centerline_points"]
         has_real_centerline = road_info.get("has_real_centerline", True)
@@ -102,6 +117,16 @@ def classify_grid_vertices(grid_points, grid_elevations, road_slope_polygons_2d)
             if not centerline_linestring.is_valid or centerline_linestring.length == 0:
                 continue
 
+            centerline_3d = road_info.get("centerline_3d")
+
+            # Vorberechnung für Z-Interpolation entlang der 3D-Centerline
+            seg_len = None
+            seg_cum = None
+            if centerline_3d is not None and len(centerline_3d) >= 2:
+                seg_vec = centerline_3d[1:, :2] - centerline_3d[:-1, :2]
+                seg_len = np.linalg.norm(seg_vec, axis=1)
+                seg_cum = np.concatenate(([0.0], np.cumsum(seg_len)))
+
             total_length = centerline_linestring.length
             sample_spacing = config.CENTERLINE_SAMPLE_SPACING
 
@@ -109,10 +134,31 @@ def classify_grid_vertices(grid_points, grid_elevations, road_slope_polygons_2d)
             num_samples = max(2, int(np.ceil(total_length / sample_spacing)) + 1)
             sample_distances = np.linspace(0, total_length, num_samples)
 
+            def _interp_z(distance):
+                if centerline_3d is None or seg_cum is None or seg_len is None:
+                    return 0.0
+                if distance <= 0:
+                    return float(centerline_3d[0, 2])
+                if distance >= seg_cum[-1]:
+                    return float(centerline_3d[-1, 2])
+
+                idx = int(np.searchsorted(seg_cum, distance, side="right") - 1)
+                idx = max(0, min(idx, len(seg_len) - 1))
+                seg_length = seg_len[idx]
+
+                if seg_length < 1e-9:
+                    return float(centerline_3d[idx, 2])
+
+                t = (distance - seg_cum[idx]) / seg_length
+                return float(centerline_3d[idx, 2] + t * (centerline_3d[idx + 1, 2] - centerline_3d[idx, 2]))
+
             try:
-                centerline = np.array(
-                    [np.array(centerline_linestring.interpolate(dist).coords[0]) for dist in sample_distances]
-                )
+                centerline = []
+                for dist in sample_distances:
+                    pt = centerline_linestring.interpolate(dist)
+                    z_val = _interp_z(dist)
+                    centerline.append([pt.x, pt.y, z_val])
+                centerline = np.array(centerline)
             except Exception:
                 continue
 
@@ -124,8 +170,16 @@ def classify_grid_vertices(grid_points, grid_elevations, road_slope_polygons_2d)
 
             # Centerline-Samples
             for centerline_pt in centerline:
-                nearby = kdtree.query_ball_point(centerline_pt, r=search_radius)
+                nearby = kdtree.query_ball_point(centerline_pt[:2], r=search_radius)
                 buffer_indices_set.update(nearby)
+
+                # Trigger optional Callback (z.B. lokales Stitching) nur für die ersten Kreise
+                if on_centerline_circle and (max_circles is None or circles_triggered < max_circles):
+                    try:
+                        on_centerline_circle(centerline_pt, search_radius)
+                        circles_triggered += 1
+                    except Exception:
+                        pass  # Callback darf die Klassifizierung nicht stoppen
 
             buffer_indices = list(buffer_indices_set)
         else:

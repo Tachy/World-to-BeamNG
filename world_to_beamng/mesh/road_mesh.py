@@ -670,6 +670,9 @@ def _process_road_batch(
 
         left_xy = coords_array[:, :2] + perp * half_width
         right_xy = coords_array[:, :2] - perp * half_width
+
+        # WICHTIG: Straßen-Centerline Z-Werte sind bereits normalisiert (aus polygon.py)!
+        # Nutze sie direkt, KEINE erneute Interpolation!
         z_vals = coords_array[:, 2]
 
         if use_kdtree:
@@ -696,6 +699,11 @@ def _process_road_batch(
 
         road_left_vertices = list(zip(left_local[0], left_local[1], left_local[2]))
         road_right_vertices = list(zip(right_local[0], right_local[1], right_local[2]))
+        
+        # Debug: Prüfe erste Straßen-Z-Werte
+        if original_road_idx < 3:
+            print(f"    [DEBUG road_mesh] Road {original_road_idx}: centerline_z_raw={z_vals[0]:.2f}, "
+                  f"left_terrain={terrain_left_height[0]:.2f}, right_terrain={terrain_right_height[0]:.2f}")
 
         # Böschungs-Vertices nur erzeugen, wenn aktiviert
         if config.GENERATE_SLOPES:

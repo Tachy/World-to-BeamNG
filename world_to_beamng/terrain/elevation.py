@@ -112,11 +112,15 @@ def get_elevation_cache(bbox):
         try:
             with open(cache_path, "r", encoding="utf-8") as f:
                 cache_data = json.load(f)
-                print(f"  [OK] Elevation-Cache geladen: {len(cache_data)} Koordinaten")
-                return cache_data
+                # Cache-Version prüfen (v2 = normalisierte Z-Werte)
+                if cache_data.get("_cache_version") == 2:
+                    print(f"  [OK] Elevation-Cache geladen: {len(cache_data)-1} Koordinaten")
+                    return cache_data
+                else:
+                    print(f"  [i] Alter Cache-Format erkannt, wird ignoriert")
         except:
             pass
-    return {}
+    return {"_cache_version": 2}
 
 
 def save_elevation_cache(bbox, cache_data):
@@ -128,7 +132,8 @@ def save_elevation_cache(bbox, cache_data):
         os.makedirs(config.CACHE_DIR, exist_ok=True)
         with open(cache_path, "w", encoding="utf-8") as f:
             json.dump(cache_data, f, indent=2)
-        print(f"  [OK] Elevation-Cache gespeichert: {len(cache_data)} Koordinaten")
+        coord_count = len(cache_data) - 1  # -1 für _cache_version
+        print(f"  [OK] Elevation-Cache gespeichert: {coord_count} Koordinaten")
     except Exception as e:
         print(f"  [!] Fehler beim Speichern des Elevation-Cache: {e}")
 
@@ -172,6 +177,7 @@ def get_elevations_for_points(pts, bbox, height_points, height_elevations):
         missing_pts_local = np.array(missing_pts_local)
 
         # Interpoliere Hoehen (nearest neighbor fuer schnellere Berechnung)
+        # WICHTIG: height_elevations ist BEREITS normalisiert (oz wurde in world_to_beamng.py subtrahiert)!
         new_elevations = griddata(
             height_points, height_elevations, missing_pts_local, method="nearest"
         )
@@ -181,7 +187,7 @@ def get_elevations_for_points(pts, bbox, height_points, height_elevations):
             coord_key = f"{pt[0]:.6f},{pt[1]:.6f}"
             elevation_cache[coord_key] = float(elev)
 
-        # Speichere aktualisierten Cache
+        # Speichere aktualisierten Cache (mit Version)
         save_elevation_cache(bbox, elevation_cache)
 
     # Erstelle Elevation-Array fuer alle Punkte

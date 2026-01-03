@@ -890,26 +890,28 @@ class DAETileViewer:
             f"  [Debug] {len(self.debug_actors)} Debug-Actors gerendert ({len(junctions)} Junctions, {len(roads)} Centerlines)"
         )
 
-        # === LOCH-POLYGONE: Lade lochpolygone.obj falls vorhanden ===
-        lochpolygone_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "cache", "lochpolygone.obj")
-        if os.path.exists(lochpolygone_path):
+        # === Boundary-Polygone (lokales Stitching): lade boundary_polygons_local.obj falls vorhanden ===
+        boundary_polys_path = os.path.join(
+            os.path.dirname(os.path.dirname(__file__)), "cache", "boundary_polygons_local.obj"
+        )
+        if os.path.exists(boundary_polys_path):
             try:
-                print(f"  [Debug] Lade Loch-Polygone aus {lochpolygone_path}")
-                loch_mesh = pv.read(lochpolygone_path)
+                print(f"  [Debug] Lade Boundary-Polygone aus {boundary_polys_path}")
+                boundary_mesh = pv.read(boundary_polys_path)
 
-                # Rendere als rote Linien
+                # Rendere als magenta Linien
                 actor = self.plotter.add_mesh(
-                    loch_mesh,
-                    color="red",
+                    boundary_mesh,
+                    color="magenta",
                     line_width=3.0,
                     opacity=1.0,
-                    label="Loch-Polygone",
+                    label="Boundary-Polygone (lokal)",
                     render_lines_as_tubes=False,
                 )
                 self.debug_actors.append(actor)
-                print(f"  [Debug] Loch-Polygone geladen")
+                print(f"  [Debug] Boundary-Polygone geladen")
             except Exception as e:
-                print(f"  [!] Fehler beim Laden der Loch-Polygone: {e}")
+                print(f"  [!] Fehler beim Laden der Boundary-Polygone: {e}")
 
     def show(self):
         """Zeige das Viewer-Fenster."""

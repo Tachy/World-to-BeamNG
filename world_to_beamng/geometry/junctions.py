@@ -11,7 +11,7 @@ from shapely.geometry import LineString, Point, MultiPoint, GeometryCollection, 
 from shapely.strtree import STRtree
 
 
-def detect_junctions_in_centerlines(road_polygons):
+def detect_junctions_in_centerlines(road_polygons, height_points=None, height_elevations=None):
     """
     Erkennt Junctions (Kreuzungen/Einmuendungen) direkt in den Centerlines.
 
@@ -31,6 +31,12 @@ def detect_junctions_in_centerlines(road_polygons):
     """
     if not road_polygons:
         return []
+
+    # Prepare DEM interpolator if provided
+    dem_interpolator = None
+    if height_points is not None and height_elevations is not None:
+        dem_interpolator = cKDTree(height_points[:, :2])
+        height_elevations_array = np.asarray(height_elevations)
 
     # Sammle alle Strassenenden (Anfang und Ende) und precompute Segmentdaten
     endpoints = []  # (x, y, z, road_idx, is_start)
@@ -184,24 +190,26 @@ def detect_junctions_in_centerlines(road_polygons):
         return best_seg / seg_norm if seg_norm > 0.01 else np.array([1.0, 0.0])
 
     def _get_z_at_point(road_idx, xy_point):
-        """Interpoliert Z-Koordinate an einem XY-Punkt auf der Straße (vektorisiert mit einsum)."""
-        cache = road_cache[road_idx]
-        coords = cache["coords"]
-        if not coords or len(coords) < 2:
-            return 0.0 if not coords else coords[0][2]
-
-        seg_mids = cache["seg_mids"]
-        z_mid = cache["z_mid"]
-
-        if seg_mids.size == 0:
-            return coords[0][2]
-
-        # OPTIMIZATION: Nutze einsum statt sum() für Distanzberechnung
-        diff = seg_mids - np.array(xy_point)
-        dists_sq = np.einsum("ij,ij->i", diff, diff)
-        best_idx = int(np.argmin(dists_sq))
-
-        return z_mid[best_idx]
+        """Interpoliert Z-Koordinate an XY-Punkt vom DEM (oder aus bereits normalisierten Coords)."""
+        if dem_interpolator is not None:
+            # Nutze DEM für normalisierte Z-Werte
+            dist, idx = dem_interpolator.query(xy_point)
+            return float(height_elevations_array[idx])
+        else:
+            # Fallback: Coords sind bereits normalisiert (von polygon.py),
+            # also können wir direkt interpolieren ohne weitere DEM-Abfrage
+            cache = road_cache[road_idx]
+            coords = cache["coords"]
+            if not coords or len(coords) < 2:
+                return 0.0 if not coords else coords[0][2]
+            seg_mids = cache["seg_mids"]
+            z_mid = cache["z_mid"]
+            if seg_mids.size == 0:
+                return coords[0][2]
+            diff = seg_mids - np.array(xy_point)
+            dists_sq = np.einsum("ij,ij->i", diff, diff)
+            best_idx = int(np.argmin(dists_sq))
+            return z_mid[best_idx]
 
     def _add_junction(position_xyz, cluster_indices, extra_connections=None):
         cluster_points = [endpoints[i] for i in cluster_indices]
@@ -241,11 +249,20 @@ def detect_junctions_in_centerlines(road_polygons):
         if len(cluster_indices) < 2:
             continue  # Keine echte Junction
 
-        # Vektorisierte Mittelwert-Berechnung
+        # Vektorisierte Mittelwert-Berechnung (nur XY verwenden!)
         cluster_points = np.array([endpoints[i][:3] for i in cluster_indices], dtype=np.float64)
-        avg_point = np.mean(cluster_points, axis=0)
+        avg_xy = np.mean(cluster_points[:, :2], axis=0)
 
-        _add_junction(tuple(avg_point), cluster_indices)
+        # Z-Koordinate vom DEM interpolieren (nicht aus OSM-Rohdaten!)
+        if dem_interpolator is not None:
+            dist, idx = dem_interpolator.query(avg_xy)
+            avg_z = float(height_elevations_array[idx])
+        else:
+            # Fallback: Mittelwert der OSM-Z-Werte
+            avg_z = float(np.mean(cluster_points[:, 2]))
+
+        avg_point = (avg_xy[0], avg_xy[1], avg_z)
+        _add_junction(avg_point, cluster_indices)
 
     # ---- Zusätzliche Erkennung: Endpoint auf durchgehender Centerline (T-Junction) ----
     # Erkennt Punkte, bei denen ein Endpoint auf der Mittellinie einer anderen Straße endet
@@ -325,7 +342,8 @@ def detect_junctions_in_centerlines(road_polygons):
                 if point_to_line_dist_sq > t_line_tol_sq:
                     continue  # Punkt ist zu weit weg von der Linie
 
-                proj_z = ep_z
+                # Z-Koordinate vom DEM interpolieren (nicht aus OSM-Rohdaten)
+                proj_z = _get_z_at_point(other_road_idx, proj_xy)
 
                 # Prüfe ob bereits eine Junction an DIESER Position existiert (positionsbasiert!)
                 # Erlaubt mehrere Junctions zwischen denselben Straßen an verschiedenen Positionen
@@ -435,12 +453,12 @@ def detect_junctions_in_centerlines(road_polygons):
 
             candidates = tree.query(query_geom)
 
-            for other_geom in candidates:
-                other_road_idx = geom_to_idx.get(other_geom)
+            for other_idx in candidates:
+                other_road_idx = other_idx  # tree.query() returns indices in newer Shapely
                 if other_road_idx is None or other_road_idx <= road_idx:
                     continue
 
-                other_line = other_geom
+                other_line = line_strings[other_road_idx]
                 line_dist = road_line.distance(other_line)
 
                 if line_dist > ll_line_tol:

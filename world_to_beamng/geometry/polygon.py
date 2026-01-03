@@ -130,8 +130,7 @@ def get_road_polygons(roads, bbox, height_points, height_elevations):
         ox, oy, oz = config.LOCAL_OFFSET
         xs = xs - ox
         ys = ys - oy
-        # Transformiere auch Z-Koordinaten!
-        all_elevations = [e - oz for e in all_elevations]
+        # Z-Koordinaten sind bereits normalisiert (aus get_elevations_for_points)!
 
     # Erstelle Strassen-Polygone (bereits in lokalen Koordinaten)
     for start_idx, end_idx, way in road_indices:
