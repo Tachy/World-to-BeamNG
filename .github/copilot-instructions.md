@@ -1,10 +1,17 @@
 # Workflow-Regeln
-- Antworten immer in Deutsch.
+- Antworte immer in Deutsch.
+
 - Wir befinden uns in einer Windows-Umgebung. Die Terminals sind Powershell-Terminals.
-- Du kannst world_to_beamng.py immer ungefragt selbst ausführen und mit Deinen Parametern zum Suchen der Debug-Ausgaben anpassen.
-- Python-Aufruf immer mit ".\.venv\Scripts\python.exe".
-- bitte für das Abfangen der Ausgaben immer die selbe Datei erzeugen: world_to_beamng_debug_output.txt
-- Bitte Scripte immer ganz durchlaufen lassen und nicht mit Timer abbrechen.
-- Bitte den Viewer nicht selnst öffnen.
+- 
+
+
+- Python-Aufrufe immer mit ".\.venv\Scripts\python.exe".
+- Bitte world_to_beamng_viewer.py nicht automatisch starten. 
+
+- Bitte den dae_viewer nicht selbst öffnen.
+
 - Wenn ich eine Frage stelle, dann antworte nur auf die Frage und implementiere dann erst einmal keinen Code.
-- selbst angelegte test-Scripte bitte immer in tools/ anlegen.
+- Wenn Debug-Läufe notwendig sind: Bitte immer mit festen Dumps debuggen, die im Programmlauf erzeugt und in cache/ gespeichert werden.
+- Möglichst Debug-Scripte schreiben, die in debug/ liegen sollen und dann diese Dumps analysieren. Diese Scripte mir dann zur Ausführung geben.
+- Nach Code-Änderungen und Neuerstellung von Scriptendie Scripte immer automatisch auf Syntax checken.
+

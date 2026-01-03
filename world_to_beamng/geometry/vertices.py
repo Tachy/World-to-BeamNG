@@ -14,12 +14,10 @@ from .. import config
 
 def classify_grid_vertices(grid_points, grid_elevations, road_slope_polygons_2d):
     """
-    Markiert Grid-Vertices unter Strassen/Boeschungen.
+    Markiert Grid-Vertices unter Straßen.
     SUPER-OPTIMIERT: Nutzt KDTree + geometrische Tests!
     """
-    print(
-        "  Markiere Strassen-/Boeschungsbereiche im Grid (KDTree + Face-Überlappung)..."
-    )
+    print("  Markiere Strassen-Bereiche im Grid (KDTree + Face-Überlappung)...")
 
     vertex_types = np.zeros(len(grid_points), dtype=int)
     modified_heights = grid_elevations.copy()
@@ -33,60 +31,43 @@ def classify_grid_vertices(grid_points, grid_elevations, road_slope_polygons_2d)
 
     for idx, poly_data in enumerate(road_slope_polygons_2d):
         road_poly_xy = poly_data["road_polygon"]
-        slope_poly_xy = poly_data["slope_polygon"]
-        original_coords = poly_data.get("original_coords", [])
+        trimmed_centerline = poly_data.get("trimmed_centerline", [])
 
-        # Road-Polygon muss immer vorhanden sein, Slope-Polygon ist optional
+        # Road-Polygon muss vorhanden sein
         if len(road_poly_xy) < 3:
             continue
 
         try:
             road_poly = Polygon(road_poly_xy)
 
-            # Slope-Polygon nur verwenden, wenn vorhanden (falls Böschungen aktiviert)
-            if len(slope_poly_xy) >= 3:
-                slope_poly = Polygon(slope_poly_xy)
-            else:
-                # Fallback: Nutze road_poly auch als slope_poly (keine separate Böschung)
-                slope_poly = road_poly
-
-            # Validiere Polygone
+            # Validiere Polygon
             if not road_poly.is_valid:
                 road_poly = road_poly.buffer(0)
                 # Nach buffer(0) kann MultiPolygon entstehen - nimm groesstes Teil
                 if isinstance(road_poly, MultiPolygon):
                     road_poly = max(road_poly.geoms, key=lambda p: p.area)
 
-            if not slope_poly.is_valid:
-                slope_poly = slope_poly.buffer(0)
-                # Nach buffer(0) kann MultiPolygon entstehen - nimm groesstes Teil
-                if isinstance(slope_poly, MultiPolygon):
-                    slope_poly = max(slope_poly.geoms, key=lambda p: p.area)
-
             # Nochmal pruefen nach Fix
-            if not isinstance(road_poly, Polygon) or not isinstance(
-                slope_poly, Polygon
-            ):
+            if not isinstance(road_poly, Polygon):
                 continue
 
-            # Verwende die ORIGINALE OSM-Strassengeometrie fuer die Centerline!
+            # Verwende die GETRIMTE Centerline (nach Junction-Trimming)!
             # (bereits in lokalen Koordinaten durch get_road_polygons)
-            if original_coords and len(original_coords) >= 2:
-                centerline_coords = np.array([(x, y) for x, y, z in original_coords])
+            if trimmed_centerline and len(trimmed_centerline) >= 2:
+                centerline_coords = np.array([(x, y) for x, y, z in trimmed_centerline])
+                has_real_centerline = True
             else:
-                # Fallback: Berechne aus Polygon (bereits in lokalen Coords)
-                centerline_coords = get_road_centerline_robust(road_poly)
-
-            centerline = LineString(centerline_coords)
-            buffer_zone = centerline.buffer(7.0)
+                # Fallback für Junction-Fans: Nutze Polygon-Center als "Centerline"
+                # (Fans werden später per Polygon-Bounds statt Centerline-Sampling verarbeitet)
+                centerline_coords = np.array([road_poly.centroid.coords[0]])
+                has_real_centerline = False
 
             road_data.append(
                 {
                     "road_geom": road_poly,
-                    "slope_geom": slope_poly,
                     "centerline_points": centerline_coords,
-                    "buffer_zone": buffer_zone,
-                    "buffer_bounds": buffer_zone.bounds,
+                    "has_real_centerline": has_real_centerline,
+                    "buffer_bounds": road_poly.bounds,
                 }
             )
         except Exception:
@@ -108,74 +89,82 @@ def classify_grid_vertices(grid_points, grid_elevations, road_slope_polygons_2d)
 
     for road_num, road_info in enumerate(road_data):
         centerline_points = road_info["centerline_points"]
+        has_real_centerline = road_info.get("has_real_centerline", True)
 
-        if centerline_points is None or len(centerline_points) < 2:
-            continue
+        # Zwei Modi:
+        # 1. Regular Roads (mit Centerline): Sample entlang Centerline + KDTree
+        # 2. Junction Fans (ohne Centerline): Nutze Polygon-Bounds für KDTree
 
-        centerline_linestring = LineString(centerline_points)
+        if has_real_centerline and len(centerline_points) >= 2:
+            # Modus 1: Sample entlang Centerline
+            centerline_linestring = LineString(centerline_points)
 
-        if not centerline_linestring.is_valid or centerline_linestring.length == 0:
-            continue
+            if not centerline_linestring.is_valid or centerline_linestring.length == 0:
+                continue
 
-        total_length = centerline_linestring.length
-        sample_spacing = (
-            config.CENTERLINE_SAMPLE_SPACING
-        )  # Abstand zwischen Sample-Points entlang der Centerline
+            total_length = centerline_linestring.length
+            sample_spacing = config.CENTERLINE_SAMPLE_SPACING
 
-        sample_distances = np.arange(
-            0, total_length + sample_spacing / 2, sample_spacing
-        )
+            # Stelle sicher, dass auch sehr kurze Segmente mindestens mit Start+Ende abgetastet werden
+            num_samples = max(2, int(np.ceil(total_length / sample_spacing)) + 1)
+            sample_distances = np.linspace(0, total_length, num_samples)
 
-        if len(sample_distances) < 2:
-            continue
+            try:
+                centerline = np.array(
+                    [np.array(centerline_linestring.interpolate(dist).coords[0]) for dist in sample_distances]
+                )
+            except Exception:
+                continue
 
-        try:
-            centerline = np.array(
-                [
-                    np.array(centerline_linestring.interpolate(dist).coords[0])
-                    for dist in sample_distances
-                ]
+            if len(centerline) == 0:
+                continue
+
+            buffer_indices_set = set()
+            search_radius = config.CENTERLINE_SEARCH_RADIUS
+
+            # Centerline-Samples
+            for centerline_pt in centerline:
+                nearby = kdtree.query_ball_point(centerline_pt, r=search_radius)
+                buffer_indices_set.update(nearby)
+
+            buffer_indices = list(buffer_indices_set)
+        else:
+            # Modus 2: Junction Fan - nutze Polygon-Bounds
+            minx, miny, maxx, maxy = road_info["buffer_bounds"]
+
+            # Finde alle Grid-Punkte in Bounding Box
+            in_bbox = (
+                (grid_points_2d[:, 0] >= minx)
+                & (grid_points_2d[:, 0] <= maxx)
+                & (grid_points_2d[:, 1] >= miny)
+                & (grid_points_2d[:, 1] <= maxy)
             )
-        except Exception:
-            continue
-
-        if len(centerline) == 0:
-            continue
-
-        buffer_indices_set = set()
-        search_radius = config.CENTERLINE_SEARCH_RADIUS
-
-        for centerline_pt in centerline:
-            nearby = kdtree.query_ball_point(centerline_pt, r=search_radius)
-            buffer_indices_set.update(nearby)
-
-        buffer_indices = list(buffer_indices_set)
+            buffer_indices = np.where(in_bbox)[0].tolist()
 
         if len(buffer_indices) == 0:
             continue
 
         # VEKTORISIERT: Markiere ALLE Vertices die der KDTree findet!
-        # Bei 3m Grid und 7m Strassenbreite koennen Vertices ausserhalb des Polygons liegen
+        # Bei 2m Grid und 7m Strassenbreite koennen Vertices ausserhalb des Polygons liegen
         # Der KDTree-Radius (10m) erfasst alle relevanten Vertices
 
         candidate_points = grid_points_2d[buffer_indices]
 
-        # Test gegen Boeschungs-Bereich (enthält Strasse+Boeschung komplett)
-        slope_coords = np.array(road_info["slope_geom"].exterior.coords)
-        slope_path = Path(slope_coords)
-        inside_slope = slope_path.contains_points(candidate_points)
+        # Test gegen Road-Polygon (7m Breite)
+        # WICHTIG: road_geom enthält Regular Roads (getrimmt) UND Junction-Fans (aus main())
+        road_coords = np.array(road_info["road_geom"].exterior.coords)
+        road_path = Path(road_coords)
+        inside_road = road_path.contains_points(candidate_points)
 
-        # Markiere alle Vertices innerhalb von Strasse+Boeschung
+        # Markiere alle Vertices innerhalb des Road-Polygons
         for inside_idx in range(len(buffer_indices)):
             pt_idx = buffer_indices[inside_idx]
-            if inside_slope[inside_idx]:
+            if inside_road[inside_idx]:
                 vertex_types[pt_idx] = 1  # Flag zum Ausblenden
 
     elapsed_total = time_module.time() - process_start
     marked_count = np.count_nonzero(vertex_types)
 
-    print(
-        f"  [OK] Klassifizierung abgeschlossen ({elapsed_total:.1f}s, {marked_count} Punkte markiert)"
-    )
+    print(f"  [OK] Klassifizierung abgeschlossen ({elapsed_total:.1f}s, {marked_count} Punkte markiert)")
 
     return vertex_types, modified_heights

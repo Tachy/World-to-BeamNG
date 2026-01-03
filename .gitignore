@@ -4,6 +4,7 @@ aerial/
 
 # Cache files
 cache/
+debug/
 
 # Python
 __pycache__/

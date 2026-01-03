@@ -10,14 +10,15 @@ from scipy.interpolate import NearestNDInterpolator
 from scipy.spatial import cKDTree
 from concurrent.futures import ProcessPoolExecutor
 from functools import partial
-from math import ceil, atan2
+from math import ceil, atan2, degrees
 
 from .. import config
 
 
 def get_angle_between_vectors(v1, v2):
     """
-    Berechnet Winkel zwischen zwei 2D-Vektoren in Grad (0-180).
+    Berechnet den geometrischen Winkel zwischen zwei 2D-Vektoren (0-90°).
+    Die Richtung der Vektoren ist egal - nur der visuelle XY-Winkel zählt.
     """
     v1 = np.asarray(v1, dtype=np.float64)
     v2 = np.asarray(v2, dtype=np.float64)
@@ -35,25 +36,26 @@ def get_angle_between_vectors(v1, v2):
     angle_rad = np.arccos(dot_product)
     angle_deg = np.degrees(angle_rad)
 
-    # Gib immer den kleineren Winkel zurück (0-90)
+    # Gib immer den kleineren Winkel zurück (0-90°)
+    # Richtung ist egal, nur der geometrische Winkel zählt
     return min(angle_deg, 180.0 - angle_deg)
 
 
 def get_road_direction_at_junction(coords, junction_pos, is_end_junction=True):
     """
-    Berechnet die Straßen-Richtung am Junction-Punkt.
+    Extrahiert den Richtungsvektor der Centerline am Junction Point.
+    Die Richtung (hin/weg) ist egal für die Winkelberechnung -
+    nur der geometrische Winkel zwischen den Linien zählt.
 
     Args:
         coords: Straßen-Centerline-Punkte
-        junction_pos: Junction-Position
+        junction_pos: Junction-Position (ungenutzt, nur für Kompatibilität)
         is_end_junction: True wenn Junction am Road-Ende ist, False am Anfang
 
     Returns:
         2D-Richtungsvektor (normalisiert)
     """
-    coords_2d = np.asarray(
-        coords[:, :2] if len(coords[0]) >= 2 else coords, dtype=np.float64
-    )
+    coords_2d = np.asarray(coords[:, :2] if len(coords[0]) >= 2 else coords, dtype=np.float64)
 
     if len(coords_2d) < 2:
         return np.array([1.0, 0.0])  # Default-Richtung
@@ -73,7 +75,7 @@ def get_road_direction_at_junction(coords, junction_pos, is_end_junction=True):
 
 
 def calculate_junction_buffer(
-    road_id,
+    road_idx,
     junction_idx,
     coords,
     junction_centers,
@@ -82,101 +84,83 @@ def calculate_junction_buffer(
     is_end_junction=True,
 ):
     """
-    Berechnet dynamischen junction_stop_buffer basierend auf Winkeln zwischen Straßen.
+    Berechnet den dynamischen junction_stop_buffer über benachbarte Winkel.
 
-    Regel:
-    - Wenn zwei Straßen mit Winkel < 60° aufeinandertreffen → buffer = 5m
-    - Sonst → buffer = 0m
-
-    Args:
-        road_id: OSM Road-ID
-        junction_idx: Index der Junction in junction_centers
-        coords: Diese Straße's Centerline
-        junction_centers: Alle Junction-Positionen
-        junctions_full: Junction-Objects mit road_indices
-        road_polygons: Alle Straßen für Zugriff auf Richtungen
-        is_end_junction: True wenn diese Straße am Ende an Junction angebunden ist, False am Anfang
-
-    Returns:
-        float: 5.0 oder 0.0
+    - Straßen an der Junction werden über ihre junction_indices aus road_polygons
+      ermittelt (kein Vertrauen in junctions_full.road_indices nötig).
+    - Richtungen zeigen vom Junction weg (Ende → invertiert).
+    - Wenn einer der beiden Nachbarsektoren < config.JUNCTION_STOP_ANGLE_THRESHOLD ist → Buffer 5m, sonst 0m.
     """
-    if not junctions_full or junction_idx is None or junction_idx < 0:
+
+    def _bearing_from_direction(direction_vec):
+        v = np.asarray(direction_vec, dtype=np.float64)
+        n = np.linalg.norm(v)
+        if n < 1e-6:
+            return None
+        v = v / n
+        ang = degrees(np.arctan2(v[1], v[0]))
+        return ang + 360.0 if ang < 0.0 else ang
+
+    # Sammle alle Straßen, die an dieser Junction hängen
+    connected = []  # (idx, junction_indices)
+    for idx, r in enumerate(road_polygons):
+        ji = r.get("junction_indices", {}) or {}
+        if ji.get("start") == junction_idx or ji.get("end") == junction_idx:
+            connected.append((idx, ji))
+
+    if len(connected) < 2:
         return 0.0
 
-    if junction_idx >= len(junctions_full):
-        return 0.0
-
-    junction = junctions_full[junction_idx]
-    road_indices = junction.get("road_indices", [])
-
-    # Brauchen mindestens 2 Straßen zum Vergleichen
-    if len(road_indices) < 2:
-        return 0.0
-
-    # Berechne Richtung dieser Straße am Junction
-    try:
-        my_direction = get_road_direction_at_junction(
-            coords,
-            (
-                junction_centers[junction_idx]
-                if junction_idx < len(junction_centers)
-                else None
-            ),
-            is_end_junction=is_end_junction,
-        )
-    except:
-        return 0.0
-
-    # Vergleiche mit allen anderen Straßen an dieser Junction
-    min_angle = 180.0
-
-    for other_road_id in road_indices:
-        if other_road_id == road_id:
+    # Bearings ermitteln (vom Junction weg)
+    bearings = []
+    for idx, ji in connected:
+        coords_arr = np.asarray(road_polygons[idx].get("coords", []), dtype=float)
+        if len(coords_arr) < 2:
             continue
 
-        # Finde diese Straße in road_polygons
-        other_coords = None
-        other_junction_indices = None
-        for road_poly in road_polygons:
-            if road_poly.get("id") == other_road_id:
-                other_coords = road_poly.get("coords")
-                other_junction_indices = road_poly.get("junction_indices", {})
-                break
+        is_end = ji.get("end") == junction_idx and ji.get("start") != junction_idx
+        is_start = ji.get("start") == junction_idx and ji.get("end") != junction_idx
 
-        if other_coords is None or len(other_coords) < 2:
-            continue
+        if ji.get("start") == junction_idx and ji.get("end") == junction_idx:
+            if idx == road_idx:
+                is_end = is_end_junction
+                is_start = not is_end_junction
+            else:
+                is_end = True
+                is_start = False
 
-        # Bestimme, ob andere Straße am Start oder Ende an dieser Junction angebunden ist
-        other_is_end_junction = True  # Default
-        if other_junction_indices:
-            if other_junction_indices.get("start") == junction_idx:
-                other_is_end_junction = False
-            elif other_junction_indices.get("end") == junction_idx:
-                other_is_end_junction = True
+        if is_end:
+            direction = coords_arr[-1, :2] - coords_arr[-2, :2]
+            direction = -direction  # vom Junction weg
+        else:
+            direction = coords_arr[1, :2] - coords_arr[0, :2]
 
-        try:
-            other_direction = get_road_direction_at_junction(
-                other_coords,
-                (
-                    junction_centers[junction_idx]
-                    if junction_idx < len(junction_centers)
-                    else None
-                ),
-                is_end_junction=other_is_end_junction,
-            )
+        ang = _bearing_from_direction(direction)
+        if ang is not None:
+            bearings.append((idx, ang))
 
-            angle = get_angle_between_vectors(my_direction, other_direction)
-            min_angle = min(min_angle, angle)
-        except:
-            continue
+    if len(bearings) < 2:
+        return 0.0
 
-    # Regel: < 60° → 5m buffer, sonst 0m
-    return 5.0 if min_angle < 60.0 else 0.0
+    bearings.sort(key=lambda x: x[1])
+    my_idx_in_list = next((i for i, b in enumerate(bearings) if b[0] == road_idx), None)
+    if my_idx_in_list is None:
+        return 0.0
+
+    def _sector(a, b):
+        diff = b - a
+        return diff + 360.0 if diff < 0.0 else diff
+
+    prev_idx = (my_idx_in_list - 1) % len(bearings)
+    next_idx = (my_idx_in_list + 1) % len(bearings)
+    ang_prev = _sector(bearings[prev_idx][1], bearings[my_idx_in_list][1])
+    ang_next = _sector(bearings[my_idx_in_list][1], bearings[next_idx][1])
+
+    angle_threshold = getattr(config, "JUNCTION_STOP_ANGLE_THRESHOLD", 60.0)
+    return 5.0 if min(ang_prev, ang_next) < angle_threshold else 0.0
 
 
-def calculate_stop_distance(
-    centerline_coords, junction_center, road_width, min_edge_distance=1.0
-):
+def calculate_stop_distance(centerline_coords, junction_center, road_width, min_edge_distance=1.0):
     """
     Berechnet, wo eine Straße stoppen soll, um die Junction zu erreichen.
 
@@ -226,9 +210,7 @@ def calculate_stop_distance(
 
     # Abstand von Kanten zur Junction
     dist_left_to_center = np.linalg.norm(left_edges - center_2d[np.newaxis, :], axis=1)
-    dist_right_to_center = np.linalg.norm(
-        right_edges - center_2d[np.newaxis, :], axis=1
-    )
+    dist_right_to_center = np.linalg.norm(right_edges - center_2d[np.newaxis, :], axis=1)
 
     # Abstand von Centerline-Punkten zur Junction
     dist_center_to_center = np.linalg.norm(coords_2d - center_2d[np.newaxis, :], axis=1)
@@ -331,9 +313,7 @@ def create_minimal_quad_for_junction(point1, point2, z_value, half_width=3.5):
     quad_end = mid_point + direction_normalized * 0.05
 
     # Senkrechte Richtung für die volle 7m Straßenbreite
-    perp = np.array(
-        [-direction_normalized[1], direction_normalized[0]], dtype=np.float64
-    )
+    perp = np.array([-direction_normalized[1], direction_normalized[0]], dtype=np.float64)
 
     # Vier Ecken des Quads mit voller 7m Breite
     qs_left = quad_start + perp * half_width
@@ -377,11 +357,7 @@ def _process_road_batch(
     """Worker-Funktion fuer Strassen-Batch (multiprocessing-fähig)."""
     use_kdtree = lookup_mode == "kdtree"
     tree = cKDTree(height_points) if use_kdtree else None
-    interpolator = (
-        NearestNDInterpolator(height_points, height_elevations)
-        if not use_kdtree
-        else None
-    )
+    interpolator = NearestNDInterpolator(height_points, height_elevations) if not use_kdtree else None
 
     if local_offset is None:
         local_offset = (0.0, 0.0, 0.0)
@@ -411,13 +387,16 @@ def _process_road_batch(
 
         junction_indices = road.get("junction_indices", {}) or {}
 
+        junction_buffer_start = None
+        junction_buffer_end = None
+
         # Trim am Endpunkt (Road-Ende) falls Junction vorhanden
         end_junction_idx = junction_indices.get("end")
         if end_junction_idx is not None and junction_centers is not None:
             if 0 <= end_junction_idx < len(junction_centers):
                 # Berechne dynamischen junction_stop_buffer basierend auf Winkeln
                 junction_buffer = calculate_junction_buffer(
-                    road_id,
+                    original_road_idx,
                     end_junction_idx,
                     coords,
                     junction_centers,
@@ -425,13 +404,12 @@ def _process_road_batch(
                     all_road_polygons,
                     is_end_junction=True,
                 )
+                junction_buffer_end = junction_buffer
 
                 # Spezialfall: 2-Straßen-Junction (nur half_width, kein Extra-Buffer)
                 num_roads_at_junction = 2  # Default
                 if junctions_full and 0 <= end_junction_idx < len(junctions_full):
-                    num_roads_at_junction = len(
-                        junctions_full[end_junction_idx].get("road_indices", [])
-                    )
+                    num_roads_at_junction = len(junctions_full[end_junction_idx].get("road_indices", []))
 
                 # 2-Straßen-Junctions: min_edge_distance = half_width (3.5m - harte Grenze)
                 # 3+-Straßen-Junctions: min_edge_distance = half_width + dynamischer_buffer
@@ -451,15 +429,11 @@ def _process_road_batch(
 
         # Trim am Startpunkt (Road-Anfang) falls Junction vorhanden
         start_junction_idx = junction_indices.get("start")
-        if (
-            start_junction_idx is not None
-            and junction_centers is not None
-            and len(coords) > 0
-        ):
+        if start_junction_idx is not None and junction_centers is not None and len(coords) > 0:
             if 0 <= start_junction_idx < len(junction_centers):
                 # Berechne dynamischen junction_stop_buffer basierend auf Winkeln
                 junction_buffer = calculate_junction_buffer(
-                    road_id,
+                    original_road_idx,
                     start_junction_idx,
                     coords,
                     junction_centers,
@@ -467,13 +441,12 @@ def _process_road_batch(
                     all_road_polygons,
                     is_end_junction=False,
                 )
+                junction_buffer_start = junction_buffer
 
                 # Spezialfall: 2-Straßen-Junction (nur half_width, kein Extra-Buffer)
                 num_roads_at_junction = 2  # Default
                 if junctions_full and 0 <= start_junction_idx < len(junctions_full):
-                    num_roads_at_junction = len(
-                        junctions_full[start_junction_idx].get("road_indices", [])
-                    )
+                    num_roads_at_junction = len(junctions_full[start_junction_idx].get("road_indices", []))
 
                 # 2-Straßen-Junctions: min_edge_distance = half_width (3.5m - harte Grenze)
                 # 3+-Straßen-Junctions: min_edge_distance = half_width + dynamischer_buffer
@@ -551,13 +524,11 @@ def _process_road_batch(
                 if point1 is not None and point2 is not None:
                     # Berechne Mittelpunkt und Höhe
                     mid_point = (np.array(point1[:2]) + np.array(point2[:2])) / 2.0
-                    z_val = interpolate_height(
-                        mid_point, height_points, height_elevations, tree, interpolator
-                    )
+                    z_val = interpolate_height(mid_point, height_points, height_elevations, tree, interpolator)
 
                     # Erstelle minimales Quad zwischen den beiden Punkten
-                    quad_verts, quad_faces, quad_poly_2d = (
-                        create_minimal_quad_for_junction(point1[:2], point2[:2], z_val)
+                    quad_verts, quad_faces, quad_poly_2d = create_minimal_quad_for_junction(
+                        point1[:2], point2[:2], z_val
                     )
 
                     if quad_verts and quad_faces:
@@ -569,7 +540,7 @@ def _process_road_batch(
                             {
                                 "road_id": road_id,
                                 "original_idx": original_road_idx,
-                                "original_coords": [
+                                "trimmed_centerline": [
                                     (*point1[:2], z_val),
                                     (*point2[:2], z_val),
                                 ],
@@ -761,9 +732,11 @@ def _process_road_batch(
             {
                 "road_id": road_id,
                 "original_idx": original_road_idx,
-                "original_coords": coords,
+                "trimmed_centerline": coords,
                 "junction_start_id": start_junction_idx if junction_indices else None,
                 "junction_end_id": end_junction_idx if junction_indices else None,
+                "junction_buffer_start": junction_buffer_start,
+                "junction_buffer_end": junction_buffer_end,
                 "num_points": num_points,
                 "left_start": left_start,
                 "right_start": right_start,
@@ -783,9 +756,7 @@ def _process_road_batch(
     )
 
 
-def generate_road_mesh_strips(
-    road_polygons, height_points, height_elevations, vertex_manager, junctions=None
-):
+def generate_road_mesh_strips(road_polygons, height_points, height_elevations, vertex_manager, junctions=None):
     """
     Generiert Strassen als separate Mesh-Streifen mit zentraler Vertex-Verwaltung.
 
@@ -804,9 +775,7 @@ def generate_road_mesh_strips(
     junction_centers = None
     junctions_full = None
     if junctions:
-        junction_centers = [
-            np.asarray(j["position"]) for j in junctions if "position" in j
-        ]
+        junction_centers = [np.asarray(j["position"]) for j in junctions if "position" in j]
         junctions_full = junctions  # Vollständige Junction-Objekte für Anzahl-Prüfung
     junction_stop_buffer = getattr(config, "JUNCTION_STOP_BUFFER", 5.0)
 
@@ -876,9 +845,7 @@ def generate_road_mesh_strips(
 
                 clipped_roads += clipped_local
 
-                print(
-                    f"  Batch {idx}/{len(batches)} fertig (Vertices: {len(batch_vertices):,})"
-                )
+                print(f"  Batch {idx}/{len(batches)} fertig (Vertices: {len(batch_vertices):,})")
     else:
         # Single-thread fallback - AUCH mit Batching für Performance!
         max_roads_per_batch = getattr(config, "MAX_ROADS_PER_BATCH", 500) or 500
@@ -907,31 +874,21 @@ def generate_road_mesh_strips(
             per_road_data.extend(batch_per_road)
             clipped_roads += clipped_local
 
-            print(
-                f"  Batch {idx}/{len(batches)} fertig (Vertices: {len(batch_vertices):,})"
-            )
+            print(f"  Batch {idx}/{len(batches)} fertig (Vertices: {len(batch_vertices):,})")
 
     # === Globaler Insert in einem Rutsch ===
-    print(
-        f"  Fuege {len(all_vertices_concat):,} Strassen/Boeschungs-Vertices in einem Rutsch hinzu..."
-    )
+    print(f"  Fuege {len(all_vertices_concat):,} Strassen/Boeschungs-Vertices in einem Rutsch hinzu...")
     # WICHTIG: Keine globale Deduplizierung über Roads hinweg!
     # Jede Road hat ihre eigenen Vertices - sie dürfen nicht mit anderen Roads geteilt werden
     # Das würde zu falschen Verbindungen zwischen verschiedenen Roads führen
-    global_indices = []
-    for i, vertex in enumerate(all_vertices_concat):
-        idx = vertex_manager.add_vertex(vertex[0], vertex[1], vertex[2])
-        global_indices.append(idx)
+    # MEGA-OPTIMIZATION: Nutze add_vertices_bulk() statt Loop (100x schneller!)
+    global_indices = vertex_manager.add_vertices_bulk(all_vertices_concat)
 
-    print(
-        f"  [OK] VertexManager: {vertex_manager.get_count():,} Vertices nach Strassen"
-    )
+    print(f"  [OK] VertexManager: {vertex_manager.get_count():,} Vertices nach Strassen")
 
     junction_fans = {}
     if junction_centers:
-        junction_fans = {
-            idx: {"center_idx": None, "rim": []} for idx in range(len(junction_centers))
-        }
+        junction_fans = {idx: {"center_idx": None, "rim": []} for idx in range(len(junction_centers))}
 
     # === Faces und Polygone aufbauen mit globalen Indices ===
     for road_meta in per_road_data:
@@ -1010,11 +967,13 @@ def generate_road_mesh_strips(
         poly_data = {
             "road_polygon": road_meta["road_poly_2d"],
             "slope_polygon": road_meta["slope_poly_2d"],
-            "original_coords": road_meta["original_coords"],
+            "trimmed_centerline": road_meta["trimmed_centerline"],
             "road_id": road_meta.get("road_id"),
             "original_idx": road_meta.get("original_idx"),
             "junction_start_id": road_meta.get("junction_start_id"),
             "junction_end_id": road_meta.get("junction_end_id"),
+            "junction_buffer_start": road_meta.get("junction_buffer_start"),
+            "junction_buffer_end": road_meta.get("junction_buffer_end"),
             "road_vertex_indices": {
                 "left": road_vertex_indices_left,
                 "right": road_vertex_indices_right,
@@ -1034,12 +993,11 @@ def generate_road_mesh_strips(
         original_to_mesh_idx[original_idx] = len(road_slope_polygons_2d) - 1
 
     # Junction-Hubs mit Fan-Triangulation schließen
-    # TEMPORÄR DEAKTIVIERT zum Testen der minimalen Quads
-    if False and junction_fans:
+    if junction_fans:
         for j_id, data in junction_fans.items():
             center_idx = data.get("center_idx")
             rim = data.get("rim") or []
-            if center_idx is None or len(rim) < 2:
+            if center_idx is None or len(rim) < 1:  # Mindestens 1 Rim-Paar (2 Vertices)
                 continue
 
             center_xy = vertex_manager.vertices[center_idx][:2]
@@ -1047,59 +1005,45 @@ def generate_road_mesh_strips(
             for left_idx, right_idx in rim:
                 for vid in (left_idx, right_idx):
                     vx, vy = vertex_manager.vertices[vid][:2]
-                    boundary_points.append(
-                        (atan2(vy - center_xy[1], vx - center_xy[0]), vid)
-                    )
+                    boundary_points.append((atan2(vy - center_xy[1], vx - center_xy[0]), vid))
 
             boundary_points.sort(key=lambda x: x[0])
-            if len(boundary_points) < 3:
+            # OPTIMIZATION: Für 2er-Junctions mit nur 2 Vertices auch Dreieck erzeugen
+            # (Dupliziere einfach das erste Vertex, um ein Dreieck zu bilden)
+            if len(boundary_points) < 2:
                 continue
+
+            # Wenn weniger als 3 Punkte: verdoppele den letzten Punkt
+            while len(boundary_points) < 3:
+                boundary_points.append(boundary_points[-1])
 
             for i in range(len(boundary_points)):
                 a = boundary_points[i][1]
                 b = boundary_points[(i + 1) % len(boundary_points)][1]
                 all_road_faces.append([a, b, center_idx])
-                all_road_face_to_idx.append(
-                    -1
-                )  # Fan-Faces gehören zu keiner spezifischen Road
+                all_road_face_to_idx.append(-1)  # Fan-Faces gehören zu keiner spezifischen Road
 
     print(f"  [OK] {len(all_road_faces)} Strassen-Faces")
     if config.GENERATE_SLOPES:
         print(f"  [OK] {len(all_slope_faces)} Boeschungs-Faces")
         print(f"  [OK] Boeschungen OK")
     else:
-        print(
-            f"  [i] Boeschungs-Generierung deaktiviert (config.GENERATE_SLOPES=False)"
-        )
-    print(
-        f"  [OK] {len(road_slope_polygons_2d)} Road/Slope-Polygone fuer Grid-Ausschneiden (2D)"
-    )
+        print(f"  [i] Boeschungs-Generierung deaktiviert (config.GENERATE_SLOPES=False)")
+    print(f"  [OK] {len(road_slope_polygons_2d)} Road/Slope-Polygone fuer Grid-Ausschneiden (2D)")
     if clipped_roads > 0:
         print(f"  [i] {clipped_roads} Strassen komplett ausserhalb Grid (ignoriert)")
 
-    # T-Junction Snapping: JETZT DEAKTIVIERT - wird direkt in Schritt 6a erkannt
-    # Die Junctions werden bereits in der Pipeline erkannt und in generate_road_mesh_strips verarbeitet
-    if config.ENABLE_ROAD_EDGE_SNAPPING:
-        print(
-            f"  [i] Junction-Handling: wird direkt in Centerlines erkannt (nicht mehr nachträglich)"
-        )
-
     # Sammle alle Road-Polygone (2D) für Grid-Conforming
-    all_road_polygons_2d = [
-        poly_data["road_polygon"] for poly_data in road_slope_polygons_2d
-    ]
-    all_slope_polygons_2d = [
-        poly_data["slope_polygon"] for poly_data in road_slope_polygons_2d
-    ]
+    all_road_polygons_2d = [poly_data["road_polygon"] for poly_data in road_slope_polygons_2d]
+    all_slope_polygons_2d = [poly_data["slope_polygon"] for poly_data in road_slope_polygons_2d]
 
     # Füge Junction-Fan-Bereiche als Polygone hinzu (für Grid-Ausschneiden)
-    # TEMPORÄR DEAKTIVIERT zum Testen der minimalen Quads
     junction_fan_polygons_added = 0
-    if False and junction_fans and junction_centers:
+    if junction_fans and junction_centers:
         for j_id, data in junction_fans.items():
             center_idx = data.get("center_idx")
             rim = data.get("rim") or []
-            if center_idx is None or len(rim) < 3:
+            if center_idx is None or len(rim) < 1:  # Auch 2er-Junctions mit 1 Rim-Paar
                 continue
 
             # Sammle alle Rim-Vertices als Polygon
@@ -1111,15 +1055,14 @@ def generate_road_mesh_strips(
             for left_idx, right_idx in rim:
                 for vid in (left_idx, right_idx):
                     vx, vy = vertex_manager.vertices[vid][:2]
-                    boundary_points.append(
-                        (atan2(vy - center_xy[1], vx - center_xy[0]), [vx, vy])
-                    )
+                    boundary_points.append((atan2(vy - center_xy[1], vx - center_xy[0]), [vx, vy]))
 
             boundary_points.sort(key=lambda x: x[0])
             rim_vertices_2d = [pt[1] for pt in boundary_points]
 
-            if len(rim_vertices_2d) >= 3:
-                # Füge als Road-Polygon hinzu
+            if len(rim_vertices_2d) >= 2:
+                # Füge als Road-Polygon hinzu (auch wenn nur 2 Punkte)
+                # Die Polygone werden ohnehin als Punkte-Liste behandelt
                 all_road_polygons_2d.append(np.array(rim_vertices_2d))
                 junction_fan_polygons_added += 1
 

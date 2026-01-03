@@ -3,15 +3,15 @@ Zentrale Konfiguration fuer World-to-BeamNG.
 """
 
 # BEAMNG Zielordner (Anpassbar)
-BEAMNG_DIR = (
-    "C:\\Users\\johan\\AppData\\Local\\BeamNG.drive\\0.36\\levels\\World_to_BeamNG"
-)
+BEAMNG_DIR = "C:\\Users\\johan\\AppData\\Local\\BeamNG.drive\\0.36\\levels\\World_to_BeamNG"
 BEAMNG_DIR_SHAPES = BEAMNG_DIR + "\\art\\shapes"
 BEAMNG_DIR_TEXTURES = BEAMNG_DIR_SHAPES + "\\textures"
 # === MESH-PARAMETER ===
 ROAD_WIDTH = 7.0
 # Abstand, um Straßen vor Junction-Centern zu stoppen (zusätzlich zur halben Breite)
 JUNCTION_STOP_BUFFER = 5.0
+# Winkel-Schwelle für Junction-Buffer (Grad). Unterhalb dieses Winkels wird der Buffer aktiviert.
+JUNCTION_STOP_ANGLE_THRESHOLD = 65.0
 # Böschungs-Generierung (vorübergehend deaktiviert bis Remeshing stabil)
 GENERATE_SLOPES = False
 # Minimale Boeschungsbreite (Meter) unabhängig von Hoehenunterschieden
@@ -22,28 +22,24 @@ HOLE_CHECK_ENABLED = False
 BOUNDARY_EDGES_EXPORT = "boundary_edges.obj"
 SLOPE_ANGLE = 45.0  # Neigungswinkel der Boeschung in Grad (45° = 1:1 Steigung)
 # Vorab-Reduktion ueber groeberes Grid (Strategie 2). Fuer feineres Terrain z.B. 1.0 setzen.
-GRID_SPACING = (
-    2.0  # Abstand zwischen Grid-Punkten in Metern (1.0 = sehr fein, 10.0 = grob)
-)
+GRID_SPACING = 2.0  # Abstand zwischen Grid-Punkten in Metern (1.0 = sehr fein, 10.0 = grob)
 TERRAIN_REDUCTION = 0  # Decimation bleibt aus; steuern wir ueber GRID_SPACING
 LEVEL_NAME = "osm_generated_map"
 
+# DEBUG / EXPORTS
+DEBUG_EXPORTS = False  # Debug-Dumps (Netz, Grid) nur bei Bedarf aktivieren
+DEBUG_VERBOSE = False  # Zusätzliche Konsolen-Logs
+
 # === STRASSENGLÄTTUNG / OPTIONEN ===
-ENABLE_ROAD_SMOOTHING = True  # False = Spline-Glättung komplett aus
-ENABLE_ROAD_EDGE_SNAPPING = True  # False = Rand-Snap an Kreuzungen aus
-ROAD_SMOOTH_ANGLE_THRESHOLD = (
-    10.0  # Winkel in Grad - ab diesem Wert werden Kurven unterteilt
-)
-ROAD_SMOOTH_MAX_SEGMENT = 5.0  # Maximale Segmentlänge in Metern
-ROAD_SMOOTH_MIN_SEGMENT = 1.0  # Minimale Segmentlänge in Metern
-ROAD_SMOOTH_TENSION = (
-    0.0  # Spline-Glättungsfaktor (0.0 = eng an Originalpunkten, 1.0 = sehr glatt)
-)
+ENABLE_ROAD_SMOOTHING = False  # False = Spline-Glättung komplett aus
+ROAD_SMOOTH_ANGLE_THRESHOLD = 10.0  # Winkel in Grad - ab diesem Wert werden Kurven unterteilt
+ROAD_SMOOTH_MAX_SEGMENT = 2.5  # Maximale Segmentlänge in Metern
+ROAD_SMOOTH_MIN_SEGMENT = 2.5  # Minimale Segmentlänge in Metern
+ROAD_RESAMPLE_SPACING = 2.5  # None = aus; Wert in Metern für gleichmäßige Segmente
+ROAD_SMOOTH_TENSION = 0.05  # Spline-Glättungsfaktor (0.0 = eng an Originalpunkten, 1.0 = sehr glatt)
 
 # === CENTERLINE-SAMPLING / SUCHE ===
-CENTERLINE_SAMPLE_SPACING = (
-    10.0  # Abstand zwischen Sample-Punkten entlang der Centerline (m)
-)
+CENTERLINE_SAMPLE_SPACING = 10.0  # Abstand zwischen Sample-Punkten entlang der Centerline (m)
 CENTERLINE_SEARCH_RADIUS = 10.0  # Suchradius um Centerline-Punkte (m)
 
 # === JUNCTION REMESHING ===

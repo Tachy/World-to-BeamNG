@@ -56,7 +56,7 @@ class VertexManager:
 
         new_idx = len(self.vertices)
         # OPTIMIZATION: Append zu NumPy-Array durch vstack statt append zu Liste
-        self.vertices = np.vstack([self.vertices, new_point])
+        self.vertices = np.vstack([self.vertices, new_point.reshape(1, 3)])
         self._add_to_hash(new_idx, new_point)
         return new_idx
 
@@ -90,10 +90,29 @@ class VertexManager:
             return []
 
         start_idx = len(self.vertices)
-        # OPTIMIZATION: vstack statt extend
+        # OPTIMIZATION: Single vstack statt Loop
+        if len(coords_arr.shape) == 1:
+            coords_arr = coords_arr.reshape(1, -1)
         self.vertices = np.vstack([self.vertices, coords_arr])
         end_idx = start_idx + len(coords_arr)
         return list(range(start_idx, end_idx))
+
+    def add_vertices_bulk(self, coords):
+        """Batch-Insert vieler Vertices ohne Dedup/Hash (ultra-schnell für >1000 Vertices).
+
+        Dies ist die schnellste Methode für Road-Vertices ohne Überschneidungen.
+        Nutze diese für das globale Vertex-Insert in road_mesh.py.
+        """
+        coords_arr = np.asarray(coords, dtype=np.float32)
+        if coords_arr.size == 0:
+            return []
+
+        start_idx = len(self.vertices)
+        if len(coords_arr.shape) == 1:
+            coords_arr = coords_arr.reshape(1, -1)
+        # MEGA-OPTIMIZATION: Einziger vstack für alle Vertices
+        self.vertices = np.vstack([self.vertices, coords_arr])
+        return np.arange(start_idx, start_idx + len(coords_arr), dtype=int).tolist()
 
     def add_vertices_batch_dedup(self, coords):
         """
@@ -236,6 +255,4 @@ class VertexManager:
         return len(self.vertices)
 
     def __repr__(self):
-        return (
-            f"VertexManager({len(self.vertices)} vertices, tolerance={self.tolerance}m)"
-        )
+        return f"VertexManager({len(self.vertices)} vertices, tolerance={self.tolerance}m)"

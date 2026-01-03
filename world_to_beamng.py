@@ -198,58 +198,21 @@ def main():
     )
 
     timer.begin(f"Extrahiere {len(roads)} Strassen-Polygone")
-    road_polygons = get_road_polygons(
-        roads, config.BBOX, height_points, height_elevations
-    )
+    road_polygons = get_road_polygons(roads, config.BBOX, height_points, height_elevations)
     print(f"  [OK] {len(road_polygons)} Strassen-Polygone extrahiert")
 
     # Clippe Straßen-Polygone am Grid-Rand (vor Mesh-Generierung!)
     if config.ROAD_CLIP_MARGIN > 0:
-        print(
-            f"  Clippe Straßen-Polygone am Grid-Rand ({config.ROAD_CLIP_MARGIN}m Margin)..."
-        )
-        road_polygons = clip_road_polygons(
-            road_polygons, config.GRID_BOUNDS_LOCAL, margin=config.ROAD_CLIP_MARGIN
-        )
+        print(f"  Clippe Straßen-Polygone am Grid-Rand ({config.ROAD_CLIP_MARGIN}m Margin)...")
+        road_polygons = clip_road_polygons(road_polygons, config.GRID_BOUNDS_LOCAL, margin=config.ROAD_CLIP_MARGIN)
         print(f"  [OK] {len(road_polygons)} Strassen nach Clipping")
 
     # ===== SCHRITT 6a: Erkenne Junctions in Centerlines (NUR mit Centerlines!) =====
     timer.begin("Erkenne Junctions in Centerlines")
     junctions = detect_junctions_in_centerlines(road_polygons)
-    road_polygons, junctions = split_roads_at_mid_junctions(
-        road_polygons, junctions
-    )  # TEMP DEAKTIVIERT
+    road_polygons, junctions = split_roads_at_mid_junctions(road_polygons, junctions)  # TEMP DEAKTIVIERT
     road_polygons = mark_junction_endpoints(road_polygons, junctions)
     junction_stats(junctions, road_polygons)
-
-    # Exportiere Debug-Daten für Viewer (neben terrain.dae)
-    debug_junctions_path = os.path.join(
-        config.BEAMNG_DIR_SHAPES, "debug_junctions.json"
-    )
-    debug_data = {
-        "junctions": [
-            {
-                "position": list(j["position"]),
-                "road_indices": j["road_indices"],
-                "num_connections": len(j["road_indices"]),
-            }
-            for j in junctions
-        ],
-        "roads": [
-            {
-                "coords": (
-                    road["coords"].tolist()
-                    if isinstance(road["coords"], np.ndarray)
-                    else road["coords"]
-                ),
-                "id": road.get("id", idx),
-            }
-            for idx, road in enumerate(road_polygons)
-        ],
-    }
-    with open(debug_junctions_path, "w", encoding="utf-8") as f:
-        json.dump(debug_data, f, indent=2)
-    print(f"  [Debug] Junction-Daten exportiert: {debug_junctions_path}")
 
     # ===== SCHRITT 7: Initialisiere Vertex-Manager =====
     timer.begin("Initialisiere Vertex-Manager")
@@ -264,91 +227,154 @@ def main():
     (
         road_faces,
         road_face_to_idx,
-        slope_faces,
+        _slope_faces,  # Unused - keine Slopes mehr
         road_slope_polygons_2d,
         original_to_mesh_idx,
         all_road_polygons_2d,
-        all_slope_polygons_2d,
-    ) = generate_road_mesh_strips(
-        road_polygons, height_points, height_elevations, vertex_manager, junctions
-    )
+        _all_slope_polygons_2d,  # Unused - keine Slopes mehr
+    ) = generate_road_mesh_strips(road_polygons, height_points, height_elevations, vertex_manager, junctions)
 
     # Füge Straßen-Faces zum Mesh hinzu
     print(f"  [OK] {len(road_faces)} Strassen-Faces generiert")
     for face in road_faces:
         mesh.add_face(face[0], face[1], face[2], material="road")
 
-    # Debug-Export: Getrimmte Straßen-Koordinaten (NACH Mesh-Generierung)
-    debug_trimmed_path = os.path.join(config.CACHE_DIR, "debug_trimmed_roads.json")
+    # Konsistenter Debug-Dump: Junctions und getrimmte Straßen im selben Zustand
+    os.makedirs(config.CACHE_DIR, exist_ok=True)
+    debug_network_path = os.path.join(config.CACHE_DIR, "debug_network.json")
+
     trimmed_roads_data = []
+    junction_connections = {}  # junction_id -> {road_indices: [...], connection_types: {road_idx: ["start"|"end"]}}
+
     for road_meta in road_slope_polygons_2d:
-        if "original_coords" in road_meta and road_meta["original_coords"]:
-            coords = road_meta["original_coords"]
+        if "trimmed_centerline" in road_meta and road_meta["trimmed_centerline"]:
+            coords = road_meta["trimmed_centerline"]
+            dump_idx = len(trimmed_roads_data)
+
+            start_jid = road_meta.get("junction_start_id")
+            end_jid = road_meta.get("junction_end_id")
+
             trimmed_roads_data.append(
                 {
                     "road_id": road_meta.get("road_id"),
                     "original_idx": road_meta.get("original_idx"),
                     "coords": coords if isinstance(coords, list) else coords.tolist(),
                     "num_points": len(coords),
-                    "junction_start_id": road_meta.get("junction_start_id"),
-                    "junction_end_id": road_meta.get("junction_end_id"),
+                    "junction_start_id": start_jid,
+                    "junction_end_id": end_jid,
+                    "junction_buffer_start": road_meta.get("junction_buffer_start"),
+                    "junction_buffer_end": road_meta.get("junction_buffer_end"),
                 }
             )
-    with open(debug_trimmed_path, "w", encoding="utf-8") as f:
-        json.dump(
+
+            def _add_conn(jid, conn_type):
+                if jid is None:
+                    return
+                data = junction_connections.setdefault(jid, {"road_indices": [], "connection_types": {}})
+                if dump_idx not in data["road_indices"]:
+                    data["road_indices"].append(dump_idx)
+                data["connection_types"].setdefault(dump_idx, []).append(conn_type)
+
+            _add_conn(start_jid, "start")
+            _add_conn(end_jid, "end")
+
+    junction_dump = []
+    final_stats = {"two": 0, "three": 0, "four": 0, "five_plus": 0}
+
+    for j_idx, j in enumerate(junctions):
+        conn_data = junction_connections.get(j_idx, {})
+        road_idxs = sorted(conn_data.get("road_indices", []))
+        connection_types = conn_data.get("connection_types", {})
+
+        junction_dump.append(
             {
-                "roads": trimmed_roads_data,
-                "junctions": [
-                    {"position": list(j["position"]), "road_indices": j["road_indices"]}
-                    for j in junctions
-                ],
-            },
-            f,
-            indent=2,
+                "position": list(j.get("position", (0, 0, 0))),
+                "road_indices": road_idxs,
+                "connection_types": connection_types,
+                "num_connections": len(road_idxs),
+            }
         )
-    print(f"  [Debug] Getrimmte Straßen exportiert: {debug_trimmed_path}")
+
+        n = len(road_idxs)
+        if n == 2:
+            final_stats["two"] += 1
+        elif n == 3:
+            final_stats["three"] += 1
+        elif n == 4:
+            final_stats["four"] += 1
+        elif n >= 5:
+            final_stats["five_plus"] += 1
+
+    if config.DEBUG_EXPORTS:
+        with open(debug_network_path, "w", encoding="utf-8") as f:
+            json.dump({"roads": trimmed_roads_data, "junctions": junction_dump}, f, indent=2)
+        print(f"  [Debug] Netz-Daten exportiert: {debug_network_path}")
+    if config.DEBUG_VERBOSE:
+        print(
+            "  [i] Finaler Junction-Status (nach Trimming): "
+            f"2er: {final_stats['two']}, 3er: {final_stats['three']}, "
+            f"4er: {final_stats['four']}, 5+: {final_stats['five_plus']}"
+        )
 
     timer.end()
 
     # ===== SCHRITT 8: Klassifiziere Grid-Vertices =====
     timer.begin("Klassifiziere Grid-Vertices")
-    # Verwende all_road_polygons_2d (enthält auch Junction-Fan-Bereiche)
-    all_road_and_slope_polygons = []
-    for idx, poly in enumerate(all_road_polygons_2d):
-        # Hole original_coords aus road_slope_polygons_2d wenn verfügbar
-        original_coords = []
-        if idx < len(road_slope_polygons_2d):
-            original_coords = road_slope_polygons_2d[idx].get("original_coords", [])
 
-        all_road_and_slope_polygons.append(
+    # Bereite Eingabedaten für classify_grid_vertices vor:
+    # 1. Regular Roads: Kombiniere road_slope_polygons_2d (enthält trimmed_centerline) mit XY-Polygonen
+    # 2. Junction Fans: Nur XY-Polygone (keine Centerlines, da Fans keine Centerlines haben)
+    road_data_for_classification = []
+
+    # Regular Roads (haben Centerlines für KDTree-Sampling)
+    for idx, meta in enumerate(road_slope_polygons_2d):
+        # Hole XY-Polygon aus der Liste (gleicher Index wie road_slope_polygons_2d)
+        road_polygon_xy = all_road_polygons_2d[idx] if idx < len(all_road_polygons_2d) else []
+
+        # trimmed_centerline enthält finale Centerline (nach Splitting + Trimming)
+        trimmed_centerline = meta.get("trimmed_centerline", [])
+
+        road_data_for_classification.append(
             {
-                "road_polygon": (
-                    poly if isinstance(poly, np.ndarray) else np.array(poly)
-                ),
+                "road_polygon": np.array(road_polygon_xy) if road_polygon_xy else np.array([]),
                 "slope_polygon": (
-                    poly if isinstance(poly, np.ndarray) else np.array(poly)
-                ),
-                "original_coords": original_coords,
+                    np.array(road_polygon_xy) if road_polygon_xy else np.array([])
+                ),  # Identisch zu road_polygon
+                "trimmed_centerline": trimmed_centerline,  # Finale Centerline für KDTree-Sampling
+            }
+        )
+
+    # Junction Fans (am Ende von all_road_polygons_2d angehängt, haben KEINE Centerlines)
+    num_regular_roads = len(road_slope_polygons_2d)
+    for idx in range(num_regular_roads, len(all_road_polygons_2d)):
+        fan_polygon_xy = all_road_polygons_2d[idx]
+
+        road_data_for_classification.append(
+            {
+                "road_polygon": np.array(fan_polygon_xy) if len(fan_polygon_xy) > 0 else np.array([]),
+                "slope_polygon": np.array(fan_polygon_xy) if len(fan_polygon_xy) > 0 else np.array([]),
+                "trimmed_centerline": [],  # Keine Centerline - Fan wird nur per Polygon-Test markiert
             }
         )
 
     vertex_types, modified_heights = classify_grid_vertices(
-        grid_points, grid_elevations, all_road_and_slope_polygons
+        grid_points,
+        grid_elevations,
+        road_data_for_classification,
     )
 
     # Debug-Export: Grid-Klassifizierung für Analyse
-    debug_grid_path = os.path.join(
-        config.BEAMNG_DIR_SHAPES, "debug_grid_classification.npz"
-    )
-    np.savez_compressed(
-        debug_grid_path,
-        grid_points=grid_points,
-        vertex_types=vertex_types,
-        nx=nx,
-        ny=ny,
-        grid_spacing=config.GRID_SPACING,
-    )
-    print(f"  [Debug] Grid-Klassifizierung exportiert: {debug_grid_path}")
+    if config.DEBUG_EXPORTS:
+        debug_grid_path = os.path.join(config.BEAMNG_DIR_SHAPES, "debug_grid_classification.npz")
+        np.savez_compressed(
+            debug_grid_path,
+            grid_points=grid_points,
+            vertex_types=vertex_types,
+            nx=nx,
+            ny=ny,
+            grid_spacing=config.GRID_SPACING,
+        )
+        print(f"  [Debug] Grid-Klassifizierung exportiert: {debug_grid_path}")
 
     # ===== SCHRITT 9a: Regeneriere Terrain-Mesh (mit Straßenausschnitten) =====
     timer.begin("Regeneriere Terrain-Mesh")
@@ -361,19 +387,18 @@ def main():
         vertex_manager,
         dedup=False,
     )
-    print(f"  [OK] {vertex_manager.get_count()} Vertices final (gesamt)")
-    print(f"  [OK] {len(terrain_faces_final)} Terrain-Faces generiert")
+    if config.DEBUG_VERBOSE:
+        print(f"  [OK] {vertex_manager.get_count()} Vertices final (gesamt)")
+        print(f"  [OK] {len(terrain_faces_final)} Terrain-Faces generiert")
 
     # ===== SCHRITT 9b: Füge Terrain-Faces zum Mesh hinzu =====
     for face in terrain_faces_final:
         mesh.add_face(face[0], face[1], face[2], material="terrain")
 
-    # ===== SCHRITT 9c: Vorbereitung für Face-Klassifizierung =====
-    # (Road-Polygone sind bereits vorhanden)
-    all_road_and_slope_polygons = all_road_polygons_2d + all_slope_polygons_2d
-    print(
-        f"  [OK] {len(all_road_polygons_2d)} Road-Polygone + {len(all_slope_polygons_2d)} Slope-Polygone klassifiziert"
-    )
+    # ===== SCHRITT 9c: Face-Klassifizierung abgeschlossen =====
+    # (Road-Polygone wurden bereits in Schritt 8 verarbeitet)
+    if config.DEBUG_VERBOSE:
+        print(f"  [OK] {len(all_road_polygons_2d)} Road-Polygone klassifiziert")
 
     # ===== SCHRITT 10: Slice Mesh in Tiles und exportiere als DAE =====
     timer.begin(f"Slice Mesh in {config.TILE_SIZE}×{config.TILE_SIZE}m Tiles")
@@ -406,9 +431,7 @@ def main():
     # tile_size in Pixeln für 500m Tiles:
     # 5000 Pixel = 1000m → 0.2m/Pixel
     # 500m ÷ 0.2m = 2500 Pixel
-    tile_count = process_aerial_images(
-        aerial_dir="aerial", output_dir=config.BEAMNG_DIR_TEXTURES, tile_size=2500
-    )
+    tile_count = process_aerial_images(aerial_dir="aerial", output_dir=config.BEAMNG_DIR_TEXTURES, tile_size=2500)
     if tile_count > 0:
         print(f"  [OK] {tile_count} Luftbild-Kacheln exportiert")
     else:

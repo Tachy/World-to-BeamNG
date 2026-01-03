@@ -371,8 +371,34 @@ def smooth_roads_adaptive(road_polygons):
                 smoothed.append(next_point)
 
         # Konvertiere zurueck zu Liste von Tupeln
-        road["coords"] = [(p[0], p[1], p[2]) for p in smoothed]
-        total_points_after += len(smoothed)
+        smoothed_coords = [(p[0], p[1], p[2]) for p in smoothed]
+
+        # Optional: gleichmäßiges Resampling auf definierten Zielabstand
+        resample_spacing = getattr(config, "ROAD_RESAMPLE_SPACING", None)
+        if resample_spacing and len(smoothed_coords) >= 2:
+            coords_arr = np.array(smoothed_coords)
+            diffs = np.diff(coords_arr[:, :2], axis=0)
+            seg_len = np.linalg.norm(diffs, axis=1)
+            cum = np.concatenate([[0.0], np.cumsum(seg_len)])
+            total_len = cum[-1]
+            if total_len > 0:
+                num_samples = max(2, int(np.ceil(total_len / resample_spacing)) + 1)
+                t = np.linspace(0.0, total_len, num_samples)
+                # Interpoliere x,y,z linear entlang der Bogenlänge
+                x = np.interp(t, cum, coords_arr[:, 0])
+                y = np.interp(t, cum, coords_arr[:, 1])
+                z = np.interp(t, cum, coords_arr[:, 2])
+                # Stelle sicher, dass Endpunkte exakt bleiben
+                x[0], y[0], z[0] = coords_arr[0, 0], coords_arr[0, 1], coords_arr[0, 2]
+                x[-1], y[-1], z[-1] = (
+                    coords_arr[-1, 0],
+                    coords_arr[-1, 1],
+                    coords_arr[-1, 2],
+                )
+                smoothed_coords = list(zip(x, y, z))
+
+        road["coords"] = smoothed_coords
+        total_points_after += len(smoothed_coords)
 
     print(
         f"    -> {total_points_before} Punkte -> {total_points_after} Punkte ({total_points_after - total_points_before:+d})"
