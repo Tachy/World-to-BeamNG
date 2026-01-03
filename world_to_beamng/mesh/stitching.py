@@ -70,9 +70,7 @@ def stitch_terrain_gaps(
 
     # Baue Polygone aus Boundary-Edges
     print(f"  Baue Loch-Polygone...")
-    hole_polygons = _build_hole_polygons(
-        boundary_edges, terrain_vertex_set, slope_vertex_set
-    )
+    hole_polygons = _build_hole_polygons(boundary_edges, terrain_vertex_set, slope_vertex_set)
 
     print(f"  [OK] {len(hole_polygons)} Loch-Polygone gefunden")
 
@@ -97,9 +95,7 @@ def _build_hole_polygons(edges, terrain_vertex_set, slope_vertex_set):
 
     # DEBUG: Vertex-Degree-Statistik
     degrees = [len(neighbors) for neighbors in adj.values()]
-    print(
-        f"    DEBUG: Vertex-Degrees: min={min(degrees)}, max={max(degrees)}, avg={sum(degrees)/len(degrees):.1f}"
-    )
+    print(f"    DEBUG: Vertex-Degrees: min={min(degrees)}, max={max(degrees)}, avg={sum(degrees)/len(degrees):.1f}")
     degree_1 = sum(1 for d in degrees if d == 1)
     degree_2 = sum(1 for d in degrees if d == 2)
     degree_3plus = sum(1 for d in degrees if d >= 3)
@@ -123,9 +119,7 @@ def _build_hole_polygons(edges, terrain_vertex_set, slope_vertex_set):
 
         # Folge dem Pfad entlang der Edges
         while True:
-            neighbors = [
-                n for n in adj[current] if n != prev and n not in visited_vertices
-            ]
+            neighbors = [n for n in adj[current] if n != prev and n not in visited_vertices]
 
             if not neighbors:
                 # Keine unbesuchten Nachbarn mehr
@@ -164,9 +158,7 @@ def _build_hole_polygons(edges, terrain_vertex_set, slope_vertex_set):
         elif has_slope:
             slope_only.append(path)
 
-    print(
-        f"    DEBUG: {len(mixed_paths)} Pfade mit Mix, {len(terrain_only)} nur Terrain, {len(slope_only)} nur Slope"
-    )
+    print(f"    DEBUG: {len(mixed_paths)} Pfade mit Mix, {len(terrain_only)} nur Terrain, {len(slope_only)} nur Slope")
 
     # Exportiere ALLE Pfade zur Visualisierung
     all_boundary_paths = mixed_paths + terrain_only + slope_only
@@ -180,14 +172,16 @@ def _export_hole_polygons_obj(polygons, verts):
     - Vertices werden in sortierter Reihenfolge geschrieben
     - Lines verbinden benachbarte Vertices in der Komponente
     """
-    output_path = "lochpolygone.obj"
-    mtl_path = "lochpolygone.mtl"
+    import os
+
+    cache_dir = getattr(config, "CACHE_DIR", "cache")
+    os.makedirs(cache_dir, exist_ok=True)
+    output_path = os.path.join(cache_dir, "lochpolygone.obj")
 
     print(f"  Exportiere {len(polygons)} Boundary-Komponenten nach {output_path}...")
 
     with open(output_path, "w") as f:
         f.write("# Boundary-Komponenten (Loch-Ränder)\n")
-        f.write(f"mtllib {mtl_path}\n\n")
 
         # Schreibe alle Vertices
         vertex_index_map = {}
@@ -202,7 +196,6 @@ def _export_hole_polygons_obj(polygons, verts):
                     obj_vertex_idx += 1
 
         f.write("\n")
-        f.write("usemtl boundary_edges\n")
 
         # Schreibe Komponenten als Linienzuege (Punktwolken verbunden)
         for poly in polygons:
@@ -215,13 +208,4 @@ def _export_hole_polygons_obj(polygons, verts):
                 f.write(f" {vertex_index_map[poly[0]]}")
             f.write("\n")
 
-    # Schreibe MTL
-    with open(mtl_path, "w") as f:
-        f.write("# Material fuer Boundary-Komponenten\n")
-        f.write("newmtl boundary_edges\n")
-        f.write("Ka 1.0 0.0 0.0\n")  # Rot
-        f.write("Kd 1.0 0.0 0.0\n")
-        f.write("Ks 0.0 0.0 0.0\n")
-        f.write("d 1.0\n")
-
-    print(f"  [OK] Exportiert: {output_path} und {mtl_path}")
+    print(f"  [OK] Exportiert: {output_path}")

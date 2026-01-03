@@ -658,11 +658,16 @@ def split_roads_at_mid_junctions(road_polygons, junctions, merge_tol=0.5):
     for road_idx, road in enumerate(road_polygons):
         coords = np.asarray(road.get("coords", []), dtype=float)
         if len(coords) < 2:
-            # Unveraendert uebernehmen
-            new_road = road.copy()
-            new_road.setdefault("junction_indices", {"start": None, "end": None})
-            new_road["start_junction_id"] = None
-            new_road["end_junction_id"] = None
+            # Unveraendert uebernehmen - mit explizitem osm_tags-Copy
+            new_road = {
+                "id": road.get("id"),
+                "coords": road.get("coords", []),
+                "name": road.get("name", ""),
+                "osm_tags": dict(road.get("osm_tags", {})),  # Deep copy
+                "junction_indices": {"start": None, "end": None},
+                "start_junction_id": None,
+                "end_junction_id": None,
+            }
             new_roads.append(new_road)
             # Mapping setzen, damit Junctions ihre Verbindungen behalten
             old_to_new_map[road_idx] = [len(new_roads) - 1]
@@ -705,10 +710,16 @@ def split_roads_at_mid_junctions(road_polygons, junctions, merge_tol=0.5):
             cut_marks.append((best + best_t, best_proj[0], best_proj[1], best_z, j_idx))
 
         if not cut_marks:
-            new_road = road.copy()
-            new_road.setdefault("junction_indices", {"start": None, "end": None})
-            new_road["start_junction_id"] = None
-            new_road["end_junction_id"] = None
+            # Keine Schnitte - mit explizitem osm_tags-Copy
+            new_road = {
+                "id": road.get("id"),
+                "coords": road.get("coords", []),
+                "name": road.get("name", ""),
+                "osm_tags": dict(road.get("osm_tags", {})),  # Deep copy
+                "junction_indices": {"start": None, "end": None},
+                "start_junction_id": None,
+                "end_junction_id": None,
+            }
             new_roads.append(new_road)
             # Mapping setzen, damit unveraenderte Strassen in Junctions verbleiben
             old_to_new_map[road_idx] = [len(new_roads) - 1]
@@ -762,12 +773,16 @@ def split_roads_at_mid_junctions(road_polygons, junctions, merge_tol=0.5):
             coords_arr = np.asarray(coords_part)
             if len(coords_arr) < 2:
                 continue
-            new_road = road.copy()
-            new_road["id"] = _new_id(base_id, idx)
-            new_road["coords"] = coords_arr.tolist()
-            new_road["start_junction_id"] = start_j
-            new_road["end_junction_id"] = end_j
-            new_road["junction_indices"] = {"start": start_j, "end": end_j}
+            # FIX: Explizites Kopieren aller Felder inklusive osm_tags
+            new_road = {
+                "id": _new_id(base_id, idx),
+                "coords": coords_arr.tolist(),
+                "name": road.get("name", ""),
+                "osm_tags": dict(road.get("osm_tags", {})),  # Deep copy von osm_tags
+                "start_junction_id": start_j,
+                "end_junction_id": end_j,
+                "junction_indices": {"start": start_j, "end": end_j},
+            }
             new_roads.append(new_road)
             new_ids_for_this.append(len(new_roads) - 1)
 

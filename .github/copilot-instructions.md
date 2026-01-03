@@ -5,7 +5,7 @@
 - 
 
 
-- Python-Aufrufe immer mit ".\.venv\Scripts\python.exe".
+- Python-Aufrufe immer mit ".\.venv\Scripts\python.exe -B ". Also ohne Cache!
 - Bitte world_to_beamng_viewer.py nicht automatisch starten. 
 
 - Bitte den dae_viewer nicht selbst öffnen.

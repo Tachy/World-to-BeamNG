@@ -75,16 +75,19 @@ def clip_road_polygons(road_polygons, grid_bounds_local, margin=3.0):
                             final_coords.append(inter_point)
 
             clipped_roads.append(
-                {"id": road["id"], "coords": final_coords, "name": road["name"]}
+                {
+                    "id": road["id"],
+                    "coords": final_coords,
+                    "name": road["name"],
+                    "osm_tags": road.get("osm_tags", {}),  # OSM-Tags durchreichen
+                }
             )
             segment_count += len(coords) - len(final_coords)
         else:
             removed_count += 1
 
     if removed_count > 0 or segment_count > 0:
-        print(
-            f"  Clipping: {removed_count} Strassen entfernt, {segment_count} Punkte ausserhalb des Grids entfernt"
-        )
+        print(f"  Clipping: {removed_count} Strassen entfernt, {segment_count} Punkte ausserhalb des Grids entfernt")
 
     return clipped_roads
 
@@ -113,9 +116,7 @@ def get_road_polygons(roads, bbox, height_points, height_elevations):
 
     # Batch-Elevation-Lookup
     print(f"  Lade Elevations fuer {len(all_coords)} Strassen-Punkte...")
-    all_elevations = get_elevations_for_points(
-        all_coords, bbox, height_points, height_elevations
-    )
+    all_elevations = get_elevations_for_points(all_coords, bbox, height_points, height_elevations)
 
     # Batch-UTM-Transformation (vektorisiert)
     lats = np.array([c[0] for c in all_coords])
@@ -134,15 +135,14 @@ def get_road_polygons(roads, bbox, height_points, height_elevations):
 
     # Erstelle Strassen-Polygone (bereits in lokalen Koordinaten)
     for start_idx, end_idx, way in road_indices:
-        utm_coords = [
-            (xs[i], ys[i], all_elevations[i]) for i in range(start_idx, end_idx)
-        ]
+        utm_coords = [(xs[i], ys[i], all_elevations[i]) for i in range(start_idx, end_idx)]
 
         road_polygons.append(
             {
                 "id": way["id"],
                 "coords": utm_coords,
                 "name": way.get("tags", {}).get("name", f"road_{way['id']}"),
+                "osm_tags": way.get("tags", {}),  # Alle OSM-Tags speichern
             }
         )
 
@@ -220,15 +220,15 @@ def smooth_roads_with_spline(road_polygons):
                 num_samples = int(np.ceil(total_length / max_segment)) + 1
                 sample_params = np.linspace(0, total_length, num_samples)
 
-                smooth_x = coords_array[0, 0] + (
-                    coords_array[1, 0] - coords_array[0, 0]
-                ) * (sample_params / total_length)
-                smooth_y = coords_array[0, 1] + (
-                    coords_array[1, 1] - coords_array[0, 1]
-                ) * (sample_params / total_length)
-                smooth_z = coords_array[0, 2] + (
-                    coords_array[1, 2] - coords_array[0, 2]
-                ) * (sample_params / total_length)
+                smooth_x = coords_array[0, 0] + (coords_array[1, 0] - coords_array[0, 0]) * (
+                    sample_params / total_length
+                )
+                smooth_y = coords_array[0, 1] + (coords_array[1, 1] - coords_array[0, 1]) * (
+                    sample_params / total_length
+                )
+                smooth_z = coords_array[0, 2] + (coords_array[1, 2] - coords_array[0, 2]) * (
+                    sample_params / total_length
+                )
 
                 smoothed_coords = list(zip(smooth_x, smooth_y, smooth_z))
 

@@ -210,7 +210,7 @@ def main():
     # ===== SCHRITT 6a: Erkenne Junctions in Centerlines (NUR mit Centerlines!) =====
     timer.begin("Erkenne Junctions in Centerlines")
     junctions = detect_junctions_in_centerlines(road_polygons)
-    road_polygons, junctions = split_roads_at_mid_junctions(road_polygons, junctions)  # TEMP DEAKTIVIERT
+    road_polygons, junctions = split_roads_at_mid_junctions(road_polygons, junctions)
     road_polygons = mark_junction_endpoints(road_polygons, junctions)
     junction_stats(junctions, road_polygons)
 
@@ -399,6 +399,23 @@ def main():
     # (Road-Polygone wurden bereits in Schritt 8 verarbeitet)
     if config.DEBUG_VERBOSE:
         print(f"  [OK] {len(all_road_polygons_2d)} Road-Polygone klassifiziert")
+
+    # ===== SCHRITT 9d: Suche und exportiere Loch-Polygone (Gaps) =====
+    timer.begin("Suche Terrain-Luecken (Gaps)")
+    stitch_faces = stitch_terrain_gaps(
+        vertex_manager,
+        terrain_vertex_indices,
+        road_slope_polygons_2d,
+        terrain_faces_final,
+        road_faces,  # Verwende Road-Faces statt slope_faces (keine Slopes mehr)
+        stitch_radius=10.0,
+    )
+    if stitch_faces:
+        print(f"  [OK] {len(stitch_faces)} Stitch-Faces hinzugefuegt")
+        for face in stitch_faces:
+            mesh.add_face(face[0], face[1], face[2], material="terrain")
+    else:
+        print(f"  [i] Keine Stitch-Faces generiert (nur Analyse)")
 
     # ===== SCHRITT 10: Slice Mesh in Tiles und exportiere als DAE =====
     timer.begin(f"Slice Mesh in {config.TILE_SIZE}×{config.TILE_SIZE}m Tiles")

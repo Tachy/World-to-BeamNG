@@ -833,6 +833,8 @@ class DAETileViewer:
         all_points = []
         all_lines = []
         point_offset = 0
+        road_label_positions = []
+        road_label_texts = []
 
         for road in roads:
             coords = road.get("coords", [])
@@ -851,6 +853,12 @@ class DAETileViewer:
 
             point_offset += n
 
+            # Berechne Mittelpunkt der Centerline für Label
+            mid_idx = n // 2
+            mid_point = coords_array[mid_idx]
+            road_label_positions.append([mid_point[0], mid_point[1], mid_point[2] + 2.0])  # 2m über Straße
+            road_label_texts.append(str(road.get("road_id", "?")))
+
         # Rendere alle Centerlines als EINEN Actor
         if len(all_points) > 0:
             all_points = np.array(all_points)
@@ -866,9 +874,42 @@ class DAETileViewer:
             )
             self.debug_actors.append(actor)
 
+        # Rendere Road-Labels
+        if len(road_label_positions) > 0:
+            actor = self.plotter.add_point_labels(
+                road_label_positions,
+                road_label_texts,
+                point_size=0,
+                font_size=10,
+                text_color="black",
+                shape_opacity=0.0,
+            )
+            self.debug_actors.append(actor)
+
         print(
             f"  [Debug] {len(self.debug_actors)} Debug-Actors gerendert ({len(junctions)} Junctions, {len(roads)} Centerlines)"
         )
+
+        # === LOCH-POLYGONE: Lade lochpolygone.obj falls vorhanden ===
+        lochpolygone_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "cache", "lochpolygone.obj")
+        if os.path.exists(lochpolygone_path):
+            try:
+                print(f"  [Debug] Lade Loch-Polygone aus {lochpolygone_path}")
+                loch_mesh = pv.read(lochpolygone_path)
+
+                # Rendere als rote Linien
+                actor = self.plotter.add_mesh(
+                    loch_mesh,
+                    color="red",
+                    line_width=3.0,
+                    opacity=1.0,
+                    label="Loch-Polygone",
+                    render_lines_as_tubes=False,
+                )
+                self.debug_actors.append(actor)
+                print(f"  [Debug] Loch-Polygone geladen")
+            except Exception as e:
+                print(f"  [!] Fehler beim Laden der Loch-Polygone: {e}")
 
     def show(self):
         """Zeige das Viewer-Fenster."""

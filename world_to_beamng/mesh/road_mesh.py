@@ -400,6 +400,7 @@ def _process_road_batch(
     for original_road_idx, road in batch:
         coords = road["coords"]
         road_id = road.get("id")
+        osm_tags = road.get("osm_tags", {})  # OSM-Tags extrahieren
 
         junction_indices = road.get("junction_indices", {}) or {}
 
@@ -594,6 +595,7 @@ def _process_road_batch(
                                 "road_right_2d": [quad_poly_2d[1], quad_poly_2d[2]],
                                 # Kopiere ALLE road-Metadaten für einheitliche Struktur
                                 "source_road": road,  # Gesamtes Original-Road-Dict für Zugriff auf tags etc.
+                                "osm_tags": osm_tags,  # OSM-Tags bei Minimal-Quads ebenso übernehmen
                             }
                         )
                         minimal_quad_created = True
@@ -783,6 +785,7 @@ def _process_road_batch(
                 "slope_poly_2d": slope_poly_2d,
                 "road_left_2d": road_left_2d,
                 "road_right_2d": road_right_2d,
+                "osm_tags": osm_tags,  # OSM-Tags hinzufügen
             }
         )
 
@@ -1023,6 +1026,7 @@ def generate_road_mesh_strips(road_polygons, height_points, height_elevations, v
             "junction_end_id": road_meta.get("junction_end_id"),
             "junction_buffer_start": road_meta.get("junction_buffer_start"),
             "junction_buffer_end": road_meta.get("junction_buffer_end"),
+            "osm_tags": road_meta.get("osm_tags", {}),  # OSM-Tags hinzufügen
             "road_vertex_indices": {
                 "left": road_vertex_indices_left,
                 "right": road_vertex_indices_right,
