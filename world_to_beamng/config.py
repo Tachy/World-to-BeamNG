@@ -18,8 +18,6 @@ GENERATE_SLOPES = False
 MIN_SLOPE_WIDTH = 2
 # Loch-Check schaltbar: False = kein Check/Export, True = Check + immer Export
 HOLE_CHECK_ENABLED = False
-# Exportpfad fuer offene Kanten als OBJ (mit MTL), wenn HOLE_CHECK_ENABLED=True
-BOUNDARY_EDGES_EXPORT = "boundary_edges.obj"
 SLOPE_ANGLE = 45.0  # Neigungswinkel der Boeschung in Grad (45° = 1:1 Steigung)
 # Vorab-Reduktion ueber groeberes Grid (Strategie 2). Fuer feineres Terrain z.B. 1.0 setzen.
 GRID_SPACING = 2.0  # Abstand zwischen Grid-Punkten in Metern (1.0 = sehr fein, 10.0 = grob)
@@ -27,7 +25,7 @@ TERRAIN_REDUCTION = 0  # Decimation bleibt aus; steuern wir ueber GRID_SPACING
 LEVEL_NAME = "osm_generated_map"
 
 # DEBUG / EXPORTS
-DEBUG_EXPORTS = False  # Debug-Dumps (Netz, Grid) nur bei Bedarf aktivieren
+DEBUG_EXPORTS = True  # Debug-Dumps (Netz, Grid) nur bei Bedarf aktivieren
 DEBUG_VERBOSE = False  # Zusätzliche Konsolen-Logs
 
 # === STRASSENGLÄTTUNG / OPTIONEN ===

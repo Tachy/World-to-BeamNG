@@ -412,7 +412,7 @@ def detect_junctions_in_centerlines(road_polygons):
     # Erkennt Kreuzungen, wo zwei Straßen sich kreuzen, aber die Endpunkte nicht exakt aufeinander treffen
 
     ll_search_radius = 10.0  # Meter - Vorauswahl mit KDTree
-    ll_line_tol = 0.5  # Meter - Toleranz für Line-zu-Line Entfernung (50cm)
+    ll_line_tol = 1.0  # Meter - Toleranz für Line-zu-Line Entfernung (1m)
     ll_count = 0
 
     # Verwende den bereits erstellten KDTree der Linienpunkte für Performance

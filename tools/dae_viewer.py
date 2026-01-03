@@ -196,9 +196,7 @@ class DAETileViewer:
         vertices = self.tile_data.get("vertices", [])
         faces = self.tile_data.get("faces", [])
         materials = self.tile_data.get("materials", [])
-        tiles_info = self.tile_data.get(
-            "tiles", {}
-        )  # {tile_name: {"faces": [...], "uvs": [...]}}
+        tiles_info = self.tile_data.get("tiles", {})  # {tile_name: {"faces": [...], "uvs": [...]}}
 
         if len(vertices) == 0:
             print("Keine Vertices gefunden!")
@@ -237,9 +235,7 @@ class DAETileViewer:
                     tile_vertices_local = np.array(tile_vertices_local)
 
                 # Erstelle Mesh für dieses Tile mit lokalen Vertices
-                mesh = self._create_mesh_with_uvs(
-                    tile_vertices_local, tile_faces_local, tile_uvs
-                )
+                mesh = self._create_mesh_with_uvs(tile_vertices_local, tile_faces_local, tile_uvs)
 
                 # Lade Textur für dieses Tile
                 texture = self.textures.get(tile_name)
@@ -247,20 +243,14 @@ class DAETileViewer:
                 # Nur Textur anwenden, wenn UVs vorhanden sind
                 if texture is not None and len(tile_uvs) > 0:
                     try:
-                        self.plotter.add_mesh(
-                            mesh, texture=texture, opacity=1.0, label=tile_name
-                        )
+                        self.plotter.add_mesh(mesh, texture=texture, opacity=1.0, label=tile_name)
                     except Exception as e:
                         # Fallback bei Textur-Fehler
                         print(f"  [!] Textur-Fehler für {tile_name}: {e}")
-                        self.plotter.add_mesh(
-                            mesh, color=[0.6, 0.5, 0.4], opacity=0.8, label=tile_name
-                        )
+                        self.plotter.add_mesh(mesh, color=[0.6, 0.5, 0.4], opacity=0.8, label=tile_name)
                 else:
                     # Fallback: Farbe
-                    self.plotter.add_mesh(
-                        mesh, color=[0.6, 0.5, 0.4], opacity=0.8, label=tile_name
-                    )
+                    self.plotter.add_mesh(mesh, color=[0.6, 0.5, 0.4], opacity=0.8, label=tile_name)
         else:
             # Material-basiertes Rendering mit Faces und Edges
             terrain_faces = []
@@ -453,9 +443,7 @@ class DAETileViewer:
                 forward = np.array([0.0, 0.0, 1.0])
 
             yaw = np.degrees(np.arctan2(forward[1], forward[0]))
-            tilt = np.degrees(
-                np.arctan2(forward[2], np.linalg.norm(forward[:2]) + 1e-9)
-            )
+            tilt = np.degrees(np.arctan2(forward[2], np.linalg.norm(forward[:2]) + 1e-9))
 
             up_proj = up - np.dot(up, forward) * forward
             u_norm = np.linalg.norm(up_proj)
@@ -787,17 +775,15 @@ class DAETileViewer:
         """Lade Debug-Layer mit Junctions und Centerlines (einmalig)."""
         print("  [Debug] Lade Debug-Layer...")
 
-        # Lade Junction-Daten aus dem selben Verzeichnis wie die .dae
-        debug_junctions_path = os.path.join(
-            os.path.dirname(self.dae_path), "debug_junctions.json"
-        )
+        # Lade Junction-Daten aus cache/debug_network.json (lokales Project-Verzeichnis)
+        debug_network_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "cache", "debug_network.json")
 
-        if not os.path.exists(debug_junctions_path):
-            print(f"  [Debug] Keine Junction-Daten gefunden: {debug_junctions_path}")
+        if not os.path.exists(debug_network_path):
+            print(f"  [Debug] Keine Junction-Daten gefunden: {debug_network_path}")
             return
 
         try:
-            with open(debug_junctions_path, "r", encoding="utf-8") as f:
+            with open(debug_network_path, "r", encoding="utf-8") as f:
                 debug_data = json.load(f)
         except Exception as e:
             print(f"  [!] Fehler beim Laden der Debug-Daten: {e}")
@@ -828,9 +814,7 @@ class DAETileViewer:
 
         # Rendere alle Junctions als EINEN Actor
         if len(junction_blocks) > 0:
-            actor = self.plotter.add_mesh(
-                junction_blocks, color="blue", opacity=0.8, label="Junctions"
-            )
+            actor = self.plotter.add_mesh(junction_blocks, color="blue", opacity=0.8, label="Junctions")
             self.debug_actors.append(actor)
 
         # Rendere alle Labels als EINEN Actor

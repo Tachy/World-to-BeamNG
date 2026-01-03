@@ -82,6 +82,7 @@ def calculate_junction_buffer(
     junctions_full,
     road_polygons,
     is_end_junction=True,
+    road_id=None,  # Neue Parameter: road_id für eindeutige Identifikation
 ):
     """
     Berechnet den dynamischen junction_stop_buffer über benachbarte Winkel.
@@ -102,19 +103,21 @@ def calculate_junction_buffer(
         return ang + 360.0 if ang < 0.0 else ang
 
     # Sammle alle Straßen, die an dieser Junction hängen
-    connected = []  # (idx, junction_indices)
+    connected = []  # (road_id, junction_indices)
     for idx, r in enumerate(road_polygons):
         ji = r.get("junction_indices", {}) or {}
         if ji.get("start") == junction_idx or ji.get("end") == junction_idx:
-            connected.append((idx, ji))
+            r_id = r.get("id")
+            connected.append((r_id, ji, r))  # Speichere road_id statt enumerate-idx
 
     if len(connected) < 2:
         return 0.0
 
     # Bearings ermitteln (vom Junction weg)
     bearings = []
-    for idx, ji in connected:
-        coords_arr = np.asarray(road_polygons[idx].get("coords", []), dtype=float)
+    for r_id, ji, r in connected:
+        coords_arr = np.asarray(r.get("coords", []), dtype=float)
+        
         if len(coords_arr) < 2:
             continue
 
@@ -122,7 +125,7 @@ def calculate_junction_buffer(
         is_start = ji.get("start") == junction_idx and ji.get("end") != junction_idx
 
         if ji.get("start") == junction_idx and ji.get("end") == junction_idx:
-            if idx == road_idx:
+            if r_id == road_id:
                 is_end = is_end_junction
                 is_start = not is_end_junction
             else:
@@ -130,20 +133,27 @@ def calculate_junction_buffer(
                 is_start = False
 
         if is_end:
-            direction = coords_arr[-1, :2] - coords_arr[-2, :2]
+            # Verwende die letzten N Punkte für robustere Richtungsberechnung
+            # (falls die letzten 2 Punkte identisch sind wegen Trimming)
+            n_points = min(5, len(coords_arr))
+            direction = coords_arr[-1, :2] - coords_arr[-n_points, :2]
             direction = -direction  # vom Junction weg
         else:
-            direction = coords_arr[1, :2] - coords_arr[0, :2]
+            # Verwende die ersten N Punkte für robustere Richtungsberechnung
+            n_points = min(5, len(coords_arr))
+            direction = coords_arr[n_points-1, :2] - coords_arr[0, :2]
 
         ang = _bearing_from_direction(direction)
+        
         if ang is not None:
-            bearings.append((idx, ang))
+            bearings.append((r_id, ang))  # Speichere road_id statt idx
 
     if len(bearings) < 2:
         return 0.0
 
     bearings.sort(key=lambda x: x[1])
-    my_idx_in_list = next((i for i, b in enumerate(bearings) if b[0] == road_idx), None)
+    my_idx_in_list = next((i for i, b in enumerate(bearings) if b[0] == road_id), None)
+    
     if my_idx_in_list is None:
         return 0.0
 
@@ -353,6 +363,7 @@ def _process_road_batch(
     junction_centers=None,
     junctions_full=None,
     all_road_polygons=None,
+    junction_road_counts=None,
 ):
     """Worker-Funktion fuer Strassen-Batch (multiprocessing-fähig)."""
     use_kdtree = lookup_mode == "kdtree"
@@ -377,6 +388,11 @@ def _process_road_batch(
         # Keine zweite Transformation mehr!
         return (x, y, z)
 
+    def count_roads_at_junction(jid):
+        if junction_road_counts and jid in junction_road_counts:
+            return junction_road_counts[jid]
+        return None
+
     batch_vertices = []
     batch_per_road = []
     clipped_local = 0
@@ -390,25 +406,35 @@ def _process_road_batch(
         junction_buffer_start = None
         junction_buffer_end = None
 
+        # WICHTIG: Buffer-Berechnung mit ORIGINAL coords aus all_road_polygons durchführen,
+        # nicht mit den bereits geclippten/getrimmten coords!
+        original_coords_for_buffer = road["coords"]  # Original aus dem Batch
+
         # Trim am Endpunkt (Road-Ende) falls Junction vorhanden
         end_junction_idx = junction_indices.get("end")
         if end_junction_idx is not None and junction_centers is not None:
             if 0 <= end_junction_idx < len(junction_centers):
                 # Berechne dynamischen junction_stop_buffer basierend auf Winkeln
+                # VERWENDE ORIGINAL COORDS, nicht die lokalen (bereits geclippten) coords!
                 junction_buffer = calculate_junction_buffer(
                     original_road_idx,
                     end_junction_idx,
-                    coords,
+                    original_coords_for_buffer,  # Verwende original coords!
                     junction_centers,
                     junctions_full,
                     all_road_polygons,
                     is_end_junction=True,
+                    road_id=road_id,
                 )
                 junction_buffer_end = junction_buffer
 
                 # Spezialfall: 2-Straßen-Junction (nur half_width, kein Extra-Buffer)
-                num_roads_at_junction = 2  # Default
-                if junctions_full and 0 <= end_junction_idx < len(junctions_full):
+                num_roads_at_junction = count_roads_at_junction(end_junction_idx)
+                if (
+                    (num_roads_at_junction is None or num_roads_at_junction == 0)
+                    and junctions_full
+                    and 0 <= end_junction_idx < len(junctions_full)
+                ):
                     num_roads_at_junction = len(junctions_full[end_junction_idx].get("road_indices", []))
 
                 # 2-Straßen-Junctions: min_edge_distance = half_width (3.5m - harte Grenze)
@@ -432,20 +458,26 @@ def _process_road_batch(
         if start_junction_idx is not None and junction_centers is not None and len(coords) > 0:
             if 0 <= start_junction_idx < len(junction_centers):
                 # Berechne dynamischen junction_stop_buffer basierend auf Winkeln
+                # VERWENDE ORIGINAL COORDS, nicht die lokalen (bereits getrimmten) coords!
                 junction_buffer = calculate_junction_buffer(
                     original_road_idx,
                     start_junction_idx,
-                    coords,
+                    original_coords_for_buffer,  # Verwende original coords!
                     junction_centers,
                     junctions_full,
                     all_road_polygons,
                     is_end_junction=False,
+                    road_id=road_id,
                 )
                 junction_buffer_start = junction_buffer
 
                 # Spezialfall: 2-Straßen-Junction (nur half_width, kein Extra-Buffer)
-                num_roads_at_junction = 2  # Default
-                if junctions_full and 0 <= start_junction_idx < len(junctions_full):
+                num_roads_at_junction = count_roads_at_junction(start_junction_idx)
+                if (
+                    (num_roads_at_junction is None or num_roads_at_junction == 0)
+                    and junctions_full
+                    and 0 <= start_junction_idx < len(junctions_full)
+                ):
                     num_roads_at_junction = len(junctions_full[start_junction_idx].get("road_indices", []))
 
                 # 2-Straßen-Junctions: min_edge_distance = half_width (3.5m - harte Grenze)
@@ -453,7 +485,7 @@ def _process_road_batch(
                 if num_roads_at_junction == 2:
                     min_edge_distance = half_width  # Nur Straßenbreite, kein Buffer
                 else:
-                    min_edge_distance = half_width + junction_buffer
+                    min_edge_distance = half_width + junction_buffer_start
 
                 coords_rev = list(reversed(coords))
                 coords_arr = np.asarray(coords_rev)
@@ -546,6 +578,11 @@ def _process_road_batch(
                                 ],
                                 "junction_start_id": start_junction_idx,
                                 "junction_end_id": end_junction_idx,
+                                # Auch im Minimal-Quad-Fall konsistente Buffer-Werte mitschreiben
+                                "junction_buffer_start": (
+                                    junction_buffer_start if junction_buffer_start is not None else 0.0
+                                ),
+                                "junction_buffer_end": junction_buffer_end if junction_buffer_end is not None else 0.0,
                                 "num_points": 2,
                                 "left_start": left_start,
                                 "right_start": left_start + 1,
@@ -797,6 +834,17 @@ def generate_road_mesh_strips(road_polygons, height_points, height_elevations, v
 
     lookup_mode = (getattr(config, "HEIGHT_LOOKUP_MODE", "kdtree") or "kdtree").lower()
 
+    # Pre-compute junction road counts (global view before batching)
+    junction_road_counts = {}
+    if junction_centers is not None:
+        for jid in range(len(junction_centers)):
+            cnt = 0
+            for r in road_polygons:
+                ji = r.get("junction_indices", {}) or {}
+                if ji.get("start") == jid or ji.get("end") == jid:
+                    cnt += 1
+            junction_road_counts[jid] = cnt
+
     worker_func = partial(
         _process_road_batch,
         half_width=half_width,
@@ -808,6 +856,7 @@ def generate_road_mesh_strips(road_polygons, height_points, height_elevations, v
         junction_centers=junction_centers,
         junctions_full=junctions_full,
         all_road_polygons=road_polygons,
+        junction_road_counts=junction_road_counts,
     )
 
     per_road_data = []
