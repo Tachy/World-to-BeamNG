@@ -15,7 +15,11 @@ from .. import config
 
 
 def get_height_data_hash():
-    """Erstellt einen Hash basierend auf den Dateien im height-data Ordner."""
+    """Erstellt einen Hash basierend auf den Dateien im height-data Ordner.
+
+    Falls height_data_hash.txt fehlt oder unterschiedlich ist, werden alle alten
+    Cache-Dateien gelöscht (erzwingt Neugenerierung).
+    """
     xyz_files = sorted(glob.glob(os.path.join(config.HEIGHT_DATA_DIR, "*.xyz")))
     zip_files = sorted(glob.glob(os.path.join(config.HEIGHT_DATA_DIR, "*.zip")))
     all_files = xyz_files + zip_files
@@ -29,7 +33,93 @@ def get_height_data_hash():
         mtime = os.path.getmtime(file)
         hash_input += f"{os.path.basename(file)}_{mtime}_"
 
-    return hashlib.md5(hash_input.encode()).hexdigest()[:12]
+    new_hash = hashlib.md5(hash_input.encode()).hexdigest()[:12]
+
+    # Prüfe ob height_data_hash.txt existiert und einen ANDEREN Hash enthält
+    hash_file = os.path.join(config.CACHE_DIR, "height_data_hash.txt")
+    old_hash = None
+
+    if os.path.exists(hash_file):
+        try:
+            with open(hash_file, "r") as f:
+                old_hash = f.read().strip()
+        except:
+            pass
+
+    # Wenn Hash sich geändert hat oder Datei fehlt: Cleanup
+    if old_hash != new_hash:
+        if old_hash is None:
+            print(f"  [i] height_data_hash.txt fehlt - loesche alte Cache-Dateien...")
+        else:
+            print(f"  [i] Hoehendaten geaendert ({old_hash} -> {new_hash}) - loesche alte Cache-Dateien...")
+
+        # Lösche alle alten Cache-Dateien (wenn old_hash bekannt ist)
+        if old_hash:
+            for pattern in [
+                f"height_raw_{old_hash}.npz",
+                f"grid_v3_{old_hash}_*.npz",
+                f"osm_all_{old_hash}.json",
+                f"elevations_{old_hash}.json",
+            ]:
+                glob_pattern = os.path.join(config.CACHE_DIR, pattern)
+                for old_file in glob.glob(glob_pattern):
+                    try:
+                        os.remove(old_file)
+                        print(f"    • Geloescht: {os.path.basename(old_file)}")
+                    except Exception as e:
+                        print(f"    [!] Fehler beim Loeschen von {os.path.basename(old_file)}: {e}")
+        else:
+            # Wenn old_hash leer/None: Lösche ALLE potentiellen alten Caches (Sicherheitsmaßnahme)
+            print(f"    Loeschen aller _*.npz und _*.json Cache-Dateien...")
+            for pattern in ["height_raw_*.npz", "grid_v3_*.npz", "osm_all_*.json", "elevations_*.json"]:
+                glob_pattern = os.path.join(config.CACHE_DIR, pattern)
+                for old_file in glob.glob(glob_pattern):
+                    try:
+                        os.remove(old_file)
+                        print(f"    • Geloescht: {os.path.basename(old_file)}")
+                    except Exception as e:
+                        print(f"    [!] Fehler beim Loeschen von {os.path.basename(old_file)}: {e}")
+
+        # Lösche auch die generierten DAE-Tiles im BeamNG-Verzeichnis
+        print(f"    Loeschen von Terrain-Tiles im BeamNG-Verzeichnis...")
+        beamng_shapes = config.BEAMNG_DIR_SHAPES
+        if os.path.exists(beamng_shapes):
+            for file in glob.glob(os.path.join(beamng_shapes, "*.dae")):
+                try:
+                    os.remove(file)
+                    print(f"    • Geloescht: {os.path.basename(file)}")
+                except Exception as e:
+                    print(f"    [!] Fehler beim Loeschen von {os.path.basename(file)}: {e}")
+            # Lösche auch DAE-Index-Datei falls vorhanden
+            for meta_file in ["index.json", "manifest.json"]:
+                meta_path = os.path.join(beamng_shapes, meta_file)
+                if os.path.exists(meta_path):
+                    try:
+                        os.remove(meta_path)
+                        print(f"    • Geloescht: {os.path.basename(meta_path)}")
+                    except Exception as e:
+                        print(f"    [!] Fehler beim Loeschen von {os.path.basename(meta_path)}: {e}")
+
+        # Lösche auch Texture-Tiles
+        print(f"    Loeschen von Texture-Tiles im BeamNG-Verzeichnis...")
+        beamng_textures = config.BEAMNG_DIR_TEXTURES
+        if os.path.exists(beamng_textures):
+            for file in glob.glob(os.path.join(beamng_textures, "tile*")):
+                try:
+                    os.remove(file)
+                    print(f"    • Geloescht: {os.path.basename(file)}")
+                except Exception as e:
+                    print(f"    [!] Fehler beim Loeschen von {os.path.basename(file)}: {e}")
+
+        # Speichere neuen Hash
+        try:
+            os.makedirs(config.CACHE_DIR, exist_ok=True)
+            with open(hash_file, "w") as f:
+                f.write(new_hash)
+        except:
+            pass
+
+    return new_hash
 
 
 def load_height_data():
@@ -38,6 +128,7 @@ def load_height_data():
     # Pruefe ob gecachte Rohdaten existieren
     height_hash = get_height_data_hash()
     cache_file = None
+    loaded_from_cache = False
 
     if height_hash:
         cache_file = os.path.join(config.CACHE_DIR, f"height_raw_{height_hash}.npz")
@@ -48,7 +139,9 @@ def load_height_data():
             points = data["points"]
             elevations = data["elevations"]
             print(f"  [OK] {len(elevations)} Hoehenpunkte aus Cache geladen")
-            return points, elevations
+            loaded_from_cache = True
+            # Rückgabe: needs_aerial_processing=False (aus Cache geladen)
+            return points, elevations, False
         else:
             print(f"  Cache nicht gefunden, lade aus Dateien...")
 
@@ -96,14 +189,20 @@ def load_height_data():
         np.savez_compressed(cache_file_path, points=points, elevations=elevations)
         print(f"  [OK] Cache erstellt: {os.path.basename(cache_file_path)}")
 
-    return points, elevations
+    # Rückgabe: (points, elevations, needs_aerial_processing)
+    # needs_aerial_processing=True weil neu geladen (nicht aus Cache)
+    return points, elevations, True
 
 
 def get_elevation_cache(bbox):
     """Lädt den Elevation-Cache fuer eine BBox (Koordinate -> Hoehe)."""
     from ..io.cache import get_cache_path
 
-    cache_path = get_cache_path(bbox, "elevations")
+    if config.HEIGHT_HASH:
+        cache_path = get_cache_path(bbox, "elevations", config.HEIGHT_HASH)
+    else:
+        cache_path = get_cache_path(bbox, "elevations")
+
     if os.path.exists(cache_path):
         try:
             with open(cache_path, "r", encoding="utf-8") as f:
@@ -123,7 +222,11 @@ def save_elevation_cache(bbox, cache_data):
     """Speichert den Elevation-Cache."""
     from ..io.cache import get_cache_path
 
-    cache_path = get_cache_path(bbox, "elevations")
+    if config.HEIGHT_HASH:
+        cache_path = get_cache_path(bbox, "elevations", config.HEIGHT_HASH)
+    else:
+        cache_path = get_cache_path(bbox, "elevations")
+
     try:
         os.makedirs(config.CACHE_DIR, exist_ok=True)
         with open(cache_path, "w", encoding="utf-8") as f:

@@ -14,17 +14,15 @@ def create_terrain_grid(height_points, height_elevations, grid_spacing=10.0):
     """Erstellt ein reguläres Grid aus den Hoehendaten (OPTIMIERT mit Caching)."""
     print(f"  Erstelle Terrain-Grid (Abstand: {grid_spacing}m)...")
 
-    # Finde Bounds in lokalen Koordinaten (IMMER berechnen, auch fuer Cache-Fall!)
+    # Grid-Bounds wurden bereits in world_to_beamng.py gesetzt (aus height_points)
+    # Hier nur für interne Berechnungen ermitteln
     min_x, max_x = height_points[:, 0].min(), height_points[:, 0].max()
     min_y, max_y = height_points[:, 1].min(), height_points[:, 1].max()
-    config.GRID_BOUNDS_LOCAL = (min_x, min_y, max_x, max_y)
 
     # Pruefe ob gecachtes Grid existiert (Version 3 mit korrekten Bounds!)
     height_hash = get_height_data_hash()
     if height_hash:
-        cache_file = os.path.join(
-            config.CACHE_DIR, f"grid_v3_{height_hash}_spacing{grid_spacing:.1f}m.npz"
-        )
+        cache_file = os.path.join(config.CACHE_DIR, f"grid_v3_{height_hash}_spacing{grid_spacing:.1f}m.npz")
 
         if os.path.exists(cache_file):
             print(f"  [OK] Grid-Cache gefunden: {os.path.basename(cache_file)}")
@@ -33,9 +31,7 @@ def create_terrain_grid(height_points, height_elevations, grid_spacing=10.0):
             grid_elevations = data["grid_elevations"]
             nx = int(data["nx"])
             ny = int(data["ny"])
-            print(
-                f"  [OK] Grid aus Cache geladen: {nx} x {ny} = {len(grid_points)} Vertices"
-            )
+            print(f"  [OK] Grid aus Cache geladen: {nx} x {ny} = {len(grid_points)} Vertices")
             # WICHTIG: Grid wurde in UTM gecacht, transformiere zu lokal!
             # (height_points wurden bereits transformiert, min_x/min_y sind lokal)
             # Wir muessen hier nichts tun - grid_points sind schon im gleichen System wie height_points
@@ -61,9 +57,7 @@ def create_terrain_grid(height_points, height_elevations, grid_spacing=10.0):
     for i in range(num_chunks):
         start_idx = i * chunk_size
         end_idx = min((i + 1) * chunk_size, len(grid_points))
-        grid_elevations[start_idx:end_idx] = interpolator(
-            grid_points[start_idx:end_idx]
-        )
+        grid_elevations[start_idx:end_idx] = interpolator(grid_points[start_idx:end_idx])
 
         if (i + 1) % 5 == 0 or i == num_chunks - 1:
             progress = ((i + 1) / num_chunks) * 100
@@ -75,9 +69,7 @@ def create_terrain_grid(height_points, height_elevations, grid_spacing=10.0):
 
     # Cache das Grid fuer zukuenftige Verwendung (Version 3 mit korrekten Bounds!)
     if height_hash:
-        cache_file = os.path.join(
-            config.CACHE_DIR, f"grid_v3_{height_hash}_spacing{grid_spacing:.1f}m.npz"
-        )
+        cache_file = os.path.join(config.CACHE_DIR, f"grid_v3_{height_hash}_spacing{grid_spacing:.1f}m.npz")
         print(f"  Speichere Grid-Cache: {os.path.basename(cache_file)}")
         os.makedirs(config.CACHE_DIR, exist_ok=True)
         np.savez_compressed(

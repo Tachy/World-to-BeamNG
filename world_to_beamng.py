@@ -70,7 +70,6 @@ from world_to_beamng.mesh.stitch_local import (
     find_boundary_polygons_in_circle,
     export_boundary_polygons_to_obj,
 )
-from world_to_beamng.io.aerial import process_aerial_images
 from world_to_beamng.mesh.tile_slicer import slice_mesh_into_tiles
 from world_to_beamng.io.dae import export_merged_dae
 from world_to_beamng.utils.timing import StepTimer
@@ -117,7 +116,7 @@ def main():
     print("=" * 60)
 
     timer.begin("Lade Hoehendaten")
-    height_points, height_elevations = load_height_data()
+    height_points, height_elevations, needs_aerial_processing = load_height_data()
 
     timer.begin("Berechne BBOX aus Hoehendaten")
     config.BBOX = calculate_bbox_from_height_data(height_points)
@@ -138,10 +137,36 @@ def main():
     height_elevations = height_elevations - oz  # Auch Z-Koordinaten transformieren!
     print(f"  [OK] height_points + elevations zu lokalen Koordinaten transformiert")
 
+    # Berechne Grid-Bounds SOFORT (für Luftbild-Verarbeitung)
+    config.GRID_BOUNDS_LOCAL = (
+        height_points[:, 0].min(),
+        height_points[:, 0].max(),
+        height_points[:, 1].min(),
+        height_points[:, 1].max(),
+    )
+    print(
+        f"  Grid Bounds (lokal): X=[{config.GRID_BOUNDS_LOCAL[0]:.1f}, {config.GRID_BOUNDS_LOCAL[1]:.1f}], "
+        f"Y=[{config.GRID_BOUNDS_LOCAL[2]:.1f}, {config.GRID_BOUNDS_LOCAL[3]:.1f}]"
+    )
+
+    # Verarbeite Luftbilder (nur wenn Höhendaten neu geladen wurden)
+    if needs_aerial_processing:
+        print(f"\n  [i] Verarbeite Luftbilder (da Hoehendaten neu geladen)...")
+        from world_to_beamng.io.aerial import process_aerial_images
+
+        tile_count = process_aerial_images(aerial_dir="aerial", output_dir=config.BEAMNG_DIR_TEXTURES, tile_size=2500)
+        if tile_count > 0:
+            print(f"  [OK] {tile_count} Luftbild-Kacheln exportiert")
+        else:
+            print("  [i] Keine Luftbilder verarbeitet")
+
     timer.begin("Pruefe OSM-Daten-Cache")
     height_hash = get_height_data_hash()
     if not height_hash:
         height_hash = "no_files"
+
+    # Setze HEIGHT_HASH global (für konsistente Cache-Namensgebung)
+    config.HEIGHT_HASH = height_hash
 
     cache_height_hash_path = os.path.join(config.CACHE_DIR, "height_data_hash.txt")
 
@@ -188,18 +213,7 @@ def main():
         height_points, height_elevations, grid_spacing=config.GRID_SPACING
     )
 
-    # LOCAL_OFFSET wurde bereits in Schritt 2 gesetzt
-
-    # Speichere Grid-Bounds für Clipping
-    config.GRID_BOUNDS_LOCAL = (
-        grid_points[:, 0].min(),
-        grid_points[:, 0].max(),
-        grid_points[:, 1].min(),
-        grid_points[:, 1].max(),
-    )
-    print(
-        f"  Grid Bounds (lokal): X=[{config.GRID_BOUNDS_LOCAL[0]:.1f}, {config.GRID_BOUNDS_LOCAL[1]:.1f}], Y=[{config.GRID_BOUNDS_LOCAL[2]:.1f}, {config.GRID_BOUNDS_LOCAL[3]:.1f}]"
-    )
+    # Grid-Bounds wurden bereits in Schritt 2 berechnet (aus height_points)
 
     timer.begin(f"Extrahiere {len(roads)} Strassen-Polygone")
     road_polygons = get_road_polygons(roads, config.BBOX, height_points, height_elevations)
@@ -377,19 +391,6 @@ def main():
         max_circles=1,
     )
 
-    # Debug-Export: Grid-Klassifizierung für Analyse
-    if config.DEBUG_EXPORTS:
-        debug_grid_path = os.path.join(config.BEAMNG_DIR_SHAPES, "debug_grid_classification.npz")
-        np.savez_compressed(
-            debug_grid_path,
-            grid_points=grid_points,
-            vertex_types=vertex_types,
-            nx=nx,
-            ny=ny,
-            grid_spacing=config.GRID_SPACING,
-        )
-        print(f"  [Debug] Grid-Klassifizierung exportiert: {debug_grid_path}")
-
     # ===== SCHRITT 9a: Regeneriere Terrain-Mesh (mit Straßenausschnitten) =====
     timer.begin("Regeneriere Terrain-Mesh")
     terrain_faces_final, terrain_vertex_indices = generate_full_grid_mesh(
@@ -404,58 +405,6 @@ def main():
     if config.DEBUG_VERBOSE:
         print(f"  [OK] {vertex_manager.get_count()} Vertices final (gesamt)")
         print(f"  [OK] {len(terrain_faces_final)} Terrain-Faces generiert")
-
-    # Debug-Dump: Z-Vergleich Terrain vs. Straßen
-    os.makedirs(config.CACHE_DIR, exist_ok=True)
-    z_comparison_path = os.path.join(config.CACHE_DIR, "z_height_comparison.json")
-    verts_array = np.asarray(vertex_manager.get_array())
-    z_comparison = {
-        "terrain_sample": [],
-        "road_sample": [],
-        "stats": {
-            "terrain_z_min": float(np.min(verts_array[list(terrain_vertex_indices), 2])) if terrain_vertex_indices else None,
-            "terrain_z_max": float(np.max(verts_array[list(terrain_vertex_indices), 2])) if terrain_vertex_indices else None,
-            "terrain_z_mean": float(np.mean(verts_array[list(terrain_vertex_indices), 2])) if terrain_vertex_indices else None,
-        }
-    }
-    
-    # Sample Terrain-Vertices
-    if terrain_vertex_indices:
-        terrain_sample_indices = list(terrain_vertex_indices)[:10]
-        for idx in terrain_sample_indices:
-            v = verts_array[idx]
-            z_comparison["terrain_sample"].append({
-                "vertex_idx": int(idx),
-                "x": float(v[0]),
-                "y": float(v[1]),
-                "z": float(v[2]),
-            })
-    
-    # Sample Road-Vertices (aus road_faces)
-    road_vertices_seen = set()
-    if road_faces:
-        for face_idx, face in enumerate(road_faces[:50]):
-            for v_idx in face:
-                if v_idx not in road_vertices_seen and len(z_comparison["road_sample"]) < 10:
-                    road_vertices_seen.add(v_idx)
-                    v = verts_array[v_idx]
-                    z_comparison["road_sample"].append({
-                        "vertex_idx": int(v_idx),
-                        "face_idx": int(face_idx),
-                        "x": float(v[0]),
-                        "y": float(v[1]),
-                        "z": float(v[2]),
-                    })
-    
-    with open(z_comparison_path, "w") as f:
-        json.dump(z_comparison, f, indent=2)
-    print(f"  [Debug] Z-Höhen-Vergleich exportiert: {z_comparison_path}")
-    print(f"    Terrain Z: min={z_comparison['stats']['terrain_z_min']:.2f}, "
-          f"max={z_comparison['stats']['terrain_z_max']:.2f}, "
-          f"mean={z_comparison['stats']['terrain_z_mean']:.2f}")
-    if z_comparison["road_sample"]:
-        road_z_values = [s["z"] for s in z_comparison["road_sample"]]
-        print(f"    Straßen Z: min={min(road_z_values):.2f}, max={max(road_z_values):.2f}, mean={np.mean(road_z_values):.2f}")
 
     # Lokales Stitching: nur erster Suchkreis (aus classify_grid_vertices Callback)
     if stitch_circle_requests:
@@ -518,17 +467,6 @@ def main():
     else:
         print(f"  [i] Kein Mesh generiert - überspringe DAE-Export")
 
-    # HINWEIS: Luftbild-Verarbeitung NACH Schritt "Erkenne Junctions" (Schritt 6a)
-    timer.begin("Verarbeite Luftbilder")
-    # tile_size in Pixeln für 500m Tiles:
-    # 5000 Pixel = 1000m → 0.2m/Pixel
-    # 500m ÷ 0.2m = 2500 Pixel
-    tile_count = process_aerial_images(aerial_dir="aerial", output_dir=config.BEAMNG_DIR_TEXTURES, tile_size=2500)
-    if tile_count > 0:
-        print(f"  [OK] {tile_count} Luftbild-Kacheln exportiert")
-    else:
-        print("  [i] Keine Luftbilder verarbeitet")
-
     # ===== ZUSAMMENFASSUNG =====
     print(f"\n{'=' * 60}")
     print(f"[OK] GENERATOR BEENDET!")
@@ -544,4 +482,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

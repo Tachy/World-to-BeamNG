@@ -69,6 +69,7 @@ MAX_ROADS_PER_BATCH = 500
 BBOX = None
 LOCAL_OFFSET = None  # Globaler Offset fuer lokale Koordinaten
 GRID_BOUNDS_LOCAL = None  # Grid Bounds in lokalen Koordinaten
+HEIGHT_HASH = None  # Height-Daten Hash (wird in main() gesetzt)
 
 # === OVERPASS API ENDPOINTS ===
 OVERPASS_ENDPOINTS = [
