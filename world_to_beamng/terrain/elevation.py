@@ -57,9 +57,7 @@ def load_height_data():
     zip_files = glob.glob(os.path.join(config.HEIGHT_DATA_DIR, "*.zip"))
 
     if not xyz_files and not zip_files:
-        raise FileNotFoundError(
-            f"Keine .xyz oder .zip Dateien in {config.HEIGHT_DATA_DIR} gefunden!"
-        )
+        raise FileNotFoundError(f"Keine .xyz oder .zip Dateien in {config.HEIGHT_DATA_DIR} gefunden!")
 
     print(f"  Lese {len(xyz_files)} XYZ + {len(zip_files)} ZIP Dateien...")
 
@@ -93,9 +91,7 @@ def load_height_data():
 
     # Cache die Rohdaten (immer wenn wir frisch geladen haben)
     if height_hash:
-        cache_file_path = os.path.join(
-            config.CACHE_DIR, f"height_raw_{height_hash}.npz"
-        )
+        cache_file_path = os.path.join(config.CACHE_DIR, f"height_raw_{height_hash}.npz")
         os.makedirs(config.CACHE_DIR, exist_ok=True)
         np.savez_compressed(cache_file_path, points=points, elevations=elevations)
         print(f"  [OK] Cache erstellt: {os.path.basename(cache_file_path)}")
@@ -178,9 +174,7 @@ def get_elevations_for_points(pts, bbox, height_points, height_elevations):
 
         # Interpoliere Hoehen (nearest neighbor fuer schnellere Berechnung)
         # WICHTIG: height_elevations ist BEREITS normalisiert (oz wurde in world_to_beamng.py subtrahiert)!
-        new_elevations = griddata(
-            height_points, height_elevations, missing_pts_local, method="nearest"
-        )
+        new_elevations = griddata(height_points, height_elevations, missing_pts_local, method="nearest")
 
         # Fuege zum Cache hinzu
         for pt, elev in zip(missing_pts, new_elevations):

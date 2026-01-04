@@ -117,7 +117,7 @@ def calculate_junction_buffer(
     bearings = []
     for r_id, ji, r in connected:
         coords_arr = np.asarray(r.get("coords", []), dtype=float)
-        
+
         if len(coords_arr) < 2:
             continue
 
@@ -141,10 +141,10 @@ def calculate_junction_buffer(
         else:
             # Verwende die ersten N Punkte für robustere Richtungsberechnung
             n_points = min(5, len(coords_arr))
-            direction = coords_arr[n_points-1, :2] - coords_arr[0, :2]
+            direction = coords_arr[n_points - 1, :2] - coords_arr[0, :2]
 
         ang = _bearing_from_direction(direction)
-        
+
         if ang is not None:
             bearings.append((r_id, ang))  # Speichere road_id statt idx
 
@@ -153,7 +153,7 @@ def calculate_junction_buffer(
 
     bearings.sort(key=lambda x: x[1])
     my_idx_in_list = next((i for i, b in enumerate(bearings) if b[0] == road_id), None)
-    
+
     if my_idx_in_list is None:
         return 0.0
 
@@ -699,11 +699,13 @@ def _process_road_batch(
 
         road_left_vertices = list(zip(left_local[0], left_local[1], left_local[2]))
         road_right_vertices = list(zip(right_local[0], right_local[1], right_local[2]))
-        
+
         # Debug: Prüfe erste Straßen-Z-Werte
         if original_road_idx < 3:
-            print(f"    [DEBUG road_mesh] Road {original_road_idx}: centerline_z_raw={z_vals[0]:.2f}, "
-                  f"left_terrain={terrain_left_height[0]:.2f}, right_terrain={terrain_right_height[0]:.2f}")
+            print(
+                f"    [DEBUG road_mesh] Road {original_road_idx}: centerline_z_raw={z_vals[0]:.2f}, "
+                f"left_terrain={terrain_left_height[0]:.2f}, right_terrain={terrain_right_height[0]:.2f}"
+            )
 
         # Böschungs-Vertices nur erzeugen, wenn aktiviert
         if config.GENERATE_SLOPES:
