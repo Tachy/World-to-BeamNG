@@ -16,16 +16,10 @@ def classify_grid_vertices(
     grid_points,
     grid_elevations,
     road_slope_polygons_2d,
-    on_centerline_circle=None,
-    max_circles=None,
 ):
     """
     Markiert Grid-Vertices unter Straßen.
     SUPER-OPTIMIERT: Nutzt KDTree + geometrische Tests!
-
-    Optional: Callback je Centerline-Suchkreis (z.B. um lokale Stitch-Scans zu triggern).
-    Der Callback wird nur für die ersten ``max_circles`` Aufrufe ausgeführt; die
-    eigentliche Klassifizierung läuft weiterhin über alle Samples.
     """
     print("  Markiere Strassen-Bereiche im Grid (KDTree + Face-Überlappung)...")
 
@@ -100,8 +94,6 @@ def classify_grid_vertices(
 
     print(f"  Teste {len(road_data)} Roads gegen Grid-Punkte...")
 
-    circles_triggered = 0  # zählt Callback-Aufrufe
-
     for road_num, road_info in enumerate(road_data):
         centerline_points = road_info["centerline_points"]
         has_real_centerline = road_info.get("has_real_centerline", True)
@@ -172,14 +164,6 @@ def classify_grid_vertices(
             for centerline_pt in centerline:
                 nearby = kdtree.query_ball_point(centerline_pt[:2], r=search_radius)
                 buffer_indices_set.update(nearby)
-
-                # Trigger optional Callback (z.B. lokales Stitching) nur für die ersten Kreise
-                if on_centerline_circle and (max_circles is None or circles_triggered < max_circles):
-                    try:
-                        on_centerline_circle(centerline_pt, search_radius)
-                        circles_triggered += 1
-                    except Exception:
-                        pass  # Callback darf die Klassifizierung nicht stoppen
 
             buffer_indices = list(buffer_indices_set)
         else:

@@ -66,10 +66,7 @@ from world_to_beamng.mesh.cleanup import (
 from world_to_beamng.mesh.stitching import (
     stitch_terrain_gaps,
 )
-from world_to_beamng.mesh.stitch_local import (
-    find_boundary_polygons_in_circle,
-    export_boundary_polygons_to_obj,
-)
+from world_to_beamng.mesh.stitch_gaps import stitch_all_gaps
 from world_to_beamng.mesh.tile_slicer import slice_mesh_into_tiles
 from world_to_beamng.io.dae import export_merged_dae
 from world_to_beamng.utils.timing import StepTimer
@@ -375,20 +372,10 @@ def main():
             }
         )
 
-    # Erfasse den ersten Suchkreis (Centerline-Punkt + Radius) für lokales Stitching
-    stitch_circle_requests = []
-
-    def _capture_stitch_circle(centerline_point, search_radius):
-        if stitch_circle_requests:
-            return
-        stitch_circle_requests.append((centerline_point, search_radius))
-
     vertex_types, modified_heights = classify_grid_vertices(
         grid_points,
         grid_elevations,
         road_data_for_classification,
-        on_centerline_circle=_capture_stitch_circle,
-        max_circles=1,
     )
 
     # ===== SCHRITT 9a: Regeneriere Terrain-Mesh (mit Straßenausschnitten) =====
@@ -406,29 +393,6 @@ def main():
         print(f"  [OK] {vertex_manager.get_count()} Vertices final (gesamt)")
         print(f"  [OK] {len(terrain_faces_final)} Terrain-Faces generiert")
 
-    # Lokales Stitching: nur erster Suchkreis (aus classify_grid_vertices Callback)
-    if stitch_circle_requests:
-        cl_point, search_radius = stitch_circle_requests[0]
-        try:
-            polygons_local = find_boundary_polygons_in_circle(
-                centerline_point=cl_point,
-                search_radius=search_radius,
-                vertex_manager=vertex_manager,
-                terrain_faces=terrain_faces_final,
-                slope_faces=road_faces,
-                terrain_vertex_indices=terrain_vertex_indices,
-                debug=True,
-            )
-
-            export_boundary_polygons_to_obj(polygons_local, cl_point, search_radius=search_radius)
-
-            if polygons_local:
-                print(f"  [OK] {len(polygons_local)} Boundary-Polygone (lokal) exportiert")
-            else:
-                print("  [i] Keine Boundary-Polygone im ersten Suchkreis gefunden (Kreis + Centerline exportiert)")
-        except Exception as e:
-            print(f"  [!] Lokales Stitching fehlgeschlagen: {e}")
-
     # ===== SCHRITT 9b: Füge Terrain-Faces zum Mesh hinzu =====
     for face in terrain_faces_final:
         mesh.add_face(face[0], face[1], face[2], material="terrain")
@@ -438,8 +402,18 @@ def main():
     if config.DEBUG_VERBOSE:
         print(f"  [OK] {len(all_road_polygons_2d)} Road-Polygone klassifiziert")
 
-    # ===== SCHRITT 9d: Suche Terrain-Luecken (Gaps) =====
-    print("Suche Terrain-Luecken (Gaps) deaktiviert (lokales Boundary-Obj aktiv)")
+    # ===== SCHRITT 9d: Stitching - Suche und Fülle Terrain-Lücken =====
+    timer.begin("Stitching - Terrain-Lücken")
+    stitch_faces = stitch_all_gaps(
+        road_data_for_classification=road_data_for_classification,
+        vertex_manager=vertex_manager,
+        mesh=mesh,
+        terrain_vertex_indices=terrain_vertex_indices,
+    )
+    timer.end()
+
+    # Stitch-Faces werden nun direkt in mesh.add_face() eingefügt (in _triangulate_polygons)
+    # Keine weitere Verarbeitung nötig
 
     # ===== SCHRITT 10: Slice Mesh in Tiles und exportiere als DAE =====
     timer.begin(f"Slice Mesh in {config.TILE_SIZE}×{config.TILE_SIZE}m Tiles")

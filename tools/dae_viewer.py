@@ -2,10 +2,14 @@
 DAE Viewer - Visualisiere die exportierte terrain.dae mit allen Tiles
 
 Steuerung:
-    G = Alle Tiles anzeigen (Merge-View)
-    M = Nur Material Terrain anzeigen
-    R = Nur Material Road anzeigen
-    T = Toggle Alle Materials    X = Toggle Texturen (An/Aus)    Space = Tile-Liste anzeigen/verstecken
+    X = Toggle Texturen (An/Aus) - triggert Neuaufbau
+
+    In Mesh-Ebenen-Ansicht:
+        S = Toggle Straßenebene (kein Neuaufbau)
+        D = Toggle Debugebene (kein Neuaufbau)
+        T = Toggle Terrainebene (kein Neuaufbau)
+
+    Space = Tile-Liste anzeigen/verstecken
     Maus:
         Rechtsklick-Drag = Kamera drehen
         Scroll = Zoom
@@ -41,11 +45,15 @@ class DAETileViewer:
             print("Keine Geometrie in DAE gefunden!")
             return
 
-        # Sichtbarkeits-Flags
-        self.show_terrain = True
-        self.show_roads = True
-        self.use_textures = True  # Texturen standardmäßig an
-        self.show_debug = False  # Debug-Layer (Junctions, Centerlines)
+        # Initialisiere config_path FRÜH (wird für _load_layers_state benötigt)
+        self.config_path = os.path.join(os.path.dirname(__file__), "dae_viewer.cfg")
+
+        # Sichtbarkeits-Flags (lade gespeicherte Werte)
+        saved_layers = self._load_layers_state()
+        self.show_terrain = saved_layers.get("terrain", True)
+        self.show_roads = saved_layers.get("roads", True)
+        self.use_textures = saved_layers.get("textures", True)  # Texturen standardmäßig an
+        self.show_debug = saved_layers.get("debug", False)  # Debug-Layer (Junctions, Centerlines)
 
         # Speichere Actor-Referenzen für Sichtbarkeits-Toggles
         self.terrain_actors = []  # Liste von Terrain-Mesh-Actors
@@ -69,7 +77,6 @@ class DAETileViewer:
         # PyVista Setup
         self.plotter = pv.Plotter()
         self.plotter.set_background("skyblue")  # Himmelblau
-        self.config_path = os.path.join(os.path.dirname(__file__), "dae_viewer.cfg")
 
         # Stelle Fensterposition/-größe wieder her
         self._apply_saved_window_state()
@@ -99,37 +106,36 @@ class DAETileViewer:
         self.update_view()
         self._apply_saved_camera_state()
 
+        # Wenn Debug-Layer aktiviert sein soll, lade ihn nach update_view()
+        if self.show_debug:
+            self._update_debug_visibility()
+
     def _on_key_press(self, obj, event):
         """KeyPress Event Handler."""
         key = obj.GetKeySym()
         key_lower = key.lower()
 
-        if key_lower == "m":
-            self.show_terrain = True
-            self.show_roads = False
-            print("\n[Material] Nur Terrain")
-            self._update_visibility()
-
-        elif key_lower == "r":
-            self.show_terrain = False
-            self.show_roads = True
-            print("\n[Material] Nur Roads")
+        if key_lower == "s":
+            # Toggle nur Roads (kein Neuaufbau)
+            self.show_roads = not self.show_roads
+            print(f"\n[Straßen] {'AN' if self.show_roads else 'AUS'}")
             self._update_visibility()
 
         elif key_lower == "t":
+            # Toggle nur Terrain (kein Neuaufbau)
             self.show_terrain = not self.show_terrain
-            self.show_roads = not self.show_roads
-            print(
-                f"\n[Material] Terrain: {'AN' if self.show_terrain else 'AUS'}, Roads: {'AN' if self.show_roads else 'AUS'}"
-            )
+            print(f"\n[Terrain] {'AN' if self.show_terrain else 'AUS'}")
             self._update_visibility()
 
         elif key_lower == "x":
+            # Toggle Texturen (mit Neuaufbau!)
             self.use_textures = not self.use_textures
             print(f"\n[Texturen] {'AN' if self.use_textures else 'AUS'}")
             self.update_view()
+            # Debug-Layer bleiben dauerhaft geladen und ihre Sichtbarkeit wird beibehalten
 
         elif key_lower == "d":
+            # Toggle Debug (kein Neuaufbau)
             self.show_debug = not self.show_debug
             print(f"\n[Debug] {'AN' if self.show_debug else 'AUS'}")
             self._update_debug_visibility()
@@ -186,12 +192,16 @@ class DAETileViewer:
         except Exception as e:
             print(f"[!] Fehler beim Speichern der Kamera vor update_view: {e}")
 
+        # Speichere Debug-Actors VOR clear() - um sie zu bewahren
+        saved_debug_actors = self.debug_actors.copy() if self.debug_actors else []
+        saved_debug_visibility = self.show_debug
+
         self.plotter.clear()
 
-        # Leere Actor-Listen
+        # Leere NUR Terrain/Road Actor-Listen
         self.terrain_actors = []
         self.road_actors = []
-        self.debug_actors = []
+        # Debug-Actors wurden durch clear() gelöscht, aber wir laden sie danach wieder
 
         vertices = self.tile_data.get("vertices", [])
         faces = self.tile_data.get("faces", [])
@@ -243,14 +253,14 @@ class DAETileViewer:
                 # Nur Textur anwenden, wenn UVs vorhanden sind
                 if texture is not None and len(tile_uvs) > 0:
                     try:
-                        self.plotter.add_mesh(mesh, texture=texture, opacity=1.0, label=tile_name)
+                        self.plotter.add_mesh(mesh, texture=texture, opacity=0.5, label=tile_name)
                     except Exception as e:
                         # Fallback bei Textur-Fehler
                         print(f"  [!] Textur-Fehler für {tile_name}: {e}")
-                        self.plotter.add_mesh(mesh, color=[0.6, 0.5, 0.4], opacity=0.8, label=tile_name)
+                        self.plotter.add_mesh(mesh, color=[0.6, 0.5, 0.4], opacity=0.5, label=tile_name)
                 else:
                     # Fallback: Farbe
-                    self.plotter.add_mesh(mesh, color=[0.6, 0.5, 0.4], opacity=0.8, label=tile_name)
+                    self.plotter.add_mesh(mesh, color=[0.6, 0.5, 0.4], opacity=0.5, label=tile_name)
         else:
             # Material-basiertes Rendering mit Faces und Edges
             terrain_faces = []
@@ -275,7 +285,7 @@ class DAETileViewer:
                     terrain_mesh,
                     color=face_colors.get("terrain", [0.8, 0.95, 0.8]),
                     label="Terrain",
-                    opacity=0.9,
+                    opacity=0.5,
                     show_edges=True,
                     edge_color=edge_colors.get("terrain", [0.2, 0.5, 0.2]),
                     line_width=1.0,
@@ -290,7 +300,7 @@ class DAETileViewer:
                     road_mesh,
                     color=face_colors.get("road", [0.9, 0.9, 0.9]),
                     label="Roads",
-                    opacity=0.9,
+                    opacity=0.5,
                     show_edges=True,
                     edge_color=edge_colors.get("road", [1.0, 0.0, 0.0]),
                     line_width=2.0,
@@ -300,7 +310,7 @@ class DAETileViewer:
 
         # Statuszeilen
         # Oben links: Bedienungsanleitung
-        bedienung = "M/R/T: Materials | X: Texturen | D: Debug | K: Cam | L: Reload | Up/Down: Zoom"
+        bedienung = "S: Straßen | T: Terrain | D: Debug | X: Texturen | K: Cam | L: Reload | Up/Down: Zoom"
         self.plotter.add_text(
             bedienung,
             position="upper_left",
@@ -324,6 +334,18 @@ class DAETileViewer:
                 self.plotter.render()
             except Exception as e:
                 print(f"[!] Fehler beim Wiederherstellen der Kamera: {e}")
+
+        # Füge Debug-Actors wieder zum Plotter hinzu (falls sie existierten)
+        if saved_debug_actors:
+            self.debug_actors = []
+            for actor in saved_debug_actors:
+                try:
+                    self.plotter.add_actor(actor)
+                    self.debug_actors.append(actor)
+                    # Stelle Sichtbarkeit wieder her
+                    actor.SetVisibility(saved_debug_visibility)
+                except Exception as e:
+                    print(f"[!] Fehler beim Wiederherstellen des Debug-Actors: {e}")
 
     def _create_mesh(self, vertices, faces):
         """Erstelle ein PyVista PolyData Mesh aus Vertices und Faces."""
@@ -387,7 +409,7 @@ class DAETileViewer:
         if self.show_terrain:
             active_items.append("T")
         if self.show_roads:
-            active_items.append("R")
+            active_items.append("S")  # S für Straßen
         if self.use_textures:
             active_items.append("X")
         if self.show_debug:
@@ -540,6 +562,11 @@ class DAETileViewer:
         cfg = self._load_config()
         return cfg.get("camera")
 
+    def _load_layers_state(self):
+        """Lade Ebenen-Einstellungen aus Config."""
+        cfg = self._load_config()
+        return cfg.get("layers", {})
+
     def load_camera_state(self):
         """Lade gespeicherte Kamera-Position (K-Taste)."""
         state = self._load_camera_state()
@@ -668,6 +695,14 @@ class DAETileViewer:
                 "focal_point": list(cam.focal_point),
                 "up_vector": list(cam.up),
             }
+
+        # Speichere auch Ebenen-Einstellungen
+        cfg["layers"] = {
+            "terrain": self.show_terrain,
+            "roads": self.show_roads,
+            "textures": self.use_textures,
+            "debug": self.show_debug,
+        }
         self._save_config(cfg)
 
     def _on_close_save_window_state(self, *args, **kwargs):
@@ -814,7 +849,7 @@ class DAETileViewer:
 
         # Rendere alle Junctions als EINEN Actor
         if len(junction_blocks) > 0:
-            actor = self.plotter.add_mesh(junction_blocks, color="blue", opacity=0.8, label="Junctions")
+            actor = self.plotter.add_mesh(junction_blocks, color="blue", opacity=0.5, label="Junctions")
             self.debug_actors.append(actor)
 
         # Rendere alle Labels als EINEN Actor
@@ -869,7 +904,7 @@ class DAETileViewer:
                 centerlines_mesh,
                 color="blue",
                 line_width=2.0,
-                opacity=0.6,
+                opacity=1.0,
                 label="Centerlines",
             )
             self.debug_actors.append(actor)
@@ -899,17 +934,57 @@ class DAETileViewer:
                 print(f"  [Debug] Lade Boundary-Polygone aus {boundary_polys_path}")
                 boundary_mesh = pv.read(boundary_polys_path)
 
-                # Rendere als magenta Linien
+                # Extrahiere Search-Circle und Boundaries aus dem OBJ
+                # (Search-Circle sind die letzten Vertices + Center, rest sind Boundaries)
+                lines = boundary_mesh.lines.reshape(-1)  # Linien-Connectivity
+
+                # Rendere das ganze Mesh erst mal, dann filtern wir die Farben
+                # Einfacher: Alles Magenta, aber wir machen den Suchkreis extra rot
+
+                # Rendere Boundaries als magenta Linien
                 actor = self.plotter.add_mesh(
                     boundary_mesh,
                     color="magenta",
-                    line_width=3.0,
+                    line_width=2.0,
                     opacity=1.0,
                     label="Boundary-Polygone (lokal)",
                     render_lines_as_tubes=False,
                 )
                 self.debug_actors.append(actor)
-                print(f"  [Debug] Boundary-Polygone geladen")
+
+                # Extrahiere und zeichne Suchkreis separat (rot)
+                try:
+                    # Der Suchkreis-Punkt ist der letzte Vertex in der OBJ
+                    # Der Suchkreis sind die vertices davor (circle_segments viele)
+                    # Wir identifizieren den Suchkreis über Kommentare in der OBJ
+                    verts = np.array(boundary_mesh.points)
+
+                    # Suche nach Search-Circle - it's usually the last points in sequence
+                    # Für einfachheit: letzten 65 Punkte als Suchkreis (64 + 1 center)
+                    if len(verts) > 65:
+                        circle_verts = verts[-65:]  # Search-Circle
+
+                        # Erstelle Linien-Connectivity für Kreis
+                        n_circle = len(circle_verts) - 1  # Minus center point
+                        circle_lines = []
+                        for i in range(n_circle):
+                            circle_lines.append([2, i, (i + 1) % n_circle])  # [num_points, p1, p2]
+
+                        if circle_lines:
+                            circle_mesh = pv.PolyData(circle_verts, lines=np.array(circle_lines))
+                            actor_circle = self.plotter.add_mesh(
+                                circle_mesh,
+                                color="red",
+                                line_width=3.0,
+                                opacity=1.0,
+                                label="Suchkreis",
+                                render_lines_as_tubes=False,
+                            )
+                            self.debug_actors.append(actor_circle)
+                except Exception as e:
+                    print(f"  [Debug] Suchkreis-Extraktion: {e}")
+
+                print(f"  [Debug] Boundary-Polygone und Suchkreis geladen")
             except Exception as e:
                 print(f"  [!] Fehler beim Laden der Boundary-Polygone: {e}")
 

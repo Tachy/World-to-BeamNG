@@ -7,6 +7,7 @@ anlegen und nur dort nach Loch-Polygonen suchen.
 
 import numpy as np
 from scipy.spatial import cKDTree
+from mapbox_earcut import triangulate_float64
 from collections import defaultdict
 
 
@@ -14,8 +15,7 @@ def find_boundary_polygons_in_circle(
     centerline_point,
     search_radius,
     vertex_manager,
-    terrain_faces,
-    slope_faces,
+    mesh,
     terrain_vertex_indices,
     debug=False,
 ):
@@ -29,8 +29,7 @@ def find_boundary_polygons_in_circle(
         centerline_point: (x, y, z) - Mittelpunkt des Search-Circles
         search_radius: Radius in Metern (typisch 10.0m)
         vertex_manager: VertexManager mit allen Mesh-Vertices
-        terrain_faces: Liste von [v0, v1, v2] Terrain-Faces
-        slope_faces: Liste von [v0, v1, v2] Slope/Road-Faces
+        mesh: Mesh-Instanz mit terrain_faces und slope_faces
         terrain_vertex_indices: Set oder Liste der Terrain-Vertex-Indices
         debug: Optionaler Debug-Flag für Ausgaben
 
@@ -55,6 +54,12 @@ def find_boundary_polygons_in_circle(
 
     # KDTree für schnelle räumliche Suche (nur XY)
     kdtree = cKDTree(verts[:, :2])
+
+    # Extrahiere Faces aus Mesh
+    terrain_faces = [f for idx, f in enumerate(mesh.faces) if mesh.face_props.get(idx, {}).get("material") == "terrain"]
+    slope_faces = [
+        f for idx, f in enumerate(mesh.faces) if mesh.face_props.get(idx, {}).get("material") in ("slope", "road")
+    ]
 
     # Finde alle Vertices im Search-Circle
     circle_vertex_indices = kdtree.query_ball_point([cx, cy], r=search_radius)
@@ -100,6 +105,7 @@ def find_boundary_polygons_in_circle(
     # - Fall B: genau 2 Faces mit unterschiedlichem Material (Terrain vs. Slope/Road)
     boundary_edges = []
     boundary_edges_mixed = 0
+    boundary_edges_single = 0
 
     for edge, face_list in edge_to_faces.items():
         v1, v2 = edge
@@ -108,6 +114,7 @@ def find_boundary_polygons_in_circle(
 
         if len(face_list) == 1:
             boundary_edges.append(edge)
+            boundary_edges_single += 1
         elif len(face_list) == 2:
             f1, f2 = face_list
             f1_is_terrain = f1 < len(terrain_faces)
@@ -115,6 +122,10 @@ def find_boundary_polygons_in_circle(
             if f1_is_terrain != f2_is_terrain:
                 boundary_edges.append(edge)
                 boundary_edges_mixed += 1
+
+    # Skip, wenn keine echten Außen-Boundaries (nur Materialwechsel) vorhanden sind
+    if boundary_edges_single == 0:
+        return []
 
     if len(boundary_edges) < 3:
         return []
@@ -124,6 +135,10 @@ def find_boundary_polygons_in_circle(
 
     if not components:
         return []
+
+    # WICHTIG: Merge Components die am Kreisrand getrennt sind
+    if len(components) > 2:
+        components = _merge_nearby_components(components, verts, merge_threshold=3.0)
 
     # Baue Polygone aus Components
     terrain_face_set = set(range(len(terrain_faces)))
@@ -155,103 +170,226 @@ def find_boundary_polygons_in_circle(
         if boundary_edges:
             sample_edges = list(boundary_edges[:5]) if isinstance(boundary_edges, list) else list(boundary_edges)[:5]
             print("  [debug] sample boundary edges:", sample_edges)
+
+    # Trianguliere die Polygone und füge neue Faces hinzu
+    if polygons:
+        new_faces = _triangulate_polygons(polygons, verts, mesh, debug=debug)
+        if debug and new_faces:
+            print(f"  [OK] {len(new_faces)} neue Terrain-Faces durch Triangulation erzeugt")
+
     return polygons
 
 
 def _find_connected_components(boundary_edges):
-    """Findet alle zusammenhängenden Komponenten in Edge-Liste."""
+    """
+    Findet alle zusammenhängenden Komponenten in Edge-Liste.
+
+    Verwendet DFS um alle zusammenhängenden Edge-Gruppen zu finden.
+    Jede Komponente wird als Liste von Edges zurückgegeben.
+    """
     if not boundary_edges:
         return []
 
-    # Baue Adjacency-List
-    adj = defaultdict(list)
+    # Baue Adjacency-List (ungerichtet)
+    adj = defaultdict(set)
     for v1, v2 in boundary_edges:
-        adj[v1].append(v2)
-        adj[v2].append(v1)
+        adj[v1].add(v2)
+        adj[v2].add(v1)
 
+    # Finde Connected Components (Vertex-basiert)
     visited_vertices = set()
-    components = []
+    components_vertices = []
 
     for start_v in adj.keys():
         if start_v in visited_vertices:
             continue
 
-        # Graph-Walking für diese Component
-        component_path = [start_v]
-        visited_vertices.add(start_v)
-        current = start_v
-        prev = None
+        # DFS um alle verbundenen Vertices zu finden
+        component_verts = set()
+        stack = [start_v]
 
-        while True:
-            neighbors = [n for n in adj[current] if n != prev and n not in visited_vertices]
+        while stack:
+            v = stack.pop()
+            if v in component_verts:
+                continue
 
-            if not neighbors:
-                # Prüfe ob Loop geschlossen werden kann
-                if len(component_path) > 2 and start_v in adj[current]:
-                    # Geschlossener Loop
-                    pass
+            component_verts.add(v)
+            visited_vertices.add(v)
+
+            for neighbor in adj[v]:
+                if neighbor not in component_verts:
+                    stack.append(neighbor)
+
+        if len(component_verts) >= 3:
+            components_vertices.append(component_verts)
+
+    # Für jede Komponente: Extrahiere die zugehörigen Edges
+    components_edges = []
+    for comp_verts in components_vertices:
+        comp_edges = []
+        for v1, v2 in boundary_edges:
+            if v1 in comp_verts and v2 in comp_verts:
+                comp_edges.append((v1, v2))
+
+        if len(comp_edges) >= 3:
+            components_edges.append(comp_edges)
+
+    return components_edges
+
+
+def _merge_nearby_components(components_edges, verts, merge_threshold=2.0):
+    """
+    Merged Components die am Kreisrand durch fehlende Faces getrennt sind.
+
+    Findet Endpoints zwischen Components, die nahe beieinander liegen,
+    und fügt synthetische Edges hinzu, um sie zu verbinden.
+
+    Args:
+        components_edges: Liste von Edge-Listen (eine pro Component)
+        verts: Vertex-Array
+        merge_threshold: Maximale Distanz zwischen Endpoints für Merge (in Metern)
+
+    Returns:
+        Neue Liste von Components (evtl. gemerged)
+    """
+    if len(components_edges) <= 2:
+        return components_edges
+
+    # Baue Adjacency für jede Component um Endpoints zu finden
+    def find_endpoints(comp_edges):
+        adj = defaultdict(set)
+        for v1, v2 in comp_edges:
+            adj[v1].add(v2)
+            adj[v2].add(v1)
+
+        endpoints = []
+        for v, neighbors in adj.items():
+            if len(neighbors) == 1:  # Endpunkt
+                endpoints.append(v)
+        return endpoints
+
+    # Finde alle Endpoints pro Component
+    component_endpoints = []
+    for comp in components_edges:
+        eps = find_endpoints(comp)
+        component_endpoints.append(eps)
+
+    # Finde Merge-Kandidaten: Endpoints zwischen verschiedenen Components
+    merge_pairs = []  # Liste von (comp_i_idx, comp_j_idx, v_i, v_j, distance)
+
+    for i in range(len(components_edges)):
+        for j in range(i + 1, len(components_edges)):
+            eps_i = component_endpoints[i]
+            eps_j = component_endpoints[j]
+
+            for ep_i in eps_i:
+                for ep_j in eps_j:
+                    pi = verts[ep_i]
+                    pj = verts[ep_j]
+                    dist = np.linalg.norm(np.array(pi) - np.array(pj))
+
+                    if dist <= merge_threshold:
+                        merge_pairs.append((i, j, ep_i, ep_j, dist))
+
+    if not merge_pairs:
+        return components_edges
+
+    # Sortiere nach Distanz (merge closest first)
+    merge_pairs.sort(key=lambda x: x[4])
+
+    # Union-Find Struktur zum Tracken welche Components gemerged wurden
+    parent = list(range(len(components_edges)))
+
+    def find(x):
+        if parent[x] != x:
+            parent[x] = find(parent[x])
+        return parent[x]
+
+    def union(x, y):
+        px, py = find(x), find(y)
+        if px != py:
+            parent[px] = py
+            return True
+        return False
+
+    # Merge Components und füge synthetische Edges hinzu
+    synthetic_edges = []
+    for i, j, ep_i, ep_j, dist in merge_pairs:
+        if union(i, j):
+            synthetic_edges.append((ep_i, ep_j))
+
+    # Baue neue Component-Liste
+    merged_components = defaultdict(list)
+    for idx, comp_edges in enumerate(components_edges):
+        root = find(idx)
+        merged_components[root].extend(comp_edges)
+
+    # Füge synthetische Edges hinzu
+    for edge in synthetic_edges:
+        # Finde welcher Component diese Edge gehört
+        v1, v2 = edge
+        # Finde Components die v1 oder v2 enthalten
+        for root, edges in merged_components.items():
+            # Prüfe ob v1 oder v2 in diesen Edges vorkommen
+            vertices_in_comp = set()
+            for e_v1, e_v2 in edges:
+                vertices_in_comp.add(e_v1)
+                vertices_in_comp.add(e_v2)
+
+            if v1 in vertices_in_comp or v2 in vertices_in_comp:
+                edges.append(edge)
                 break
 
-            next_v = neighbors[0]
-            visited_vertices.add(next_v)
-            component_path.append(next_v)
-            prev = current
-            current = next_v
-
-        if len(component_path) >= 3:
-            components.append(component_path)
-
-    return components
+    return list(merged_components.values())
 
 
-def _build_polygon_from_component(component_path, edge_to_faces, terrain_face_set, verts, debug=False):
-    """Baut geschlossenes Polygon aus Component-Pfad mit Terrain/Slope-Separierung."""
+def _build_polygon_from_component(component_edges, edge_to_faces, terrain_face_set, verts, debug=False):
+    """
+    Baut geschlossenes Polygon aus Component-Edges.
 
-    # Klassifiziere Edges als Terrain oder Slope basierend auf Face-Typ
-    terrain_edges = []
-    slope_edges = []
+    WICHTIG: Alle Edges einer Component bilden EINEN zusammenhängenden Pfad,
+    der über Terrain UND Slope geht (wechselt zwischen beiden Seiten der Straße).
 
-    for i in range(len(component_path)):
-        v1 = component_path[i]
-        v2 = component_path[(i + 1) % len(component_path)]
-        edge = tuple(sorted([v1, v2]))
+    Args:
+        component_edges: Liste von (v1, v2) Edges in dieser Komponente
+        edge_to_faces: Dict mapping edge -> face_list
+        terrain_face_set: Set von Terrain-Face-Indices
+        verts: Vertex-Array
+        debug: Debug-Flag
 
-        if edge not in edge_to_faces:
-            continue
-
-        face_list = edge_to_faces[edge]
-        has_terrain = any(f in terrain_face_set for f in face_list)
-        has_slope = any(f not in terrain_face_set for f in face_list)
-
-        # Falls Mixed-Kante: in beide Listen aufnehmen, damit beide Seiten einen Pfad haben
-        if has_terrain:
-            terrain_edges.append((v1, v2))  # Orientiert!
-        if has_slope:
-            slope_edges.append((v1, v2))
-
-    if not terrain_edges and not slope_edges:
-        if debug:
-            print(
-                "  [debug] component skipped (terrain_edges, slope_edges, len_path):",
-                len(terrain_edges),
-                len(slope_edges),
-                len(component_path),
-            )
-        return None  # Kein verwertbarer Rand
-
-    # Baue geordnete Pfade
-    terrain_path = _walk_oriented_edges(terrain_edges) if terrain_edges else []
-    slope_path = _walk_oriented_edges(slope_edges) if slope_edges else []
-
-    if terrain_path and slope_path:
-        # Geschlossenes Polygon: Terrain + Slope (reversed)
-        polygon_vertices = terrain_path + slope_path[::-1]
-    elif terrain_path:
-        polygon_vertices = terrain_path
-    elif slope_path:
-        polygon_vertices = slope_path
-    else:
+    Returns:
+        Polygon-Dict oder None
+    """
+    if not component_edges:
         return None
+
+    # Baue EINEN zusammenhängenden Pfad aus allen Edges
+    # (KEINE Trennung nach Terrain/Slope - das zerreißt zusammenhängende Komponenten!)
+    polygon_vertices = _build_ordered_path_from_edges(component_edges)
+
+    if len(polygon_vertices) < 3:
+        return None
+
+    # Entferne Duplikate am Anfang/Ende falls Loop geschlossen
+    if len(polygon_vertices) > 1 and polygon_vertices[0] == polygon_vertices[-1]:
+        polygon_vertices = polygon_vertices[:-1]
+
+    if len(polygon_vertices) < 3:
+        return None
+
+    # Zähle Terrain/Slope-Edges für Statistik
+    terrain_count = 0
+    slope_count = 0
+    for v1, v2 in component_edges:
+        edge = tuple(sorted([v1, v2]))
+        if edge in edge_to_faces:
+            face_list = edge_to_faces[edge]
+            has_terrain = any(f in terrain_face_set for f in face_list)
+            has_slope = any(f not in terrain_face_set for f in face_list)
+            if has_terrain:
+                terrain_count += 1
+            if has_slope:
+                slope_count += 1
 
     # Konvertiere zu Koordinaten
     coords = [tuple(verts[v]) for v in polygon_vertices]
@@ -259,44 +397,137 @@ def _build_polygon_from_component(component_path, edge_to_faces, terrain_face_se
     return {
         "vertices": polygon_vertices,
         "coords": coords,
-        "terrain_count": len(terrain_path),
-        "slope_count": len(slope_path),
-        "centerline_point": tuple(verts[component_path[0]]) if component_path else None,
+        "terrain_count": terrain_count,
+        "slope_count": slope_count,
+        "centerline_point": tuple(verts[polygon_vertices[0]]) if polygon_vertices else None,
     }
 
 
-def _walk_oriented_edges(oriented_edges):
-    """Baut geordneten Pfad aus orientierten Edges."""
-    if not oriented_edges:
+def _build_ordered_path_from_edges(edges):
+    """
+    Baut geordneten Pfad aus ungeordneten Edges.
+
+    Verwendet einen verbesserten Algorithmus der auch bei Gabeln funktioniert:
+    - Findet Start-Vertex (Vertex mit nur 1 Nachbar, oder beliebiger wenn Loop)
+    - Baut Pfad durch Greedy-Auswahl noch nicht besuchter Edges
+    - Behandelt Gabeln durch Priorisierung von unbesuchten Edges
+
+    Args:
+        edges: Liste von (v1, v2) Tuples (können orientiert oder unorientiert sein)
+
+    Returns:
+        Liste von Vertex-Indices in Reihenfolge
+    """
+    if not edges:
         return []
 
-    # Baue Adjacency von v1 -> v2
-    adj = defaultdict(list)
-    for v1, v2 in oriented_edges:
-        adj[v1].append(v2)
+    # Baue Adjacency-List (ungerichtet) - WICHTIG: Set statt List für Deduplication!
+    adj = defaultdict(set)
 
-    # Starte bei erstem Vertex
-    start_v = oriented_edges[0][0]
-    path = [start_v]
-    current = start_v
-    visited_edges = set()
+    for v1, v2 in edges:
+        adj[v1].add(v2)
+        adj[v2].add(v1)
 
-    while True:
-        # Finde ausgehende Edge
-        found = False
-        for next_v in adj[current]:
-            edge = (current, next_v)
-            if edge not in visited_edges:
-                visited_edges.add(edge)
-                path.append(next_v)
-                current = next_v
-                found = True
-                break
-
-        if not found:
+    # Finde Start-Vertex: Vertex mit nur 1 Nachbar (Endpunkt), sonst beliebig
+    start_v = None
+    for v, neighbors in adj.items():
+        if len(neighbors) == 1:
+            start_v = v
             break
 
+    if start_v is None:
+        start_v = list(adj.keys())[0] if adj else edges[0][0]
+
+    # Baue Pfad mit Edge-Tracking
+    path = [start_v]
+    used_edges = set()
+    current = start_v
+
+    while True:
+        # Finde unbenutzte ausgehende Edges
+        available_neighbors = []
+        for neighbor in adj[current]:
+            # Normalisiere Edge für Vergleich (ungerichtet)
+            edge = tuple(sorted([current, neighbor]))
+
+            if edge not in used_edges:
+                available_neighbors.append(neighbor)
+
+        if not available_neighbors:
+            break
+
+        # Wähle nächsten Nachbarn (Greedy: ersten verfügbaren)
+        next_v = available_neighbors[0]
+
+        # Markiere Edge als benutzt (normalisiert)
+        edge = tuple(sorted([current, next_v]))
+        used_edges.add(edge)
+
+        path.append(next_v)
+        current = next_v
+
     return path
+
+
+def _triangulate_polygons(polygons, verts, mesh, debug=False):
+    """
+    Trianguliert Boundary-Polygone mit mapbox-earcut (Ear Clipping) und
+    fügt die Faces direkt per mesh.add_face() hinzu.
+
+    Args:
+        polygons: Liste von Polygon-Dicts mit 'vertices' und 'coords'
+        verts: Vertex-Array (NumPy)
+        mesh: Mesh-Instanz (verwendet mesh.add_face() für Deduplizierung)
+        debug: Debug-Flag
+
+    Returns:
+        Liste der neu erzeugten Face-Indices
+    """
+    if not polygons:
+        return []
+
+    new_faces = []
+
+    for poly_idx, poly in enumerate(polygons):
+        polygon_vertices = poly.get("vertices", [])
+
+        if len(polygon_vertices) < 3:
+            continue
+
+        # Extrahiere 2D-Koordinaten (x, y) für Earcut
+        coords_3d = np.array([verts[v] for v in polygon_vertices])
+        coords_2d = coords_3d[:, :2]  # Nur X, Y
+
+        # Earcut erwartet Nx2 float64 Array und ring_end_indices (End-Index jedes Rings)
+        coords_arr = np.asarray(coords_2d, dtype=np.float64)
+        ring_end_indices = np.array([len(coords_arr)], dtype=np.uint32)
+
+        try:
+            # Ear Clipping Triangulation (liefert Vertex-Indizes bezogen auf coords_2d)
+            indices = triangulate_float64(coords_arr, ring_end_indices)
+
+            if indices.size == 0:
+                continue
+
+            # Mappe Triangles zurück auf globale Vertex-Indizes und füge hinzu
+            for i in range(0, len(indices), 3):
+                v0_local, v1_local, v2_local = indices[i], indices[i + 1], indices[i + 2]
+                v0_global = polygon_vertices[v0_local]
+                v1_global = polygon_vertices[v1_local]
+                v2_global = polygon_vertices[v2_local]
+
+                face_idx = mesh.add_face(v0_global, v1_global, v2_global, material="terrain")
+                new_faces.append(face_idx)
+
+            if debug:
+                print(f"  [Triangulation] Polygon {poly_idx}: {len(indices) // 3} Dreiecke erzeugt (earcut)")
+
+        except Exception as e:
+            if debug:
+                print(f"  [!] Triangulation Polygon {poly_idx} fehlgeschlagen: {e}")
+            continue
+
+    return new_faces
 
 
 def export_boundary_polygons_to_obj(
