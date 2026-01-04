@@ -4,6 +4,7 @@
 # 🗺️ World-to-BeamNG
 
 Konvertiere OpenStreetMap-Straßen und Höhenmodelle zu hochdetaillierten **BeamNG.drive**-kompatiblen Gelände-Maps!
+Achtung: alpha-Status! Noch in Entwicklung.
 
 ## 🎯 Beschreibung
 
