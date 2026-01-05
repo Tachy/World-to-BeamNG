@@ -8,10 +8,9 @@ BEAMNG_DIR_SHAPES = BEAMNG_DIR + "\\art\\shapes"
 BEAMNG_DIR_TEXTURES = BEAMNG_DIR_SHAPES + "\\textures"
 # === MESH-PARAMETER ===
 ROAD_WIDTH = 7.0
-# Abstand, um Straßen vor Junction-Centern zu stoppen (zusätzlich zur halben Breite)
-JUNCTION_STOP_BUFFER = 5.0
-# Winkel-Schwelle für Junction-Buffer (Grad). Unterhalb dieses Winkels wird der Buffer aktiviert.
-JUNCTION_STOP_ANGLE_THRESHOLD = 65.0
+# Winkel-Schwelle für dynamischen Junction-Buffer (Grad). Unterhalb dieses Winkels wird ein winkelabhängiger Buffer aktiviert.
+# Buffer = half_width / sin(angle/2) - half_width (asymmetrisch pro Straße)
+JUNCTION_STOP_ANGLE_THRESHOLD = 90.0
 # Böschungs-Generierung (vorübergehend deaktiviert bis Remeshing stabil)
 GENERATE_SLOPES = False
 # Minimale Boeschungsbreite (Meter) unabhängig von Hoehenunterschieden
@@ -31,9 +30,8 @@ DEBUG_VERBOSE = False  # Zusätzliche Konsolen-Logs
 # === STRASSENGLÄTTUNG / OPTIONEN ===
 ENABLE_ROAD_SMOOTHING = False  # False = Spline-Glättung komplett aus
 ROAD_SMOOTH_ANGLE_THRESHOLD = 10.0  # Winkel in Grad - ab diesem Wert werden Kurven unterteilt
-ROAD_SMOOTH_MAX_SEGMENT = 2.5  # Maximale Segmentlänge in Metern
-ROAD_SMOOTH_MIN_SEGMENT = 2.5  # Minimale Segmentlänge in Metern
-ROAD_RESAMPLE_SPACING = 2.5  # None = aus; Wert in Metern für gleichmäßige Segmente
+SAMPLE_SPACING_FACTOR = 0.5  # Faktor für Segment-Spacing: road_width * SAMPLE_SPACING_FACTOR
+# (Alte feste Werte für Referenz: bei 7m Straßen war 2.5m → jetzt dynamisch via Faktor 0.5)
 ROAD_SMOOTH_TENSION = 0.05  # Spline-Glättungsfaktor (0.0 = eng an Originalpunkten, 1.0 = sehr glatt)
 
 # === CENTERLINE-SAMPLING / SUCHE ===

@@ -5,9 +5,11 @@ Iteriert über alle Straßen und füllt Löcher in Suchkreisen.
 
 import numpy as np
 from shapely.geometry import LineString
+from scipy.spatial import cKDTree
 
 from .. import config
-from .stitch_local import find_boundary_polygons_in_circle, export_boundary_polygons_to_obj
+from ..osm.mapper import get_road_width
+from .stitch_local import find_boundary_polygons_in_circle
 
 
 def stitch_all_gaps(
@@ -15,45 +17,60 @@ def stitch_all_gaps(
     vertex_manager,
     mesh,
     terrain_vertex_indices,
+    junction_points=None,
+    filter_road_id=None,
+    filter_junction_id=None,
 ):
     """
-    Iteriert über alle Centerlines und stitcht Löcher in Suchkreisen.
+    Iteriert über alle Centerlines und stitcht Terrain-Lücken.
 
-    DEBUG-Modus: Überspringt x Straßen, nimmt Mittelpunkt der (x+1)-ten Straße,
-                 sucht dort Boundaries, bricht dann ab.
-
-    Später (Production): Alle Suchkreise verarbeiten, Löcher triangulieren.
+    Für jede Straße: Sample entlang der Centerline, suche in Suchkreisen
+    nach Boundary-Polygonen und trianguliere sie mit Terrain-Faces.
     """
 
-    # ========== DEBUG-FLAGS (später entfernen) ==========
-    DEBUG_SKIP_ROADS = 1  # Überspringe 4 Straßen
-    DEBUG_SINGLE_CIRCLE = True  # Stoppe nach erstem Suchkreis
-
-    print("Stitche Terrain-Gaps entlang Centerlines...")
+    print("  Stitche Terrain-Gaps entlang Centerlines...")
+    if filter_road_id is not None:
+        print(f"  [Filter] Nur Straße mit road_id={filter_road_id}")
+    if filter_junction_id is not None:
+        print(f"  [Filter] Nur Junction mit id={filter_junction_id}")
 
     road_count = 0
     search_radius = config.CENTERLINE_SEARCH_RADIUS
     sample_spacing = config.CENTERLINE_SAMPLE_SPACING
 
+    # Static Vertex-Cache und KDTree (Vertices werden nicht geändert)
+    verts_cache = np.asarray(vertex_manager.get_array())
+    kdtree_cache = cKDTree(verts_cache[:, :2]) if len(verts_cache) else None
+
+    # Face-/Material-/Adjacency-Caches (werden nach neuen Faces inkrementell aktualisiert)
+    vertex_to_faces, face_materials, terrain_face_indices = _build_face_caches(mesh)
+    total_face_count = len(mesh.faces)
+
     for road_info in road_data_for_classification:
         road_count += 1
+        if road_count % 50 == 0:
+            print(f"  Verarbeite Straße #{road_count}...")
 
-        # DEBUG: Überspringe erste x Straßen
-        if road_count <= DEBUG_SKIP_ROADS:
+        road_id = road_info.get("road_id", road_info.get("id"))
+        if filter_road_id is not None and str(road_id) != str(filter_road_id):
             continue
 
-        # Ab hier: Straße #(DEBUG_SKIP_ROADS + 1)
-        print(f"  Verarbeite Straße #{road_count}...")
-
-        # Hole Centerline: Direkt aus trimmed_centerline (nicht "centerline_points"!)
+        # Hole Centerline
         trimmed_centerline = road_info.get("trimmed_centerline", [])
 
         if not trimmed_centerline or len(trimmed_centerline) < 2:
-            print(f"  [SKIP] Straße #{road_count}: Keine Centerline")
             continue
 
+        # Berechne dynamische Stitching-Parameter basierend auf Straßenbreite
+        osm_tags = road_info.get("osm_tags", {})
+        road_width = get_road_width(osm_tags)
+        # Skaliere Search-Radius proportional zu Straßenbreite + Grid-Spacing-abhängiger Buffer
+        # Formel: road_width + GRID_SPACING*2.5 (bei 2m Grid: road_width + 5m)
+        dynamic_search_radius = road_width + config.GRID_SPACING * 2.5
+        dynamic_sample_spacing = max(3.0, road_width)  # Min 3m, sonst road_width
+
         centerline_3d = np.array(trimmed_centerline, dtype=float)
-        centerline_points = centerline_3d[:, :2]  # Extrahiere XY
+        centerline_points = centerline_3d[:, :2]
         centerline_linestring = LineString(centerline_points)
 
         if not centerline_linestring.is_valid or centerline_linestring.length == 0:
@@ -61,45 +78,143 @@ def stitch_all_gaps(
 
         # Sample entlang Centerline
         total_length = centerline_linestring.length
-        num_samples = max(2, int(np.ceil(total_length / sample_spacing)) + 1)
+        num_samples = max(2, int(np.ceil(total_length / dynamic_sample_spacing)) + 1)
         sample_distances = np.linspace(0, total_length, num_samples)
 
-        # DEBUG: Nimm nur Mittelpunkt
-        mid_distance = total_length / 2.0  # Mittelpunkt der Centerline
-        mid_pt_2d = centerline_linestring.interpolate(mid_distance)
+        suchkreise = 0
 
-        # Z-Koordinate aus originaler 3D-Centerline interpolieren (oder Mittelpunkt nehmen)
-        mid_idx_3d = len(centerline_3d) // 2
-        mid_z = centerline_3d[mid_idx_3d, 2]
+        # Verarbeite Sample-Punkte
+        for distance in sample_distances:
+            sample_pt_2d = centerline_linestring.interpolate(distance)
 
-        centerline_midpoint = np.array([mid_pt_2d.x, mid_pt_2d.y, mid_z])
+            # Z-Koordinate interpolieren
+            distance_frac = distance / total_length if total_length > 0 else 0
+            z_idx = int(distance_frac * (len(centerline_3d) - 1))
+            z = centerline_3d[z_idx, 2]
 
-        print(
-            f"  Suche Boundaries am Mittelpunkt: {centerline_midpoint[:2]}, Z={mid_z:.1f}, Radius={search_radius:.1f}m"
-        )
+            centerline_sample = np.array([sample_pt_2d.x, sample_pt_2d.y, z])
 
-        # Finde Boundaries in diesem Suchkreis
-        boundaries = find_boundary_polygons_in_circle(
-            centerline_point=centerline_midpoint,
-            search_radius=search_radius,
-            vertex_manager=vertex_manager,
-            mesh=mesh,
-            terrain_vertex_indices=terrain_vertex_indices,
-            debug=True,
-        )
+            # Finde Boundaries in Suchkreis (mit dynamischen Parametern)
+            _ = find_boundary_polygons_in_circle(
+                centerline_point=centerline_sample,
+                centerline_geometry=centerline_3d,
+                search_radius=dynamic_search_radius,
+                vertex_manager=vertex_manager,
+                mesh=mesh,
+                terrain_vertex_indices=terrain_vertex_indices,
+                cached_verts=verts_cache,
+                cached_kdtree=kdtree_cache,
+                cached_face_materials=face_materials,
+                cached_vertex_to_faces=vertex_to_faces,
+                cached_terrain_face_indices=terrain_face_indices,
+                debug=False,
+            )
 
-        # Exportiere für Visualisierung
-        export_boundary_polygons_to_obj(boundaries, centerline_midpoint, search_radius=search_radius)
+            # Neue Faces in Cache übernehmen (Triangulation fügt Terrain-Faces hinzu)
+            if len(mesh.faces) > total_face_count:
+                for global_idx in range(total_face_count, len(mesh.faces)):
+                    face = mesh.faces[global_idx]
+                    mat = mesh.face_props.get(global_idx, {}).get("material")
+                    face_materials.append(mat)
+                    # Adjacency ergänzen
+                    for v in face:
+                        vertex_to_faces.setdefault(v, []).append(global_idx)
+                    if mat == "terrain":
+                        terrain_face_indices.add(global_idx)
+                total_face_count = len(mesh.faces)
+            suchkreise += 1
+            # if suchkreise > 1:
+            #     break
+    # Junction-Punkte ebenfalls mit Suchkreis prüfen
+    # Für Junctions: Berechne dynamischen Radius basierend auf der breitesten ankommenden Straße
 
-        if boundaries:
-            print(f"  [OK] {len(boundaries)} Boundary-Polygone gefunden und exportiert")
-        else:
-            print("  [i] Keine Boundary-Polygone gefunden (Kreis + Centerline exportiert)")
+    if junction_points:
+        print(f"  Verarbeite {len(junction_points)} Junction-Punkte...")
+        for jp_idx, jp in enumerate(junction_points):
+            jp_id = None
+            coords = None
+            connected_road_tags = []
 
-        # DEBUG: Sofort abbrechen nach erstem Suchkreis
-        if DEBUG_SINGLE_CIRCLE:
-            print("  [DEBUG] Single-Circle-Modus: Abbruch nach erstem Kreis")
-            return []
+            if isinstance(jp, dict):
+                jp_id = jp.get("id")
+                coords = jp.get("pos")
+                if coords is None:
+                    coords = jp.get("position")
+                if coords is None:
+                    coords = jp.get("coords")
+                connected_road_tags = jp.get("connected_road_tags", [])
+            elif isinstance(jp, (list, tuple)) and len(jp) == 2 and hasattr(jp[1], "__len__"):
+                # Form (id, coords)
+                jp_id = jp[0]
+                coords = jp[1]
+            else:
+                coords = jp
 
-    # Production-Rückgabe: Stitch-Faces
+            if jp_id is None:
+                jp_id = jp_idx
+
+            if filter_junction_id is not None and str(jp_id) != str(filter_junction_id):
+                continue
+
+            if coords is None or len(coords) < 2:
+                continue
+
+            # Berechne dynamischen Junction-Search-Radius:
+            # Formel: max_road_width * 1.3 + GRID_SPACING*2.5 (bei 2m Grid: max_width * 1.3 + 5m)
+            max_road_width = 4.0  # Fallback: 4m default
+            if connected_road_tags:
+                road_widths = [get_road_width(tags) for tags in connected_road_tags]
+                max_road_width = max(road_widths) if road_widths else max_road_width
+
+            junction_search_radius = max_road_width * 1.3 + config.GRID_SPACING * 2.5
+
+            if len(coords) == 2:
+                centerline_sample = np.array([coords[0], coords[1], 0.0], dtype=float)
+            else:
+                centerline_sample = np.array(coords, dtype=float)
+
+            _ = find_boundary_polygons_in_circle(
+                centerline_point=centerline_sample,
+                centerline_geometry=np.array([centerline_sample, centerline_sample]),
+                search_radius=junction_search_radius,
+                vertex_manager=vertex_manager,
+                mesh=mesh,
+                terrain_vertex_indices=terrain_vertex_indices,
+                cached_verts=verts_cache,
+                cached_kdtree=kdtree_cache,
+                cached_face_materials=face_materials,
+                cached_vertex_to_faces=vertex_to_faces,
+                cached_terrain_face_indices=terrain_face_indices,
+                debug=False,
+            )
+
+            if len(mesh.faces) > total_face_count:
+                for global_idx in range(total_face_count, len(mesh.faces)):
+                    face = mesh.faces[global_idx]
+                    mat = mesh.face_props.get(global_idx, {}).get("material")
+                    face_materials.append(mat)
+                    for v in face:
+                        vertex_to_faces.setdefault(v, []).append(global_idx)
+                    if mat == "terrain":
+                        terrain_face_indices.add(global_idx)
+                total_face_count = len(mesh.faces)
+
+    # Production-Rückgabe: Keine explizite Rückgabe nötig (Faces sind direkt ins Mesh eingefügt)
     return []
+
+
+def _build_face_caches(mesh):
+    """Erzeuge Face-Material-Liste, Terrain-Index-Set und Vertex->Faces-Adjacency."""
+    face_materials = []
+    vertex_to_faces = {}
+    terrain_face_indices = set()
+
+    for idx, face in enumerate(mesh.faces):
+        mat = mesh.face_props.get(idx, {}).get("material")
+        face_materials.append(mat)
+        for v in face:
+            vertex_to_faces.setdefault(v, []).append(idx)
+        if mat == "terrain":
+            terrain_face_indices.add(idx)
+
+    return vertex_to_faces, face_materials, terrain_face_indices

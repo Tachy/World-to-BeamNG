@@ -7,6 +7,7 @@ from shapely.geometry import Polygon
 
 from ..terrain.elevation import get_elevations_for_points
 from ..geometry.coordinates import transformer_to_utm
+from ..osm.mapper import get_road_width
 from .. import config
 
 
@@ -47,6 +48,11 @@ def clip_road_polygons(road_polygons, grid_bounds_local, margin=3.0):
         # Strasse behalten wenn mindestens 2 Punkte uebrig sind
         if len(new_coords) >= 2:
             # Unterteile lange Segmente nach Clipping (um grosse Luecken zu fuellen)
+            # Nutze road_width für dynamische Segment-Länge
+            osm_tags = road.get("osm_tags", {})
+            road_width = get_road_width(osm_tags)
+            max_seg = road_width * config.SAMPLE_SPACING_FACTOR
+            
             final_coords = []
             for i, coord in enumerate(new_coords):
                 final_coords.append(coord)
@@ -61,8 +67,7 @@ def clip_road_polygons(road_polygons, grid_bounds_local, margin=3.0):
                         + (next_coord[2] - coord[2]) ** 2
                     )
 
-                    # Wenn Segment länger als MAX_SEGMENT, interpoliere Zwischenpunkte
-                    max_seg = getattr(config, "ROAD_SMOOTH_MAX_SEGMENT", 5.0) or 5.0
+                    # Wenn Segment länger als max_seg, interpoliere Zwischenpunkte
                     if dist > max_seg:
                         num_intermediate = int(np.ceil(dist / max_seg)) - 1
                         for j in range(1, num_intermediate + 1):
@@ -175,9 +180,11 @@ def smooth_roads_with_spline(road_polygons):
     total_points_after = 0
 
     for road in road_polygons:
-        road_id = road.get("id")
         coords = road["coords"]
-
+        osm_tags = road.get("osm_tags", {})
+        road_width = get_road_width(osm_tags)
+        segment_length = road_width * config.SAMPLE_SPACING_FACTOR
+        
         if len(coords) < 2:
             total_points_after += len(coords)
             continue
@@ -213,7 +220,7 @@ def smooth_roads_with_spline(road_polygons):
 
         # Fuer Strassen mit nur 2 Punkten: Unterteile das lange Segment
         if len(unique_coords) == 2:
-            max_segment = config.ROAD_SMOOTH_MAX_SEGMENT
+            max_segment = segment_length
             if total_length > max_segment:
                 # Interpoliere linear zwischen den zwei Punkten
                 num_samples = int(np.ceil(total_length / max_segment)) + 1
@@ -257,11 +264,11 @@ def smooth_roads_with_spline(road_polygons):
             continue
 
         # Sample gleichmässig entlang der Kurve
-        # Stelle sicher, dass die Segmentlänge <= ROAD_SMOOTH_MAX_SEGMENT bleibt
+        # Stelle sicher, dass die Segmentlänge <= segment_length bleibt
         # (n-1) Segmente pro Kurve, daher +1 Samples
         num_samples = max(
             len(coords_array),
-            int(np.ceil(total_length / config.ROAD_SMOOTH_MAX_SEGMENT)) + 1,
+            int(np.ceil(total_length / segment_length)) + 1,
             2,
         )
 
@@ -297,20 +304,23 @@ def smooth_roads_adaptive(road_polygons):
 
     Nutzt Config-Werte:
         - ROAD_SMOOTH_ANGLE_THRESHOLD: Winkel in Grad - ab diesem Wert wird unterteilt
-        - ROAD_SMOOTH_MAX_SEGMENT: Maximale Segmentlänge in Metern
-        - ROAD_SMOOTH_MIN_SEGMENT: Minimale Segmentlänge in Metern
+        - SAMPLE_SPACING_FACTOR: Faktor für dynamische Segment-Länge (road_width * factor)
 
     Returns:
         Modifizierte road_polygons mit geglätteten Koordinaten
     """
-    angle_threshold_rad = np.radians(config.ROAD_SMOOTH_ANGLE_THRESHOLD)
-    max_segment_length = config.ROAD_SMOOTH_MAX_SEGMENT
-    min_segment_length = config.ROAD_SMOOTH_MIN_SEGMENT
     total_points_before = sum(len(road["coords"]) for road in road_polygons)
     total_points_after = 0
 
     for road in road_polygons:
         coords = road["coords"]
+        osm_tags = road.get("osm_tags", {})
+        road_width = get_road_width(osm_tags)
+        # Berechne dynamische Segment-Längen basierend auf Straßenbreite
+        max_segment_length = road_width * config.SAMPLE_SPACING_FACTOR
+        min_segment_length = road_width * config.SAMPLE_SPACING_FACTOR
+        angle_threshold_rad = np.radians(config.ROAD_SMOOTH_ANGLE_THRESHOLD)
+        
         if len(coords) < 2:
             continue
 
@@ -373,7 +383,7 @@ def smooth_roads_adaptive(road_polygons):
         smoothed_coords = [(p[0], p[1], p[2]) for p in smoothed]
 
         # Optional: gleichmäßiges Resampling auf definierten Zielabstand
-        resample_spacing = getattr(config, "ROAD_RESAMPLE_SPACING", None)
+        resample_spacing = road_width * config.SAMPLE_SPACING_FACTOR
         if resample_spacing and len(smoothed_coords) >= 2:
             coords_arr = np.array(smoothed_coords)
             diffs = np.diff(coords_arr[:, :2], axis=0)

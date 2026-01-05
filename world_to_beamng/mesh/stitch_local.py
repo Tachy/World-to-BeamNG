@@ -13,10 +13,16 @@ from collections import defaultdict
 
 def find_boundary_polygons_in_circle(
     centerline_point,
+    centerline_geometry,
     search_radius,
     vertex_manager,
     mesh,
     terrain_vertex_indices,
+    cached_verts=None,
+    cached_kdtree=None,
+    cached_face_materials=None,
+    cached_vertex_to_faces=None,
+    cached_terrain_face_indices=None,
     debug=False,
 ):
     """
@@ -47,19 +53,19 @@ def find_boundary_polygons_in_circle(
     """
     cx, cy, cz = centerline_point
 
-    # Hole alle Vertices
-    verts = np.asarray(vertex_manager.get_array())
+    # Hole alle Vertices (optional aus Cache)
+    verts = np.asarray(cached_verts) if cached_verts is not None else np.asarray(vertex_manager.get_array())
     if len(verts) == 0:
         return []
 
     # KDTree für schnelle räumliche Suche (nur XY)
-    kdtree = cKDTree(verts[:, :2])
-
-    # Extrahiere Faces aus Mesh
-    terrain_faces = [f for idx, f in enumerate(mesh.faces) if mesh.face_props.get(idx, {}).get("material") == "terrain"]
-    slope_faces = [
-        f for idx, f in enumerate(mesh.faces) if mesh.face_props.get(idx, {}).get("material") in ("slope", "road")
-    ]
+    kdtree = cached_kdtree if cached_kdtree is not None else cKDTree(verts[:, :2])
+    face_materials = (
+        cached_face_materials
+        if cached_face_materials is not None
+        else [mesh.face_props.get(idx, {}).get("material") for idx in range(len(mesh.faces))]
+    )
+    vertex_to_faces = cached_vertex_to_faces if cached_vertex_to_faces is not None else {}
 
     # Finde alle Vertices im Search-Circle
     circle_vertex_indices = kdtree.query_ball_point([cx, cy], r=search_radius)
@@ -69,8 +75,34 @@ def find_boundary_polygons_in_circle(
 
     circle_vertex_set = set(circle_vertex_indices)
 
-    # Kombiniere alle Faces
-    all_faces = terrain_faces + slope_faces
+    # Filter Centerline-Segmente in Reichweite (einmal pro Circle, nicht pro Edge)
+    cl2d = np.asarray(centerline_geometry[:, :2], dtype=float)
+    centerline_segments = []
+    seg_start_arr = None
+    seg_vec_arr = None
+    seg_mid_arr = None
+    if len(cl2d) >= 2:
+        seg_start = cl2d[:-1]
+        seg_end = cl2d[1:]
+        mids = 0.5 * (seg_start + seg_end)
+        dx = mids[:, 0] - cx
+        dy = mids[:, 1] - cy
+        dist2 = dx * dx + dy * dy
+        max_r2 = (search_radius + 5.0) * (search_radius + 5.0)
+        mask = dist2 <= max_r2
+        if np.any(mask):
+            centerline_segments = list(zip(seg_start[mask], seg_end[mask]))
+            seg_start_arr = seg_start[mask]
+            seg_vec_arr = seg_end[mask] - seg_start[mask]
+            seg_mid_arr = mids[mask]
+
+    # Finde relevante Face-Indizes über Vertex->Faces Mapping
+    candidate_face_indices = set()
+    for v in circle_vertex_indices:
+        candidate_face_indices.update(vertex_to_faces.get(v, ()))
+
+    if not candidate_face_indices:
+        return []
 
     # Finde Faces deren Vertices im Circle sind (mindestens 2 von 3)
     faces_in_circle = []
@@ -78,14 +110,16 @@ def find_boundary_polygons_in_circle(
     terrain_face_count = 0
     slope_face_count = 0
 
-    for face_idx, face in enumerate(all_faces):
+    for face_idx in candidate_face_indices:
+        face = mesh.faces[face_idx]
         vertices_in_circle = sum(1 for v in face if v in circle_vertex_set)
         if vertices_in_circle >= 2:
             faces_in_circle.append(face)
             face_indices_in_circle.append(face_idx)
-            if face_idx < len(terrain_faces):
+            mat = face_materials[face_idx] if face_idx < len(face_materials) else None
+            if mat == "terrain":
                 terrain_face_count += 1
-            else:
+            elif mat in ("slope", "road"):
                 slope_face_count += 1
 
     if len(faces_in_circle) < 2:
@@ -103,7 +137,7 @@ def find_boundary_polygons_in_circle(
     # Finde Boundary-Edges
     # - Fall A: nur 1 Face (klassische Außengrenze)
     # - Fall B: genau 2 Faces mit unterschiedlichem Material (Terrain vs. Slope/Road)
-    boundary_edges = []
+    boundary_edges_single_edges = []
     boundary_edges_mixed = 0
     boundary_edges_single = 0
 
@@ -113,35 +147,50 @@ def find_boundary_polygons_in_circle(
             continue
 
         if len(face_list) == 1:
-            boundary_edges.append(edge)
+            boundary_edges_single_edges.append(edge)
             boundary_edges_single += 1
         elif len(face_list) == 2:
             f1, f2 = face_list
-            f1_is_terrain = f1 < len(terrain_faces)
-            f2_is_terrain = f2 < len(terrain_faces)
+            f1_mat = face_materials[f1] if f1 < len(face_materials) else None
+            f2_mat = face_materials[f2] if f2 < len(face_materials) else None
+            f1_is_terrain = f1_mat == "terrain"
+            f2_is_terrain = f2_mat == "terrain"
             if f1_is_terrain != f2_is_terrain:
-                boundary_edges.append(edge)
                 boundary_edges_mixed += 1
 
-    # Skip, wenn keine echten Außen-Boundaries (nur Materialwechsel) vorhanden sind
-    if boundary_edges_single == 0:
+    # Skip, wenn keine offenen Boundary-Edges vorhanden sind
+    if len(boundary_edges_single_edges) < 3:
         return []
 
-    if len(boundary_edges) < 3:
-        return []
+    # Komponenten nur aus offenen Rändern bilden (keine Material-Wechsel-Kanten)
+    boundary_edges = boundary_edges_single_edges
 
-    # Finde Connected Components
-    components = _find_connected_components(boundary_edges)
+    # Finde Connected Components (ohne Centerline-Überquerungen)
+    components = _find_connected_components(
+        boundary_edges,
+        verts,
+        seg_start_arr,
+        seg_vec_arr,
+        seg_mid_arr,
+        centerline_point,
+    )
 
     if not components:
         return []
 
-    # WICHTIG: Merge Components die am Kreisrand getrennt sind
+    # Merge Components die am Kreisrand getrennt sind
+    # Skaliere merge_threshold proportional zum search_radius
+    # search_radius = road_width + 5, also ist merge_threshold ~ road_width / 2
+    dynamic_merge_threshold = max(1.5, search_radius / 3.0)  # Heuristic: 1/3 des search_radius
     if len(components) > 2:
-        components = _merge_nearby_components(components, verts, merge_threshold=3.0)
+        components = _merge_nearby_components(components, verts, merge_threshold=dynamic_merge_threshold)
 
     # Baue Polygone aus Components
-    terrain_face_set = set(range(len(terrain_faces)))
+    terrain_face_set = (
+        cached_terrain_face_indices
+        if cached_terrain_face_indices is not None
+        else {idx for idx, mat in enumerate(face_materials) if mat == "terrain"}
+    )
     polygons = []
 
     for component_path in components:
@@ -155,46 +204,67 @@ def find_boundary_polygons_in_circle(
         if polygon:
             polygons.append(polygon)
 
-    if debug:
-        # Kompakte Debug-Ausgabe für ersten Kreis
-        print(
-            "  [debug] circle verts/faces(both)/bnd_edges(all/mixed)/components/polys:",
-            len(circle_vertex_indices),
-            len(faces_in_circle),
-            f"T{terrain_face_count}/S{slope_face_count}",
-            len(boundary_edges),
-            boundary_edges_mixed,
-            len(components),
-            len(polygons),
-        )
-        if boundary_edges:
-            sample_edges = list(boundary_edges[:5]) if isinstance(boundary_edges, list) else list(boundary_edges)[:5]
-            print("  [debug] sample boundary edges:", sample_edges)
-
     # Trianguliere die Polygone und füge neue Faces hinzu
     if polygons:
         new_faces = _triangulate_polygons(polygons, verts, mesh, debug=debug)
-        if debug and new_faces:
-            print(f"  [OK] {len(new_faces)} neue Terrain-Faces durch Triangulation erzeugt")
 
     return polygons
 
 
-def _find_connected_components(boundary_edges):
+def _edges_cross_centerline_vectorized(edges_arr, verts, seg_start_arr, seg_vec_arr, seg_mid_arr, centerline_point):
+    """Vectorized Side-of-Line Test für viele Edges gegen vorgefilterte Segmente."""
+    if seg_start_arr is None or seg_vec_arr is None or seg_mid_arr is None or len(seg_start_arr) == 0:
+        return np.zeros(len(edges_arr), dtype=bool)
+
+    # Edge-Endpunkte holen
+    p1 = verts[edges_arr[:, 0], :2]
+    p2 = verts[edges_arr[:, 1], :2]
+
+    # Nutze Edge-Midpoints um das nächstgelegene Centerline-Segment zu wählen
+    edge_mid = 0.5 * (p1 + p2)  # (N,2)
+    # Distanzen zu Segment-Mittelpunkten
+    diff = edge_mid[:, None, :] - seg_mid_arr[None, :, :]  # (N,S,2)
+    dist2 = np.einsum("nsi,nsi->ns", diff, diff)  # (N,S)
+    nearest_idx = np.argmin(dist2, axis=1)  # (N,)
+
+    # Hole passende Segment-Starts und -Vektoren
+    seg_starts = seg_start_arr[nearest_idx]
+    seg_vecs = seg_vec_arr[nearest_idx]
+
+    # Vektoren von Segmentstart zu Edge-Points
+    to_p1 = p1 - seg_starts
+    to_p2 = p2 - seg_starts
+
+    # 2D Cross Products (z-Komponente)
+    cross_p1 = seg_vecs[:, 0] * to_p1[:, 1] - seg_vecs[:, 1] * to_p1[:, 0]
+    cross_p2 = seg_vecs[:, 0] * to_p2[:, 1] - seg_vecs[:, 1] * to_p2[:, 0]
+
+    return cross_p1 * cross_p2 < 0
+
+
+def _find_connected_components(boundary_edges, verts, seg_start_arr, seg_vec_arr, seg_mid_arr, centerline_point):
     """
     Findet alle zusammenhängenden Komponenten in Edge-Liste.
 
     Verwendet DFS um alle zusammenhängenden Edge-Gruppen zu finden.
+    Edges die die Centerline überqueren werden ignoriert.
     Jede Komponente wird als Liste von Edges zurückgegeben.
     """
     if not boundary_edges:
         return []
 
+    # Vectorized Centerline-Crossing Filter
+    edges_arr = np.array(boundary_edges, dtype=int)
+    crosses = _edges_cross_centerline_vectorized(
+        edges_arr, verts, seg_start_arr, seg_vec_arr, seg_mid_arr, centerline_point
+    )
+    valid_edges_arr = edges_arr[~crosses]
+
     # Baue Adjacency-List (ungerichtet)
-    adj = defaultdict(set)
-    for v1, v2 in boundary_edges:
-        adj[v1].add(v2)
-        adj[v2].add(v1)
+    adj = defaultdict(list)
+    for v1, v2 in valid_edges_arr:
+        adj[v1].append(v2)
+        adj[v2].append(v1)
 
     # Finde Connected Components (Vertex-basiert)
     visited_vertices = set()
@@ -227,7 +297,7 @@ def _find_connected_components(boundary_edges):
     components_edges = []
     for comp_verts in components_vertices:
         comp_edges = []
-        for v1, v2 in boundary_edges:
+        for v1, v2 in valid_edges_arr:
             if v1 in comp_verts and v2 in comp_verts:
                 comp_edges.append((v1, v2))
 

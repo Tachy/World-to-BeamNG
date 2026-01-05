@@ -253,7 +253,8 @@ class DAETileViewer:
                 # Nur Textur anwenden, wenn UVs vorhanden sind
                 if texture is not None and len(tile_uvs) > 0:
                     try:
-                        self.plotter.add_mesh(mesh, texture=texture, opacity=0.5, label=tile_name)
+                        # Luftbild-Texturen immer voll sichtbar
+                        self.plotter.add_mesh(mesh, texture=texture, opacity=1.0, label=tile_name)
                     except Exception as e:
                         # Fallback bei Textur-Fehler
                         print(f"  [!] Textur-Fehler für {tile_name}: {e}")

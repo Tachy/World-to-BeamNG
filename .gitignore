@@ -6,6 +6,9 @@ aerial/
 cache/
 debug/
 
+# Vorlage BeamNG
+levels/
+
 # Python
 __pycache__/
 *.py[cod]

@@ -149,7 +149,6 @@ def prepare_remesh_data(geometry_data, vertices, faces):
     # 2D-Projektion: Alle Faces als Shapely-Polygone
     all_polygons_2d = []
     all_face_indices = []  # Speichere Original-Face-Indizes
-    z_values_per_face = []  # Speichere Z-Werte für Interpolation
 
     for f_idx in nearby_f_indices:
         face = faces[f_idx]
@@ -157,15 +156,12 @@ def prepare_remesh_data(geometry_data, vertices, faces):
 
         # 2D-Koordinaten
         xy_coords = face_vertices[:, :2]
-        # Z-Werte für Interpolation
-        z_coords = face_vertices[:, 2]
 
         try:
             polygon = Polygon(xy_coords)
             if polygon.is_valid and polygon.area > 1e-6:  # Nur gültige Polygone
                 all_polygons_2d.append(polygon)
                 all_face_indices.append(f_idx)  # Speichere den Index!
-                z_values_per_face.append(z_coords.mean())  # Mittlerer Z pro Face
         except Exception as e:
             pass  # Ungültiges Polygon ignorieren
 
@@ -187,15 +183,11 @@ def prepare_remesh_data(geometry_data, vertices, faces):
 
     return {
         "polygons_2d": polygons_2d,
-        "polygon_face_indices": all_face_indices,  # NEU: Welche Face gehört zu welchem Polygon
-        "z_values_per_face": z_values_per_face,
         "boundary_edges_2d": boundary_edges_2d,
         "center_point": center_point,
         "radius": geometry_data["radius"],
         "original_data": geometry_data,
-        "original_vertices_3d": vertices[
-            nearby_v_indices
-        ],  # Speichere Original-Vertices
+        "original_vertices_3d": vertices[nearby_v_indices],  # Speichere Original-Vertices
     }
 
 
@@ -253,9 +245,7 @@ def merge_and_triangulate(remesh_data):
             merged_polygon = merged_filtered
 
     # 2. Extrahiere die äußere Boundary - und snappe sie zu Original-Vertices
-    boundary_coords_raw = np.array(
-        merged_polygon.exterior.coords[:-1]
-    )  # Letzter Punkt = erster
+    boundary_coords_raw = np.array(merged_polygon.exterior.coords[:-1])  # Letzter Punkt = erster
 
     # Snappe die Boundary-Coords zu den nächsten Nearby-Vertices (innerhalb 1m)
     original_data = remesh_data["original_data"]
@@ -316,25 +306,20 @@ def merge_and_triangulate(remesh_data):
         # SNAP: Passe Triangulations-Vertices an Original-Nearby-Vertices an
         # Dafür baue einen KDTree mit allen nearby-Vertices
         original_data = remesh_data["original_data"]
-        all_nearby_v_indices = original_data.get(
-            "all_nearby_vertex_indices", np.array([])
-        )
+        all_nearby_v_indices = original_data.get("all_nearby_vertex_indices", np.array([]))
 
         # Dictionary für gesnappte Vertices (Index → Original Z-Wert)
         snapped_vertex_z_values = {}
 
         if len(all_nearby_v_indices) > 0:
             # Wir brauchen die echten Vertices - hole aus remesh_data
-            nearby_xyz_from_data = remesh_data[
-                "original_vertices_3d"
-            ]  # Das ist vertices[nearby_v_indices]
+            nearby_xyz_from_data = remesh_data["original_vertices_3d"]  # Das ist vertices[nearby_v_indices]
             nearby_xy = nearby_xyz_from_data[:, :2]
             nearby_z = nearby_xyz_from_data[:, 2]
             nearby_tree = cKDTree(nearby_xy)
 
             # Für jede neue Triangulations-Vertex: snap an nähere Original-Vertex (5cm)
             snap_dist_threshold = 0.05
-            snapped_count = 0
 
             for i, tri_v in enumerate(new_vertices_2d):
                 dist, idx = nearby_tree.query(tri_v, k=1)
@@ -344,10 +329,7 @@ def merge_and_triangulate(remesh_data):
                     new_vertices_2d[i] = nearby_xy[idx]
                     # NICHT den alten Z-Wert übernehmen - der ist falsch!
                     # Stattdessen markieren wir diese Vertex als "gesnapped" für XY
-                    snapped_vertex_z_values[i] = (
-                        None  # Markierung: Z wird später berechnet
-                    )
-                    snapped_count += 1
+                    snapped_vertex_z_values[i] = None  # Markierung: Z wird später berechnet
     except Exception as e:
         print(f"    [Remesh] FEHLER bei shapely.triangulate: {e}")
         return None
@@ -422,8 +404,6 @@ def reconstruct_z_values(triangulation_data, original_vertices, original_faces=N
     # Für jeden neuen Vertex: Finde nächste Original-Vertices und interpoliere Z
     new_vertices_3d = []
     snap_threshold = 0.15  # 15cm Snapping-Toleranz für räumliche Nähe
-    exact_snapped_count = 0
-    near_snapped_count = 0
 
     # Hole gesnappte Z-Werte aus triangulation_data falls vorhanden
     snapped_vertex_z_values = triangulation_data.get("snapped_vertex_z_values", {})
@@ -435,8 +415,6 @@ def reconstruct_z_values(triangulation_data, original_vertices, original_faces=N
         # ABER: Wenn der Wert None ist, dann wurde XY gesnapped aber Z soll interpoliert werden!
         if i in snapped_vertex_z_values:
             z_value = snapped_vertex_z_values[i]
-            if z_value is not None:
-                exact_snapped_count += 1
             # Wenn z_value == None, dann fällt es durch zur Interpolation
 
         # 1. Prüfe EXAKTES XY-Matching mit Nearby-Vertices (auf mm genau)
@@ -444,7 +422,6 @@ def reconstruct_z_values(triangulation_data, original_vertices, original_faces=N
             key = (round(vertex_2d[0], 3), round(vertex_2d[1], 3))
             if key in all_nearby_xy_to_z:
                 z_value = all_nearby_xy_to_z[key]
-                exact_snapped_count += 1
 
         # 2. Prüfe räumliche Nähe zu Nearby-Vertices (Fallback)
         if z_value is None and nearby_tree is not None:
@@ -452,7 +429,6 @@ def reconstruct_z_values(triangulation_data, original_vertices, original_faces=N
             if dist < snap_threshold:
                 # Snap an nächsten Nearby-Vertex
                 z_value = nearby_z[idx]
-                near_snapped_count += 1
 
         # 3. Fallback: Interpolation aus nächsten Vertices
         if z_value is None:
@@ -461,9 +437,7 @@ def reconstruct_z_values(triangulation_data, original_vertices, original_faces=N
             distances, indices = z_tree.query(vertex_2d, k=k_neighbors)
 
             if np.min(distances) < 1e-6:  # Vertex ist sehr nah an Original
-                original_idx = (
-                    indices if isinstance(indices, np.integer) else indices[0]
-                )
+                original_idx = indices if isinstance(indices, np.integer) else indices[0]
                 z_value = original_z_values[original_idx]
             else:
                 # IDW-Interpolation mit stärkerer Gewichtung auf nähere Vertices
@@ -489,7 +463,6 @@ def reconstruct_z_values(triangulation_data, original_vertices, original_faces=N
     nearby_vertices_xy = nearby_vertices[:, :2]  # Nur XY
     nearby_tree_xy = cKDTree(nearby_vertices_xy)
 
-    z_overwrite_count = 0
     for i in range(len(new_vertices_3d)):
         new_xy = new_vertices_3d[i, :2]
 
@@ -503,7 +476,6 @@ def reconstruct_z_values(triangulation_data, original_vertices, original_faces=N
 
             if abs(old_z - nearby_z) > 0.0001:  # Nur wenn Unterschied > 0.1mm
                 new_vertices_3d[i, 2] = nearby_z
-                z_overwrite_count += 1
 
     # Interpoliere auch Z-Werte für Boundary-Coords (für Debug-Export)
     boundary_z_values = []
@@ -536,9 +508,7 @@ def reconstruct_z_values(triangulation_data, original_vertices, original_faces=N
     }
 
 
-def remesh_single_junction(
-    junction_idx, junction, vertices, faces, vertex_manager, debug_dump=False
-):
+def remesh_single_junction(junction_idx, junction, vertices, faces, vertex_manager, debug_dump=False):
     """
     Remesht einen einzelnen Junction komplett.
     WICHTIG: 'faces' sollte nur Straßen-Faces enthalten (Terrain-Filter im Caller!)
@@ -615,9 +585,7 @@ def remesh_single_junction(
         # 5. Integriere neue Vertices im VertexManager
         new_vertices_3d = result_data["new_vertices_3d"]
         new_faces = result_data["new_faces"]
-        snapped_vertex_z_values = triangulation_data.get(
-            "snapped_vertex_z_values", {}
-        )  # Hole die gesnappten Z-Werte
+        snapped_vertex_z_values = triangulation_data.get("snapped_vertex_z_values", {})  # Hole die gesnappten Z-Werte
 
         boundary_coords_2d = triangulation_data["boundary_coords"]
         boundary_polygon = triangulation_data["merged_polygon"]
@@ -628,9 +596,7 @@ def remesh_single_junction(
             face_vertices = faces[f_idx]
             xy = vertices[face_vertices, :2]
             centroid = xy.mean(axis=0)
-            if boundary_polygon.contains(Point(centroid)) or boundary_polygon.touches(
-                Point(centroid)
-            ):
+            if boundary_polygon.contains(Point(centroid)) or boundary_polygon.touches(Point(centroid)):
                 faces_to_remove.append(int(f_idx))
         faces_to_remove = sorted(set(faces_to_remove))
 
@@ -689,9 +655,7 @@ def remesh_single_junction(
             new_z = vertex[2]
 
             if abs(old_vertex[2] - new_z) > 0.0001:  # Nur wenn Unterschied > 0.1mm
-                vertex_manager.vertices[idx] = np.array(
-                    [old_vertex[0], old_vertex[1], new_z], dtype=np.float32
-                )
+                vertex_manager.vertices[idx] = np.array([old_vertex[0], old_vertex[1], new_z], dtype=np.float32)
                 updated_vertices_count += 1
 
             vertex_indices[i] = idx
@@ -723,17 +687,11 @@ def remesh_single_junction(
 
         # Nutze interpolierte Boundary-Z-Werte statt Durchschnitt
         boundary_z_values = result_data.get("boundary_z_values")
-        if boundary_z_values is not None and len(boundary_z_values) == len(
-            boundary_coords_2d
-        ):
-            boundary_coords_3d = np.column_stack(
-                [boundary_coords_2d, boundary_z_values]
-            )
+        if boundary_z_values is not None and len(boundary_z_values) == len(boundary_coords_2d):
+            boundary_coords_3d = np.column_stack([boundary_coords_2d, boundary_z_values])
         else:
             # Fallback auf z_mean
-            boundary_z = np.full(
-                len(boundary_coords_2d), result_data["z_mean"], dtype=np.float32
-            )
+            boundary_z = np.full(len(boundary_coords_2d), result_data["z_mean"], dtype=np.float32)
             boundary_coords_3d = np.column_stack([boundary_coords_2d, boundary_z])
 
         # DEBUG: Exportiere Debug-Daten nur bei Bedarf
@@ -755,16 +713,10 @@ def remesh_single_junction(
 
             debug_data = {
                 "vertex_indices": [int(idx) for idx in vertex_indices],
-                "new_vertices_3d": [
-                    [float(v[0]), float(v[1]), float(v[2])] for v in new_vertices_3d
-                ],
-                "gesnapped_indices": [
-                    int(idx) for idx in gesnapped_to_global_idx.values()
-                ],
+                "new_vertices_3d": [[float(v[0]), float(v[1]), float(v[2])] for v in new_vertices_3d],
+                "gesnapped_indices": [int(idx) for idx in gesnapped_to_global_idx.values()],
                 "boundary_vertices_before": boundary_vertices_before,
-                "remeshed_faces": [
-                    [int(f[0]), int(f[1]), int(f[2])] for f in remeshed_faces
-                ],
+                "remeshed_faces": [[int(f[0]), int(f[1]), int(f[2])] for f in remeshed_faces],
                 "search_radius_circle": circle_points,
                 "junction_center": [
                     float(junction_pos[0]),

@@ -39,11 +39,6 @@ from world_to_beamng.geometry.junctions import (
     split_roads_at_mid_junctions,
 )
 from world_to_beamng.mesh.junction_remesh import (
-    collect_nearby_geometry,
-    analyze_junction_geometry,
-    prepare_remesh_data,
-    merge_and_triangulate,
-    reconstruct_z_values,
     remesh_single_junction,
 )
 from world_to_beamng.geometry.vertices import classify_grid_vertices
@@ -51,20 +46,9 @@ from world_to_beamng.mesh.road_mesh import generate_road_mesh_strips
 from world_to_beamng.mesh.vertex_manager import VertexManager
 from world_to_beamng.mesh.mesh import Mesh
 from world_to_beamng.mesh.terrain_mesh import generate_full_grid_mesh
-from world_to_beamng.mesh.terrain_mesh_conforming import (
-    generate_full_grid_mesh_conforming,
-)
-from world_to_beamng.mesh.grid_conforming import (
-    adjust_grid_to_roads_simple,
-    classify_face_by_center,
-)
+
 from world_to_beamng.mesh.cleanup import (
-    cleanup_duplicate_faces,
-    enforce_ccw_up,
     report_boundary_edges,
-)
-from world_to_beamng.mesh.stitching import (
-    stitch_terrain_gaps,
 )
 from world_to_beamng.mesh.stitch_gaps import stitch_all_gaps
 from world_to_beamng.mesh.tile_slicer import slice_mesh_into_tiles
@@ -88,6 +72,18 @@ def main():
         help="Optional: Nur diese Junction-ID remeshen (für Debugging/Profiling)",
     )
     parser.add_argument(
+        "--stitch-road-id",
+        type=str,
+        default=None,
+        help="Optional: Nur diese road_id beim Stitching berücksichtigen (wie im dae_viewer sichtbar)",
+    )
+    parser.add_argument(
+        "--stitch-junction-id",
+        type=str,
+        default=None,
+        help="Optional: Nur diese Junction-ID beim Stitching berücksichtigen (wie im dae_viewer sichtbar)",
+    )
+    parser.add_argument(
         "--remesh-debug-dump",
         action="store_true",
         help="Remesh-Debugdaten (remesh_debug_data.json) schreiben",
@@ -98,6 +94,9 @@ def main():
     if debug_junction_id is not None:
         print(f"[DEBUG] Junction-Remeshing nur für Junction #{debug_junction_id}")
     remesh_debug_dump = args.remesh_debug_dump
+
+    stitch_filter_road_id = args.stitch_road_id
+    stitch_filter_junction_id = args.stitch_junction_id
 
     # Reset globale Zustände
     config.LOCAL_OFFSET = None
@@ -351,11 +350,13 @@ def main():
 
         road_data_for_classification.append(
             {
+                "road_id": meta.get("road_id"),
                 "road_polygon": np.array(road_polygon_xy) if road_polygon_xy else np.array([]),
                 "slope_polygon": (
                     np.array(road_polygon_xy) if road_polygon_xy else np.array([])
                 ),  # Identisch zu road_polygon
                 "trimmed_centerline": trimmed_centerline,  # Finale Centerline für KDTree-Sampling
+                "osm_tags": meta.get("osm_tags", {}),  # OSM-Tags für Stitching-Parameter-Skalierung
             }
         )
 
@@ -366,6 +367,7 @@ def main():
 
         road_data_for_classification.append(
             {
+                "road_id": None,
                 "road_polygon": np.array(fan_polygon_xy) if len(fan_polygon_xy) > 0 else np.array([]),
                 "slope_polygon": np.array(fan_polygon_xy) if len(fan_polygon_xy) > 0 else np.array([]),
                 "trimmed_centerline": [],  # Keine Centerline - Fan wird nur per Polygon-Test markiert
@@ -402,6 +404,31 @@ def main():
     if config.DEBUG_VERBOSE:
         print(f"  [OK] {len(all_road_polygons_2d)} Road-Polygone klassifiziert")
 
+    # Sammle Junction-Punkte mit Informationen über ankommende Straßen für dynamische Search-Radien
+    junction_points = []
+    for j_idx, j in enumerate(junctions):
+        pos = j.get("position")
+        if pos is None or len(pos) < 2:
+            continue
+        jid = j.get("id", j_idx)
+
+        # Hole ankommende Straßen-Indices und sammle deren OSM-Tags
+        road_indices = j.get("road_indices", [])
+        connected_road_tags = []
+        for r_idx in road_indices:
+            # road_slope_polygons_2d enthält die osm_tags
+            if r_idx < len(road_slope_polygons_2d):
+                osm_tags = road_slope_polygons_2d[r_idx].get("osm_tags", {})
+                connected_road_tags.append(osm_tags)
+
+        junction_points.append(
+            {
+                "id": jid,
+                "position": np.asarray(pos, dtype=float),
+                "connected_road_tags": connected_road_tags,  # Liste von OSM-Tag-Dicts
+            }
+        )
+
     # ===== SCHRITT 9d: Stitching - Suche und Fülle Terrain-Lücken =====
     timer.begin("Stitching - Terrain-Lücken")
     stitch_faces = stitch_all_gaps(
@@ -409,6 +436,9 @@ def main():
         vertex_manager=vertex_manager,
         mesh=mesh,
         terrain_vertex_indices=terrain_vertex_indices,
+        junction_points=junction_points,
+        filter_road_id=stitch_filter_road_id,
+        filter_junction_id=stitch_filter_junction_id,
     )
     timer.end()
 

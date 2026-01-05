@@ -13,6 +13,7 @@ from functools import partial
 from math import ceil, atan2, degrees
 
 from .. import config
+from ..osm.mapper import get_road_width
 
 
 def get_angle_between_vectors(v1, v2):
@@ -82,15 +83,16 @@ def calculate_junction_buffer(
     junctions_full,
     road_polygons,
     is_end_junction=True,
-    road_id=None,  # Neue Parameter: road_id für eindeutige Identifikation
+    road_id=None,
 ):
     """
-    Berechnet den dynamischen junction_stop_buffer über benachbarte Winkel.
+    Berechnet den dynamischen, winkelabhängigen junction_stop_buffer.
 
-    - Straßen an der Junction werden über ihre junction_indices aus road_polygons
-      ermittelt (kein Vertrauen in junctions_full.road_indices nötig).
-    - Richtungen zeigen vom Junction weg (Ende → invertiert).
-    - Wenn einer der beiden Nachbarsektoren < config.JUNCTION_STOP_ANGLE_THRESHOLD ist → Buffer 5m, sonst 0m.
+    - Straßen an der Junction werden über ihre junction_indices aus road_polygons ermittelt.
+    - Wenn der kleinste Nachbarsektor < JUNCTION_STOP_ANGLE_THRESHOLD (90°) ist:
+      Buffer = half_width / sin(angle_min / 2) - half_width (asymmetrisch pro Straße)
+    - Sonst: Buffer = 0 (Straßen nicht eng beieinander)
+    - Der Buffer wird geclampet auf [0, half_width * 3].
     """
 
     def _bearing_from_direction(direction_vec):
@@ -102,24 +104,90 @@ def calculate_junction_buffer(
         ang = degrees(np.arctan2(v[1], v[0]))
         return ang + 360.0 if ang < 0.0 else ang
 
+    def _direction_with_fallback(coords_arr, is_end, junction_center):
+        """Liefere einen nicht-degenerierten Richtungsvektor.
+
+        Primär nutzen wir den Strahl vom Junction-Center zum ersten Nicht-Junction-Punkt
+        ("outward"), damit die Bearings einem Sweep um den Knoten entsprechen.
+        Fallback: nächster nicht-degenerierter Segment-Vektor.
+        """
+
+        coords2 = coords_arr[:, :2]
+        n = len(coords2)
+        if n < 2:
+            return np.array([0.0, 0.0]), "insufficient"
+
+        if junction_center is not None:
+            jc = junction_center[:2]
+            if is_end:
+                for k in range(n - 2, -1, -1):
+                    direction = coords2[k] - jc
+                    if np.linalg.norm(direction) > 1e-3:
+                        return direction, "outward"
+            else:
+                for k in range(1, n):
+                    direction = coords2[k] - jc
+                    if np.linalg.norm(direction) > 1e-3:
+                        return direction, "outward"
+
+        # Fallback: Segment-basierte Richtung (früheres Verhalten)
+        if is_end:
+            anchor = coords2[-1]
+            for k in range(n - 2, -1, -1):
+                direction = anchor - coords2[k]
+                if np.linalg.norm(direction) > 1e-3:
+                    return direction, "segment"
+        else:
+            anchor = coords2[0]
+            for k in range(1, n):
+                direction = coords2[k] - anchor
+                if np.linalg.norm(direction) > 1e-3:
+                    return direction, "segment"
+
+        if junction_center is not None:
+            direction = coords2[-1] - junction_center[:2] if is_end else coords2[0] - junction_center[:2]
+            return direction, "center"
+
+        return np.array([0.0, 0.0]), "zero"
+
+    log_enabled = junction_idx == 368
+
     # Sammle alle Straßen, die an dieser Junction hängen
-    connected = []  # (road_id, junction_indices)
+    connected = []  # (road_id, junction_indices, osm_tags)
     for idx, r in enumerate(road_polygons):
         ji = r.get("junction_indices", {}) or {}
         if ji.get("start") == junction_idx or ji.get("end") == junction_idx:
             r_id = r.get("id")
-            connected.append((r_id, ji, r))  # Speichere road_id statt enumerate-idx
+            osm_tags = r.get("osm_tags", {})
+            connected.append((r_id, ji, r, osm_tags))
+
+    # Vorab Breiten erfassen, um spätere Buffer-Basis auf maximale Breite zu setzen
+    width_map = {r_id: get_road_width(osm_tags) for r_id, ji, r, osm_tags in connected}
+    max_half_width = max(width_map.values()) / 2.0 if width_map else 0.0
 
     if len(connected) < 2:
-        return 0.0
+        return 0.0, max_half_width
 
-    # Bearings ermitteln (vom Junction weg)
+    if log_enabled:
+        print(
+            f"[J368] connected_ids={[c[0] for c in connected]} "
+            f"widths={list(width_map.values())} max_half={max_half_width:.3f}"
+        )
+
+    # Bearings ermitteln: Tangente am Straßenende/-anfang (letztes bzw. erstes Segment)
     bearings = []
-    for r_id, ji, r in connected:
+    for r_id, ji, r, osm_tags in connected:
         coords_arr = np.asarray(r.get("coords", []), dtype=float)
 
         if len(coords_arr) < 2:
+            if log_enabled:
+                print(f"[J368] drop road_id={r_id} reason=coords_len<{2}")
             continue
+
+        if log_enabled:
+            tail = coords_arr[-2:][:, :2].tolist() if len(coords_arr) >= 2 else []
+            head = coords_arr[:2, :2].tolist() if len(coords_arr) >= 2 else []
+            print(f"[J368] coords road_id={r_id} len={len(coords_arr)} " f"head={head} tail={tail}")
 
         is_end = ji.get("end") == junction_idx and ji.get("start") != junction_idx
         is_start = ji.get("start") == junction_idx and ji.get("end") != junction_idx
@@ -132,42 +200,95 @@ def calculate_junction_buffer(
                 is_end = True
                 is_start = False
 
-        if is_end:
-            # Verwende die letzten N Punkte für robustere Richtungsberechnung
-            # (falls die letzten 2 Punkte identisch sind wegen Trimming)
-            n_points = min(5, len(coords_arr))
-            direction = coords_arr[-1, :2] - coords_arr[-n_points, :2]
-            direction = -direction  # vom Junction weg
-        else:
-            # Verwende die ersten N Punkte für robustere Richtungsberechnung
-            n_points = min(5, len(coords_arr))
-            direction = coords_arr[n_points - 1, :2] - coords_arr[0, :2]
+        junction_center = np.asarray(junction_centers[junction_idx]) if junction_centers is not None else None
+        direction, dir_source = _direction_with_fallback(coords_arr, is_end, junction_center)
+
+        if log_enabled:
+            dir_norm = np.linalg.norm(direction)
+            print(
+                f"[J368] dir road_id={r_id} is_end={is_end} is_start={is_start} "
+                f"source={dir_source} dir=({direction[0]:.3f},{direction[1]:.3f}) norm={dir_norm:.6f}"
+            )
 
         ang = _bearing_from_direction(direction)
 
         if ang is not None:
-            bearings.append((r_id, ang))  # Speichere road_id statt idx
+            if log_enabled:
+                print(f"[J368] bearing road_id={r_id} ang={ang:.3f}")
+            bearings.append((r_id, ang, osm_tags))
+        elif log_enabled:
+            print(f"[J368] drop road_id={r_id} reason=bearing_none")
 
     if len(bearings) < 2:
-        return 0.0
+        if log_enabled:
+            print(f"[J368] bearings_len={len(bearings)} -> buffer=0")
+        return 0.0, max_half_width
 
     bearings.sort(key=lambda x: x[1])
     my_idx_in_list = next((i for i, b in enumerate(bearings) if b[0] == road_id), None)
 
     if my_idx_in_list is None:
-        return 0.0
+        return 0.0, max_half_width
 
-    def _sector(a, b):
-        diff = b - a
-        return diff + 360.0 if diff < 0.0 else diff
+    # Berechne tatsächliche Nachbar-Winkel (geometrische Winkel, nicht Sektoren)
+    # bearing = Kompassrichtung (0-360°). Der Winkel zwischen zwei Kompassrichtungen ist:
+    # angle = |bearing1 - bearing2|, dann min(angle, 360-angle) für den kürzeren Bogen
+    def _cw_diff(b_from, b_to):
+        """Gerichteter Winkel im Uhrzeigersinn von b_from -> b_to (0..360)."""
+        return (b_to - b_from) % 360.0
 
+    # Berechne Winkel zu Nachbarn
     prev_idx = (my_idx_in_list - 1) % len(bearings)
     next_idx = (my_idx_in_list + 1) % len(bearings)
-    ang_prev = _sector(bearings[prev_idx][1], bearings[my_idx_in_list][1])
-    ang_next = _sector(bearings[my_idx_in_list][1], bearings[next_idx][1])
 
-    angle_threshold = getattr(config, "JUNCTION_STOP_ANGLE_THRESHOLD", 60.0)
-    return 5.0 if min(ang_prev, ang_next) < angle_threshold else 0.0
+    ang_prev = _cw_diff(bearings[prev_idx][1], bearings[my_idx_in_list][1])
+    ang_next = _cw_diff(bearings[my_idx_in_list][1], bearings[next_idx][1])
+
+    # Nimm den kleinsten Winkel (spitzeste Ecke)
+    angle_min = min(ang_prev, ang_next)
+    angle_threshold = getattr(config, "JUNCTION_STOP_ANGLE_THRESHOLD", 90.0)
+
+    if log_enabled:
+        bearing_pairs = [(b[0], round(b[1], 3)) for b in bearings]
+        print(
+            f"[J368] road_id={road_id} bearings={bearing_pairs} "
+            f"ang_prev={ang_prev:.3f} ang_next={ang_next:.3f} "
+            f"angle_min={angle_min:.3f} threshold={angle_threshold:.3f}"
+        )
+
+    # Wenn Winkel >= threshold: kein Buffer nötig
+    if angle_min >= angle_threshold:
+        if log_enabled:
+            print("[J368] buffer=0.0 (angle above threshold)")
+        return 0.0, max_half_width
+
+    # Berechne Buffer asymmetrisch
+    # Extrahiere Straßenbreite der aktuellen Straße aus osm_tags
+    my_osm_tags = next((b[2] for b in bearings if b[0] == road_id), {})
+    road_width = width_map.get(road_id, get_road_width(my_osm_tags))
+    my_half_width = road_width / 2.0
+
+    # Konvertiere Winkel zu Radiant für cot-Berechnung
+    tan_half_angle = np.tan(np.radians(angle_min) / 2.0)
+
+    # Geometrisch exakte Formel: buffer = max_halfwidth * cot(alpha/2) - max_halfwidth
+    # cot(x) = 1/tan(x)
+    if tan_half_angle > 1e-6:
+        buffer = (max_half_width / tan_half_angle) - max_half_width
+    else:
+        buffer = 0.0
+
+    # Clamp auf [0, half_width * 5] zur Sicherheit
+    buffer = max(0.0, min(buffer, max_half_width * 5.0))
+
+    if log_enabled:
+        print(
+            f"[J368] road_width={road_width:.3f} my_half={my_half_width:.3f} "
+            f"max_half={max_half_width:.3f} tan_half_angle={tan_half_angle:.6f} "
+            f"buffer={buffer:.3f}"
+        )
+
+    return buffer, max_half_width
 
 
 def calculate_stop_distance(centerline_coords, junction_center, road_width, min_edge_distance=1.0):
@@ -184,10 +305,12 @@ def calculate_stop_distance(centerline_coords, junction_center, road_width, min_
         min_edge_distance: float - Minimum Abstand Kante zu Center (default 1m)
 
     Returns:
-        stop_index: int - Index, wo Quad-Bauen stoppen soll (oder len(coords) wenn vor Junction)
+        Tuple: (stop_index, snapped_point or None)
+               - stop_index: int - Index, wo Quad-Bauen stoppen soll
+               - snapped_point: (x, y) oder None - gesnappter Punkt bei exaktem Zielabstand
     """
     if len(centerline_coords) < 2:
-        return len(centerline_coords)
+        return len(centerline_coords), None
 
     half_width = road_width / 2.0
     coords_2d = np.asarray(centerline_coords, dtype=np.float64)
@@ -236,12 +359,59 @@ def calculate_stop_distance(centerline_coords, junction_center, road_width, min_
 
     if len(valid_indices) == 0:
         # Straße startet schon zu nah an Junction
-        return 0
+        return 0, None
 
     # Finde den letzten gültigen Index
-    stop_index = int(valid_indices[-1]) + 1
+    last_valid_idx = int(valid_indices[-1])
+    stop_index = last_valid_idx + 1
+    snapped_point = None
 
-    return min(stop_index, len(coords_2d))
+    # === SNAPPING: Berechne exakten Stop-Punkt zwischen last_valid und nächst ungültig ===
+    # Wenn stop_index < len(coords_2d), interpoliere linear zu exaktem Zielabstand
+    if stop_index < len(coords_2d):
+        p_valid = coords_2d[last_valid_idx]
+        p_next = coords_2d[stop_index]
+        dir_vec = p_next - p_valid
+        dist_seg = np.linalg.norm(dir_vec)
+
+        if dist_seg > 1e-6:
+            # Iterativ: teste t ∈ [0, 1] wo beide Kanten + Center >= min_edge_distance
+            best_t = 0.0
+            for t in np.linspace(0.0, 1.0, 20):
+                p_test = p_valid + t * dir_vec
+
+                # Berechne Senkrechte interpoliert zwischen den beiden Punkten
+                # Linear interpolieren zwischen perp[last_valid_idx] und perp[stop_index]
+                if stop_index < len(perp):
+                    perp_test = perp[last_valid_idx] * (1.0 - t) + perp[stop_index] * t
+                    perp_norm = np.linalg.norm(perp_test)
+                    if perp_norm > 1e-6:
+                        perp_test = perp_test / perp_norm
+                    else:
+                        perp_test = perp[last_valid_idx]
+                else:
+                    perp_test = perp[last_valid_idx]
+
+                left_test = p_test + perp_test * half_width
+                right_test = p_test - perp_test * half_width
+                dist_left = np.linalg.norm(left_test - center_2d)
+                dist_right = np.linalg.norm(right_test - center_2d)
+                dist_center = np.linalg.norm(p_test - center_2d)
+
+                # Prüfe: beide Kanten + Center >= min_edge_distance?
+                if (
+                    dist_left >= min_edge_distance
+                    and dist_right >= min_edge_distance
+                    and dist_center >= min_edge_distance
+                ):
+                    best_t = t
+                else:
+                    break
+
+            # Berechne gesnappten Punkt
+            snapped_point = p_valid + best_t * dir_vec
+
+    return min(stop_index, len(coords_2d)), snapped_point
 
 
 def clip_road_to_bounds(coords, bounds_local):
@@ -286,7 +456,7 @@ def clip_road_to_bounds(coords, bounds_local):
 
 def create_minimal_quad_for_junction(point1, point2, z_value, half_width=3.5):
     """
-    Erstellt ein minimales 10cm langes Quad mit voller Straßenbreite zwischen zwei Punkten.
+    Erstellt ein minimales 20cm langes Quad mit voller Straßenbreite zwischen zwei Punkten.
     Das Quad ist zentriert auf der Verbindungslinie zwischen point1 und point2.
 
     Args:
@@ -319,34 +489,38 @@ def create_minimal_quad_for_junction(point1, point2, z_value, half_width=3.5):
     mid_point = (p1 + p2) / 2.0
 
     # Positioniere 10cm langes Quad zentriert auf Mittelpunkt
-    quad_start = mid_point - direction_normalized * 0.05
-    quad_end = mid_point + direction_normalized * 0.05
+    quad_start = mid_point - direction_normalized * 0.2
+    quad_end = mid_point + direction_normalized * 0.2
 
     # Senkrechte Richtung für die volle 7m Straßenbreite
     perp = np.array([-direction_normalized[1], direction_normalized[0]], dtype=np.float64)
 
     # Vier Ecken des Quads mit voller 7m Breite
     qs_left = quad_start + perp * half_width
-    qs_right = quad_start - perp * half_width
     qe_left = quad_end + perp * half_width
+    qs_right = quad_start - perp * half_width
     qe_right = quad_end - perp * half_width
 
+    # Vertex-Order so, dass die ersten beiden die linke Kante bilden, die zweiten beiden die rechte
     quad_vertices = [
-        (qs_left[0], qs_left[1], z_value),
-        (qs_right[0], qs_right[1], z_value),
-        (qe_left[0], qe_left[1], z_value),
-        (qe_right[0], qe_right[1], z_value),
+        (qs_left[0], qs_left[1], z_value),  # 0: left start
+        (qe_left[0], qe_left[1], z_value),  # 1: left end
+        (qs_right[0], qs_right[1], z_value),  # 2: right start
+        (qe_right[0], qe_right[1], z_value),  # 3: right end
     ]
 
-    # Zwei Triangles für das Quad: (0,1,2) und (1,3,2)
-    quad_faces = [(0, 1, 2), (1, 3, 2)]
+    # Faces kompatibel mit späterer Streifen-Triangulation
+    quad_faces = [
+        (0, 2, 3),
+        (0, 3, 1),
+    ]
 
-    # 2D-Polygon für Grid-Ausschneiden
+    # 2D-Polygon für Grid-Ausschneiden (links vor, rechts zurück)
     quad_poly_2d = [
         (qs_left[0], qs_left[1]),
-        (qs_right[0], qs_right[1]),
-        (qe_right[0], qe_right[1]),
         (qe_left[0], qe_left[1]),
+        (qe_right[0], qe_right[1]),
+        (qs_right[0], qs_right[1]),
     ]
 
     return quad_vertices, quad_faces, quad_poly_2d
@@ -354,7 +528,6 @@ def create_minimal_quad_for_junction(point1, point2, z_value, half_width=3.5):
 
 def _process_road_batch(
     batch,
-    half_width,
     height_points,
     height_elevations,
     local_offset,
@@ -402,6 +575,10 @@ def _process_road_batch(
         road_id = road.get("id")
         osm_tags = road.get("osm_tags", {})  # OSM-Tags extrahieren
 
+        # Berechne Straßenbreite dynamisch aus OSM-Tags
+        road_width = get_road_width(osm_tags)
+        half_width = road_width / 2.0
+
         junction_indices = road.get("junction_indices", {}) or {}
 
         junction_buffer_start = None
@@ -417,7 +594,7 @@ def _process_road_batch(
             if 0 <= end_junction_idx < len(junction_centers):
                 # Berechne dynamischen junction_stop_buffer basierend auf Winkeln
                 # VERWENDE ORIGINAL COORDS, nicht die lokalen (bereits geclippten) coords!
-                junction_buffer = calculate_junction_buffer(
+                junction_buffer, max_half_width = calculate_junction_buffer(
                     original_road_idx,
                     end_junction_idx,
                     original_coords_for_buffer,  # Verwende original coords!
@@ -429,29 +606,24 @@ def _process_road_batch(
                 )
                 junction_buffer_end = junction_buffer
 
-                # Spezialfall: 2-Straßen-Junction (nur half_width, kein Extra-Buffer)
-                num_roads_at_junction = count_roads_at_junction(end_junction_idx)
-                if (
-                    (num_roads_at_junction is None or num_roads_at_junction == 0)
-                    and junctions_full
-                    and 0 <= end_junction_idx < len(junctions_full)
-                ):
-                    num_roads_at_junction = len(junctions_full[end_junction_idx].get("road_indices", []))
-
-                # 2-Straßen-Junctions: min_edge_distance = half_width (3.5m - harte Grenze)
-                # 3+-Straßen-Junctions: min_edge_distance = half_width + dynamischer_buffer
-                if num_roads_at_junction == 2:
-                    min_edge_distance = half_width  # Nur Straßenbreite, kein Buffer
-                else:
-                    min_edge_distance = half_width + junction_buffer
+                # VEREINHEITLICHTE LOGIK: Nutze immer den dynamischen Buffer
+                # (dieser kann auch 0 sein bei breiten Winkeln >= 90°)
+                # Verwende max_half_width aller ankommenden Straßen als Basis
+                min_edge_distance = max_half_width + junction_buffer
 
                 coords_arr = np.asarray(coords)
-                stop_idx = calculate_stop_distance(
+                stop_idx, snapped_point = calculate_stop_distance(
                     coords_arr[:, :2],
                     np.asarray(junction_centers[end_junction_idx])[:2],
                     road_width=half_width * 2.0,
                     min_edge_distance=min_edge_distance,
                 )
+                # Wende Snapping an, wenn gesnappter Punkt vorhanden
+                if snapped_point is not None and stop_idx > 0:
+                    # Ersetze die Höhe des gesnappten Punktes durch lineare Interpolation
+                    old_point_3d = coords[stop_idx - 1] if stop_idx < len(coords) else coords[-1]
+                    z_interp = old_point_3d[2]  # Höhe vom letzten Punkt
+                    coords[stop_idx - 1] = (*snapped_point, z_interp)
                 coords = coords[:stop_idx] if stop_idx > 0 else []
 
         # Trim am Startpunkt (Road-Anfang) falls Junction vorhanden
@@ -460,7 +632,7 @@ def _process_road_batch(
             if 0 <= start_junction_idx < len(junction_centers):
                 # Berechne dynamischen junction_stop_buffer basierend auf Winkeln
                 # VERWENDE ORIGINAL COORDS, nicht die lokalen (bereits getrimmten) coords!
-                junction_buffer = calculate_junction_buffer(
+                junction_buffer, max_half_width = calculate_junction_buffer(
                     original_road_idx,
                     start_junction_idx,
                     original_coords_for_buffer,  # Verwende original coords!
@@ -472,30 +644,25 @@ def _process_road_batch(
                 )
                 junction_buffer_start = junction_buffer
 
-                # Spezialfall: 2-Straßen-Junction (nur half_width, kein Extra-Buffer)
-                num_roads_at_junction = count_roads_at_junction(start_junction_idx)
-                if (
-                    (num_roads_at_junction is None or num_roads_at_junction == 0)
-                    and junctions_full
-                    and 0 <= start_junction_idx < len(junctions_full)
-                ):
-                    num_roads_at_junction = len(junctions_full[start_junction_idx].get("road_indices", []))
-
-                # 2-Straßen-Junctions: min_edge_distance = half_width (3.5m - harte Grenze)
-                # 3+-Straßen-Junctions: min_edge_distance = half_width + dynamischer_buffer
-                if num_roads_at_junction == 2:
-                    min_edge_distance = half_width  # Nur Straßenbreite, kein Buffer
-                else:
-                    min_edge_distance = half_width + junction_buffer_start
+                # VEREINHEITLICHTE LOGIK: Nutze immer den dynamischen Buffer
+                # (dieser kann auch 0 sein bei breiten Winkeln >= 90°)
+                # Verwende max_half_width aller ankommenden Straßen als Basis
+                min_edge_distance = max_half_width + junction_buffer
 
                 coords_rev = list(reversed(coords))
                 coords_arr = np.asarray(coords_rev)
-                stop_idx = calculate_stop_distance(
+                stop_idx, snapped_point = calculate_stop_distance(
                     coords_arr[:, :2],
                     np.asarray(junction_centers[start_junction_idx])[:2],
                     road_width=half_width * 2.0,
                     min_edge_distance=min_edge_distance,
                 )
+                # Wende Snapping an, wenn gesnappter Punkt vorhanden
+                if snapped_point is not None and stop_idx > 0:
+                    # Ersetze die Höhe des gesnappten Punktes
+                    old_point_3d = coords_rev[stop_idx - 1] if stop_idx < len(coords_rev) else coords_rev[-1]
+                    z_interp = old_point_3d[2]
+                    coords_rev[stop_idx - 1] = (*snapped_point, z_interp)
                 coords_rev = coords_rev[:stop_idx] if stop_idx > 0 else []
                 coords = list(reversed(coords_rev))
 
@@ -559,14 +726,16 @@ def _process_road_batch(
                     mid_point = (np.array(point1[:2]) + np.array(point2[:2])) / 2.0
                     z_val = interpolate_height(mid_point, height_points, height_elevations, tree, interpolator)
 
-                    # Erstelle minimales Quad zwischen den beiden Punkten
+                    # Erstelle minimales Quad zwischen den beiden Punkten (mit korrekter Straßenbreite!)
                     quad_verts, quad_faces, quad_poly_2d = create_minimal_quad_for_junction(
-                        point1[:2], point2[:2], z_val
+                        point1[:2], point2[:2], z_val, half_width=half_width
                     )
 
                     if quad_verts and quad_faces:
                         batch_vertices.extend(quad_verts)
                         left_start = len(batch_vertices) - 4
+                        # Rechte Seite startet zwei Indices nach links (0,1 = left; 2,3 = right)
+                        right_start = left_start + 2
 
                         # Verwende EXAKT die gleiche Struktur wie normale Straßen
                         batch_per_road.append(
@@ -586,13 +755,13 @@ def _process_road_batch(
                                 "junction_buffer_end": junction_buffer_end if junction_buffer_end is not None else 0.0,
                                 "num_points": 2,
                                 "left_start": left_start,
-                                "right_start": left_start + 1,
+                                "right_start": right_start,
                                 "slope_left_start": -1,
                                 "slope_right_start": -1,
                                 "road_poly_2d": quad_poly_2d,
                                 "slope_poly_2d": quad_poly_2d,
-                                "road_left_2d": [quad_poly_2d[0], quad_poly_2d[3]],
-                                "road_right_2d": [quad_poly_2d[1], quad_poly_2d[2]],
+                                "road_left_2d": [quad_poly_2d[0], quad_poly_2d[1]],
+                                "road_right_2d": [quad_poly_2d[3], quad_poly_2d[2]],
                                 # Kopiere ALLE road-Metadaten für einheitliche Struktur
                                 "source_road": road,  # Gesamtes Original-Road-Dict für Zugriff auf tags etc.
                                 "osm_tags": osm_tags,  # OSM-Tags bei Minimal-Quads ebenso übernehmen
@@ -819,7 +988,6 @@ def generate_road_mesh_strips(road_polygons, height_points, height_elevations, v
     Returns:
         Tuple: (road_faces, slope_faces, road_slope_polygons_2d, original_to_mesh_idx)
     """
-    half_width = config.ROAD_WIDTH / 2.0
     slope_gradient = np.tan(np.radians(config.SLOPE_ANGLE))
 
     junction_centers = None
@@ -860,7 +1028,6 @@ def generate_road_mesh_strips(road_polygons, height_points, height_elevations, v
 
     worker_func = partial(
         _process_road_batch,
-        half_width=half_width,
         height_points=height_points,
         height_elevations=height_elevations,
         local_offset=local_offset,

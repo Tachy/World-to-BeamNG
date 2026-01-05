@@ -9,6 +9,7 @@ from scipy.spatial import cKDTree
 from matplotlib.path import Path
 
 from ..geometry.polygon import get_road_centerline_robust
+from ..osm.mapper import get_road_width
 from .. import config
 
 
@@ -36,6 +37,7 @@ def classify_grid_vertices(
     for idx, poly_data in enumerate(road_slope_polygons_2d):
         road_poly_xy = poly_data["road_polygon"]
         trimmed_centerline = poly_data.get("trimmed_centerline", [])
+        osm_tags = poly_data.get("osm_tags", {})
 
         # Road-Polygon muss vorhanden sein
         if len(road_poly_xy) < 3:
@@ -54,6 +56,11 @@ def classify_grid_vertices(
             # Nochmal pruefen nach Fix
             if not isinstance(road_poly, Polygon):
                 continue
+
+            # Berechne dynamischen Search-Radius basierend auf Straßenbreite
+            road_width = get_road_width(osm_tags)
+            # Formel: road_width + GRID_SPACING*2.5 (bei 2m Grid: road_width + 5m)
+            dynamic_search_radius = road_width + config.GRID_SPACING * 2.5
 
             # Verwende die GETRIMTE Centerline (nach Junction-Trimming)!
             # (bereits in lokalen Koordinaten durch get_road_polygons)
@@ -75,6 +82,7 @@ def classify_grid_vertices(
                     "centerline_3d": centerline_3d,
                     "has_real_centerline": has_real_centerline,
                     "buffer_bounds": road_poly.bounds,
+                    "search_radius": dynamic_search_radius,  # Dynamischer Radius pro Straße
                 }
             )
         except Exception:
@@ -158,7 +166,8 @@ def classify_grid_vertices(
                 continue
 
             buffer_indices_set = set()
-            search_radius = config.CENTERLINE_SEARCH_RADIUS
+            # Nutze dynamischen Search-Radius (bereits in road_info gespeichert)
+            search_radius = road_info.get("search_radius", config.CENTERLINE_SEARCH_RADIUS)
 
             # Centerline-Samples
             for centerline_pt in centerline:
