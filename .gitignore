@@ -20,6 +20,10 @@ venv/
 # Output files
 *.obj
 *.mtl
+*.zip
+*.tar.gz
+*.log
+
 
 # IDE
 .vscode/
