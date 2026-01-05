@@ -135,9 +135,7 @@ class MeshViewer:
             if os.path.exists(layer_file):
                 print(f"Lade Debug-Ebene: {layer_file}")
                 try:
-                    vertices, edges, points, point_labels = self._load_line_obj(
-                        layer_file
-                    )
+                    vertices, edges, points, point_labels = self._load_line_obj(layer_file)
                     if len(vertices) > 0:
                         self.debug_layers[f"ebene{i}"] = {
                             "vertices": vertices,
@@ -146,12 +144,8 @@ class MeshViewer:
                             "point_labels": point_labels,
                             "file": layer_file,
                         }
-                        self.debug_layer_visible[f"ebene{i}"] = (
-                            True  # Standardmäßig sichtbar
-                        )
-                        print(
-                            f"  -> {len(vertices)} vertices, {len(edges)} edges, {len(points)} points"
-                        )
+                        self.debug_layer_visible[f"ebene{i}"] = True  # Standardmäßig sichtbar
+                        print(f"  -> {len(vertices)} vertices, {len(edges)} edges, {len(points)} points")
                 except Exception as e:
                     print(f"  Fehler beim Laden von {layer_file}: {e}")
 
@@ -177,9 +171,7 @@ class MeshViewer:
                 for line in f:
                     if line.startswith("v "):
                         parts = line.strip().split()
-                        vertices.append(
-                            [float(parts[1]), float(parts[2]), float(parts[3])]
-                        )
+                        vertices.append([float(parts[1]), float(parts[2]), float(parts[3])])
                     elif line.startswith("l "):
                         # Linie: "l v1 v2 ..." oder "l v1 v2"
                         parts = line.split("#", 1)[0].strip().split()[1:]
@@ -308,11 +300,7 @@ class MeshViewer:
             actor.SetVisibility(visible)
             actors_for_layer.append(actor)
 
-            if (
-                point_labels
-                and len(point_labels) == len(points)
-                and len(point_labels) <= 2000
-            ):
+            if point_labels and len(point_labels) == len(points) and len(point_labels) <= 2000:
                 labels = [str(lbl) if lbl is not None else "" for lbl in point_labels]
                 actor = self.plotter.add_point_labels(
                     pts,
@@ -381,9 +369,7 @@ class MeshViewer:
                     prefix = line[0]
                     if prefix == "v" and line.startswith("v "):
                         parts = line.split()
-                        vertices.append(
-                            (float(parts[1]), float(parts[2]), float(parts[3]))
-                        )
+                        vertices.append((float(parts[1]), float(parts[2]), float(parts[3])))
                         continue
 
                     if prefix == "u" and line.startswith("usemtl"):
@@ -407,9 +393,7 @@ class MeshViewer:
                             terrain_faces.append(face)
                         elif "slope" in current_material:
                             slope_faces.append(face)
-                        elif (
-                            "junction" in current_material or "quad" in current_material
-                        ):
+                        elif "junction" in current_material or "quad" in current_material:
                             junction_faces.append(face)
                         elif "road" in current_material:
                             road_faces.append(face)
@@ -434,9 +418,7 @@ class MeshViewer:
                 road_face_to_idx,
             ) = parse_file(obj_file)
         except FileNotFoundError:
-            print(
-                f"  Warnung: {obj_file} nicht gefunden. Nutze Fallback {fallback_obj}"
-            )
+            print(f"  Warnung: {obj_file} nicht gefunden. Nutze Fallback {fallback_obj}")
             if fallback_obj:
                 (
                     vertices,
@@ -611,12 +593,8 @@ class MeshViewer:
             return
         # Roads rendern (immer erstellen, Visibility nach show_roads)
         self._roads_actors = []
-        remapped_road_faces = np.array(
-            [[vertex_map[v] for v in face] for face in subset_road_faces]
-        )
-        pyvista_road_faces = np.hstack(
-            [[3] + face.tolist() for face in remapped_road_faces]
-        )
+        remapped_road_faces = np.array([[vertex_map[v] for v in face] for face in subset_road_faces])
+        pyvista_road_faces = np.hstack([[3] + face.tolist() for face in remapped_road_faces])
         road_mesh = pv.PolyData(subset_points, pyvista_road_faces)
 
         actor = self.plotter.add_mesh(
@@ -635,12 +613,8 @@ class MeshViewer:
         if hasattr(self, "junction_faces") and len(self.junction_faces) > 0:
             subset_junction_faces = self.junction_faces
             if len(subset_junction_faces) > 0:
-                remapped_junction_faces = np.array(
-                    [[vertex_map[v] for v in face] for face in subset_junction_faces]
-                )
-                pyvista_junction_faces = np.hstack(
-                    [[3] + face.tolist() for face in remapped_junction_faces]
-                )
+                remapped_junction_faces = np.array([[vertex_map[v] for v in face] for face in subset_junction_faces])
+                pyvista_junction_faces = np.hstack([[3] + face.tolist() for face in remapped_junction_faces])
                 junction_points = subset_points.copy()
                 junction_points[:, 2] += 0.1
                 junction_mesh = pv.PolyData(junction_points, pyvista_junction_faces)
@@ -660,12 +634,8 @@ class MeshViewer:
         # Terrain rendern (immer erstellen, Visibility nach show_terrain)
         self._terrain_actors = []
         if len(subset_terrain_faces) > 0:
-            remapped_terrain_faces = np.array(
-                [[vertex_map[v] for v in face] for face in subset_terrain_faces]
-            )
-            pyvista_terrain_faces = np.hstack(
-                [[3] + face.tolist() for face in remapped_terrain_faces]
-            )
+            remapped_terrain_faces = np.array([[vertex_map[v] for v in face] for face in subset_terrain_faces])
+            pyvista_terrain_faces = np.hstack([[3] + face.tolist() for face in remapped_terrain_faces])
             terrain_mesh = pv.PolyData(subset_points, pyvista_terrain_faces)
 
             actor = self.plotter.add_mesh(
@@ -681,12 +651,8 @@ class MeshViewer:
         # Slopes rendern (immer erstellen, Visibility nach show_slopes)
         self._slopes_actors = []
         if len(subset_slope_faces) > 0:
-            remapped_slope_faces = np.array(
-                [[vertex_map[v] for v in face] for face in subset_slope_faces]
-            )
-            pyvista_slope_faces = np.hstack(
-                [[3] + face.tolist() for face in remapped_slope_faces]
-            )
+            remapped_slope_faces = np.array([[vertex_map[v] for v in face] for face in subset_slope_faces])
+            pyvista_slope_faces = np.hstack([[3] + face.tolist() for face in remapped_slope_faces])
             slope_mesh = pv.PolyData(subset_points, pyvista_slope_faces)
 
             actor = self.plotter.add_mesh(
@@ -740,14 +706,8 @@ class MeshViewer:
                 actor.SetVisibility(visible)
                 actors_for_layer.append(actor)
 
-                if (
-                    point_labels
-                    and len(point_labels) == len(points)
-                    and len(point_labels) <= 2000
-                ):
-                    labels = [
-                        str(lbl) if lbl is not None else "" for lbl in point_labels
-                    ]
+                if point_labels and len(point_labels) == len(points) and len(point_labels) <= 2000:
+                    labels = [str(lbl) if lbl is not None else "" for lbl in point_labels]
                     actor = self.plotter.add_point_labels(
                         pts,
                         labels,
@@ -765,9 +725,7 @@ class MeshViewer:
                 self._debug_layer_actors[layer_name] = actors_for_layer
 
         # Linke Seite: Bedienungsanleitung (statisch)
-        bedienung = (
-            "1-6: Debug | 7: Terrain | 8: Roads | 9: Slopes | K: Cam | L: Reload"
-        )
+        bedienung = "1-6: Debug | 7: Terrain | 8: Roads | 9: Slopes | K: Cam | L: Reload"
         self.plotter.add_text(
             bedienung,
             position="upper_left",
@@ -802,30 +760,21 @@ class MeshViewer:
             self.plotter.camera_position = None
             self.plotter.view_isometric()
             self.plotter.camera.focal_point = center
-            cam_dist = (
-                max(bounds[1] - bounds[0], bounds[3] - bounds[2], bounds[5] - bounds[4])
-                * 1.5
-            )
+            cam_dist = max(bounds[1] - bounds[0], bounds[3] - bounds[2], bounds[5] - bounds[4]) * 1.5
             self.plotter.camera.position = [
                 center[0] + cam_dist,
                 center[1] + cam_dist,
                 center[2] + cam_dist,
             ]
 
-        cam_pos = (
-            np.array(self.plotter.camera.position) if self.plotter.camera else None
-        )
+        cam_pos = np.array(self.plotter.camera.position) if self.plotter.camera else None
         cam_dist = np.linalg.norm(cam_pos - center) if cam_pos is not None else np.inf
 
-        show_labels = (
-            self.show_point_labels and cam_dist < self.label_distance_threshold
-        )
+        show_labels = self.show_point_labels and cam_dist < self.label_distance_threshold
 
         if show_labels and len(subset_points) > 0:
             if len(subset_points) > self.label_max_points:
-                label_indices = np.linspace(
-                    0, len(subset_points) - 1, num=self.label_max_points, dtype=int
-                )
+                label_indices = np.linspace(0, len(subset_points) - 1, num=self.label_max_points, dtype=int)
                 sampled_points = subset_points[label_indices]
                 sampled_labels = [str(i) for i in label_indices]
             else:
@@ -883,9 +832,7 @@ class MeshViewer:
 
             self._reload_debug_layers()
 
-            print(
-                f"  ✓ Neu geladen: {len(self.vertices)} Vertices, {len(self.road_faces)} Faces"
-            )
+            print(f"  ✓ Neu geladen: {len(self.vertices)} Vertices, {len(self.road_faces)} Faces")
 
             self.update_view(reset_camera=False)
 
@@ -987,9 +934,7 @@ class MeshViewer:
                 forward = np.array([0.0, 0.0, 1.0])
 
             yaw = np.degrees(np.arctan2(forward[1], forward[0]))
-            tilt = np.degrees(
-                np.arctan2(forward[2], np.linalg.norm(forward[:2]) + 1e-9)
-            )
+            tilt = np.degrees(np.arctan2(forward[2], np.linalg.norm(forward[:2]) + 1e-9))
 
             up_proj = up - np.dot(up, forward) * forward
             u_norm = np.linalg.norm(up_proj)
