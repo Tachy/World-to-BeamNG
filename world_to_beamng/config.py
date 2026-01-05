@@ -34,13 +34,6 @@ SAMPLE_SPACING_FACTOR = 0.5  # Faktor für Segment-Spacing: road_width * SAMPLE_
 # (Alte feste Werte für Referenz: bei 7m Straßen war 2.5m → jetzt dynamisch via Faktor 0.5)
 ROAD_SMOOTH_TENSION = 0.05  # Spline-Glättungsfaktor (0.0 = eng an Originalpunkten, 1.0 = sehr glatt)
 
-# === CENTERLINE-SAMPLING / SUCHE ===
-CENTERLINE_SAMPLE_SPACING = 10.0  # Abstand zwischen Sample-Punkten entlang der Centerline (m)
-CENTERLINE_SEARCH_RADIUS = 10.0  # Suchradius um Centerline-Punkte (m)
-
-# === JUNCTION REMESHING ===
-JUNCTION_REMESH_RADIUS = 18.0  # Suchradius für Junction-Remesh in Metern
-
 # === CLIPPING ===
 ROAD_CLIP_MARGIN = 10.0  # Clipping-Abstand vom Grid-Rand in Metern (Faces < 3m vom Rand werden entfernt)
 

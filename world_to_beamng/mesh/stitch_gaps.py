@@ -35,8 +35,6 @@ def stitch_all_gaps(
         print(f"  [Filter] Nur Junction mit id={filter_junction_id}")
 
     road_count = 0
-    search_radius = config.CENTERLINE_SEARCH_RADIUS
-    sample_spacing = config.CENTERLINE_SAMPLE_SPACING
 
     # Static Vertex-Cache und KDTree (Vertices werden nicht geändert)
     verts_cache = np.asarray(vertex_manager.get_array())
@@ -67,7 +65,7 @@ def stitch_all_gaps(
         # Skaliere Search-Radius proportional zu Straßenbreite + Grid-Spacing-abhängiger Buffer
         # Formel: road_width + GRID_SPACING*2.5 (bei 2m Grid: road_width + 5m)
         dynamic_search_radius = road_width + config.GRID_SPACING * 2.5
-        dynamic_sample_spacing = max(3.0, road_width)  # Min 3m, sonst road_width
+        dynamic_sample_spacing = road_width + config.GRID_SPACING * 2.5  # Identisch mit Suchradius
 
         centerline_3d = np.array(trimmed_centerline, dtype=float)
         centerline_points = centerline_3d[:, :2]

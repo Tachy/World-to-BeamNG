@@ -180,7 +180,7 @@ def find_boundary_polygons_in_circle(
 
     # Merge Components die am Kreisrand getrennt sind
     # Skaliere merge_threshold proportional zum search_radius
-    # search_radius = road_width + 5, also ist merge_threshold ~ road_width / 2
+    # search_radius = road_width + GRID_SPACING*2.5 (dynamisch), merge_threshold ~ 1/3 davon
     dynamic_merge_threshold = max(1.5, search_radius / 3.0)  # Heuristic: 1/3 des search_radius
     if len(components) > 2:
         components = _merge_nearby_components(components, verts, merge_threshold=dynamic_merge_threshold)

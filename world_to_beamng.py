@@ -38,9 +38,6 @@ from world_to_beamng.geometry.junctions import (
     junction_stats,
     split_roads_at_mid_junctions,
 )
-from world_to_beamng.mesh.junction_remesh import (
-    remesh_single_junction,
-)
 from world_to_beamng.geometry.vertices import classify_grid_vertices
 from world_to_beamng.mesh.road_mesh import generate_road_mesh_strips
 from world_to_beamng.mesh.vertex_manager import VertexManager

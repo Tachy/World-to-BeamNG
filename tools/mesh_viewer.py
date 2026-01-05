@@ -27,12 +27,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # Konfigurationswerte für Suchkreise/Sampling
 try:
     from world_to_beamng import config
-
-    _CENTERLINE_SEARCH_RADIUS = config.CENTERLINE_SEARCH_RADIUS
-    _CENTERLINE_SAMPLE_SPACING = config.CENTERLINE_SAMPLE_SPACING
 except Exception:
-    _CENTERLINE_SEARCH_RADIUS = 10.0
-    _CENTERLINE_SAMPLE_SPACING = 10.0
+    config = None
 
 
 class MeshViewer:

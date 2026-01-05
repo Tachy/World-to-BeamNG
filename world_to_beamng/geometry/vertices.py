@@ -128,7 +128,10 @@ def classify_grid_vertices(
                 seg_cum = np.concatenate(([0.0], np.cumsum(seg_len)))
 
             total_length = centerline_linestring.length
-            sample_spacing = config.CENTERLINE_SAMPLE_SPACING
+            # Dynamischer Sample-Spacing = dynamischer Suchradius (damit Kreise nahtlos anschließen)
+            osm_tags = road_info.get("osm_tags", {})
+            road_width = get_road_width(osm_tags)
+            sample_spacing = road_width + config.GRID_SPACING * 2.5
 
             # Stelle sicher, dass auch sehr kurze Segmente mindestens mit Start+Ende abgetastet werden
             num_samples = max(2, int(np.ceil(total_length / sample_spacing)) + 1)
@@ -166,8 +169,8 @@ def classify_grid_vertices(
                 continue
 
             buffer_indices_set = set()
-            # Nutze dynamischen Search-Radius (bereits in road_info gespeichert)
-            search_radius = road_info.get("search_radius", config.CENTERLINE_SEARCH_RADIUS)
+            # Dynamischer Search-Radius (wird in road_info gespeichert)
+            search_radius = road_info["search_radius"]
 
             # Centerline-Samples
             for centerline_pt in centerline:
