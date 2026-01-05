@@ -10,6 +10,8 @@ from scipy.spatial import cKDTree
 from shapely.geometry import LineString, Point, MultiPoint, GeometryCollection, box
 from shapely.strtree import STRtree
 
+from .. import config
+
 
 def detect_junctions_in_centerlines(road_polygons, height_points=None, height_elevations=None):
     """
@@ -267,7 +269,9 @@ def detect_junctions_in_centerlines(road_polygons, height_points=None, height_el
     # ---- Zusätzliche Erkennung: Endpoint auf durchgehender Centerline (T-Junction) ----
     # Erkennt Punkte, bei denen ein Endpoint auf der Mittellinie einer anderen Straße endet
     # (typisch für T-Junctions mit durchgehender Straße).
-    t_search_radius = config.ROAD_WIDTH + config.GRID_SPACING * 2.5  # Dynamischer Suchradius (analog zu Stitching)
+
+    # Suchradius nur anhand Rasterweite (OSM-Knoten liegen meist exakt)
+    t_search_radius = config.GRID_SPACING * 2.5
     t_line_tol = 0.5  # Meter - Toleranz für Punkt-zu-Linie Entfernung (50cm)
     t_line_tol_sq = t_line_tol * t_line_tol
     merge_tol = 1.0  # Zusammenführungs-Toleranz zu bestehenden Junctions (1.0m)
@@ -429,7 +433,7 @@ def detect_junctions_in_centerlines(road_polygons, height_points=None, height_el
     # ---- Dritte Erkennung: Line-on-Line Kreuzungen (X-Junctions ohne Endpoint-Match) ----
     # Erkennt Kreuzungen, wo zwei Straßen sich kreuzen, aber die Endpunkte nicht exakt aufeinander treffen
 
-    ll_search_radius = config.ROAD_WIDTH + config.GRID_SPACING * 2.5  # Dynamischer Suchradius (analog zu Stitching)
+    ll_search_radius = config.GRID_SPACING * 2.5
     ll_line_tol = 1.0  # Meter - Toleranz für Line-zu-Line Entfernung (1m)
     ll_count = 0
 

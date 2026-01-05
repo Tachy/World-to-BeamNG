@@ -150,8 +150,6 @@ def calculate_junction_buffer(
 
         return np.array([0.0, 0.0]), "zero"
 
-    log_enabled = junction_idx == 368
-
     # Sammle alle Straßen, die an dieser Junction hängen
     connected = []  # (road_id, junction_indices, osm_tags)
     for idx, r in enumerate(road_polygons):
@@ -168,26 +166,13 @@ def calculate_junction_buffer(
     if len(connected) < 2:
         return 0.0, max_half_width
 
-    if log_enabled:
-        print(
-            f"[J368] connected_ids={[c[0] for c in connected]} "
-            f"widths={list(width_map.values())} max_half={max_half_width:.3f}"
-        )
-
     # Bearings ermitteln: Tangente am Straßenende/-anfang (letztes bzw. erstes Segment)
     bearings = []
     for r_id, ji, r, osm_tags in connected:
         coords_arr = np.asarray(r.get("coords", []), dtype=float)
 
         if len(coords_arr) < 2:
-            if log_enabled:
-                print(f"[J368] drop road_id={r_id} reason=coords_len<{2}")
             continue
-
-        if log_enabled:
-            tail = coords_arr[-2:][:, :2].tolist() if len(coords_arr) >= 2 else []
-            head = coords_arr[:2, :2].tolist() if len(coords_arr) >= 2 else []
-            print(f"[J368] coords road_id={r_id} len={len(coords_arr)} " f"head={head} tail={tail}")
 
         is_end = ji.get("end") == junction_idx and ji.get("start") != junction_idx
         is_start = ji.get("start") == junction_idx and ji.get("end") != junction_idx
@@ -203,25 +188,12 @@ def calculate_junction_buffer(
         junction_center = np.asarray(junction_centers[junction_idx]) if junction_centers is not None else None
         direction, dir_source = _direction_with_fallback(coords_arr, is_end, junction_center)
 
-        if log_enabled:
-            dir_norm = np.linalg.norm(direction)
-            print(
-                f"[J368] dir road_id={r_id} is_end={is_end} is_start={is_start} "
-                f"source={dir_source} dir=({direction[0]:.3f},{direction[1]:.3f}) norm={dir_norm:.6f}"
-            )
-
         ang = _bearing_from_direction(direction)
 
         if ang is not None:
-            if log_enabled:
-                print(f"[J368] bearing road_id={r_id} ang={ang:.3f}")
             bearings.append((r_id, ang, osm_tags))
-        elif log_enabled:
-            print(f"[J368] drop road_id={r_id} reason=bearing_none")
 
     if len(bearings) < 2:
-        if log_enabled:
-            print(f"[J368] bearings_len={len(bearings)} -> buffer=0")
         return 0.0, max_half_width
 
     bearings.sort(key=lambda x: x[1])
@@ -248,18 +220,8 @@ def calculate_junction_buffer(
     angle_min = min(ang_prev, ang_next)
     angle_threshold = getattr(config, "JUNCTION_STOP_ANGLE_THRESHOLD", 90.0)
 
-    if log_enabled:
-        bearing_pairs = [(b[0], round(b[1], 3)) for b in bearings]
-        print(
-            f"[J368] road_id={road_id} bearings={bearing_pairs} "
-            f"ang_prev={ang_prev:.3f} ang_next={ang_next:.3f} "
-            f"angle_min={angle_min:.3f} threshold={angle_threshold:.3f}"
-        )
-
     # Wenn Winkel >= threshold: kein Buffer nötig
     if angle_min >= angle_threshold:
-        if log_enabled:
-            print("[J368] buffer=0.0 (angle above threshold)")
         return 0.0, max_half_width
 
     # Berechne Buffer asymmetrisch
@@ -274,19 +236,12 @@ def calculate_junction_buffer(
     # Geometrisch exakte Formel: buffer = max_halfwidth * cot(alpha/2) - max_halfwidth
     # cot(x) = 1/tan(x)
     if tan_half_angle > 1e-6:
-        buffer = (max_half_width / tan_half_angle) - max_half_width
+        buffer = (max_half_width / tan_half_angle) - max_half_width + 0.2
     else:
-        buffer = 0.0
+        buffer = 0.2
 
     # Clamp auf [0, half_width * 5] zur Sicherheit
     buffer = max(0.0, min(buffer, max_half_width * 5.0))
-
-    if log_enabled:
-        print(
-            f"[J368] road_width={road_width:.3f} my_half={my_half_width:.3f} "
-            f"max_half={max_half_width:.3f} tan_half_angle={tan_half_angle:.6f} "
-            f"buffer={buffer:.3f}"
-        )
 
     return buffer, max_half_width
 
@@ -456,7 +411,7 @@ def clip_road_to_bounds(coords, bounds_local):
 
 def create_minimal_quad_for_junction(point1, point2, z_value, half_width=3.5):
     """
-    Erstellt ein minimales 20cm langes Quad mit voller Straßenbreite zwischen zwei Punkten.
+    Erstellt ein minimales 10cm langes Quad mit voller Straßenbreite zwischen zwei Punkten.
     Das Quad ist zentriert auf der Verbindungslinie zwischen point1 und point2.
 
     Args:
@@ -489,8 +444,8 @@ def create_minimal_quad_for_junction(point1, point2, z_value, half_width=3.5):
     mid_point = (p1 + p2) / 2.0
 
     # Positioniere 10cm langes Quad zentriert auf Mittelpunkt
-    quad_start = mid_point - direction_normalized * 0.2
-    quad_end = mid_point + direction_normalized * 0.2
+    quad_start = mid_point - direction_normalized * 0.05
+    quad_end = mid_point + direction_normalized * 0.05
 
     # Senkrechte Richtung für die volle 7m Straßenbreite
     perp = np.array([-direction_normalized[1], direction_normalized[0]], dtype=np.float64)
