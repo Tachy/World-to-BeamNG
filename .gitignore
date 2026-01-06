@@ -1,4 +1,4 @@
-# Height data files (large DGM1 tiles)
+# Height data files (DGM1, DOP20, LOD2)
 data/
 
 # Cache files

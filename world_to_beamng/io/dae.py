@@ -45,68 +45,41 @@ def export_merged_dae(
     up_axis = SubElement(asset, "up_axis")
     up_axis.text = "Z_UP"
 
-    # Sammle alle verwendeten Materialien
-    all_materials = set()
-    for tile_data in tiles_dict.values():
-        all_materials.update(tile_data["materials"])
-    unique_materials = sorted(all_materials)
-    material_map = {mat: f"material_{i}" for i, mat in enumerate(unique_materials)}
-
-    # Library: Images (Textur-Referenzen für Tiles)
-    lib_images = SubElement(collada, "library_images")
-    for tile_x, tile_y in sorted(tiles_dict.keys()):
-        image = SubElement(lib_images, "image")
-        image.set("id", f"tile_{tile_x}_{tile_y}_image")
-        image.set("name", f"tile_{tile_x}_{tile_y}")
-        init_from = SubElement(image, "init_from")
-        init_from.text = f"textures/tile_{tile_x}_{tile_y}.jpg"
-
-    # Library: Materials
+    # Library: Materials (ein Material pro Tile)
     lib_materials = SubElement(collada, "library_materials")
-    for mat_name in unique_materials:
-        mat = SubElement(lib_materials, "material")
-        mat.set("id", material_map[mat_name])
-        mat.set("name", mat_name)
-        effect = SubElement(mat, "instance_effect")
-        effect.set("url", f"#effect_{material_map[mat_name]}")
 
-    # Library: Effects (mit Texture Support)
-    lib_effects = SubElement(collada, "library_effects")
-
-    # Erstelle Effects für jedes Tile (da jedes Tile seine eigene Textur hat)
+    # Library: Materials (ein Material pro Tile)
+    lib_materials = SubElement(collada, "library_materials")
     for tile_x, tile_y in sorted(tiles_dict.keys()):
         if len(tiles_dict[(tile_x, tile_y)]["faces"]) == 0:
             continue
 
-        effect_id = f"tile_{tile_x}_{tile_y}_effect"
+        mat_name = f"tile_{tile_x}_{tile_y}"
+        mat = SubElement(lib_materials, "material")
+        mat.set("id", mat_name)
+        mat.set("name", mat_name)
+        effect = SubElement(mat, "instance_effect")
+        effect.set("url", f"#effect_{mat_name}")
+
+    # Library: Effects (Dummy-Effects ohne Texturen - werden über materials.json verlinkt)
+    lib_effects = SubElement(collada, "library_effects")
+    for tile_x, tile_y in sorted(tiles_dict.keys()):
+        if len(tiles_dict[(tile_x, tile_y)]["faces"]) == 0:
+            continue
+
+        mat_name = f"tile_{tile_x}_{tile_y}"
         effect = SubElement(lib_effects, "effect")
-        effect.set("id", effect_id)
+        effect.set("id", f"effect_{mat_name}")
 
         profile_common = SubElement(effect, "profile_COMMON")
-
-        # NewParam für Texture Surface
-        newparam_surface = SubElement(profile_common, "newparam")
-        newparam_surface.set("sid", f"tile_{tile_x}_{tile_y}_surface")
-        surface = SubElement(newparam_surface, "surface")
-        surface.set("type", "2D")
-        init_from = SubElement(surface, "init_from")
-        init_from.text = f"tile_{tile_x}_{tile_y}_image"
-
-        # NewParam für Texture Sampler
-        newparam_sampler = SubElement(profile_common, "newparam")
-        newparam_sampler.set("sid", f"tile_{tile_x}_{tile_y}_sampler")
-        sampler2d = SubElement(newparam_sampler, "sampler2D")
-        source = SubElement(sampler2d, "source")
-        source.text = f"tile_{tile_x}_{tile_y}_surface"
-
         technique = SubElement(profile_common, "technique")
         technique.set("sid", "common")
 
         phong = SubElement(technique, "phong")
         diffuse = SubElement(phong, "diffuse")
-        texture = SubElement(diffuse, "texture")
-        texture.set("texture", f"tile_{tile_x}_{tile_y}_sampler")
-        texture.set("texcoord", "UVSET0")
+        color = SubElement(diffuse, "color")
+        color.set("sid", "diffuse")
+        color.text = "0.8 0.8 0.8 1"  # Grau als Fallback
 
     # Library: Geometries (eine pro Tile)
     lib_geometries = SubElement(collada, "library_geometries")
@@ -143,9 +116,7 @@ def export_merged_dae(
         if isinstance(vertices, np.ndarray):
             vertex_data = " ".join(map(str, vertices.ravel()))
         else:
-            vertex_data = " ".join(
-                f"{v[0]:.6f} {v[1]:.6f} {v[2]:.6f}" for v in vertices
-            )
+            vertex_data = " ".join(f"{v[0]:.6f} {v[1]:.6f} {v[2]:.6f}" for v in vertices)
         vertices_array.text = vertex_data
 
         # Accessor
@@ -226,45 +197,35 @@ def export_merged_dae(
         vert_input.set("semantic", "POSITION")
         vert_input.set("source", f"#{vertices_source_id}")
 
-        # ============ Faces (getrennt nach Material) ============
-        # Gruppiere Faces nach ihrem Material
-        faces_by_material = {}
-        for face_idx, face in enumerate(faces):
-            mat = materials_per_face[face_idx]
-            if mat not in faces_by_material:
-                faces_by_material[mat] = []
-            faces_by_material[mat].append(face)
+        # ============ Faces (ALLE Faces mit einem Material) ============
+        # Jedes Tile hat nur noch ein Material: tile_x_y
+        mat_name = f"tile_{tile_x}_{tile_y}"
 
-        # Erstelle separate triangles Elemente für jedes Material
-        for mat_name in sorted(faces_by_material.keys()):
-            mat_faces = faces_by_material[mat_name]
-            mat_id = material_map[mat_name]
+        triangles = SubElement(mesh, "triangles")
+        triangles.set("count", str(len(faces)))
+        triangles.set("material", mat_name)
 
-            triangles = SubElement(mesh, "triangles")
-            triangles.set("count", str(len(mat_faces)))
-            triangles.set("material", mat_name)  # ← Echten Material-Namen, nicht ID!
+        # Input: Vertex Indices
+        tri_input_vertex = SubElement(triangles, "input")
+        tri_input_vertex.set("semantic", "VERTEX")
+        tri_input_vertex.set("source", f"#{mesh_name}_vertices_vertex")
+        tri_input_vertex.set("offset", "0")
 
-            # Input: Vertex Indices
-            tri_input_vertex = SubElement(triangles, "input")
-            tri_input_vertex.set("semantic", "VERTEX")
-            tri_input_vertex.set("source", f"#{mesh_name}_vertices_vertex")
-            tri_input_vertex.set("offset", "0")
+        # Input: UV Coordinates
+        tri_input_uv = SubElement(triangles, "input")
+        tri_input_uv.set("semantic", "TEXCOORD")
+        tri_input_uv.set("source", f"#{uv_source_id}")
+        tri_input_uv.set("offset", "1")
+        tri_input_uv.set("set", "0")
 
-            # Input: UV Coordinates
-            tri_input_uv = SubElement(triangles, "input")
-            tri_input_uv.set("semantic", "TEXCOORD")
-            tri_input_uv.set("source", f"#{uv_source_id}")
-            tri_input_uv.set("offset", "1")
-            tri_input_uv.set("set", "0")
-
-            # Face-Daten: vertex_idx uv_idx vertex_idx uv_idx ...
-            p_elem = SubElement(triangles, "p")
-            face_data_parts = []
-            for face in mat_faces:
-                for vertex_idx in face:
-                    face_data_parts.append(str(vertex_idx))
-                    face_data_parts.append(str(vertex_idx))  # UV Index = Vertex Index
-            p_elem.text = " ".join(face_data_parts)
+        # Face-Daten: vertex_idx uv_idx vertex_idx uv_idx ...
+        p_elem = SubElement(triangles, "p")
+        face_data_parts = []
+        for face in faces:  # Alle Faces dieses Tiles
+            for vertex_idx in face:
+                face_data_parts.append(str(vertex_idx))
+                face_data_parts.append(str(vertex_idx))  # UV Index = Vertex Index
+        p_elem.text = " ".join(face_data_parts)
 
     # ============ Library: Visual Scenes ============
     lib_visual_scenes = SubElement(collada, "library_visual_scenes")
@@ -287,24 +248,20 @@ def export_merged_dae(
         instance_geometry = SubElement(node, "instance_geometry")
         instance_geometry.set("url", f"#{mesh_name}_geometry")
 
-        # Bind Materials (alle verwendeten Materialien in diesem Tile)
+        # Bind Material (nur ein Material pro Tile)
         bind_material = SubElement(instance_geometry, "bind_material")
         technique_common = SubElement(bind_material, "technique_common")
 
-        # Binde alle Materialien die in diesem Tile verwendet werden
-        for mat_name in sorted(unique_materials):
-            mat_id = material_map[mat_name]
-            instance_material = SubElement(technique_common, "instance_material")
-            instance_material.set(
-                "symbol", mat_name
-            )  # ← Echten Material-Namen als Symbol
-            instance_material.set("target", f"#{mat_id}")
+        mat_name = f"tile_{tile_x}_{tile_y}"
+        instance_material = SubElement(technique_common, "instance_material")
+        instance_material.set("symbol", mat_name)
+        instance_material.set("target", f"#{mat_name}")
 
-            # Bind Vertex Input für UV
-            bind_vertex_input = SubElement(instance_material, "bind_vertex_input")
-            bind_vertex_input.set("semantic", "UVSET0")
-            bind_vertex_input.set("input_semantic", "TEXCOORD")
-            bind_vertex_input.set("input_set", "0")
+        # Bind Vertex Input für UV
+        bind_vertex_input = SubElement(instance_material, "bind_vertex_input")
+        bind_vertex_input.set("semantic", "UVSET0")
+        bind_vertex_input.set("input_semantic", "TEXCOORD")
+        bind_vertex_input.set("input_set", "0")
 
     # ============ Scene (Root) ============
     scene = SubElement(collada, "scene")
@@ -321,6 +278,91 @@ def export_merged_dae(
 
     print(f"  [OK] DAE exportiert: {output_path}")
     print(f"    -> {tile_count} Tiles, {total_vertices} Vertices, {total_faces} Faces")
-    print(f"    -> Materialien: {', '.join(unique_materials)}")
 
     return output_path
+
+
+def create_terrain_materials_json(tiles_dict, level_name="World_to_BeamNG"):
+    """
+    Erstellt materials.json Einträge für Terrain-Tiles.
+
+    Args:
+        tiles_dict: Dictionary von tile_slicer.slice_mesh_into_tiles()
+        level_name: Name des BeamNG Levels (für Texturpfade)
+
+    Returns:
+        Dict mit Material-Definitionen
+    """
+    materials = {}
+
+    for tile_x, tile_y in sorted(tiles_dict.keys()):
+        if len(tiles_dict[(tile_x, tile_y)]["faces"]) == 0:
+            continue
+
+        mat_name = f"tile_{tile_x}_{tile_y}"
+        texture_path = f"levels/{level_name}/art/shapes/textures/tile_{tile_x}_{tile_y}.jpg"
+
+        materials[mat_name] = {
+            "name": mat_name,
+            "mapTo": mat_name,
+            "class": "Material",
+            "Stages": [{"colorMap": texture_path, "specularPower": 1, "pixelSpecular": True}],
+            "groundModelName": "grass",  # Physik für Terrain
+        }
+
+    return materials
+
+
+def create_terrain_items_json(dae_filename="terrain.dae"):
+    """
+    Erstellt items.json Eintrag für terrain.dae.
+
+    Args:
+        dae_filename: Dateiname der Terrain-DAE
+
+    Returns:
+        Dict mit TSStatic-Eintrag
+    """
+    return {
+        "__name": "terrain_mesh",
+        "class": "TSStatic",
+        "shapeName": dae_filename,
+        "position": [0, 0, 0],
+        "rotation": [0, 0, 1, 0],
+        "scale": [1, 1, 1],
+        "collisionType": "Visible Mesh",  # Befahrbar
+    }
+
+
+def export_terrain_materials_json(tiles_dict, output_dir, level_name="World_to_BeamNG"):
+    """
+    Exportiert/merged main.materials.json für Terrain.
+
+    Args:
+        tiles_dict: Tiles Dictionary
+        output_dir: BeamNG Level-Root
+        level_name: Level-Name für Pfade
+
+    Returns:
+        Pfad zur materials.json
+    """
+    import json
+    from pathlib import Path
+
+    output_path = Path(output_dir)
+    materials_file = output_path / "main.materials.json"
+
+    materials = create_terrain_materials_json(tiles_dict, level_name)
+
+    # Wenn existiert: merge
+    if materials_file.exists():
+        with open(materials_file, "r", encoding="utf-8") as f:
+            existing = json.load(f)
+        existing.update(materials)
+        materials = existing
+
+    with open(materials_file, "w", encoding="utf-8") as f:
+        json.dump(materials, f, indent=2)
+
+    print(f"  [✓] Materials JSON: {materials_file.name} ({len(materials)} Materialien)")
+    return str(materials_file)

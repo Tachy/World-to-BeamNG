@@ -9,7 +9,23 @@ from scipy.spatial import cKDTree
 
 from .. import config
 from ..osm.mapper import get_road_width
-from .stitch_local import find_boundary_polygons_in_circle
+from .stitch_local import find_boundary_polygons_in_circle, export_boundary_polygons_to_json
+
+
+# Globale Liste zum Sammeln von Boundary-Polygonen für Debug-Export
+_collected_boundary_polygons = []
+
+
+def reset_collected_boundary_polygons():
+    """Setze die gesammelten Boundary-Polygone zurück (zu Beginn eines Programmlaufs)."""
+    global _collected_boundary_polygons
+    _collected_boundary_polygons = []
+
+
+def get_collected_boundary_polygons():
+    """Hole alle gesammelten Boundary-Polygone für Export in debug_network.json."""
+    global _collected_boundary_polygons
+    return _collected_boundary_polygons
 
 
 def stitch_all_gaps(
@@ -27,6 +43,9 @@ def stitch_all_gaps(
     Für jede Straße: Sample entlang der Centerline, suche in Suchkreisen
     nach Boundary-Polygonen und trianguliere sie mit Terrain-Faces.
     """
+
+    # Setze gesammelte Boundary-Polygone zurück
+    reset_collected_boundary_polygons()
 
     print("  Stitche Terrain-Gaps entlang Centerlines...")
     if filter_road_id is not None:
@@ -93,7 +112,7 @@ def stitch_all_gaps(
             centerline_sample = np.array([sample_pt_2d.x, sample_pt_2d.y, z])
 
             # Finde Boundaries in Suchkreis (mit dynamischen Parametern)
-            _ = find_boundary_polygons_in_circle(
+            polygons = find_boundary_polygons_in_circle(
                 centerline_point=centerline_sample,
                 centerline_geometry=centerline_3d,
                 search_radius=dynamic_search_radius,
@@ -107,6 +126,15 @@ def stitch_all_gaps(
                 cached_terrain_face_indices=terrain_face_indices,
                 debug=False,
             )
+
+            # Sammle Boundary-Polygone für Debug-Export (nur ein Sample pro 100)
+            global _collected_boundary_polygons
+            if polygons and config.DEBUG_EXPORTS and suchkreise % 100 == 0:
+                # Konvertiere zu JSON-Format
+                json_polygons = export_boundary_polygons_to_json(
+                    polygons=polygons, centerline_point=centerline_sample, search_radius=dynamic_search_radius
+                )
+                _collected_boundary_polygons.extend(json_polygons)
 
             # Neue Faces in Cache übernehmen (Triangulation fügt Terrain-Faces hinzu)
             if len(mesh.faces) > total_face_count:

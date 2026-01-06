@@ -43,13 +43,15 @@ from world_to_beamng.mesh.road_mesh import generate_road_mesh_strips
 from world_to_beamng.mesh.vertex_manager import VertexManager
 from world_to_beamng.mesh.mesh import Mesh
 from world_to_beamng.mesh.terrain_mesh import generate_full_grid_mesh
-
-from world_to_beamng.mesh.cleanup import (
-    report_boundary_edges,
-)
 from world_to_beamng.mesh.stitch_gaps import stitch_all_gaps
 from world_to_beamng.mesh.tile_slicer import slice_mesh_into_tiles
-from world_to_beamng.io.dae import export_merged_dae
+from world_to_beamng.io.dae import export_merged_dae, export_terrain_materials_json, create_terrain_items_json
+from world_to_beamng.io.lod2 import (
+    cache_lod2_buildings,
+    export_buildings_to_dae,
+    export_materials_json as export_lod2_materials_json,
+    create_items_json_entry as create_lod2_items_entry,
+)
 from world_to_beamng.utils.timing import StepTimer
 
 
@@ -154,6 +156,34 @@ def main():
             print(f"  [OK] {tile_count} Luftbild-Kacheln exportiert")
         else:
             print("  [i] Keine Luftbilder verarbeitet")
+
+    # ===== LoD2-Gebäude laden (wenn aktiviert) =====
+    buildings_data = None
+    if config.LOD2_ENABLED:
+        timer.begin("Lade LoD2-Gebaeude")
+        buildings_cache_path = cache_lod2_buildings(
+            lod2_dir=config.LOD2_DATA_DIR,
+            bbox=config.BBOX,
+            local_offset=(ox, oy),
+            cache_dir=config.CACHE_DIR,
+            height_hash=config.HEIGHT_HASH,
+        )
+        if buildings_cache_path:
+            from world_to_beamng.io.lod2 import load_buildings_from_cache
+
+            buildings_data = load_buildings_from_cache(buildings_cache_path)
+            if buildings_data:
+                print(f"  [OK] {len(buildings_data)} Gebaeude geladen")
+
+                # === ZENTRALE Z-KOORDINATEN-NORMALISIERUNG (BATCH) ===
+                # Passe Gebäude-Z-Koordinaten ans Terrain an (optimiert mit KDTree für alle Gebäude)
+                from world_to_beamng.io.lod2 import snap_buildings_to_terrain_batch
+
+                buildings_data = snap_buildings_to_terrain_batch(buildings_data, height_points, height_elevations)
+                print(f"  [✓] Z-Koordinaten normalisiert ({len(buildings_data)} Gebäude auf Terrain gesetzt)")
+
+        if not buildings_data:
+            print("  [i] Keine LoD2-Gebaeude gefunden")
 
     timer.begin("Pruefe OSM-Daten-Cache")
     height_hash = get_height_data_hash()
@@ -277,6 +307,9 @@ def main():
                     "junction_end_id": end_jid,
                     "junction_buffer_start": road_meta.get("junction_buffer_start"),
                     "junction_buffer_end": road_meta.get("junction_buffer_end"),
+                    "color": [0.0, 0.0, 1.0],  # Blau (Centerline)
+                    "line_width": 2.0,
+                    "opacity": 1.0,
                 }
             )
 
@@ -305,6 +338,8 @@ def main():
                 "road_indices": road_idxs,
                 "connection_types": connection_types,
                 "num_connections": len(road_idxs),
+                "color": [0.0, 0.0, 1.0],  # Blau (Junction)
+                "opacity": 0.5,
             }
         )
 
@@ -319,8 +354,59 @@ def main():
             final_stats["five_plus"] += 1
 
     if config.DEBUG_EXPORTS:
+        # Definiere Grid-Farben für Viewer
+        grid_colors = {
+            "terrain": {
+                "face": [0.8, 0.95, 0.8],  # Hellgrün
+                "edge": [0.2, 0.5, 0.2],  # Dunkelgrün
+                "face_opacity": 0.5,
+                "edge_opacity": 1.0,
+            },
+            "road": {
+                "face": [1.0, 1.0, 1.0],  # Weiß
+                "edge": [1.0, 0.0, 0.0],  # Rot
+                "face_opacity": 0.5,
+                "edge_opacity": 1.0,
+            },
+            "building_wall": {
+                "face": [0.95, 0.95, 0.95],
+                "edge": [0.3, 0.3, 0.3],
+                "face_opacity": 0.5,
+                "edge_opacity": 1.0,
+            },
+            "building_roof": {
+                "face": [0.6, 0.2, 0.1],
+                "edge": [0.3, 0.1, 0.05],
+                "face_opacity": 0.5,
+                "edge_opacity": 1.0,
+            },
+            "junction": {
+                "color": [0.0, 0.0, 1.0],
+                "opacity": 0.5,
+            },
+            "centerline": {
+                "color": [0.0, 0.0, 1.0],
+                "line_width": 2.0,
+                "opacity": 1.0,
+            },
+            "boundary": {
+                "color": [1.0, 0.0, 1.0],
+                "line_width": 2.0,
+                "opacity": 1.0,
+            },
+        }
+
         with open(debug_network_path, "w", encoding="utf-8") as f:
-            json.dump({"roads": trimmed_roads_data, "junctions": junction_dump}, f, indent=2)
+            json.dump(
+                {
+                    "roads": trimmed_roads_data,
+                    "junctions": junction_dump,
+                    "grid_colors": grid_colors,
+                    "boundary_polygons": [],  # Wird später von stitching gefüllt
+                },
+                f,
+                indent=2,
+            )
         print(f"  [Debug] Netz-Daten exportiert: {debug_network_path}")
     if config.DEBUG_VERBOSE:
         print(
@@ -444,6 +530,25 @@ def main():
     # Stitch-Faces werden nun direkt in mesh.add_face() eingefügt (in _triangulate_polygons)
     # Keine weitere Verarbeitung nötig
 
+    # Aktualisiere debug_network.json mit boundary_polygons (falls vorhanden)
+    if config.DEBUG_EXPORTS and os.path.exists(debug_network_path):
+        # Lade existierende debug_network.json
+        with open(debug_network_path, "r", encoding="utf-8") as f:
+            debug_network_data = json.load(f)
+
+        # Prüfe ob boundary_polygons gesammelt wurden
+        from world_to_beamng.mesh.stitch_gaps import get_collected_boundary_polygons
+
+        collected_boundaries = get_collected_boundary_polygons()
+
+        if collected_boundaries:
+            debug_network_data["boundary_polygons"] = collected_boundaries
+            print(f"  [Debug] {len(collected_boundaries)} Boundary-Polygone in debug_network.json gespeichert")
+
+            # Schreibe aktualisierte JSON
+            with open(debug_network_path, "w", encoding="utf-8") as f:
+                json.dump(debug_network_data, f, indent=2)
+
     # ===== SCHRITT 10: Slice Mesh in Tiles und exportiere als DAE =====
     timer.begin(f"Slice Mesh in {config.TILE_SIZE}×{config.TILE_SIZE}m Tiles")
 
@@ -467,6 +572,73 @@ def main():
             tiles_dict=tiles_dict,
             output_path=dae_output_path,
         )
+
+        # Exportiere materials.json für Terrain
+        timer.begin("Exportiere Terrain Materials JSON")
+        export_terrain_materials_json(tiles_dict=tiles_dict, output_dir=config.BEAMNG_DIR, level_name=config.LEVEL_NAME)
+
+        # Exportiere items.json für Terrain
+        timer.begin("Exportiere Terrain Items JSON")
+        terrain_item = create_terrain_items_json(dae_filename="terrain.dae")
+        items_json_path = os.path.join(config.BEAMNG_DIR, "main.items.json")
+
+        # Lade/erstelle items.json
+        if os.path.exists(items_json_path):
+            with open(items_json_path, "r", encoding="utf-8") as f:
+                items_data = json.load(f)
+        else:
+            items_data = {}
+
+        # Füge Terrain-Item hinzu
+        items_data[terrain_item["__name"]] = terrain_item
+
+        # ===== LoD2-Gebäude exportieren =====
+        if buildings_data and config.LOD2_ENABLED:
+            timer.begin("Exportiere LoD2-Gebaeude")
+
+            # Gruppiere Gebäude nach Tiles (500x500m Grid)
+            from collections import defaultdict
+
+            buildings_by_tile = defaultdict(list)
+
+            for building in buildings_data:
+                bounds = building.get("bounds")
+                if bounds:
+                    # Berechne Tile aus Center
+                    center_x = (bounds[0] + bounds[3]) / 2
+                    center_y = (bounds[1] + bounds[4]) / 2
+                    tile_x = int(center_x // config.TILE_SIZE)
+                    tile_y = int(center_y // config.TILE_SIZE)
+                    buildings_by_tile[(tile_x, tile_y)].append(building)
+
+            print(f"  [i] Gebaeude auf {len(buildings_by_tile)} Tiles verteilt")
+
+            # Exportiere Buildings pro Tile
+            for (tile_x, tile_y), tile_buildings in buildings_by_tile.items():
+                dae_path = export_buildings_to_dae(
+                    buildings=tile_buildings,
+                    output_dir=config.BEAMNG_DIR_BUILDINGS,
+                    tile_x=tile_x,
+                    tile_y=tile_y,
+                    wall_color=config.LOD2_WALL_COLOR,
+                    roof_color=config.LOD2_ROOF_COLOR,
+                )
+
+                if dae_path:
+                    # Erstelle items.json Entry
+                    dae_filename = os.path.basename(dae_path)
+                    item = create_lod2_items_entry(dae_path=f"buildings/{dae_filename}", tile_x=tile_x, tile_y=tile_y)
+                    items_data[item["__name"]] = item
+
+            # Exportiere LoD2 materials.json
+            export_lod2_materials_json(output_dir=config.BEAMNG_DIR)
+
+        # Schreibe finales items.json
+        with open(items_json_path, "w", encoding="utf-8") as f:
+            json.dump(items_data, f, indent=2)
+
+        print(f"  [✓] Items JSON: main.items.json ({len(items_data)} Objekte)")
+
     else:
         print(f"  [i] Kein Mesh generiert - überspringe DAE-Export")
 

@@ -2,14 +2,19 @@
 DAE Viewer - Visualisiere die exportierte terrain.dae mit allen Tiles
 
 Steuerung:
-    X = Toggle Texturen (An/Aus) - triggert Neuaufbau
+    X = Toggle Texturen (An/Aus) - triggert Neuaufbau (Rendering ↔ Grid)
 
-    In Mesh-Ebenen-Ansicht:
-        S = Toggle Straßenebene (kein Neuaufbau)
-        D = Toggle Debugebene (kein Neuaufbau)
-        T = Toggle Terrainebene (kein Neuaufbau)
+    In Grid-Ansicht (X=aus) individuelle Layer ein-/ausblenden (OHNE Neuaufbau):
+        T = Toggle Terrainebene
+        S = Toggle Straßenebene
+        H = Toggle Häuserebene
+        D = Toggle Debugebene (Junctions, Centerlines, Boundaries)
 
-    Space = Tile-Liste anzeigen/verstecken
+    Allgemein:
+        K = Kamera laden | Shift+K = Kamera speichern
+        L = DAE neu laden
+        Up/Down = Zoom ändern
+
     Maus:
         Rechtsklick-Drag = Kamera drehen
         Scroll = Zoom
@@ -52,14 +57,19 @@ class DAETileViewer:
         saved_layers = self._load_layers_state()
         self.show_terrain = saved_layers.get("terrain", True)
         self.show_roads = saved_layers.get("roads", True)
+        self.show_buildings = saved_layers.get("buildings", True)  # Häuser Toggle
         self.use_textures = saved_layers.get("textures", True)  # Texturen standardmäßig an
         self.show_debug = saved_layers.get("debug", False)  # Debug-Layer (Junctions, Centerlines)
 
         # Speichere Actor-Referenzen für Sichtbarkeits-Toggles
         self.terrain_actors = []  # Liste von Terrain-Mesh-Actors
         self.road_actors = []  # Liste von Road-Mesh-Actors
+        self.building_actors = []  # Liste von Building-Mesh-Actors
         self.debug_actors = []  # Liste von Debug-Actors (Junctions, Centerlines)
         self.debug_loaded = False  # Flag: Debug-Layer bereits geladen?
+
+        # Lade Grid-Farben aus debug_network.json (für Grid-Ansicht)
+        self.grid_colors = self._load_grid_colors()
 
         # Lade Texturen
         self.textures_dir = os.path.join(config.BEAMNG_DIR_SHAPES, "textures")
@@ -74,9 +84,27 @@ class DAETileViewer:
         self._active_layers_actor = None
         self._render_update_counter = 0  # Für RenderEvent Drosselung
 
+        # Global Material Properties (zentrale Definition)
+        self.material_ambient = 0.6  # EXTREMWERT: Schatten müssen pechschwarz sein
+        self.material_diffuse = 0.8  # EXTREMWERT: Volle Sonnenlicht-Reaktion
+        self.material_specular = 0.0  # EXTREMWERT: Starker Glanz
+
         # PyVista Setup
         self.plotter = pv.Plotter()
         self.plotter.set_background("skyblue")  # Himmelblau
+        # self.plotter.enable_shadows()  # TEMP DISABLED - könnte das Rendering blocken!
+
+        self._reinit_lights()
+
+        try:
+            # RTX 4090 Tuning: Maximale Shadow-Map Auflösung
+            try:
+                for renderer in self.plotter.renderers:
+                    renderer.shadow_map_size = 8192  # Maximale Schärfe für High-End GPU!
+            except Exception as shadow_e:
+                print(f"  [i] Shadow-Map Tuning fehlgeschlagen: {shadow_e}")
+        except Exception as e:
+            print(f"  [i] Lichter-Setup: {e}")
 
         # Stelle Fensterposition/-größe wieder her
         self._apply_saved_window_state()
@@ -94,13 +122,15 @@ class DAETileViewer:
 
         print(f"\nDAE geladen mit Tile-Geometrien")
         print("\nSteuerung:")
-        print("  M = Nur Terrain")
-        print("  R = Nur Roads")
-        print("  T = Toggle Materials")
-        print("  X = Toggle Texturen")
-        print("  D = Toggle Debug-Layer (Junctions, Centerlines)")
+        print("  X = Toggle Texturen (Rendering ↔ Grid) - triggert Neuaufbau")
+        print("\nIn Grid-Ansicht (X=aus) - Layer ein-/ausblenden OHNE Neuaufbau:")
+        print("  T = Toggle Terrain")
+        print("  S = Toggle Straßen")
+        print("  H = Toggle Häuser")
+        print("  D = Toggle Debug (Junctions, Centerlines, Boundaries)")
+        print("\nAllgemein:")
         print("  K = Kamera laden | Shift+K = Kamera speichern")
-        print("  L = Reload DAE")
+        print("  L = DAE neu laden")
         print("  Up/Down = Zoom ändern")
 
         self.update_view()
@@ -127,18 +157,27 @@ class DAETileViewer:
             print(f"\n[Terrain] {'AN' if self.show_terrain else 'AUS'}")
             self._update_visibility()
 
+        elif key_lower == "h":
+            # Toggle nur Häuser (kein Neuaufbau)
+            self.show_buildings = not self.show_buildings
+            print(f"\n[Häuser] {'AN' if self.show_buildings else 'AUS'}")
+            self._update_visibility()
+
         elif key_lower == "x":
             # Toggle Texturen (mit Neuaufbau!)
             self.use_textures = not self.use_textures
-            print(f"\n[Texturen] {'AN' if self.use_textures else 'AUS'}")
+            print(f"\n[{'Rendering' if self.use_textures else 'Grid'}-Ansicht]")
             self.update_view()
             # Debug-Layer bleiben dauerhaft geladen und ihre Sichtbarkeit wird beibehalten
 
         elif key_lower == "d":
-            # Toggle Debug (kein Neuaufbau)
-            self.show_debug = not self.show_debug
-            print(f"\n[Debug] {'AN' if self.show_debug else 'AUS'}")
-            self._update_debug_visibility()
+            # Toggle Debug nur in Grid-Ansicht
+            if not self.use_textures:
+                self.show_debug = not self.show_debug
+                print(f"\n[Debug] {'AN' if self.show_debug else 'AUS'}")
+                self._update_debug_visibility()
+            else:
+                print("\n[Debug] Nur in Grid-Ansicht verfügbar (X drücken)")
 
         elif key == "K":  # Shift+K (MUSS VOR "k" kommen!)
             self.save_camera_state()
@@ -154,11 +193,13 @@ class DAETileViewer:
             self.reload_dae_file()
 
     def _update_visibility(self):
-        """Aktualisiere Sichtbarkeit der Terrain/Road Actors ohne Reload."""
+        """Aktualisiere Sichtbarkeit der Terrain/Road/Building Actors ohne Reload."""
         for actor in self.terrain_actors:
             actor.SetVisibility(self.show_terrain)
         for actor in self.road_actors:
             actor.SetVisibility(self.show_roads)
+        for actor in self.building_actors:
+            actor.SetVisibility(self.show_buildings)
 
         self._update_active_layers_text()
         self.plotter.render()
@@ -176,6 +217,34 @@ class DAETileViewer:
 
         self._update_active_layers_text()
         self.plotter.render()
+
+    def _reinit_lights(self):
+        """Lichter neu initialisieren nach clear()."""
+        try:
+            self.plotter.remove_all_lights()
+        except:
+            pass
+
+        try:
+            # Hauptlicht: Sonne mit parallelen Strahlen (Richtungslicht)
+            sun_light = pv.Light(
+                position=[300, -300, 600],
+                focal_point=[0, 0, 0],
+                positional=False,  # Parallele Strahlen statt Punktlicht
+                cone_angle=80,
+                intensity=1.0,
+                shadow_attenuation=0.95,
+            )
+            self.plotter.add_light(sun_light)
+
+            # Diffuses Fill-Light: Gleichmäßige Ausleuchtung
+            fill_light = pv.Light(
+                light_type="headlight",  # Diffuses Licht
+                intensity=0.0,
+            )
+            self.plotter.add_light(fill_light)
+        except Exception as e:
+            print(f"[!] Fehler beim Lichter-Setup: {e}")
 
     def update_view(self):
         """Aktualisiere 3D-View."""
@@ -197,10 +266,12 @@ class DAETileViewer:
         saved_debug_visibility = self.show_debug
 
         self.plotter.clear()
+        self._reinit_lights()
 
-        # Leere NUR Terrain/Road Actor-Listen
+        # Leere NUR Terrain/Road/Building Actor-Listen
         self.terrain_actors = []
         self.road_actors = []
+        self.building_actors = []
         # Debug-Actors wurden durch clear() gelöscht, aber wir laden sie danach wieder
 
         vertices = self.tile_data.get("vertices", [])
@@ -213,15 +284,17 @@ class DAETileViewer:
             self.plotter.show()
             return
 
-        # Farben und Edge-Farben pro Material
+        # Farben und Edge-Farben pro Material - aus grid_colors in debug_network.json
         face_colors = {
-            "terrain": [0.8, 0.95, 0.8],  # Hellgrün
-            "road": [0.9, 0.9, 0.9],  # Hellgrau
+            "terrain": self.grid_colors.get("terrain", {}).get("face", [0.8, 0.95, 0.8]),
+            "road": self.grid_colors.get("road", {}).get("face", [1.0, 1.0, 1.0]),
         }
         edge_colors = {
-            "terrain": [0.2, 0.5, 0.2],  # Dunkelgrün
-            "road": [1.0, 0.0, 0.0],  # Rot
+            "terrain": self.grid_colors.get("terrain", {}).get("edge", [0.2, 0.5, 0.2]),
+            "road": self.grid_colors.get("road", {}).get("edge", [1.0, 0.0, 0.0]),
         }
+        road_opacity = self.grid_colors.get("road", {}).get("face_opacity", 0.5)
+        road_edge_opacity = self.grid_colors.get("road", {}).get("edge_opacity", 1.0)
 
         # Debug: Zeige welche Materialien vorhanden sind
         unique_materials = set(materials) if materials else set()
@@ -253,8 +326,17 @@ class DAETileViewer:
                 # Nur Textur anwenden, wenn UVs vorhanden sind
                 if texture is not None and len(tile_uvs) > 0:
                     try:
-                        # Luftbild-Texturen immer voll sichtbar
-                        self.plotter.add_mesh(mesh, texture=texture, opacity=1.0, label=tile_name)
+                        # Luftbild-Texturen MÜSSEN Lighting haben, um Schatten zu empfangen!
+                        self.plotter.add_mesh(
+                            mesh,
+                            texture=texture,
+                            opacity=1.0,
+                            label=tile_name,
+                            lighting=True,  # ÜBERLEBENSWICHTIG: Schatten auf Boden!
+                            ambient=self.material_ambient,
+                            diffuse=self.material_diffuse,
+                            specular=self.material_specular,
+                        )
                     except Exception as e:
                         # Fallback bei Textur-Fehler
                         print(f"  [!] Textur-Fehler für {tile_name}: {e}")
@@ -290,6 +372,10 @@ class DAETileViewer:
                     show_edges=True,
                     edge_color=edge_colors.get("terrain", [0.2, 0.5, 0.2]),
                     line_width=1.0,
+                    lighting=True,
+                    ambient=self.material_ambient,
+                    diffuse=self.material_diffuse,
+                    specular=self.material_specular,
                 )
                 self.terrain_actors.append(actor)
                 actor.SetVisibility(self.show_terrain)
@@ -301,13 +387,20 @@ class DAETileViewer:
                     road_mesh,
                     color=face_colors.get("road", [0.9, 0.9, 0.9]),
                     label="Roads",
-                    opacity=0.5,
+                    opacity=road_opacity,
                     show_edges=True,
                     edge_color=edge_colors.get("road", [1.0, 0.0, 0.0]),
                     line_width=2.0,
+                    lighting=True,
+                    ambient=self.material_ambient,
+                    diffuse=self.material_diffuse,
+                    specular=self.material_specular,
                 )
                 self.road_actors.append(actor)
                 actor.SetVisibility(self.show_roads)
+
+        # === LADE BUILDINGS_*.DAE (in beiden Ansichten) ===
+        self._load_buildings()
 
         # Statuszeilen
         # Oben links: Bedienungsanleitung
@@ -356,6 +449,15 @@ class DAETileViewer:
             pyvista_faces.extend([3, face[0], face[1], face[2]])
 
         mesh = pv.PolyData(vertices, pyvista_faces)
+        # ÜBERLEBENSWICHTIG: split_sharp_edges=True erzeugt harte Kanten für Häuser!
+        # Ohne das: Wände wirken "rund" oder völlig unschattiert
+        try:
+            mesh = mesh.compute_normals(
+                cell_normals=True, point_normals=True, split_sharp_edges=True  # ESSENTIAL für scharfe Schattierung
+            )
+        except TypeError:
+            # Fallback: älter PyVista ohne split_sharp_edges
+            mesh = mesh.compute_normals(cell_normals=True, point_normals=True)
         return mesh
 
     def _create_mesh_with_uvs(self, vertices, faces, uvs):
@@ -366,14 +468,76 @@ class DAETileViewer:
 
         mesh = pv.PolyData(vertices, pyvista_faces)
 
+        # ÜBERLEBENSWICHTIG: split_sharp_edges auch hier für korrekte Terrain-Schattierung!
+        try:
+            mesh.compute_normals(inplace=True, cell_normals=True, point_normals=True, split_sharp_edges=True)
+        except TypeError:
+            # Fallback für ältere Versionen
+            mesh.compute_normals(inplace=True, cell_normals=True, point_normals=True)
+
         # Füge UV-Koordinaten hinzu (als texture coordinates)
-        # uvs ist jetzt NumPy Array - prüfe Länge statt Wahrheitswert
         if len(uvs) > 0 and len(uvs) == len(vertices):
-            # PyVista erwartet 2D UV coords als "Texture Coordinates"
             uv_array = np.array(uvs) if not isinstance(uvs, np.ndarray) else uvs
             mesh.active_texture_coordinates = uv_array
 
         return mesh
+
+    def _load_grid_colors(self):
+        """Lade Grid-Farben aus debug_network.json."""
+        debug_network_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "cache", "debug_network.json")
+
+        # Default Grid-Farben
+        default_colors = {
+            "terrain": {
+                "face": [0.8, 0.95, 0.8],
+                "edge": [0.2, 0.5, 0.2],
+                "face_opacity": 0.5,
+                "edge_opacity": 1.0,
+            },
+            "road": {
+                "face": [1.0, 1.0, 1.0],
+                "edge": [1.0, 0.0, 0.0],
+                "face_opacity": 0.5,
+                "edge_opacity": 1.0,
+            },
+            "building_wall": {
+                "face": [0.95, 0.95, 0.95],
+                "edge": [0.3, 0.3, 0.3],
+                "face_opacity": 0.5,
+                "edge_opacity": 1.0,
+            },
+            "building_roof": {
+                "face": [0.6, 0.2, 0.1],
+                "edge": [0.3, 0.1, 0.05],
+                "face_opacity": 0.5,
+                "edge_opacity": 1.0,
+            },
+            "junction": {
+                "color": [0.0, 0.0, 1.0],
+                "opacity": 0.5,
+            },
+            "centerline": {
+                "color": [0.0, 0.0, 1.0],
+                "line_width": 2.0,
+                "opacity": 1.0,
+            },
+            "boundary": {
+                "color": [1.0, 0.0, 1.0],
+                "line_width": 2.0,
+                "opacity": 1.0,
+            },
+        }
+
+        if not os.path.exists(debug_network_path):
+            return default_colors
+
+        try:
+            with open(debug_network_path, "r", encoding="utf-8") as f:
+                debug_data = json.load(f)
+            return debug_data.get("grid_colors", default_colors)
+        except Exception as e:
+            print(f"  [!] Fehler beim Laden der Grid-Farben: {e}")
+            return default_colors
 
     def _load_textures(self):
         """Lade alle Tile-Texturen aus dem textures-Verzeichnis."""
@@ -404,6 +568,135 @@ class DAETileViewer:
 
         return textures
 
+    def _load_buildings(self):
+        """Lade buildings_*.dae aus dem buildings-Verzeichnis."""
+        buildings_dir = os.path.join(config.BEAMNG_DIR_SHAPES, "buildings")
+
+        if not os.path.exists(buildings_dir):
+            return
+
+        building_files = list(Path(buildings_dir).glob("buildings_tile_*.dae"))
+
+        if not building_files:
+            return
+
+        print(f"  [Buildings] Lade {len(building_files)} building DAEs...")
+
+        for building_path in building_files:
+            try:
+                # Lade DAE mit dae_loader
+                from tools.dae_loader import load_dae_tile
+
+                building_data = load_dae_tile(building_path)
+
+                vertices = building_data.get("vertices", [])
+                faces = building_data.get("faces", [])
+                materials = building_data.get("materials", [])
+
+                if len(vertices) == 0:
+                    continue
+
+                # Rendering-Ansicht: Nutze Materials (lod2_wall_white, lod2_roof_red)
+                if self.use_textures:
+                    # Gruppiere Faces nach Material
+                    wall_faces = []
+                    roof_faces = []
+
+                    for face_idx, material in enumerate(materials):
+                        if "wall" in material.lower():
+                            wall_faces.append(faces[face_idx])
+                        elif "roof" in material.lower():
+                            roof_faces.append(faces[face_idx])
+
+                    # Rendere Walls (weiß) mit zentralen Material-Werten
+                    if wall_faces:
+                        mesh = self._create_mesh(vertices, wall_faces)
+                        actor = self.plotter.add_mesh(
+                            mesh,
+                            color="white",  # Reinweiß reflektiert Licht am besten
+                            opacity=1.0,
+                            label=f"{building_path.stem}_walls",
+                            smooth_shading=False,
+                            lighting=True,  # ZWINGEND
+                            scalars=None,  # Verhindert Farb-Übersteuerung
+                            ambient=self.material_ambient,
+                            diffuse=self.material_diffuse,
+                            specular=self.material_specular,
+                        )
+                        self.building_actors.append(actor)
+
+                    # Rendere Roofs (rot) mit zentralen Material-Werten
+                    if roof_faces:
+                        mesh = self._create_mesh(vertices, roof_faces)
+                        actor = self.plotter.add_mesh(
+                            mesh,
+                            color=[0.6, 0.2, 0.1],
+                            opacity=1.0,
+                            label=f"{building_path.stem}_roofs",
+                            smooth_shading=False,
+                            lighting=True,  # ZWINGEND
+                            scalars=None,  # Verhindert Farb-Übersteuerung
+                            ambient=self.material_ambient,
+                            diffuse=self.material_diffuse,
+                            specular=self.material_specular,
+                        )
+                        self.building_actors.append(actor)
+
+                # Grid-Ansicht: Nutze grid_colors mit Edges
+                else:
+                    wall_faces = []
+                    roof_faces = []
+
+                    for face_idx, material in enumerate(materials):
+                        if "wall" in material.lower():
+                            wall_faces.append(faces[face_idx])
+                        elif "roof" in material.lower():
+                            roof_faces.append(faces[face_idx])
+
+                    # Walls mit Grid-Farben
+                    if wall_faces:
+                        wall_colors = self.grid_colors.get("building_wall", {})
+                        mesh = self._create_mesh(vertices, wall_faces)
+                        actor = self.plotter.add_mesh(
+                            mesh,
+                            color=wall_colors.get("face", [0.95, 0.95, 0.95]),
+                            opacity=wall_colors.get("face_opacity", 0.5),
+                            show_edges=True,
+                            edge_color=wall_colors.get("edge", [0.3, 0.3, 0.3]),
+                            line_width=1.0,
+                            label=f"{building_path.stem}_walls",
+                            lighting=True,
+                            ambient=self.material_ambient,
+                            diffuse=self.material_diffuse,
+                            specular=self.material_specular,
+                        )
+                        self.building_actors.append(actor)
+
+                    # Roofs mit Grid-Farben
+                    if roof_faces:
+                        roof_colors = self.grid_colors.get("building_roof", {})
+                        mesh = self._create_mesh(vertices, roof_faces)
+                        actor = self.plotter.add_mesh(
+                            mesh,
+                            color=roof_colors.get("face", [0.6, 0.2, 0.1]),
+                            opacity=roof_colors.get("face_opacity", 0.5),
+                            show_edges=True,
+                            edge_color=roof_colors.get("edge", [0.3, 0.1, 0.05]),
+                            line_width=1.0,
+                            label=f"{building_path.stem}_roofs",
+                            lighting=True,
+                            ambient=self.material_ambient,
+                            diffuse=self.material_diffuse,
+                            specular=self.material_specular,
+                        )
+                        self.building_actors.append(actor)
+
+            except Exception as e:
+                print(f"  [!] Fehler beim Laden von {building_path.name}: {e}")
+
+        if self.building_actors:
+            print(f"  [Buildings] {len(self.building_actors)} Gebäude-Meshes geladen")
+
     def _update_active_layers_text(self):
         """Aktualisiere Aktive-Layer-Text oben rechts."""
         active_items = []
@@ -411,6 +704,8 @@ class DAETileViewer:
             active_items.append("T")
         if self.show_roads:
             active_items.append("S")  # S für Straßen
+        if self.show_buildings:
+            active_items.append("H")  # H für Häuser
         if self.use_textures:
             active_items.append("X")
         if self.show_debug:
@@ -840,6 +1135,15 @@ class DAETileViewer:
             if not pos or len(pos) < 3:
                 continue
 
+            # Validiere Position (keine NaN/Inf)
+            try:
+                if not all(isinstance(v, (int, float)) and not (abs(v) == float("inf") or v != v) for v in pos):
+                    print(f"  [!] Junction[{j_idx}]: ungültige Position {pos}, überspringe")
+                    continue
+            except:
+                print(f"  [!] Junction[{j_idx}]: Position-Validierung fehlgeschlagen, überspringe")
+                continue
+
             # Füge Sphere zum MultiBlock hinzu
             sphere = pv.Sphere(radius=2.0, center=pos)
             junction_blocks.append(sphere)
@@ -850,20 +1154,27 @@ class DAETileViewer:
 
         # Rendere alle Junctions als EINEN Actor
         if len(junction_blocks) > 0:
-            actor = self.plotter.add_mesh(junction_blocks, color="blue", opacity=0.5, label="Junctions")
+            junction_color = self.grid_colors.get("junction", {}).get("color", [0.0, 0.0, 1.0])
+            junction_opacity = self.grid_colors.get("junction", {}).get("opacity", 0.5)
+            actor = self.plotter.add_mesh(
+                junction_blocks, color=junction_color, opacity=junction_opacity, label="Junctions"
+            )
             self.debug_actors.append(actor)
 
         # Rendere alle Labels als EINEN Actor
         if len(label_positions) > 0:
-            actor = self.plotter.add_point_labels(
-                label_positions,
-                label_texts,
-                point_size=0,
-                font_size=12,
-                text_color="blue",
-                shape_opacity=0.0,
-            )
-            self.debug_actors.append(actor)
+            try:
+                actor = self.plotter.add_point_labels(
+                    label_positions,
+                    label_texts,
+                    point_size=0,
+                    font_size=12,
+                    text_color="blue",
+                    shape_opacity=0.0,
+                )
+                self.debug_actors.append(actor)
+            except Exception as e:
+                print(f"  [!] Fehler beim Rendern der Junction-Labels: {e}")
 
         # === CENTERLINES: Kombiniere alle Linien in ein PolyData ===
         all_points = []
@@ -893,101 +1204,104 @@ class DAETileViewer:
             mid_idx = n // 2
             mid_point = coords_array[mid_idx]
             road_label_positions.append([mid_point[0], mid_point[1], mid_point[2] + 2.0])  # 2m über Straße
-            road_label_texts.append(str(road.get("road_id", "?")))
+            # Sichere Konvertierung der road_id zu String
+            road_id = road.get("road_id")
+            road_label_texts.append(str(road_id) if road_id is not None else "?")
 
         # Rendere alle Centerlines als EINEN Actor
         if len(all_points) > 0:
             all_points = np.array(all_points)
             all_lines = np.array(all_lines)
 
+            centerline_color = self.grid_colors.get("centerline", {}).get("color", [0.0, 0.0, 1.0])
+            centerline_width = self.grid_colors.get("centerline", {}).get("line_width", 2.0)
+            centerline_opacity = self.grid_colors.get("centerline", {}).get("opacity", 1.0)
+
             centerlines_mesh = pv.PolyData(all_points, lines=all_lines)
             actor = self.plotter.add_mesh(
                 centerlines_mesh,
-                color="blue",
-                line_width=2.0,
-                opacity=1.0,
+                color=centerline_color,
+                line_width=centerline_width,
+                opacity=centerline_opacity,
                 label="Centerlines",
             )
             self.debug_actors.append(actor)
 
         # Rendere Road-Labels
         if len(road_label_positions) > 0:
-            actor = self.plotter.add_point_labels(
-                road_label_positions,
-                road_label_texts,
-                point_size=0,
-                font_size=10,
-                text_color="black",
-                shape_opacity=0.0,
-            )
-            self.debug_actors.append(actor)
+            try:
+                actor = self.plotter.add_point_labels(
+                    road_label_positions,
+                    road_label_texts,
+                    point_size=0,
+                    font_size=10,
+                    text_color="black",
+                    shape_opacity=0.0,
+                )
+                self.debug_actors.append(actor)
+            except Exception as e:
+                print(f"  [!] Fehler beim Rendern der Road-Labels: {e}")
 
         print(
             f"  [Debug] {len(self.debug_actors)} Debug-Actors gerendert ({len(junctions)} Junctions, {len(roads)} Centerlines)"
         )
 
-        # === Boundary-Polygone (lokales Stitching): lade boundary_polygons_local.obj falls vorhanden ===
-        boundary_polys_path = os.path.join(
-            os.path.dirname(os.path.dirname(__file__)), "cache", "boundary_polygons_local.obj"
-        )
-        if os.path.exists(boundary_polys_path):
-            try:
-                print(f"  [Debug] Lade Boundary-Polygone aus {boundary_polys_path}")
-                boundary_mesh = pv.read(boundary_polys_path)
+        # === BOUNDARY-POLYGONE aus debug_network.json ===
+        boundary_polygons = debug_data.get("boundary_polygons", [])
 
-                # Extrahiere Search-Circle und Boundaries aus dem OBJ
-                # (Search-Circle sind die letzten Vertices + Center, rest sind Boundaries)
-                lines = boundary_mesh.lines.reshape(-1)  # Linien-Connectivity
+        if boundary_polygons:
+            print(f"  [Debug] Lade {len(boundary_polygons)} Boundary-Polygone...")
 
-                # Rendere das ganze Mesh erst mal, dann filtern wir die Farben
-                # Einfacher: Alles Magenta, aber wir machen den Suchkreis extra rot
+            # Kombiniere alle Boundary-Polygone in ein PolyData (wie Centerlines)
+            all_boundary_points = []
+            all_boundary_lines = []
+            boundary_point_offset = 0
 
-                # Rendere Boundaries als magenta Linien
-                actor = self.plotter.add_mesh(
-                    boundary_mesh,
-                    color="magenta",
-                    line_width=2.0,
-                    opacity=1.0,
-                    label="Boundary-Polygone (lokal)",
-                    render_lines_as_tubes=False,
-                )
-                self.debug_actors.append(actor)
+            for boundary in boundary_polygons:
+                poly_type = boundary.get("type", "unknown")
+                coords = boundary.get("coords", [])
 
-                # Extrahiere und zeichne Suchkreis separat (rot)
+                if len(coords) < 2:
+                    continue
+
+                coords_array = np.array(coords)
+                n = len(coords_array)
+
+                # Füge Punkte hinzu
+                all_boundary_points.extend(coords_array)
+
+                # Erstelle Line-Connectivity
+                for i in range(n - 1):
+                    all_boundary_lines.append([2, boundary_point_offset + i, boundary_point_offset + i + 1])
+
+                # Schließe Polygon wenn es kein search_circle ist
+                if poly_type != "search_circle":
+                    all_boundary_lines.append([2, boundary_point_offset + n - 1, boundary_point_offset])
+
+                boundary_point_offset += n
+
+            # Rendere alle Boundary-Polygone als EINEN Actor
+            if len(all_boundary_points) > 0:
                 try:
-                    # Der Suchkreis-Punkt ist der letzte Vertex in der OBJ
-                    # Der Suchkreis sind die vertices davor (circle_segments viele)
-                    # Wir identifizieren den Suchkreis über Kommentare in der OBJ
-                    verts = np.array(boundary_mesh.points)
+                    all_boundary_points = np.array(all_boundary_points)
+                    all_boundary_lines = np.array(all_boundary_lines)
 
-                    # Suche nach Search-Circle - it's usually the last points in sequence
-                    # Für einfachheit: letzten 65 Punkte als Suchkreis (64 + 1 center)
-                    if len(verts) > 65:
-                        circle_verts = verts[-65:]  # Search-Circle
+                    boundary_color = self.grid_colors.get("boundary", {}).get("color", [1.0, 0.0, 1.0])
+                    boundary_width = self.grid_colors.get("boundary", {}).get("line_width", 2.0)
 
-                        # Erstelle Linien-Connectivity für Kreis
-                        n_circle = len(circle_verts) - 1  # Minus center point
-                        circle_lines = []
-                        for i in range(n_circle):
-                            circle_lines.append([2, i, (i + 1) % n_circle])  # [num_points, p1, p2]
-
-                        if circle_lines:
-                            circle_mesh = pv.PolyData(circle_verts, lines=np.array(circle_lines))
-                            actor_circle = self.plotter.add_mesh(
-                                circle_mesh,
-                                color="red",
-                                line_width=3.0,
-                                opacity=1.0,
-                                label="Suchkreis",
-                                render_lines_as_tubes=False,
-                            )
-                            self.debug_actors.append(actor_circle)
+                    boundary_mesh = pv.PolyData(all_boundary_points, lines=all_boundary_lines)
+                    actor = self.plotter.add_mesh(
+                        boundary_mesh,
+                        color=boundary_color,
+                        line_width=boundary_width,
+                        opacity=1.0,
+                        label="Boundaries",
+                        render_lines_as_tubes=False,
+                    )
+                    self.debug_actors.append(actor)
+                    print(f"  [Debug] Boundary-Polygone kombiniert gerendert (1 Actor)")
                 except Exception as e:
-                    print(f"  [Debug] Suchkreis-Extraktion: {e}")
-
-                print(f"  [Debug] Boundary-Polygone und Suchkreis geladen")
-            except Exception as e:
-                print(f"  [!] Fehler beim Laden der Boundary-Polygone: {e}")
+                    print(f"  [!] Fehler beim Rendern der Boundary-Polygone: {e}")
 
     def show(self):
         """Zeige das Viewer-Fenster."""

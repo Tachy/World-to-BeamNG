@@ -600,68 +600,64 @@ def _triangulate_polygons(polygons, verts, mesh, debug=False):
     return new_faces
 
 
-def export_boundary_polygons_to_obj(
+def export_boundary_polygons_to_json(
     polygons,
     centerline_point,
-    output_path="cache/boundary_polygons_local.obj",
     search_radius=None,
     circle_segments=64,
 ):
     """
-    Exportiert Boundary-Polygone als OBJ zur Visualisierung im DAE-Viewer.
+    Exportiert Boundary-Polygone als JSON-Struktur für debug_network.json.
 
     Args:
         polygons: Liste von Polygon-Dicts
         centerline_point: (x, y, z) - Centerline-Sample-Punkt
-        output_path: Ausgabepfad für OBJ-Datei
         search_radius: Optionaler Radius für Visualisierung des Suchkreises
         circle_segments: Anzahl Segmente für Kreis-Approximation
+
+    Returns:
+        Liste von Boundary-Polygon-Dicts für debug_network.json
     """
-    import os
+    result = []
 
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    # Exportiere Boundary-Polygone
+    for poly_idx, poly in enumerate(polygons):
+        coords = poly.get("coords", [])
+        terrain_count = poly.get("terrain_count", 0)
+        slope_count = poly.get("slope_count", 0)
 
-    with open(output_path, "w") as f:
-        f.write("# Boundary-Polygone (lokales Stitching)\n")
-        f.write(f"# Centerline: ({centerline_point[0]:.2f}, {centerline_point[1]:.2f}, {centerline_point[2]:.2f})\n")
-        f.write(f"# Polygone: {len(polygons)}\n\n")
+        if len(coords) >= 3:
+            result.append(
+                {
+                    "type": "boundary",
+                    "coords": [[float(c[0]), float(c[1]), float(c[2])] for c in coords],
+                    "color": [1.0, 0.0, 1.0],  # Magenta
+                    "terrain_count": terrain_count,
+                    "slope_count": slope_count,
+                }
+            )
 
-        obj_vertex_idx = 1
-
-        for poly_idx, poly in enumerate(polygons):
-            coords = poly.get("coords", [])
-            terrain_count = poly.get("terrain_count", 0)
-            slope_count = poly.get("slope_count", 0)
-
-            f.write(f"\n# Polygon {poly_idx + 1} (Terrain: {terrain_count}, Slope: {slope_count})\n")
-
-            # Schreibe Vertices
-            for coord in coords:
-                f.write(f"v {coord[0]:.6f} {coord[1]:.6f} {coord[2]:.6f}\n")
-
-            # Schreibe geschlossene Linie
-            if len(coords) >= 3:
-                indices = " ".join(str(obj_vertex_idx + i) for i in range(len(coords)))
-                f.write(f"l {indices} {obj_vertex_idx}\n")  # Schließe Loop
-
-            obj_vertex_idx += len(coords)
-
-        # Zeichne den Suchkreis als Polylinie (immer, damit sichtbar im Debug-Layer)
-        sr = search_radius if search_radius is not None else 10.0
+    # Exportiere Suchkreis
+    if search_radius is not None:
+        sr = search_radius
         segs = max(8, int(circle_segments) if circle_segments is not None else 64)
-        f.write(f"\n# Search-Circle (r={sr:.2f})\n")
         cx, cy, cz = centerline_point
-        circle_vertices = []
+
+        circle_coords = []
         for i in range(segs):
             angle = 2.0 * np.pi * i / segs
             x = cx + sr * np.cos(angle)
             y = cy + sr * np.sin(angle)
-            circle_vertices.append((x, y, cz))
-            f.write(f"v {x:.6f} {y:.6f} {cz:.6f}\n")
-        indices = " ".join(str(obj_vertex_idx + i) for i in range(len(circle_vertices)))
-        f.write(f"l {indices} {obj_vertex_idx}\n")
-        obj_vertex_idx += len(circle_vertices)
+            circle_coords.append([float(x), float(y), float(cz)])
 
-        # Markiere Centerline-Punkt
-        f.write(f"\n# Centerline-Punkt\n")
-        f.write(f"v {centerline_point[0]:.6f} {centerline_point[1]:.6f} {centerline_point[2]:.6f}\n")
+        result.append(
+            {
+                "type": "search_circle",
+                "coords": circle_coords,
+                "color": [1.0, 0.0, 0.0],  # Rot
+                "radius": float(sr),
+                "center": [float(cx), float(cy), float(cz)],
+            }
+        )
+
+    return result

@@ -6,6 +6,7 @@ Zentrale Konfiguration fuer World-to-BeamNG.
 BEAMNG_DIR = "C:\\Users\\johan\\AppData\\Local\\BeamNG.drive\\0.36\\levels\\World_to_BeamNG"
 BEAMNG_DIR_SHAPES = BEAMNG_DIR + "\\art\\shapes"
 BEAMNG_DIR_TEXTURES = BEAMNG_DIR_SHAPES + "\\textures"
+BEAMNG_DIR_BUILDINGS = BEAMNG_DIR_SHAPES + "\\buildings"
 # === MESH-PARAMETER ===
 ROAD_WIDTH = 7.0
 # Winkel-Schwelle für dynamischen Junction-Buffer (Grad). Unterhalb dieses Winkels wird ein winkelabhängiger Buffer aktiviert.
@@ -21,7 +22,7 @@ SLOPE_ANGLE = 45.0  # Neigungswinkel der Boeschung in Grad (45° = 1:1 Steigung)
 # Vorab-Reduktion ueber groeberes Grid (Strategie 2). Fuer feineres Terrain z.B. 1.0 setzen.
 GRID_SPACING = 2.0  # Abstand zwischen Grid-Punkten in Metern (1.0 = sehr fein, 10.0 = grob)
 TERRAIN_REDUCTION = 0  # Decimation bleibt aus; steuern wir ueber GRID_SPACING
-LEVEL_NAME = "osm_generated_map"
+LEVEL_NAME = "World_to_BeamNG"  # Name des BeamNG Levels (muss mit BEAMNG_DIR übereinstimmen)
 
 # DEBUG / EXPORTS
 DEBUG_EXPORTS = True  # Debug-Dumps (Netz, Grid) nur bei Bedarf aktivieren
@@ -45,6 +46,14 @@ MATERIAL_TYPES = ["terrain", "road"]  # Verfügbare Materialien (später erweite
 # === VERZEICHNISSE ===
 CACHE_DIR = "cache"  # Verzeichnis fuer Cache-Dateien
 HEIGHT_DATA_DIR = "data/DGM1"  # Verzeichnis mit Hoehendaten
+LOD2_DATA_DIR = "data/LOD2"  # Verzeichnis mit 3D-Gebäudemodellen (CityGML)
+
+# === GEBÄUDE (LoD2) ===
+LOD2_ENABLED = True  # LoD2-Gebäude verarbeiten
+LOD2_WALL_COLOR = (1.0, 1.0, 1.0)  # Weiß (RGB 0-1)
+LOD2_ROOF_COLOR = (0.8, 0.3, 0.2)  # Ziegelrot
+LOD2_SNAP_TO_TERRAIN = True  # Gebäude auf Terrain ausrichten
+LOD2_FOUNDATION_EXTRUDE = 0.5  # Meter: Wände nach unten verlängern für Fundament
 
 # === MULTIPROCESSING ===
 # WARNUNG: Unter Windows kann Multiprocessing hängen bleiben!

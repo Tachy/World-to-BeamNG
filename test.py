@@ -1,0 +1,1 @@
+print("Sonderzeichen-Check: äöüß €")
