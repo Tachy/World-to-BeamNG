@@ -147,7 +147,9 @@ def main():
         print(f"\n  [i] Verarbeite Luftbilder (da Hoehendaten neu geladen)...")
         from world_to_beamng.io.aerial import process_aerial_images
 
-        tile_count = process_aerial_images(aerial_dir="aerial", output_dir=config.BEAMNG_DIR_TEXTURES, tile_size=2500)
+        tile_count = process_aerial_images(
+            aerial_dir="data/DOP20", output_dir=config.BEAMNG_DIR_TEXTURES, tile_size=2500
+        )
         if tile_count > 0:
             print(f"  [OK] {tile_count} Luftbild-Kacheln exportiert")
         else:
@@ -163,7 +165,7 @@ def main():
 
     cache_height_hash_path = os.path.join(config.CACHE_DIR, "height_data_hash.txt")
 
-    # Prüfe ob height-data geändert wurde
+    # Prüfe ob DGM1-Daten geändert wurden
     need_reload = False
     if os.path.exists(cache_height_hash_path):
         with open(cache_height_hash_path, "r") as f:

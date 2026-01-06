@@ -51,7 +51,7 @@ pip install requests numpy scipy pyproj pyvista shapely rtree
 ```
 
 ### Daten
-- **Höhendaten**: XYZ-Dateien im `height-data/` Verzeichnis
+- **Höhendaten**: XYZ-Dateien im `data/DGM1/` Verzeichnis
   - Format: X Y Z pro Zeile (Leerzeichen/Tab-getrennt)
   - Koordinaten in UTM Zone 32N (anpassbar via `config.py`)
   - Z-Werte in Metern über NN
@@ -73,10 +73,11 @@ python -m venv .venv
 ### 3. Höhendaten vorbereiten
 ```
 World-to-BeamNG/
-├── height-data/
-│   ├── dgm1_32_506_5644_1_de.xyz     ← Deine XYZ-Daten
-│   ├── dgm1_32_507_5644_1_de.xyz
-│   └── ...
+├── data/
+│   └── DGM1/
+│       ├── dgm1_32_506_5644_1_de.xyz     ← Deine XYZ-Daten
+│       ├── dgm1_32_507_5644_1_de.xyz
+│       └── ...
 ```
 
 ## 📖 Verwendung
@@ -87,7 +88,7 @@ World-to-BeamNG/
 ```
 
 Das Skript wird:
-1. Höhendaten aus `height-data/` laden und transformieren
+1. Höhendaten aus `data/DGM1/` laden und transformieren
 2. BBOX automatisch berechnen
 3. OSM-Straßen, Polygone und Junctions abrufen
 4. Zentral dedupliziertes Vertex-Management aufbauen
@@ -162,8 +163,8 @@ world_to_beamng/
 
 ### Problem: Höhendaten nicht gefunden
 ```bash
-# Prüfe height-data Verzeichnis
-Get-ChildItem height-data/
+# Prüfe DGM1 Verzeichnis
+Get-ChildItem data/DGM1/
 # XYZ-Dateien sollten vorhanden sein
 ```
 

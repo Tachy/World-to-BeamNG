@@ -15,7 +15,7 @@ from .. import config
 
 
 def get_height_data_hash():
-    """Erstellt einen Hash basierend auf den Dateien im height-data Ordner.
+    """Erstellt einen Hash basierend auf den Dateien im data/DGM1 Ordner.
 
     Falls height_data_hash.txt fehlt oder unterschiedlich ist, werden alle alten
     Cache-Dateien gelöscht (erzwingt Neugenerierung).

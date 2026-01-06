@@ -44,7 +44,7 @@ MATERIAL_TYPES = ["terrain", "road"]  # Verfügbare Materialien (später erweite
 
 # === VERZEICHNISSE ===
 CACHE_DIR = "cache"  # Verzeichnis fuer Cache-Dateien
-HEIGHT_DATA_DIR = "height-data"  # Verzeichnis mit Hoehendaten
+HEIGHT_DATA_DIR = "data/DGM1"  # Verzeichnis mit Hoehendaten
 
 # === MULTIPROCESSING ===
 # WARNUNG: Unter Windows kann Multiprocessing hängen bleiben!

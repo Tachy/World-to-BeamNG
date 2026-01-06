@@ -42,12 +42,12 @@ def parse_world_file(tfw_data):
         return None
 
 
-def extract_images_from_zips(aerial_dir="aerial"):
+def extract_images_from_zips(aerial_dir="data/DOP20"):
     """
     Extrahiert alle Bilder mit Georeferenzierung aus ZIP-Dateien.
 
     Args:
-        aerial_dir: Pfad zum aerial-Verzeichnis
+        aerial_dir: Pfad zum DOP20-Verzeichnis
 
     Returns:
         List von (image_name, image_data_bytes, world_file_info) Tupeln
@@ -68,11 +68,7 @@ def extract_images_from_zips(aerial_dir="aerial"):
 
                 # Finde Bilddateien (TIF, TIFF, JPG, JPEG, PNG)
                 image_extensions = [".tif", ".tiff", ".jpg", ".jpeg", ".png"]
-                image_files = [
-                    f
-                    for f in file_list
-                    if any(f.lower().endswith(ext) for ext in image_extensions)
-                ]
+                image_files = [f for f in file_list if any(f.lower().endswith(ext) for ext in image_extensions)]
 
                 for img_file in image_files:
                     img_data = zip_ref.read(img_file)
@@ -90,10 +86,7 @@ def extract_images_from_zips(aerial_dir="aerial"):
                         # Debugging: Suche .tfw mit gleichem Stammnamen (case-insensitive)
                         base_name = img_path.stem.lower()
                         for f in file_list:
-                            if (
-                                f.lower().endswith(".tfw")
-                                and Path(f).stem.lower() == base_name
-                            ):
+                            if f.lower().endswith(".tfw") and Path(f).stem.lower() == base_name:
                                 tfw_data = zip_ref.read(f)
                                 world_info = parse_world_file(tfw_data)
                                 break
@@ -169,9 +162,7 @@ def process_aerial_images(aerial_dir, output_dir, tile_size=1000, grid_bounds=No
         return 0
 
     # Filtere Bilder ohne World File Info
-    images_with_geo = [
-        (name, data, info) for name, data, info in images if info is not None
-    ]
+    images_with_geo = [(name, data, info) for name, data, info in images if info is not None]
 
     if not images_with_geo:
         print(f"  [!] Keine Georeferenzierung gefunden (fehlen .tfw-Dateien?)")
@@ -189,9 +180,7 @@ def process_aerial_images(aerial_dir, output_dir, tile_size=1000, grid_bounds=No
         print(
             f"    Abdeckung: {first_img.size[0] * abs(first_info['pixel_size_x']):.0f}m × {first_img.size[1] * abs(first_info['pixel_size_y']):.0f}m"
         )
-        print(
-            f"    UTM Origin: ({first_info['x_origin']:.1f}, {first_info['y_origin']:.1f})"
-        )
+        print(f"    UTM Origin: ({first_info['x_origin']:.1f}, {first_info['y_origin']:.1f})")
 
     # Bestimme Grid-Bounds (in lokalen Koordinaten)
     if grid_bounds is None:
@@ -267,9 +256,7 @@ def process_aerial_images(aerial_dir, output_dir, tile_size=1000, grid_bounds=No
                 # Luftbild hat Ursprung oben-links, Y läuft nach unten in Pixeln
                 tile_size_m = tile_size * pixel_size
                 tile_local_x = img_local_x + (local_x_idx * tile_size_m)
-                tile_local_y = img_local_y - (
-                    local_y_idx * tile_size_m
-                )  # Obere Kante dieser Tile
+                tile_local_y = img_local_y - (local_y_idx * tile_size_m)  # Obere Kante dieser Tile
 
                 # Berechne globale Tile-Indizes relativ zum Grid
                 # Nutze math.floor() für korrekte Behandlung negativer Zahlen
@@ -310,9 +297,7 @@ def process_aerial_images(aerial_dir, output_dir, tile_size=1000, grid_bounds=No
             print(f"  [!] Fehler beim Verarbeiten von {img_name}: {e}")
             continue
 
-    print(
-        f"  [OK] {tile_counter} Kacheln gespeichert ({len(unique_tiles)} eindeutige Tiles)"
-    )
+    print(f"  [OK] {tile_counter} Kacheln gespeichert ({len(unique_tiles)} eindeutige Tiles)")
     print(
         f"  [i] Tile-Range: X=[{min(t[0] for t in unique_tiles)}..{max(t[0] for t in unique_tiles)}], Y=[{min(t[1] for t in unique_tiles)}..{max(t[1] for t in unique_tiles)}]"
     )
