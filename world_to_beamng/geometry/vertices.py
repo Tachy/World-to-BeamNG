@@ -9,7 +9,7 @@ from scipy.spatial import cKDTree
 from matplotlib.path import Path
 
 from ..geometry.polygon import get_road_centerline_robust
-from ..osm.mapper import get_road_width
+from ..config import OSM_MAPPER
 from .. import config
 
 
@@ -58,7 +58,7 @@ def classify_grid_vertices(
                 continue
 
             # Berechne dynamischen Search-Radius basierend auf Straßenbreite
-            road_width = get_road_width(osm_tags)
+            road_width = OSM_MAPPER.get_road_properties(osm_tags)["width"]
             # Formel: road_width + GRID_SPACING*2.5 (bei 2m Grid: road_width + 5m)
             dynamic_search_radius = road_width + config.GRID_SPACING * 2.5
 
@@ -130,7 +130,7 @@ def classify_grid_vertices(
             total_length = centerline_linestring.length
             # Dynamischer Sample-Spacing = dynamischer Suchradius (damit Kreise nahtlos anschließen)
             osm_tags = road_info.get("osm_tags", {})
-            road_width = get_road_width(osm_tags)
+            road_width = OSM_MAPPER.get_road_properties(osm_tags)["width"]
             sample_spacing = road_width + config.GRID_SPACING * 2.5
 
             # Stelle sicher, dass auch sehr kurze Segmente mindestens mit Start+Ende abgetastet werden

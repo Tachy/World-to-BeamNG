@@ -1,0 +1,82 @@
+import json
+import os
+
+
+class OSMMapper:
+    def __init__(self, config_path="osm_to_beamng.json"):
+        """Lädt die Konfiguration für das Mapping."""
+        try:
+            with open(config_path, "r", encoding="utf-8") as f:
+                self.config = json.load(f)
+        except FileNotFoundError:
+            print(f"Warnung: {config_path} nicht gefunden. Nutze leere Defaults.")
+            self.config = {"highway_defaults": {}, "surface_overrides": {}}
+
+        self.defaults = self.config.get("highway_defaults", {})
+        self.overrides = self.config.get("surface_overrides", {})
+
+    def get_road_properties(self, tags):
+        """
+        Gibt ein Dictionary mit allen BeamNG-Parametern zurück.
+        Kaskade: highway-type -> width-tag -> lanes-tag -> surface-override
+        """
+        if tags is None:
+            tags = {}
+
+        # 1. Basis-Werte über Highway-Typ (z.B. residential)
+        hw_type = tags.get("highway", "unclassified")
+        base_type = hw_type.split("_")[0]  # 'primary_link' -> 'primary'
+
+        # Hole Default-Werte aus JSON (Fallback auf unclassified)
+        props = self.defaults.get(base_type, self.defaults.get(hw_type, self.defaults.get("unclassified", {}))).copy()
+
+        # 2. Breite berechnen
+        props["width"] = self._calculate_width(tags, props.get("width", 4.0))
+
+        # 3. Surface-Override (wenn z.B. surface=gravel auf einer residential road steht)
+        surface = tags.get("surface")
+        if surface in self.overrides:
+            # Aktualisiere internal_name, groundModel, drivability und textures
+            props.update(self.overrides[surface])
+
+        return props
+
+    def _calculate_width(self, tags, fallback_width):
+        """Logik für die Breitenermittlung."""
+        # A. Explizites width Tag
+        if "width" in tags:
+            try:
+                # Entferne Einheiten wie 'm' und konvertiere zu float
+                return float(str(tags["width"]).lower().replace("m", "").strip())
+            except (ValueError, AttributeError):
+                pass
+
+        # B. Lanes Tag (3.25m pro Spur als Standard)
+        if "lanes" in tags:
+            try:
+                return int(tags["lanes"]) * 3.25
+            except (ValueError, TypeError):
+                pass
+
+        return fallback_width
+
+    def generate_materials_json_entry(self, mat_name, props):
+        """Erzeugt einen einzelnen Eintrag für die main.materials.json."""
+        tex = props.get("textures", {})
+        return {
+            "name": mat_name,
+            "mapTo": mat_name,
+            "class": "Material",
+            "version": 1.5,
+            "Stages": [
+                {
+                    "baseColorMap": tex.get("baseColorMap"),
+                    "normalMap": tex.get("normalMap"),
+                    "roughnessMap": tex.get("roughnessMap"),
+                    "useAnisotropic": True,
+                }
+            ],
+            "groundModelName": props.get("groundModelName", "asphalt"),
+            "materialTag0": "beamng",
+            "materialTag1": "italy",
+        }

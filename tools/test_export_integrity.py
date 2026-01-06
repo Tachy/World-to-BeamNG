@@ -27,6 +27,8 @@ class ExportIntegrityTest:
     def __init__(self):
         self.errors = []
         self.warnings = []
+        self.dae_materials = set()          # Aus library_materials
+        self.triangle_materials = set()     # Aus triangles material-Attributen
         self.beamng_dir = Path(config.BEAMNG_DIR)
         self.shapes_dir = Path(config.BEAMNG_DIR_SHAPES)
         self.textures_dir = Path(config.BEAMNG_DIR_TEXTURES)
@@ -82,17 +84,19 @@ class ExportIntegrityTest:
             # Zähle Materialien
             materials = root.findall(".//{http://www.collada.org/2005/11/COLLADASchema}material")
             if len(materials) == 0:
-                self.warning("Keine Materialien in DAE gefunden (erwarte tile_x_y)")
+                self.warning("Keine Materialien in DAE gefunden")
             else:
                 self.success(f"{len(materials)} Materialien gefunden")
 
-            # Prüfe ob tile_x_y Materialien vorhanden
-            material_ids = [m.get("id") for m in materials]
-            tile_materials = [m for m in material_ids if m and m.startswith("tile_")]
-            if tile_materials:
-                self.success(f"{len(tile_materials)} Tile-Materialien (tile_x_y)")
-            else:
-                self.warning("Keine tile_x_y Materialien gefunden")
+            material_ids = [m.get("id") for m in materials if m.get("id")]
+            self.dae_materials.update(material_ids)
+
+            # Sammle Material-Referenzen aus triangles
+            triangles = root.findall(".//{http://www.collada.org/2005/11/COLLADASchema}triangles")
+            tri_materials = [t.get("material") for t in triangles if t.get("material")]
+            if tri_materials:
+                self.triangle_materials.update(tri_materials)
+                self.success(f"{len(set(tri_materials))} Material-Referenzen in triangles")
 
             # Prüfe Vertices/Faces
             float_arrays = root.findall(".//{http://www.collada.org/2005/11/COLLADASchema}float_array")
@@ -135,7 +139,8 @@ class ExportIntegrityTest:
 
                 # Prüfe ob lod2_wall_white und lod2_roof_red vorhanden
                 materials = root.findall(".//{http://www.collada.org/2005/11/COLLADASchema}material")
-                material_ids = [m.get("id") for m in materials]
+                material_ids = [m.get("id") for m in materials if m.get("id")]
+                self.dae_materials.update(material_ids)
 
                 has_wall = "lod2_wall_white" in material_ids
                 has_roof = "lod2_roof_red" in material_ids
@@ -170,13 +175,6 @@ class ExportIntegrityTest:
                 materials = json.load(f)
 
             self.success(f"{len(materials)} Materialien definiert")
-
-            # Zähle Terrain-Tiles
-            terrain_materials = [k for k in materials.keys() if k.startswith("tile_")]
-            if terrain_materials:
-                self.success(f"{len(terrain_materials)} Terrain-Tile-Materialien")
-            else:
-                self.warning("Keine Terrain-Tile-Materialien gefunden")
 
             # Prüfe LoD2-Materialien
             has_wall = "lod2_wall_white" in materials
@@ -234,6 +232,27 @@ class ExportIntegrityTest:
                         self.warning(f"  ... und {len(missing_textures)-5} weitere")
                 else:
                     self.success("Alle referenzierten Texturen existieren")
+
+                # Bidirektionaler Abgleich DAE ↔ materials.json
+                # Materialien, die in DAEs referenziert werden, müssen hier existieren
+                used_materials = set(self.dae_materials) | set(self.triangle_materials)
+                json_material_names = set(materials.keys())
+                json_mapto = {m.get("mapTo") for m in materials.values() if isinstance(m, dict) and "mapTo" in m}
+
+                missing_in_json = [m for m in used_materials if m not in json_material_names and m not in json_mapto]
+                if missing_in_json:
+                    for m in missing_in_json[:5]:
+                        self.error(f"Material in DAE referenziert, aber nicht in materials.json: {m}")
+                    if len(missing_in_json) > 5:
+                        self.error(f"... und {len(missing_in_json)-5} weitere")
+                else:
+                    self.success("Alle DAE-Material-Referenzen in materials.json vorhanden")
+
+                # Optionale Warnung für ungenutzte Materialien in JSON
+                unused = [m for m in json_material_names if m not in used_materials]
+                unused = [m for m in unused if m not in ("unknown",)]  # allow fallback
+                if unused:
+                    self.warning(f"{len(unused)} Materialien in materials.json ungenutzt (z.B. {unused[:3]})")
 
         except json.JSONDecodeError as e:
             self.error(f"JSON-Parse-Fehler: {e}")

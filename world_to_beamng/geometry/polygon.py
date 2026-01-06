@@ -7,7 +7,7 @@ from shapely.geometry import Polygon
 
 from ..terrain.elevation import get_elevations_for_points
 from ..geometry.coordinates import transformer_to_utm
-from ..osm.mapper import get_road_width
+from ..config import OSM_MAPPER
 from .. import config
 
 
@@ -50,9 +50,9 @@ def clip_road_polygons(road_polygons, grid_bounds_local, margin=3.0):
             # Unterteile lange Segmente nach Clipping (um grosse Luecken zu fuellen)
             # Nutze road_width für dynamische Segment-Länge
             osm_tags = road.get("osm_tags", {})
-            road_width = get_road_width(osm_tags)
+            road_width = OSM_MAPPER.get_road_properties(osm_tags)["width"]
             max_seg = road_width * config.SAMPLE_SPACING_FACTOR
-            
+
             final_coords = []
             for i, coord in enumerate(new_coords):
                 final_coords.append(coord)
@@ -182,9 +182,9 @@ def smooth_roads_with_spline(road_polygons):
     for road in road_polygons:
         coords = road["coords"]
         osm_tags = road.get("osm_tags", {})
-        road_width = get_road_width(osm_tags)
+        road_width = OSM_MAPPER.get_road_properties(osm_tags)["width"]
         segment_length = road_width * config.SAMPLE_SPACING_FACTOR
-        
+
         if len(coords) < 2:
             total_points_after += len(coords)
             continue
@@ -315,12 +315,12 @@ def smooth_roads_adaptive(road_polygons):
     for road in road_polygons:
         coords = road["coords"]
         osm_tags = road.get("osm_tags", {})
-        road_width = get_road_width(osm_tags)
+        road_width = OSM_MAPPER.get_road_properties(osm_tags)["width"]
         # Berechne dynamische Segment-Längen basierend auf Straßenbreite
         max_segment_length = road_width * config.SAMPLE_SPACING_FACTOR
         min_segment_length = road_width * config.SAMPLE_SPACING_FACTOR
         angle_threshold_rad = np.radians(config.ROAD_SMOOTH_ANGLE_THRESHOLD)
-        
+
         if len(coords) < 2:
             continue
 

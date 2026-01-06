@@ -2,11 +2,17 @@
 Zentrale Konfiguration fuer World-to-BeamNG.
 """
 
+from .osm.osm_mapper import OSMMapper
+
+# OSM Mapper Singleton (lädt data/osm_to_beamng.json)
+OSM_MAPPER = OSMMapper(config_path="data/osm_to_beamng.json")
+
 # BEAMNG Zielordner (Anpassbar)
 BEAMNG_DIR = "C:\\Users\\johan\\AppData\\Local\\BeamNG.drive\\0.36\\levels\\World_to_BeamNG"
 BEAMNG_DIR_SHAPES = BEAMNG_DIR + "\\art\\shapes"
 BEAMNG_DIR_TEXTURES = BEAMNG_DIR_SHAPES + "\\textures"
 BEAMNG_DIR_BUILDINGS = BEAMNG_DIR_SHAPES + "\\buildings"
+
 # === MESH-PARAMETER ===
 ROAD_WIDTH = 7.0
 # Winkel-Schwelle für dynamischen Junction-Buffer (Grad). Unterhalb dieses Winkels wird ein winkelabhängiger Buffer aktiviert.

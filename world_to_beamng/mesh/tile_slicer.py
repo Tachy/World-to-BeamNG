@@ -96,7 +96,7 @@ def slice_mesh_into_tiles(
             if tile_key not in tiles_data:
                 tiles_data[tile_key] = {"face_indices": [], "materials": []}
             tiles_data[tile_key]["face_indices"].append((terrain_face_indices[i], None))
-            tiles_data[tile_key]["materials"].append("terrain")
+            tiles_data[tile_key]["materials"].append(f"tile_{tile_key[0]}_{tile_key[1]}")
 
     # ===== ROAD-FACES: KEIN CLIPPING - nur zu Tile-Center zuordnen =====
     # Road-Faces werden NICHT geclippt! Dies verursacht Vertex-Duplikation

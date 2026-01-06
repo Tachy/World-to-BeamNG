@@ -52,6 +52,7 @@ from world_to_beamng.io.lod2 import (
     export_materials_json as export_lod2_materials_json,
     create_items_json_entry as create_lod2_items_entry,
 )
+from world_to_beamng.io.materials import reset_materials_json, append_materials_to_json
 from world_to_beamng.utils.timing import StepTimer
 
 
@@ -104,6 +105,10 @@ def main():
 
     start_time = time_module.time()
     timer = StepTimer()
+
+    # Materials reset (fresh main.materials.json pro Lauf)
+    materials_path = os.path.join(config.BEAMNG_DIR, "main.materials.json")
+    reset_materials_json(materials_path)
 
     # ===== SCHRITT 1: Lade Höhendaten =====
     print("=" * 60)
@@ -277,10 +282,38 @@ def main():
         _all_slope_polygons_2d,  # Unused - keine Slopes mehr
     ) = generate_road_mesh_strips(road_polygons, height_points, height_elevations, vertex_manager, junctions)
 
-    # Füge Straßen-Faces zum Mesh hinzu
+    # Map: road_id -> (material_name, props)
+    road_material_map = {}
+    for poly in road_slope_polygons_2d:
+        r_id = poly.get("road_id")
+        if r_id is None:
+            continue
+        props = config.OSM_MAPPER.get_road_properties(poly.get("osm_tags", {}))
+        mat_name = props.get("internal_name", "road_default")
+        road_material_map[r_id] = (mat_name, props)
+
+    default_props = config.OSM_MAPPER.get_road_properties({})
+    default_mat = default_props.get("internal_name", "road_default")
+
+    # Füge Straßen-Faces mit Material pro Road hinzu
     print(f"  [OK] {len(road_faces)} Strassen-Faces generiert")
-    for face in road_faces:
-        mesh.add_face(face[0], face[1], face[2], material="road")
+    unique_materials = {}
+    for idx, face in enumerate(road_faces):
+        r_id = road_face_to_idx[idx] if idx < len(road_face_to_idx) else None
+        if r_id is not None and r_id in road_material_map:
+            mat_name, props = road_material_map[r_id]
+        else:
+            mat_name, props = default_mat, default_props
+
+        unique_materials[mat_name] = props
+        mesh.add_face(face[0], face[1], face[2], material=mat_name)
+
+    # Append Road-Materialien in main.materials.json
+    material_entries = []
+    for mat_name, props in unique_materials.items():
+        material_entries.append(config.OSM_MAPPER.generate_materials_json_entry(mat_name, props))
+
+    append_materials_to_json(material_entries, materials_path)
 
     # Konsistenter Debug-Dump: Junctions und getrimmte Straßen im selben Zustand
     os.makedirs(config.CACHE_DIR, exist_ok=True)

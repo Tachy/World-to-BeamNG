@@ -45,16 +45,16 @@ def export_merged_dae(
     up_axis = SubElement(asset, "up_axis")
     up_axis.text = "Z_UP"
 
-    # Library: Materials (ein Material pro Tile)
-    lib_materials = SubElement(collada, "library_materials")
+    # Sammle alle verwendeten Materialnamen über alle Tiles
+    material_names = set()
+    for tile_data in tiles_dict.values():
+        mat_list = tile_data.get("materials", []) or []
+        material_names.update(mat_list)
+    # Fallback Material nur anlegen, wenn wirklich referenziert wird
 
-    # Library: Materials (ein Material pro Tile)
+    # Library: Materials (ein Eintrag pro Materialname)
     lib_materials = SubElement(collada, "library_materials")
-    for tile_x, tile_y in sorted(tiles_dict.keys()):
-        if len(tiles_dict[(tile_x, tile_y)]["faces"]) == 0:
-            continue
-
-        mat_name = f"tile_{tile_x}_{tile_y}"
+    for mat_name in sorted(material_names):
         mat = SubElement(lib_materials, "material")
         mat.set("id", mat_name)
         mat.set("name", mat_name)
@@ -63,11 +63,7 @@ def export_merged_dae(
 
     # Library: Effects (Dummy-Effects ohne Texturen - werden über materials.json verlinkt)
     lib_effects = SubElement(collada, "library_effects")
-    for tile_x, tile_y in sorted(tiles_dict.keys()):
-        if len(tiles_dict[(tile_x, tile_y)]["faces"]) == 0:
-            continue
-
-        mat_name = f"tile_{tile_x}_{tile_y}"
+    for mat_name in sorted(material_names):
         effect = SubElement(lib_effects, "effect")
         effect.set("id", f"effect_{mat_name}")
 
@@ -197,35 +193,45 @@ def export_merged_dae(
         vert_input.set("semantic", "POSITION")
         vert_input.set("source", f"#{vertices_source_id}")
 
-        # ============ Faces (ALLE Faces mit einem Material) ============
-        # Jedes Tile hat nur noch ein Material: tile_x_y
-        mat_name = f"tile_{tile_x}_{tile_y}"
+        # ============ Faces (pro Material gruppiert) ============
+        materials_per_face = tile_data.get("materials", []) or []
+        if len(materials_per_face) != len(faces):
+            materials_per_face = ["unknown"] * len(faces)
 
-        triangles = SubElement(mesh, "triangles")
-        triangles.set("count", str(len(faces)))
-        triangles.set("material", mat_name)
+        # Gruppiere Faces pro Material
+        faces_by_material = {}
+        for idx, face in enumerate(faces):
+            mat_name = materials_per_face[idx] if idx < len(materials_per_face) else "unknown"
+            faces_by_material.setdefault(mat_name, []).append(face)
 
-        # Input: Vertex Indices
-        tri_input_vertex = SubElement(triangles, "input")
-        tri_input_vertex.set("semantic", "VERTEX")
-        tri_input_vertex.set("source", f"#{mesh_name}_vertices_vertex")
-        tri_input_vertex.set("offset", "0")
+        for mat_name, face_list in faces_by_material.items():
+            if not face_list:
+                continue
 
-        # Input: UV Coordinates
-        tri_input_uv = SubElement(triangles, "input")
-        tri_input_uv.set("semantic", "TEXCOORD")
-        tri_input_uv.set("source", f"#{uv_source_id}")
-        tri_input_uv.set("offset", "1")
-        tri_input_uv.set("set", "0")
+            triangles = SubElement(mesh, "triangles")
+            triangles.set("count", str(len(face_list)))
+            triangles.set("material", mat_name)
 
-        # Face-Daten: vertex_idx uv_idx vertex_idx uv_idx ...
-        p_elem = SubElement(triangles, "p")
-        face_data_parts = []
-        for face in faces:  # Alle Faces dieses Tiles
-            for vertex_idx in face:
-                face_data_parts.append(str(vertex_idx))
-                face_data_parts.append(str(vertex_idx))  # UV Index = Vertex Index
-        p_elem.text = " ".join(face_data_parts)
+            # Input: Vertex Indices
+            tri_input_vertex = SubElement(triangles, "input")
+            tri_input_vertex.set("semantic", "VERTEX")
+            tri_input_vertex.set("source", f"#{mesh_name}_vertices_vertex")
+            tri_input_vertex.set("offset", "0")
+
+            # Input: UV Coordinates
+            tri_input_uv = SubElement(triangles, "input")
+            tri_input_uv.set("semantic", "TEXCOORD")
+            tri_input_uv.set("source", f"#{uv_source_id}")
+            tri_input_uv.set("offset", "1")
+            tri_input_uv.set("set", "0")
+
+            p_elem = SubElement(triangles, "p")
+            face_data_parts = []
+            for face in face_list:
+                for vertex_idx in face:
+                    face_data_parts.append(str(vertex_idx))
+                    face_data_parts.append(str(vertex_idx))  # UV Index = Vertex Index
+            p_elem.text = " ".join(face_data_parts)
 
     # ============ Library: Visual Scenes ============
     lib_visual_scenes = SubElement(collada, "library_visual_scenes")
@@ -300,7 +306,7 @@ def create_terrain_materials_json(tiles_dict, level_name="World_to_BeamNG"):
             continue
 
         mat_name = f"tile_{tile_x}_{tile_y}"
-        texture_path = f"levels/{level_name}/art/shapes/textures/tile_{tile_x}_{tile_y}.jpg"
+        texture_path = f"/levels/{level_name}/art/shapes/textures/tile_{tile_x}_{tile_y}.jpg"
 
         materials[mat_name] = {
             "name": mat_name,

@@ -13,7 +13,7 @@ from functools import partial
 from math import ceil, atan2, degrees
 
 from .. import config
-from ..osm.mapper import get_road_width
+from ..config import OSM_MAPPER
 
 
 def get_angle_between_vectors(v1, v2):
@@ -160,7 +160,7 @@ def calculate_junction_buffer(
             connected.append((r_id, ji, r, osm_tags))
 
     # Vorab Breiten erfassen, um spätere Buffer-Basis auf maximale Breite zu setzen
-    width_map = {r_id: get_road_width(osm_tags) for r_id, ji, r, osm_tags in connected}
+    width_map = {r_id: OSM_MAPPER.get_road_properties(osm_tags)["width"] for r_id, ji, r, osm_tags in connected}
     max_half_width = max(width_map.values()) / 2.0 if width_map else 0.0
 
     if len(connected) < 2:
@@ -227,7 +227,7 @@ def calculate_junction_buffer(
     # Berechne Buffer asymmetrisch
     # Extrahiere Straßenbreite der aktuellen Straße aus osm_tags
     my_osm_tags = next((b[2] for b in bearings if b[0] == road_id), {})
-    road_width = width_map.get(road_id, get_road_width(my_osm_tags))
+    road_width = width_map.get(road_id, OSM_MAPPER.get_road_properties(my_osm_tags)["width"])
     my_half_width = road_width / 2.0
 
     # Konvertiere Winkel zu Radiant für cot-Berechnung
@@ -531,7 +531,7 @@ def _process_road_batch(
         osm_tags = road.get("osm_tags", {})  # OSM-Tags extrahieren
 
         # Berechne Straßenbreite dynamisch aus OSM-Tags
-        road_width = get_road_width(osm_tags)
+        road_width = OSM_MAPPER.get_road_properties(osm_tags)["width"]
         half_width = road_width / 2.0
 
         junction_indices = road.get("junction_indices", {}) or {}

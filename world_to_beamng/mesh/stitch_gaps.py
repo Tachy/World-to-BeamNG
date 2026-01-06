@@ -8,7 +8,7 @@ from shapely.geometry import LineString
 from scipy.spatial import cKDTree
 
 from .. import config
-from ..osm.mapper import get_road_width
+from ..config import OSM_MAPPER
 from .stitch_local import find_boundary_polygons_in_circle, export_boundary_polygons_to_json
 
 
@@ -80,7 +80,7 @@ def stitch_all_gaps(
 
         # Berechne dynamische Stitching-Parameter basierend auf Straßenbreite
         osm_tags = road_info.get("osm_tags", {})
-        road_width = get_road_width(osm_tags)
+        road_width = OSM_MAPPER.get_road_properties(osm_tags)["width"]
         # Skaliere Search-Radius proportional zu Straßenbreite + Grid-Spacing-abhängiger Buffer
         # Formel: road_width + GRID_SPACING*2.5 (bei 2m Grid: road_width + 5m)
         dynamic_search_radius = road_width + config.GRID_SPACING * 2.5
@@ -189,7 +189,7 @@ def stitch_all_gaps(
             # Formel: max_road_width * 1.3 + GRID_SPACING*2.5 (bei 2m Grid: max_width * 1.3 + 5m)
             max_road_width = 4.0  # Fallback: 4m default
             if connected_road_tags:
-                road_widths = [get_road_width(tags) for tags in connected_road_tags]
+                road_widths = [OSM_MAPPER.get_road_properties(tags)["width"] for tags in connected_road_tags]
                 max_road_width = max(road_widths) if road_widths else max_road_width
 
             junction_search_radius = max_road_width * 1.3 + config.GRID_SPACING * 2.5
