@@ -27,8 +27,8 @@ class ExportIntegrityTest:
     def __init__(self):
         self.errors = []
         self.warnings = []
-        self.dae_materials = set()          # Aus library_materials
-        self.triangle_materials = set()     # Aus triangles material-Attributen
+        self.dae_materials = set()  # Aus library_materials
+        self.triangle_materials = set()  # Aus triangles material-Attributen
         self.beamng_dir = Path(config.BEAMNG_DIR)
         self.shapes_dir = Path(config.BEAMNG_DIR_SHAPES)
         self.textures_dir = Path(config.BEAMNG_DIR_TEXTURES)

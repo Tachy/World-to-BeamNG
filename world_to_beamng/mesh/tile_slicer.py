@@ -11,9 +11,7 @@ import numpy as np
 from collections import defaultdict
 
 
-def slice_mesh_into_tiles(
-    vertices, faces, materials_per_face, tile_size=400, grid_bounds=None
-):
+def slice_mesh_into_tiles(vertices, faces, materials_per_face, tile_size=400, grid_bounds=None):
     """
     Clippt Mesh in 400×400m Tiles mit Sutherland-Hodgman.
 
@@ -52,9 +50,7 @@ def slice_mesh_into_tiles(
     tile_y_max = int(np.ceil(y_max / tile_size))
 
     print(f"  Slicing Mesh in {tile_size}m Tiles...")
-    print(
-        f"    Tile-Range: X [{tile_x_min}...{tile_x_max}], Y [{tile_y_min}...{tile_y_max}]"
-    )
+    print(f"    Tile-Range: X [{tile_x_min}...{tile_x_max}], Y [{tile_y_min}...{tile_y_max}]")
 
     # Sammle Faces pro Tile
     tiles_data = {}  # Verwende normales Dict statt defaultdict (schneller)
@@ -62,9 +58,7 @@ def slice_mesh_into_tiles(
     # ===== VEKTORISIERTE TERRAIN-FACE ZUORDNUNG =====
     # Konvertiere zu NumPy Arrays einmalig
     faces_array = np.array(faces, dtype=np.int32)
-    materials_array = np.array(
-        materials_per_face if materials_per_face else ["unknown"] * len(faces)
-    )
+    materials_array = np.array(materials_per_face if materials_per_face else ["unknown"] * len(faces))
 
     terrain_mask = materials_array == "terrain"
     terrain_face_indices = np.where(terrain_mask)[0]
@@ -79,12 +73,8 @@ def slice_mesh_into_tiles(
         v2_coords = vertices[terrain_faces[:, 2], :2]
 
         # Berechne Bounding Boxes vektorisiert
-        bbox_x_min = np.minimum(
-            np.minimum(v0_coords[:, 0], v1_coords[:, 0]), v2_coords[:, 0]
-        )
-        bbox_y_min = np.minimum(
-            np.minimum(v0_coords[:, 1], v1_coords[:, 1]), v2_coords[:, 1]
-        )
+        bbox_x_min = np.minimum(np.minimum(v0_coords[:, 0], v1_coords[:, 0]), v2_coords[:, 0])
+        bbox_y_min = np.minimum(np.minimum(v0_coords[:, 1], v1_coords[:, 1]), v2_coords[:, 1])
 
         # Tile-Indizes berechnen
         tile_x_indices = np.floor(bbox_x_min / tile_size).astype(np.int32)
@@ -111,11 +101,7 @@ def slice_mesh_into_tiles(
         p1 = vertices[v1, :2]
         p2 = vertices[v2, :2]
 
-        material = (
-            materials_per_face[face_idx]
-            if face_idx < len(materials_per_face)
-            else "unknown"
-        )
+        material = materials_per_face[face_idx] if face_idx < len(materials_per_face) else "unknown"
 
         # ===== Road-Faces: Centroid-basierte Zuordnung OHNE Clipping =====
         # Berechne Centroid des Faces
@@ -172,9 +158,7 @@ def slice_mesh_into_tiles(
             clipped_poly = poly_or_none
 
             # Koordinaten vom geclippten Polygon (XY nur)
-            coords_xy = np.array(
-                clipped_poly.exterior.coords[:-1]
-            )  # Letzter Punkt = erster
+            coords_xy = np.array(clipped_poly.exterior.coords[:-1])  # Letzter Punkt = erster
 
             # Z-Werte aus Original-Face interpolieren (barycentric, vektorisiert)
             v0_idx, v1_idx, v2_idx = faces[face_idx]
