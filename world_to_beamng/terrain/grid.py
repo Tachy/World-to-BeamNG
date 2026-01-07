@@ -12,7 +12,7 @@ from .elevation import get_height_data_hash
 
 def create_terrain_grid(height_points, height_elevations, grid_spacing=10.0, tile_hash=None):
     """Erstellt ein reguläres Grid aus den Hoehendaten (OPTIMIERT mit Caching).
-    
+
     Args:
         height_points: XY-Koordinaten (lokale Koordinaten)
         height_elevations: Z-Werte

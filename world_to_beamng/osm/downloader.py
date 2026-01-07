@@ -11,7 +11,7 @@ from ..io.cache import load_from_cache, save_to_cache
 
 def get_osm_data(bbox, height_hash=None):
     """Holt ALLE OSM-Daten fuer eine BBox von der Overpass API oder aus dem Cache.
-    
+
     Args:
         bbox: (lat_min, lon_min, lat_max, lon_max) Bounding Box
         height_hash: Optional - tile_hash für Cache-Konsistenz
@@ -40,9 +40,7 @@ def get_osm_data(bbox, height_hash=None):
                 print(
                     f"  Versuch {attempt + 1}/{max_retries} mit Server {endpoint_idx + 1}/{len(config.OVERPASS_ENDPOINTS)}..."
                 )
-                response = requests.get(
-                    overpass_url, params={"data": query}, timeout=120
-                )
+                response = requests.get(overpass_url, params={"data": query}, timeout=120)
                 response.raise_for_status()
                 elements = response.json().get("elements", [])
                 print(f"  [OK] Erfolgreich! {len(elements)} OSM-Elemente gefunden.")

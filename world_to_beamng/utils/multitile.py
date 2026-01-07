@@ -18,7 +18,12 @@ import numpy as np
 from world_to_beamng import config
 from world_to_beamng.utils.tile_scanner import scan_lgl_tiles, compute_global_bbox, compute_global_center
 from world_to_beamng.io.cache import load_height_hashes, save_height_hashes, calculate_file_hash
-from world_to_beamng.io.materials_merge import merge_materials_json, merge_items_json, save_materials_json, save_items_json
+from world_to_beamng.io.materials_merge import (
+    merge_materials_json,
+    merge_items_json,
+    save_materials_json,
+    save_items_json,
+)
 from world_to_beamng.osm.parser import calculate_bbox_from_height_data, extract_roads_from_osm
 from world_to_beamng.osm.downloader import get_osm_data
 from world_to_beamng.geometry.polygon import get_road_polygons, clip_road_polygons
@@ -61,7 +66,7 @@ def _expand_bbox(bbox, margin):
 
 def _load_tile_height_data(tile):
     """Laedt die Hoehendaten einer einzelnen DGM1-Kachel.
-    
+
     WICHTIG: Ein LGL DGM1-ZIP enthält 4 XYZ-Dateien (2×2 Kacheln à 1000×1000m).
     Diese werden zu einem 2000×2000m Gebiet zusammengesetzt.
     """
@@ -72,12 +77,12 @@ def _load_tile_height_data(tile):
         return None, None
 
     all_data = []
-    
+
     if filepath.lower().endswith(".xyz"):
         # Einzelne XYZ-Datei
         data = np.loadtxt(filepath)
         all_data.append(data)
-        
+
     elif filepath.lower().endswith(".zip"):
         # ZIP mit mehreren XYZ-Dateien (typisch: 4 Kacheln)
         with zipfile.ZipFile(filepath, "r") as zf:
@@ -85,7 +90,7 @@ def _load_tile_height_data(tile):
             if not xyz_members:
                 print(f"  [!] Keine .xyz in {os.path.basename(filepath)} gefunden")
                 return None, None
-            
+
             print(f"  [i] Lade {len(xyz_members)} XYZ-Dateien aus ZIP...")
             for xyz_name in sorted(xyz_members):
                 with zf.open(xyz_name) as f:
@@ -99,9 +104,9 @@ def _load_tile_height_data(tile):
     # Kombiniere alle Daten
     if len(all_data) == 0:
         return None, None
-    
+
     combined_data = np.vstack(all_data)
-    
+
     if combined_data.ndim != 2 or combined_data.shape[1] < 3:
         print(f"  [!] DGM1-Daten ungültig: {filepath}")
         return None, None
@@ -116,7 +121,7 @@ def _ensure_local_offset(global_offset, height_points, height_elevations):
     if config.LOCAL_OFFSET is not None:
         return config.LOCAL_OFFSET
 
-    cx, cy = (global_offset[:2] if global_offset else (height_points[0, 0], height_points[0, 1]))
+    cx, cy = global_offset[:2] if global_offset else (height_points[0, 0], height_points[0, 1])
     cz = None
     if global_offset and len(global_offset) >= 3 and global_offset[2] is not None:
         cz = global_offset[2]
@@ -131,7 +136,7 @@ def _ensure_local_offset(global_offset, height_points, height_elevations):
 def phase1_multitile_init(dgm1_dir="data/DGM1"):
     """
     PHASE 1: Pre-Scan aller Tiles und Initialisierung.
-    
+
     Returns:
         Tuple: (tiles, global_offset)
             - tiles: Liste von Tile-Metadaten
@@ -140,25 +145,27 @@ def phase1_multitile_init(dgm1_dir="data/DGM1"):
     print("\n" + "=" * 60)
     print("[PHASE 1] Multi-Tile Pre-Scan & Initialisierung")
     print("=" * 60)
-    
+
     # Scanne DGM1-Verzeichnis
     print(f"\nScanne DGM1-Kacheln in {dgm1_dir}...")
     tiles = scan_lgl_tiles(dgm1_dir)
-    
+
     if not tiles:
         print("[!] Keine DGM1-Kacheln gefunden - Fallback auf Single-Tile Mode")
         return None, None
-    
+
     print(f"[OK] {len(tiles)} DGM1-Kachel(n) gefunden")
-    
+
     # Berechne globale Bounding Box
     global_bbox = compute_global_bbox(tiles)
     global_center = compute_global_center(tiles)
-    
-    print(f"[OK] Globale BBox (UTM): min_x={global_bbox[0]:.1f}, max_x={global_bbox[1]:.1f}, "
-          f"min_y={global_bbox[2]:.1f}, max_y={global_bbox[3]:.1f}")
+
+    print(
+        f"[OK] Globale BBox (UTM): min_x={global_bbox[0]:.1f}, max_x={global_bbox[1]:.1f}, "
+        f"min_y={global_bbox[2]:.1f}, max_y={global_bbox[3]:.1f}"
+    )
     print(f"[OK] Globaler Center (UTM): ({global_center[0]:.1f}, {global_center[1]:.1f})")
-    
+
     # Lade existierende Height-Hashes
     print("\nLade Height-Data-Hashes...")
     height_hashes = load_height_hashes()
@@ -166,27 +173,27 @@ def phase1_multitile_init(dgm1_dir="data/DGM1"):
         print(f"  [OK] {len(height_hashes)} Hashes geladen")
     else:
         print("  [i] Keine bestehenden Hashes gefunden (Neustart)")
-    
+
     # Prüfe welche Tiles geändert haben
     changed_tiles = []
     unchanged_tiles = []
-    
+
     print("\nPrüfe Tile-Änderungen...")
     for tile in tiles:
-        filepath = tile['filepath']
-        filename = tile['filename']
-        
+        filepath = tile["filepath"]
+        filename = tile["filename"]
+
         if not os.path.exists(filepath):
             print(f"  [!] Datei nicht gefunden: {filename}")
             continue
-        
+
         # Berechne Hash
         file_hash = calculate_file_hash(filepath)
         if file_hash is None:
             changed_tiles.append(tile)
             print(f"  [?] {filename} - Hash-Fehler, verwende als geändert")
             continue
-        
+
         # Vergleiche mit gespeichertem Hash
         if filename in height_hashes and height_hashes[filename] == file_hash:
             unchanged_tiles.append(tile)
@@ -195,33 +202,33 @@ def phase1_multitile_init(dgm1_dir="data/DGM1"):
             changed_tiles.append(tile)
             height_hashes[filename] = file_hash
             print(f"  [!] {filename} - Geändert (Cache invalidiert)")
-    
+
     # Speichere aktualisierte Hashes
     if changed_tiles or not height_hashes:
         print("\nSpeichere Height-Data-Hashes...")
         save_height_hashes(height_hashes)
-    
+
     # Löschen alte Materials/Items für Fresh Start
     materials_path = os.path.join(config.BEAMNG_DIR, "main.materials.json")
     items_path = os.path.join(config.BEAMNG_DIR, "main.items.json")
-    
+
     print(f"\nInitialisiere Materials & Items...")
     for path in [materials_path, items_path]:
         if os.path.exists(path):
             os.remove(path)
             print(f"  [OK] Gelöschte alte Datei: {os.path.basename(path)}")
-    
+
     # Globaler Offset: Nutze den Center des Grids
     # Später wird dieser beim Laden der Höhendaten verfeinert
     global_offset = (global_center[0], global_center[1], 0.0)  # Z wird später gesetzt
-    
+
     # WICHTIG: Keine globalen BBOXen in config speichern!
     # Diese werden pro Tile berechnet und als Parameter übergeben
-    
+
     print(f"\n[OK] PHASE 1 abgeschlossen")
     print(f"[OK] {len(changed_tiles)} Tile(s) müssen verarbeitet werden")
     print(f"[OK] {len(unchanged_tiles)} Tile(s) sind unverändert (Cache nutzbar)")
-    
+
     return tiles, global_offset
 
 
@@ -255,16 +262,17 @@ def phase2_process_tile(tile, global_offset=None, bbox_margin=50.0, buildings_da
 
     # === BBox berechnen (Tile-spezifisch, NICHT in config!) ===
     from pyproj import Transformer
+
     transformer = Transformer.from_crs("EPSG:25832", "EPSG:4326", always_xy=True)
-    
+
     # UTM-BBox aus Höhendaten
     easting_min, easting_max = height_points_raw[:, 0].min(), height_points_raw[:, 0].max()
     northing_min, northing_max = height_points_raw[:, 1].min(), height_points_raw[:, 1].max()
     bbox_utm = (easting_min, easting_max, northing_min, northing_max)
-    
+
     if bbox_margin > 0:
         bbox_utm = _expand_bbox(bbox_utm, bbox_margin)
-    
+
     # Konvertiere zu lat/lon für OSM/LoD2
     lon_min, lat_min = transformer.transform(bbox_utm[0], bbox_utm[2])
     lon_max, lat_max = transformer.transform(bbox_utm[1], bbox_utm[3])
@@ -302,11 +310,9 @@ def phase2_process_tile(tile, global_offset=None, bbox_margin=50.0, buildings_da
     timer.begin("Verarbeite Luftbilder")
     try:
         from world_to_beamng.io.aerial import process_aerial_images
-        
+
         tile_count = process_aerial_images(
-            aerial_dir="data/DOP20",
-            output_dir=config.BEAMNG_DIR_TEXTURES,
-            tile_size=2500
+            aerial_dir="data/DOP20", output_dir=config.BEAMNG_DIR_TEXTURES, tile_size=2500
         )
         if tile_count > 0:
             print(f"  [OK] {tile_count} Luftbild-Kacheln exportiert")
@@ -332,7 +338,7 @@ def phase2_process_tile(tile, global_offset=None, bbox_margin=50.0, buildings_da
             buildings_data = load_buildings_from_cache(buildings_cache_path)
             if buildings_data:
                 print(f"  [OK] {len(buildings_data)} Gebaeude geladen")
-                
+
                 # Z-Koordinaten ans Terrain anpassen
                 buildings_data = snap_buildings_to_terrain_batch(buildings_data, height_points, height_elevations)
                 print(f"  [OK] Z-Koordinaten normalisiert ({len(buildings_data)} Gebaeude)")
@@ -343,7 +349,7 @@ def phase2_process_tile(tile, global_offset=None, bbox_margin=50.0, buildings_da
 
     # === OSM-Daten laden ===
     timer.begin("Lade OSM-Daten")
-    
+
     # Nutze Tile-spezifische lat/lon-BBox
     osm_elements = get_osm_data(bbox_latlon, height_hash=tile_hash)
     if not osm_elements:
@@ -585,35 +591,35 @@ def phase2_process_tile(tile, global_offset=None, bbox_margin=50.0, buildings_da
 def phase3_multitile_finalize(beamng_dir):
     """
     PHASE 3: Post-Merge und Finalisierung nach Tile-Verarbeitung.
-    
+
     Merged alle Materials und Items aus den Tile-Ergebnissen.
-    
+
     Args:
         beamng_dir: Zielverzeichnis für BeamNG-Dateien
     """
     print("\n" + "=" * 60)
     print("[PHASE 3] Multi-Tile Post-Merge & Finalisierung")
     print("=" * 60)
-    
+
     materials_path = os.path.join(beamng_dir, "main.materials.json")
     items_path = os.path.join(beamng_dir, "main.items.json")
-    
+
     # Lade alle Materials und Items
     if os.path.exists(materials_path):
-        with open(materials_path, 'r', encoding='utf-8') as f:
+        with open(materials_path, "r", encoding="utf-8") as f:
             final_materials = json.load(f)
         print(f"[OK] {len(final_materials)} Materials final")
     else:
         print("[i] Keine Materials vorhanden")
         final_materials = {}
-    
+
     if os.path.exists(items_path):
-        with open(items_path, 'r', encoding='utf-8') as f:
+        with open(items_path, "r", encoding="utf-8") as f:
             final_items = json.load(f)
         print(f"[OK] {len(final_items)} Items final")
     else:
         print("[i] Keine Items vorhanden")
         final_items = {}
-    
+
     print(f"\n[OK] PHASE 3 abgeschlossen")
     return final_materials, final_items

@@ -47,15 +47,15 @@ def load_from_cache(bbox, data_type, height_hash=None):
 
     Für osm_all und elevations wird height_hash verwendet (falls vorhanden)
     für garantierte Konsistenz bei Höhendaten-Änderungen.
-    
+
     Args:
         bbox: Bounding Box
         data_type: Typ der Daten (osm_all, elevations, etc.)
         height_hash: Optional - Hash für tile-spezifische Cache-Identifikation
     """
     # Verwende übergebenes height_hash oder fallback auf config.HEIGHT_HASH
-    effective_hash = height_hash or (config.HEIGHT_HASH if hasattr(config, 'HEIGHT_HASH') else None)
-    
+    effective_hash = height_hash or (config.HEIGHT_HASH if hasattr(config, "HEIGHT_HASH") else None)
+
     if effective_hash and data_type in ["osm_all", "elevations"]:
         cache_path = get_cache_path(bbox, data_type, effective_hash)
     else:
@@ -77,7 +77,7 @@ def save_to_cache(bbox, data_type, data, height_hash=None):
 
     Für osm_all und elevations wird height_hash verwendet (falls vorhanden)
     für garantierte Konsistenz bei Höhendaten-Änderungen.
-    
+
     Args:
         bbox: Bounding Box
         data_type: Typ der Daten (osm_all, elevations, etc.)
@@ -85,8 +85,8 @@ def save_to_cache(bbox, data_type, data, height_hash=None):
         height_hash: Optional - Hash für tile-spezifische Cache-Identifikation
     """
     # Verwende übergebenes height_hash oder fallback auf config.HEIGHT_HASH
-    effective_hash = height_hash or (config.HEIGHT_HASH if hasattr(config, 'HEIGHT_HASH') else None)
-    
+    effective_hash = height_hash or (config.HEIGHT_HASH if hasattr(config, "HEIGHT_HASH") else None)
+
     if effective_hash and data_type in ["osm_all", "elevations"]:
         cache_path = get_cache_path(bbox, data_type, effective_hash)
     else:
@@ -103,45 +103,45 @@ def save_to_cache(bbox, data_type, data, height_hash=None):
 def load_height_hashes():
     """
     Lädt die Hash-Registry für Height-Daten (Multi-Tile-System).
-    
+
     Format der height_data_hash.txt:
     dgm1_4658000_5394000.xyz.zip: abc123def456
     dgm1_4660000_5394000.xyz.zip: xyz789
-    
+
     Returns:
         Dict: {filename: hash_value}
     """
-    hash_file = os.path.join(config.CACHE_DIR, 'height_data_hash.txt')
+    hash_file = os.path.join(config.CACHE_DIR, "height_data_hash.txt")
     hashes = {}
-    
+
     if os.path.exists(hash_file):
         try:
-            with open(hash_file, 'r', encoding='utf-8') as f:
+            with open(hash_file, "r", encoding="utf-8") as f:
                 for line in f:
                     line = line.strip()
-                    if not line or ':' not in line:
+                    if not line or ":" not in line:
                         continue
-                    filename, hash_value = line.split(':', 1)
+                    filename, hash_value = line.split(":", 1)
                     hashes[filename.strip()] = hash_value.strip()
             print(f"  [OK] {len(hashes)} Height-Data-Hashes geladen aus height_data_hash.txt")
         except Exception as e:
             print(f"  [!] Fehler beim Laden von height_data_hash.txt: {e}")
-    
+
     return hashes
 
 
 def save_height_hashes(hashes):
     """
     Speichert die Hash-Registry für Height-Daten.
-    
+
     Args:
         hashes: Dict {filename: hash_value}
     """
     os.makedirs(config.CACHE_DIR, exist_ok=True)
-    hash_file = os.path.join(config.CACHE_DIR, 'height_data_hash.txt')
-    
+    hash_file = os.path.join(config.CACHE_DIR, "height_data_hash.txt")
+
     try:
-        with open(hash_file, 'w', encoding='utf-8') as f:
+        with open(hash_file, "w", encoding="utf-8") as f:
             for filename in sorted(hashes.keys()):
                 f.write(f"{filename}: {hashes[filename]}\n")
         print(f"  [OK] {len(hashes)} Height-Data-Hashes in height_data_hash.txt gespeichert")
@@ -152,18 +152,18 @@ def save_height_hashes(hashes):
 def calculate_file_hash(filepath, chunk_size=8192):
     """
     Berechnet MD5-Hash einer Datei.
-    
+
     Args:
         filepath: Pfad zur Datei
         chunk_size: Größe der Chunks zum Lesen
-        
+
     Returns:
         str: MD5-Hash (12 Zeichen)
     """
     hash_obj = hashlib.md5()
-    
+
     try:
-        with open(filepath, 'rb') as f:
+        with open(filepath, "rb") as f:
             while True:
                 chunk = f.read(chunk_size)
                 if not chunk:

@@ -58,7 +58,7 @@ class ExportIntegrityTest:
 
         # Suche dynamisch nach terrain_<x>_<y>.dae
         terrain_daes = list(self.shapes_dir.glob("terrain_*.dae"))
-        
+
         if not terrain_daes:
             self.error(f"Keine terrain_*.dae gefunden in: {self.shapes_dir}")
             return
@@ -411,7 +411,7 @@ class ExportIntegrityTest:
 
         texture_files = list(self.textures_dir.glob("tile_*.jpg"))
         texture_keys = set(f.stem for f in texture_files)
-        
+
         if not texture_keys:
             self.warning("Keine Tile-Texturen vorhanden")
             return
@@ -420,14 +420,14 @@ class ExportIntegrityTest:
 
         # Teste alle Terrain-DAE Dateien
         terrain_daes = list(self.shapes_dir.glob("terrain_*.dae"))
-        
+
         if not terrain_daes:
             self.warning("Keine terrain_*.dae gefunden")
             return
 
         total_geometries = 0
         unmapped_geometries = []
-        
+
         for dae_file in terrain_daes:
             try:
                 tree = lxml_etree.parse(str(dae_file))
@@ -436,7 +436,7 @@ class ExportIntegrityTest:
 
                 # Extrahiere alle Geometry-Namen
                 geometries = root.findall(".//collada:geometry", ns)
-                
+
                 for geometry in geometries:
                     geom_name = geometry.get("name", "unknown")
                     total_geometries += 1
@@ -450,7 +450,7 @@ class ExportIntegrityTest:
                                 idx_y = int(parts[2])
                                 coords = self._index_to_coords(idx_x, idx_y)
                                 texture_key = f"tile_{coords[0]}_{coords[1]}"
-                                
+
                                 if texture_key not in texture_keys:
                                     unmapped_geometries.append((dae_file.name, geom_name, texture_key))
                             except (ValueError, IndexError):

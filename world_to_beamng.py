@@ -55,7 +55,12 @@ from world_to_beamng.io.lod2 import (
 )
 from world_to_beamng.io.materials import reset_materials_json, append_materials_to_json
 from world_to_beamng.io.cache import load_height_hashes, save_height_hashes, calculate_file_hash
-from world_to_beamng.io.materials_merge import merge_materials_json, merge_items_json, save_materials_json, save_items_json
+from world_to_beamng.io.materials_merge import (
+    merge_materials_json,
+    merge_items_json,
+    save_materials_json,
+    save_items_json,
+)
 from world_to_beamng.utils.tile_scanner import scan_lgl_tiles, compute_global_bbox, compute_global_center
 from world_to_beamng.utils.timing import StepTimer
 from world_to_beamng.utils.multitile import (

@@ -102,7 +102,7 @@ def clip_road_polygons(road_polygons, grid_bounds_local, margin=3.0):
 
 def get_road_polygons(roads, bbox, height_points, height_elevations, tile_hash=None):
     """Extrahiert Strassen-Polygone mit ihren Koordinaten und Hoehen (OPTIMIERT).
-    
+
     Args:
         roads: OSM-Strassen-Daten
         bbox: (lat_min, lon_min, lat_max, lon_max) BBox
@@ -132,7 +132,9 @@ def get_road_polygons(roads, bbox, height_points, height_elevations, tile_hash=N
 
     # Batch-Elevation-Lookup
     print(f"  Lade Elevations fuer {len(all_coords)} Strassen-Punkte...")
-    all_elevations = get_elevations_for_points(all_coords, bbox, height_points, height_elevations, height_hash=tile_hash)
+    all_elevations = get_elevations_for_points(
+        all_coords, bbox, height_points, height_elevations, height_hash=tile_hash
+    )
 
     # Batch-UTM-Transformation (vektorisiert)
     lats = np.array([c[0] for c in all_coords])

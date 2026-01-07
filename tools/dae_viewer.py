@@ -40,22 +40,22 @@ class DAETileViewer:
         # Lade Items und Materialien aus JSON
         items_path = os.path.join(config.BEAMNG_DIR, "main.items.json")
         materials_path = os.path.join(config.BEAMNG_DIR, "main.materials.json")
-        
+
         if not os.path.exists(items_path):
             print(f"Fehler: {items_path} nicht gefunden!")
             return
-        
+
         print(f"Lade Items aus: {items_path}")
-        with open(items_path, 'r', encoding='utf-8') as f:
+        with open(items_path, "r", encoding="utf-8") as f:
             self.items = json.load(f)
-        
+
         print(f"Lade Materialien aus: {materials_path}")
         if os.path.exists(materials_path):
-            with open(materials_path, 'r', encoding='utf-8') as f:
+            with open(materials_path, "r", encoding="utf-8") as f:
                 self.materials = json.load(f)
         else:
             self.materials = {}
-        
+
         # Extrahiere alle DAE-Dateien aus Items
         self.dae_files = []
         for item_name, item_data in self.items.items():
@@ -66,13 +66,13 @@ class DAETileViewer:
                     self.dae_files.append((item_name, dae_path))
                 else:
                     print(f"  [!] DAE nicht gefunden: {shape_name}")
-        
+
         if not self.dae_files:
             print("Keine DAE-Dateien in main.items.json gefunden!")
             return
-        
+
         print(f"  -> {len(self.dae_files)} DAE-Dateien gefunden")
-        
+
         # Lade alle DAE-Dateien
         self.tile_data = []
         for item_name, dae_path in self.dae_files:
@@ -80,11 +80,11 @@ class DAETileViewer:
             data = load_dae_tile(dae_path)
             if data:
                 self.tile_data.append((item_name, data))
-        
+
         if not self.tile_data:
             print("Keine Geometrie in DAE-Dateien gefunden!")
             return
-        
+
         print(f"  -> {len(self.tile_data)} DAE-Dateien geladen")
 
         # Initialisiere config_path FRÜH (wird für _load_layers_state benötigt)
@@ -354,7 +354,7 @@ class DAETileViewer:
                     actor.SetVisibility(saved_debug_visibility)
                 except Exception as e:
                     print(f"[!] Fehler beim Wiederherstellen des Debug-Actors: {e}")
-        
+
         # Statuszeilen
         # Oben links: Bedienungsanleitung
         bedienung = "S: Straßen | T: Terrain | D: Debug | X: Texturen | K: Cam | L: Reload | Up/Down: Zoom"
@@ -393,20 +393,20 @@ class DAETileViewer:
                     actor.SetVisibility(saved_debug_visibility)
                 except Exception as e:
                     print(f"[!] Fehler beim Wiederherstellen des Debug-Actors: {e}")
-    
+
     def _index_to_coords(self, item_name, tile_index_x, tile_index_y):
         """
         Konvertiere Tile-Indizes (z.B. tile_-2_-2) zu absoluten Koordinaten.
-        
+
         Die Indizes sind Grid-Positionen mit 500m Abstände.
         Index -2, -1, 0, 1 correspond zu Koordinaten -1000, -500, 0, 500.
-        
+
         Returns: (x_coord, y_coord)
         """
         x_coord = tile_index_x * 500
         y_coord = tile_index_y * 500
         return (x_coord, y_coord)
-    
+
     def _render_single_dae(self, item_name, tile_data):
         """Rendere ein einzelnes DAE-File (terrain oder building)."""
         vertices = tile_data.get("vertices", [])
@@ -450,7 +450,7 @@ class DAETileViewer:
                     tile_vertices_local = np.array(tile_vertices_local)
 
                 mesh = self._create_mesh_with_uvs(tile_vertices_local, tile_faces_local, tile_uvs)
-                
+
                 # Konvertiere tile_name von Index (z.B. "tile_-2_-2") zu Koordinaten
                 texture_key = tile_name
                 if tile_name.startswith("tile_"):
@@ -464,7 +464,7 @@ class DAETileViewer:
                                 texture_key = f"tile_{coords[0]}_{coords[1]}"
                         except:
                             pass  # Fallback zu Original tile_name
-                
+
                 texture = self.textures.get(texture_key)
 
                 if texture is not None and len(tile_uvs) > 0:
@@ -484,10 +484,12 @@ class DAETileViewer:
                     except Exception as e:
                         print(f"  [!] Textur-Fehler für {tile_name}: {e}")
                 else:
-                    actor = self.plotter.add_mesh(mesh, color=[0.6, 0.5, 0.4], opacity=0.5, label=f"{item_name}_{tile_name}")
+                    actor = self.plotter.add_mesh(
+                        mesh, color=[0.6, 0.5, 0.4], opacity=0.5, label=f"{item_name}_{tile_name}"
+                    )
                     self.terrain_actors.append(actor)
                     actor.SetVisibility(self.show_terrain)
-        
+
         # Grid-Ansicht oder Buildings
         else:
             # Kategorisiere Faces nach Material
@@ -1182,9 +1184,9 @@ class DAETileViewer:
 
             # Lade Items neu
             items_path = os.path.join(config.BEAMNG_DIR, "main.items.json")
-            with open(items_path, 'r', encoding='utf-8') as f:
+            with open(items_path, "r", encoding="utf-8") as f:
                 self.items = json.load(f)
-            
+
             # Extrahiere alle DAE-Dateien aus Items
             self.dae_files = []
             for item_name, item_data in self.items.items():
@@ -1193,9 +1195,10 @@ class DAETileViewer:
                     dae_path = os.path.join(config.BEAMNG_DIR_SHAPES, shape_name)
                     if os.path.exists(dae_path):
                         self.dae_files.append((item_name, dae_path))
-            
+
             # Lade alle DAE-Dateien neu
             from tools.dae_loader import load_dae_tile
+
             self.tile_data = []
             for item_name, dae_path in self.dae_files:
                 data = load_dae_tile(dae_path)

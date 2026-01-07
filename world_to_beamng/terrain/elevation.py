@@ -196,7 +196,7 @@ def load_height_data():
 
 def get_elevation_cache(bbox, height_hash=None):
     """Lädt den Elevation-Cache fuer eine BBox (Koordinate -> Hoehe).
-    
+
     Args:
         bbox: Bounding Box
         height_hash: Optional - tile_hash für Cache-Konsistenz
@@ -204,8 +204,8 @@ def get_elevation_cache(bbox, height_hash=None):
     from ..io.cache import get_cache_path
 
     # Verwende übergebenes height_hash oder fallback auf config (wenn vorhanden)
-    effective_hash = height_hash or (getattr(config, 'HEIGHT_HASH', None))
-    
+    effective_hash = height_hash or (getattr(config, "HEIGHT_HASH", None))
+
     if effective_hash:
         cache_path = get_cache_path(bbox, "elevations", effective_hash)
     else:
@@ -228,7 +228,7 @@ def get_elevation_cache(bbox, height_hash=None):
 
 def save_elevation_cache(bbox, cache_data, height_hash=None):
     """Speichert den Elevation-Cache.
-    
+
     Args:
         bbox: Bounding Box
         cache_data: Cache-Daten zu speichern
@@ -237,8 +237,8 @@ def save_elevation_cache(bbox, cache_data, height_hash=None):
     from ..io.cache import get_cache_path
 
     # Verwende übergebenes height_hash oder fallback auf config (wenn vorhanden)
-    effective_hash = height_hash or (getattr(config, 'HEIGHT_HASH', None))
-    
+    effective_hash = height_hash or (getattr(config, "HEIGHT_HASH", None))
+
     if effective_hash:
         cache_path = get_cache_path(bbox, "elevations", effective_hash)
     else:
@@ -256,7 +256,7 @@ def save_elevation_cache(bbox, cache_data, height_hash=None):
 
 def get_elevations_for_points(pts, bbox, height_points, height_elevations, height_hash=None):
     """Holt Hoehendaten fuer Koordinaten - aus Cache oder durch Interpolation aus lokalen Daten.
-    
+
     Args:
         pts: Koordinaten (lat, lon)
         bbox: Bounding Box
