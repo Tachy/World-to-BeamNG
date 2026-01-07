@@ -133,14 +133,25 @@ def main():
 
     buildings_data = None  # Platzhalter: LoD2-Handling je Tile kann später ergänzt werden
 
+    # Sammle Debug-Daten aus allen Tiles
+    all_tiles_results = []
+
     for tile in tiles:
-        phase2_process_tile(
+        result = phase2_process_tile(
             tile,
             global_offset=global_offset,
             buildings_data=buildings_data,
         )
+        if result:
+            all_tiles_results.append(result)
 
     phase3_multitile_finalize(config.BEAMNG_DIR)
+
+    # Phase 4: Schreibe debug_network.json
+    from world_to_beamng.utils.multitile import write_debug_network_json
+
+    write_debug_network_json(all_tiles_results, config.CACHE_DIR)
+
     timer.report()
     return
 

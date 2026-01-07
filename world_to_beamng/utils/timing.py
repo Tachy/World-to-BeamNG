@@ -18,14 +18,8 @@ class StepTimer:
         self._close_open(now)
         self._counter += 1
         label = str(self._counter)
-        self.steps.append(
-            {"label": label, "title": title, "start": now, "duration": None}
-        )
+        self.steps.append({"label": label, "title": title, "start": now, "duration": None})
         print(f"\n[{label}] {title}...")
-
-    def end(self):
-        """Schließe den zuletzt gestarteten, noch offenen Schritt ab."""
-        return self._close_open(time.time())
 
     def set_duration(self, duration: float):
         """Setze Dauer manuell (z.B. bei Skips nach begin)."""
@@ -40,9 +34,7 @@ class StepTimer:
         self._close_open(now)
         total_elapsed = now - self._global_start
         print(f"\n{'=' * 60}")
-        print(
-            f"ZEITMESSUNG (Gesamtzeit: {total_elapsed:.2f}s / {total_elapsed/60:.1f} min)"
-        )
+        print(f"ZEITMESSUNG (Gesamtzeit: {total_elapsed:.2f}s / {total_elapsed/60:.1f} min)")
         print(f"{'=' * 60}")
         for step in self.steps:
             step_time = step.get("duration") or 0.0
@@ -50,9 +42,7 @@ class StepTimer:
             step_display = f"{step['label']} {step['title']}"
             bar_length = int(percentage / 2)  # 50 chars = 100%
             bar = "█" * bar_length + "░" * (50 - bar_length)
-            print(
-                f"  {step_display:.<35} {step_time:>6.2f}s ({percentage:>5.1f}%) {bar}"
-            )
+            print(f"  {step_display:.<35} {step_time:>6.2f}s ({percentage:>5.1f}%) {bar}")
         print(f"{'=' * 60}")
 
     def results(self):

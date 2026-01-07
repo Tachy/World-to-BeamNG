@@ -418,6 +418,48 @@ def load_buildings_from_cache(cache_file: str) -> List[Dict]:
         return pickle.load(f)
 
 
+def cache_normalized_buildings(
+    buildings: List[Dict],
+    height_points: np.ndarray,
+    height_elevations: np.ndarray,
+    cache_dir: str,
+    tile_hash: str,
+) -> Optional[str]:
+    """
+    Normalisiert Gebäude ans Terrain und cached sie.
+
+    Args:
+        buildings: Rohe Gebäude-Dicts
+        height_points: (N, 2) Array mit XY-Koordinaten des Terrains
+        height_elevations: (N,) Array mit Z-Werten des Terrains
+        cache_dir: Cache-Verzeichnis
+        tile_hash: Hash für Cache-Validierung
+
+    Returns:
+        Pfad zur normalisierten Cache-Datei oder None
+    """
+    if not buildings:
+        return None
+
+    cache_file = Path(cache_dir) / f"lod2_normalized_{tile_hash}.pkl"
+
+    if cache_file.exists():
+        print(f"  [i] Normalisierte LoD2-Cache gefunden: {cache_file.name}")
+        return str(cache_file)
+
+    # Normalisiere Gebäude
+    normalized_buildings = snap_buildings_to_terrain_batch(buildings, height_points, height_elevations)
+
+    # Cache schreiben
+    cache_file.parent.mkdir(parents=True, exist_ok=True)
+    with open(cache_file, "wb") as f:
+        pickle.dump(normalized_buildings, f)
+
+    print(f"  [✓] {len(normalized_buildings)} normalisierte Gebäude gecached")
+
+    return str(cache_file)
+
+
 def export_buildings_to_dae(
     buildings: List[Dict],
     output_dir: str,

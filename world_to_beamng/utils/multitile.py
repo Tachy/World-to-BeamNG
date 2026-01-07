@@ -64,11 +64,18 @@ def _expand_bbox(bbox, margin):
     return (min_x - margin, max_x + margin, min_y - margin, max_y + margin)
 
 
-def _load_tile_height_data(tile):
-    """Laedt die Hoehendaten einer einzelnen DGM1-Kachel.
+def _load_tile_height_data(tile, tile_hash=None):
+    """Laedt die Hoehendaten einer einzelnen DGM1-Kachel (mit Cache).
 
     WICHTIG: Ein LGL DGM1-ZIP enthält 4 XYZ-Dateien (2×2 Kacheln à 1000×1000m).
     Diese werden zu einem 2000×2000m Gebiet zusammengesetzt.
+    
+    Args:
+        tile: Tile-Metadaten Dict
+        tile_hash: Optional - Hash für Cache (wenn None, wird aus filepath berechnet)
+    
+    Returns:
+        Tuple (height_points, height_elevations) oder (None, None) bei Fehler
     """
 
     filepath = tile.get("filepath")
@@ -76,6 +83,22 @@ def _load_tile_height_data(tile):
         print(f"  [!] DGM1-Datei fehlt: {filepath}")
         return None, None
 
+    # Prüfe Cache
+    if tile_hash is None:
+        from world_to_beamng.io.cache import calculate_file_hash
+        tile_hash = calculate_file_hash(filepath)
+    
+    if tile_hash:
+        cache_file = os.path.join(config.CACHE_DIR, f"height_raw_{tile_hash}.npz")
+        if os.path.exists(cache_file):
+            print(f"  [OK] Höhendaten-Cache gefunden: {os.path.basename(cache_file)}")
+            data = np.load(cache_file)
+            height_points = data["points"]
+            height_elevations = data["elevations"]
+            print(f"  [OK] {len(height_elevations)} Höhenpunkte aus Cache geladen")
+            return height_points, height_elevations
+
+    # Lade aus Dateien
     all_data = []
 
     if filepath.lower().endswith(".xyz"):
@@ -111,8 +134,18 @@ def _load_tile_height_data(tile):
         print(f"  [!] DGM1-Daten ungültig: {filepath}")
         return None, None
 
-    print(f"  [OK] {len(combined_data)} Höhenpunkte geladen (aus {len(all_data)} Datei(en))")
-    return combined_data[:, :2].copy(), combined_data[:, 2].copy()
+    height_points = combined_data[:, :2].copy()
+    height_elevations = combined_data[:, 2].copy()
+
+    print(f"  [OK] {len(height_elevations)} Höhenpunkte geladen (aus {len(all_data)} Datei(en))")
+
+    # Speichere im Cache
+    if tile_hash:
+        os.makedirs(config.CACHE_DIR, exist_ok=True)
+        np.savez_compressed(cache_file, points=height_points, elevations=height_elevations)
+        print(f"  [OK] Höhendaten-Cache erstellt: {os.path.basename(cache_file)}")
+
+    return height_points, height_elevations
 
 
 def _ensure_local_offset(global_offset, height_points, height_elevations):
@@ -248,17 +281,17 @@ def phase2_process_tile(tile, global_offset=None, bbox_margin=50.0, buildings_da
 
     timer = StepTimer()
 
-    # === Höhendaten laden ===
-    timer.begin("Lade Hoehendaten (Tile)")
-    height_points_raw, height_elevations_raw = _load_tile_height_data(tile)
-    if height_points_raw is None or height_elevations_raw is None:
-        print("  [!] Abbruch: Keine Hoehendaten geladen")
-        return None
-
-    # === TILE-SPEZIFISCHER HASH (für alle Cache-Files: osm, lod2, elevations, grid) ===
+    # === TILE-SPEZIFISCHER HASH berechnen (VOR Höhendaten-Laden für Cache!) ===
     tile_hash = calculate_file_hash(tile.get("filepath")) or "no_hash"
     # Setze auch config.HEIGHT_HASH als Fallback für Code, der noch darauf zugreift
     config.HEIGHT_HASH = tile_hash
+
+    # === Höhendaten laden (mit Cache) ===
+    timer.begin("Lade Hoehendaten (Tile)")
+    height_points_raw, height_elevations_raw = _load_tile_height_data(tile, tile_hash=tile_hash)
+    if height_points_raw is None or height_elevations_raw is None:
+        print("  [!] Abbruch: Keine Hoehendaten geladen")
+        return None
 
     # === BBox berechnen (Tile-spezifisch, NICHT in config!) ===
     from pyproj import Transformer
@@ -294,7 +327,6 @@ def phase2_process_tile(tile, global_offset=None, bbox_margin=50.0, buildings_da
         float(height_points[:, 1].min()),
         float(height_points[:, 1].max()),
     )
-    timer.end()
 
     # === Terrain-Grid erzeugen ===
     timer.begin("Erstelle Terrain-Grid")
@@ -304,48 +336,74 @@ def phase2_process_tile(tile, global_offset=None, bbox_margin=50.0, buildings_da
         grid_spacing=config.GRID_SPACING,
         tile_hash=tile_hash,
     )
-    timer.end()
 
     # === Luftbilder verarbeiten (falls vorhanden) ===
     timer.begin("Verarbeite Luftbilder")
-    try:
-        from world_to_beamng.io.aerial import process_aerial_images
 
-        tile_count = process_aerial_images(
-            aerial_dir="data/DOP20", output_dir=config.BEAMNG_DIR_TEXTURES, tile_size=2500
-        )
-        if tile_count > 0:
-            print(f"  [OK] {tile_count} Luftbild-Kacheln exportiert")
-        else:
-            print("  [i] Keine Luftbilder verarbeitet")
-    except Exception as e:
-        print(f"  [i] Luftbild-Verarbeitung übersprungen: {e}")
-    timer.end()
+    # Prüfe ob Elevations-Cache existiert - wenn ja, dann Luftbilder überspringen
+    elevations_cache_path = os.path.join(config.CACHE_DIR, f"elevations_{tile_hash}.json")
+
+    if os.path.exists(elevations_cache_path):
+        print(f"  [i] Elevations-Cache vorhanden - Luftbilder werden übersprungen")
+    else:
+        try:
+            from world_to_beamng.io.aerial import process_aerial_images
+
+            tile_count = process_aerial_images(
+                aerial_dir="data/DOP20", output_dir=config.BEAMNG_DIR_TEXTURES, tile_size=2500
+            )
+            if tile_count > 0:
+                print(f"  [OK] {tile_count} Luftbild-Kacheln exportiert")
+            else:
+                print("  [i] Keine Luftbilder verarbeitet")
+        except Exception as e:
+            print(f"  [i] Luftbild-Verarbeitung übersprungen: {e}")
 
     # === LoD2-Gebäude laden (wenn aktiviert) ===
     if buildings_data is None and config.LOD2_ENABLED:
         timer.begin("Lade LoD2-Gebaeude")
-        buildings_cache_path = cache_lod2_buildings(
-            lod2_dir=config.LOD2_DATA_DIR,
-            bbox=bbox_latlon,  # Tile-spezifische WGS84-BBox
-            local_offset=(ox, oy),
-            cache_dir=config.CACHE_DIR,
-            height_hash=tile_hash,  # Tile-Hash
+        
+        # Prüfe zuerst ob normalisierte Gebäude im Cache sind
+        from world_to_beamng.io.lod2 import (
+            cache_lod2_buildings,
+            load_buildings_from_cache,
+            cache_normalized_buildings,
         )
-        if buildings_cache_path:
-            from world_to_beamng.io.lod2 import load_buildings_from_cache, snap_buildings_to_terrain_batch
-
-            buildings_data = load_buildings_from_cache(buildings_cache_path)
+        
+        normalized_cache_path = os.path.join(config.CACHE_DIR, f"lod2_normalized_{tile_hash}.pkl")
+        
+        if os.path.exists(normalized_cache_path):
+            # Lade bereits normalisierte Gebäude aus Cache
+            buildings_data = load_buildings_from_cache(normalized_cache_path)
             if buildings_data:
-                print(f"  [OK] {len(buildings_data)} Gebaeude geladen")
-
-                # Z-Koordinaten ans Terrain anpassen
-                buildings_data = snap_buildings_to_terrain_batch(buildings_data, height_points, height_elevations)
-                print(f"  [OK] Z-Koordinaten normalisiert ({len(buildings_data)} Gebaeude)")
+                print(f"  [OK] {len(buildings_data)} normalisierte Gebaeude aus Cache geladen")
+        else:
+            # Lade rohe Gebäude und normalisiere sie
+            buildings_cache_path = cache_lod2_buildings(
+                lod2_dir=config.LOD2_DATA_DIR,
+                bbox=bbox_latlon,  # Tile-spezifische WGS84-BBox
+                local_offset=(ox, oy),
+                cache_dir=config.CACHE_DIR,
+                height_hash=tile_hash,  # Tile-Hash
+            )
+            if buildings_cache_path:
+                raw_buildings = load_buildings_from_cache(buildings_cache_path)
+                if raw_buildings:
+                    print(f"  [OK] {len(raw_buildings)} Gebaeude geladen")
+                    
+                    # Normalisiere und cache
+                    normalized_cache = cache_normalized_buildings(
+                        raw_buildings,
+                        height_points,
+                        height_elevations,
+                        config.CACHE_DIR,
+                        tile_hash,
+                    )
+                    if normalized_cache:
+                        buildings_data = load_buildings_from_cache(normalized_cache)
 
         if not buildings_data:
             print("  [i] Keine LoD2-Gebaeude gefunden")
-        timer.end()
 
     # === OSM-Daten laden ===
     timer.begin("Lade OSM-Daten")
@@ -360,7 +418,6 @@ def phase2_process_tile(tile, global_offset=None, bbox_margin=50.0, buildings_da
     if not roads:
         print("  [!] Keine Strassen gefunden - Tile wird uebersprungen")
         return None
-    timer.end()
 
     # === Strassen-Polygone ===
     timer.begin("Erstelle Strassen-Polygone")
@@ -369,15 +426,12 @@ def phase2_process_tile(tile, global_offset=None, bbox_margin=50.0, buildings_da
     if config.ROAD_CLIP_MARGIN > 0:
         road_polygons = clip_road_polygons(road_polygons, config.GRID_BOUNDS_LOCAL, margin=config.ROAD_CLIP_MARGIN)
 
-    timer.end()
-
     # === Junctions erkennen ===
     timer.begin("Erkenne Junctions")
     junctions = detect_junctions_in_centerlines(road_polygons, height_points, height_elevations)
     road_polygons, junctions = split_roads_at_mid_junctions(road_polygons, junctions)
     road_polygons = mark_junction_endpoints(road_polygons, junctions)
     junction_stats(junctions, road_polygons)
-    timer.end()
 
     # === Vertex-Manager + Mesh ===
     vertex_manager = VertexManager(tolerance=0.01)
@@ -421,7 +475,6 @@ def phase2_process_tile(tile, global_offset=None, bbox_margin=50.0, buildings_da
 
     # Materials fuer Roads vorbereiten
     road_material_entries = [config.OSM_MAPPER.generate_materials_json_entry(n, p) for n, p in unique_materials.items()]
-    timer.end()
 
     # === Klassifiziere Grid-Vertices (Road/Terrain) ===
     timer.begin("Klassifiziere Grid-Vertices")
@@ -455,7 +508,6 @@ def phase2_process_tile(tile, global_offset=None, bbox_margin=50.0, buildings_da
         grid_elevations,
         road_data_for_classification,
     )
-    timer.end()
 
     # === Terrain-Mesh regenerieren ===
     timer.begin("Regeneriere Terrain-Mesh")
@@ -471,7 +523,6 @@ def phase2_process_tile(tile, global_offset=None, bbox_margin=50.0, buildings_da
 
     for face in terrain_faces_final:
         mesh.add_face(face[0], face[1], face[2], material="terrain")
-    timer.end()
 
     # === Cleanup + Stitching ===
     timer.begin("Cleanup & Stitching")
@@ -493,7 +544,6 @@ def phase2_process_tile(tile, global_offset=None, bbox_margin=50.0, buildings_da
         filter_road_id=None,
         filter_junction_id=None,
     )
-    timer.end()
 
     # === Mesh slicen und exportieren ===
     timer.begin("Slice & Export DAE")
@@ -576,15 +626,73 @@ def phase2_process_tile(tile, global_offset=None, bbox_margin=50.0, buildings_da
     else:
         print("  [i] Kein Mesh generiert - nichts zu exportieren")
 
-    timer.end()
+    timer.report()
 
     print(f"  [OK] Tile abgeschlossen: {tile.get('filename')}")
+
+    # Sammle Debug-Netzwerk-Daten (für debug_network.json)
+    trimmed_roads_data = []
+    junction_connections = {}
+
+    for road_meta in road_slope_polygons_2d:
+        if "trimmed_centerline" in road_meta and road_meta["trimmed_centerline"]:
+            coords = road_meta["trimmed_centerline"]
+            dump_idx = len(trimmed_roads_data)
+
+            start_jid = road_meta.get("junction_start_id")
+            end_jid = road_meta.get("junction_end_id")
+
+            trimmed_roads_data.append(
+                {
+                    "road_id": road_meta.get("road_id"),
+                    "original_idx": road_meta.get("original_idx"),
+                    "coords": coords if isinstance(coords, list) else coords.tolist(),
+                    "num_points": len(coords),
+                    "junction_start_id": start_jid,
+                    "junction_end_id": end_jid,
+                    "junction_buffer_start": road_meta.get("junction_buffer_start"),
+                    "junction_buffer_end": road_meta.get("junction_buffer_end"),
+                    "color": [0.0, 0.0, 1.0],
+                    "line_width": 2.0,
+                    "opacity": 1.0,
+                }
+            )
+
+            def _add_conn(jid, conn_type):
+                if jid is None:
+                    return
+                data = junction_connections.setdefault(jid, {"road_indices": [], "connection_types": {}})
+                if dump_idx not in data["road_indices"]:
+                    data["road_indices"].append(dump_idx)
+                data["connection_types"].setdefault(dump_idx, []).append(conn_type)
+
+            _add_conn(start_jid, "start")
+            _add_conn(end_jid, "end")
+
+    junction_dump = []
+    for j_idx, j in enumerate(junctions):
+        conn_data = junction_connections.get(j_idx, {})
+        road_idxs = sorted(conn_data.get("road_indices", []))
+        connection_types = conn_data.get("connection_types", {})
+
+        junction_dump.append(
+            {
+                "position": list(j.get("position", (0, 0, 0))),
+                "road_indices": road_idxs,
+                "connection_types": connection_types,
+                "num_connections": len(road_idxs),
+                "color": [0.0, 0.0, 1.0],
+                "opacity": 0.5,
+            }
+        )
 
     return {
         "tile": tile,
         "materials": materials_path,
         "items": items_path,
         "dae_files": dae_files,
+        "debug_roads": trimmed_roads_data,
+        "debug_junctions": junction_dump,
     }
 
 
@@ -623,3 +731,108 @@ def phase3_multitile_finalize(beamng_dir):
 
     print(f"\n[OK] PHASE 3 abgeschlossen")
     return final_materials, final_items
+
+
+def write_debug_network_json(all_tiles_results, cache_dir):
+    """
+    PHASE 4: Schreibe gesammelte Debug-Netzwerk-Daten in debug_network.json.
+
+    Args:
+        all_tiles_results: Liste von Dicts aus phase2_process_tile() mit debug_roads/debug_junctions
+        cache_dir: Zielverzeichnis für debug_network.json
+    """
+    if not config.DEBUG_EXPORTS:
+        print("[i] DEBUG_EXPORTS deaktiviert - debug_network.json wird nicht geschrieben")
+        return
+
+    print("\n" + "=" * 60)
+    print("[PHASE 4] Schreibe Debug-Netzwerk-Daten")
+    print("=" * 60)
+
+    os.makedirs(cache_dir, exist_ok=True)
+    debug_network_path = os.path.join(cache_dir, "debug_network.json")
+
+    # Sammle Daten aus allen Tiles
+    all_roads = []
+    all_junctions = []
+    road_offset = 0  # Offset für Straßen-Indizes bei mehreren Tiles
+    junction_offset = 0  # Offset für Junction-Indizes bei mehreren Tiles
+
+    for result in all_tiles_results:
+        if result is None:
+            continue
+
+        # Straßen mit Offset hinzufügen
+        roads = result.get("debug_roads", [])
+        for road in roads:
+            road_copy = road.copy()
+            all_roads.append(road_copy)
+
+        # Junctions mit angepassten Indizes hinzufügen
+        junctions = result.get("debug_junctions", [])
+        for j in junctions:
+            j_copy = j.copy()
+            # Passe road_indices an (beziehen sich auf Straßen-Indizes)
+            j_copy["road_indices"] = [idx + road_offset for idx in j_copy.get("road_indices", [])]
+            all_junctions.append(j_copy)
+
+        road_offset += len(roads)
+        junction_offset += len(junctions)
+
+    # Grid-Farben definieren
+    grid_colors = {
+        "terrain": {
+            "face": [0.8, 0.95, 0.8],
+            "edge": [0.2, 0.5, 0.2],
+            "face_opacity": 0.5,
+            "edge_opacity": 1.0,
+        },
+        "road": {
+            "face": [1.0, 1.0, 1.0],
+            "edge": [1.0, 0.0, 0.0],
+            "face_opacity": 0.5,
+            "edge_opacity": 1.0,
+        },
+        "building_wall": {
+            "face": [0.95, 0.95, 0.95],
+            "edge": [0.3, 0.3, 0.3],
+            "face_opacity": 0.5,
+            "edge_opacity": 1.0,
+        },
+        "building_roof": {
+            "face": [0.6, 0.2, 0.1],
+            "edge": [0.3, 0.1, 0.05],
+            "face_opacity": 0.5,
+            "edge_opacity": 1.0,
+        },
+        "junction": {
+            "color": [0.0, 0.0, 1.0],
+            "opacity": 0.5,
+        },
+        "centerline": {
+            "color": [0.0, 0.0, 1.0],
+            "line_width": 2.0,
+            "opacity": 1.0,
+        },
+        "boundary": {
+            "color": [1.0, 0.0, 1.0],
+            "line_width": 2.0,
+            "opacity": 1.0,
+        },
+    }
+
+    # Schreibe debug_network.json
+    with open(debug_network_path, "w", encoding="utf-8") as f:
+        json.dump(
+            {
+                "roads": all_roads,
+                "junctions": all_junctions,
+                "grid_colors": grid_colors,
+                "boundary_polygons": [],
+            },
+            f,
+            indent=2,
+        )
+
+    print(f"  [OK] {len(all_roads)} Straßen, {len(all_junctions)} Junctions")
+    print(f"  [Debug] Netz-Daten exportiert: {debug_network_path}")
