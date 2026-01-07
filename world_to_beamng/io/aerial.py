@@ -272,7 +272,10 @@ def process_aerial_images(aerial_dir, output_dir, tile_size=1000, grid_bounds=No
                 tiles_y = int(grid_height / tile_world_size)
 
                 if 0 <= global_x_idx < tiles_x and 0 <= global_y_idx < tiles_y:
-                    filename = f"tile_{global_x_idx}_{global_y_idx}.jpg"
+                    # Berechne Koordinaten der oberen linken Ecke dieses Tiles
+                    tile_corner_x = int(grid_min_x + global_x_idx * tile_world_size)
+                    tile_corner_y = int(grid_min_y + global_y_idx * tile_world_size)
+                    filename = f"tile_{tile_corner_x}_{tile_corner_y}.jpg"
                     filepath = output_path / filename
 
                     # Prüfe ob dieses Tile bereits geschrieben wurde (in unique_tiles oder auf Disk)

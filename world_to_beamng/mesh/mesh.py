@@ -79,11 +79,48 @@ class Mesh:
         Returns:
             List von Face-Indices
         """
-        return [
-            idx
-            for idx, props in self.face_props.items()
-            if props.get(prop_name) == value
-        ]
+        return [idx for idx, props in self.face_props.items() if props.get(prop_name) == value]
+
+    def remove_faces(self, face_indices):
+        """
+        Entferne Faces aus dem Mesh.
+
+        Args:
+            face_indices: Set oder Liste von Face-Indices zum Entfernen
+
+        Returns:
+            Anzahl entfernter Faces
+        """
+        if not face_indices:
+            return 0
+
+        face_indices_set = set(face_indices)
+        removed_count = len(face_indices_set)
+
+        # Neue Listen ohne die zu löschenden Faces
+        new_faces = []
+        new_face_props = {}
+        old_to_new_idx = {}  # Mapping: alter Index -> neuer Index
+
+        new_idx = 0
+        for old_idx, face in enumerate(self.faces):
+            if old_idx not in face_indices_set:
+                new_faces.append(face)
+                new_face_props[new_idx] = self.face_props.get(old_idx, {})
+                old_to_new_idx[old_idx] = new_idx
+                new_idx += 1
+
+        # Ersetze alte Daten
+        self.faces = new_faces
+        self.face_props = new_face_props
+
+        # Update Material-Counts
+        self.material_counts.clear()
+        for props in self.face_props.values():
+            mat = props.get("material", "terrain")
+            self.material_counts[mat] += 1
+
+        return removed_count
 
     def get_faces_array(self, prop_name=None, value=None, dtype=np.int32):
         """
@@ -128,15 +165,9 @@ class Mesh:
                 face_indices.extend(self.get_faces_by_property("material", material))
 
         faces = [self.faces[i] for i in sorted(face_indices)]
-        materials_per_face = [
-            self.face_props[i]["material"] for i in sorted(face_indices)
-        ]
+        materials_per_face = [self.face_props[i]["material"] for i in sorted(face_indices)]
 
-        faces_array = (
-            np.array(faces, dtype=np.int32)
-            if faces
-            else np.empty((0, 3), dtype=np.int32)
-        )
+        faces_array = np.array(faces, dtype=np.int32) if faces else np.empty((0, 3), dtype=np.int32)
 
         return faces_array, materials_per_face
 
@@ -178,10 +209,7 @@ class Mesh:
         old_props = self.face_props
 
         self.faces = [old_faces[i] for i in unique_indices]
-        self.face_props = {
-            new_idx: old_props[old_idx]
-            for new_idx, old_idx in enumerate(unique_indices)
-        }
+        self.face_props = {new_idx: old_props[old_idx] for new_idx, old_idx in enumerate(unique_indices)}
 
         removed_count = len(old_faces) - len(self.faces)
         return removed_count

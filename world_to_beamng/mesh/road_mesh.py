@@ -379,7 +379,14 @@ def clip_road_to_bounds(coords, bounds_local):
 
     # bounds_local ist (min_x, max_x, min_y, max_y)
     min_x, max_x, min_y, max_y = bounds_local
+    # Erweiterung der Bounds falls ROAD_CLIP_MARGIN negativ ist ("rausziehen")
     buffer = 0.0
+    try:
+        margin = float(getattr(config, "ROAD_CLIP_MARGIN", 0.0))
+        if margin < 0:
+            buffer = -margin
+    except Exception:
+        buffer = 0.0
     min_x -= buffer
     min_y -= buffer
     max_x += buffer

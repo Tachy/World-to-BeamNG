@@ -10,8 +10,15 @@ from .. import config
 from .elevation import get_height_data_hash
 
 
-def create_terrain_grid(height_points, height_elevations, grid_spacing=10.0):
-    """Erstellt ein reguläres Grid aus den Hoehendaten (OPTIMIERT mit Caching)."""
+def create_terrain_grid(height_points, height_elevations, grid_spacing=10.0, tile_hash=None):
+    """Erstellt ein reguläres Grid aus den Hoehendaten (OPTIMIERT mit Caching).
+    
+    Args:
+        height_points: XY-Koordinaten (lokale Koordinaten)
+        height_elevations: Z-Werte
+        grid_spacing: Gitter-Abstand in Metern
+        tile_hash: Optional - tile_hash für Cache-Konsistenz (Multi-Tile-Mode)
+    """
     print(f"  Erstelle Terrain-Grid (Abstand: {grid_spacing}m)...")
 
     # Grid-Bounds wurden bereits in world_to_beamng.py gesetzt (aus height_points)
@@ -20,9 +27,10 @@ def create_terrain_grid(height_points, height_elevations, grid_spacing=10.0):
     min_y, max_y = height_points[:, 1].min(), height_points[:, 1].max()
 
     # Pruefe ob gecachtes Grid existiert (Version 3 mit korrekten Bounds!)
-    height_hash = get_height_data_hash()
-    if height_hash:
-        cache_file = os.path.join(config.CACHE_DIR, f"grid_v3_{height_hash}_spacing{grid_spacing:.1f}m.npz")
+    # Verwende übergebenes tile_hash oder fallback auf global hash
+    effective_hash = tile_hash or get_height_data_hash()
+    if effective_hash:
+        cache_file = os.path.join(config.CACHE_DIR, f"grid_v3_{effective_hash}_spacing{grid_spacing:.1f}m.npz")
 
         if os.path.exists(cache_file):
             print(f"  [OK] Grid-Cache gefunden: {os.path.basename(cache_file)}")
@@ -68,8 +76,8 @@ def create_terrain_grid(height_points, height_elevations, grid_spacing=10.0):
     print(f"  Grid: {nx} x {ny} = {len(grid_points)} Vertices")
 
     # Cache das Grid fuer zukuenftige Verwendung (Version 3 mit korrekten Bounds!)
-    if height_hash:
-        cache_file = os.path.join(config.CACHE_DIR, f"grid_v3_{height_hash}_spacing{grid_spacing:.1f}m.npz")
+    if effective_hash:
+        cache_file = os.path.join(config.CACHE_DIR, f"grid_v3_{effective_hash}_spacing{grid_spacing:.1f}m.npz")
         print(f"  Speichere Grid-Cache: {os.path.basename(cache_file)}")
         os.makedirs(config.CACHE_DIR, exist_ok=True)
         np.savez_compressed(

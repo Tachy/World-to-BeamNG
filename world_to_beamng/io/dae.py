@@ -16,6 +16,7 @@ from pathlib import Path
 def export_merged_dae(
     tiles_dict,
     output_path,
+    tile_size=400,
 ):
     """
     Exportiert alle Tiles als EINE .dae (Collada 1.4.1) mit mehreren Geometrien.
@@ -23,7 +24,11 @@ def export_merged_dae(
     Args:
         tiles_dict: Dictionary von tile_slicer.slice_mesh_into_tiles()
                     Format: {(tile_x, tile_y): {"vertices": [...], "faces": [...], "materials": [...]}}
-        output_path: Ziel-Dateipfad (z.B. "terrain.dae")
+        output_path: Ziel-Dateipfad (wird als Vorlage verwendet, echte Datei nutzt Koordinaten)
+        tile_size: Tile-Größe in Metern (zur Koordinaten-Umrechnung)
+
+    Returns:
+        Tatsächlicher DAE-Dateiname mit Koordinaten-Index
     """
 
     # ============ DAE XML Structure ============
@@ -274,10 +279,27 @@ def export_merged_dae(
     SubElement(scene, "instance_visual_scene").set("url", "#default_scene")
 
     # ============ Schreibe DAE ============
-    os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
+    # Berechne minimale Koordinaten für Index
+    if tiles_dict:
+        min_tile_x = min(tile_x for tile_x, tile_y in tiles_dict.keys())
+        min_tile_y = min(tile_y for tile_x, tile_y in tiles_dict.keys())
+        corner_x = min_tile_x * tile_size
+        corner_y = min_tile_y * tile_size
+
+        # Benenne DAE-Datei um (ersetze "terrain.dae" durch "terrain_<x>_<y>.dae")
+        output_dir = os.path.dirname(output_path)
+        actual_output_path = os.path.join(output_dir, f"terrain_{corner_x}_{corner_y}.dae")
+        actual_dae_filename = f"terrain_{corner_x}_{corner_y}.dae"
+    else:
+        actual_output_path = output_path
+        actual_dae_filename = os.path.basename(output_path)
+
+    os.makedirs(os.path.dirname(actual_output_path) or ".", exist_ok=True)
 
     tree = ElementTree(collada)
-    tree.write(output_path, encoding="utf-8", xml_declaration=True)
+    tree.write(actual_output_path, encoding="utf-8", xml_declaration=True)
+
+    return actual_dae_filename
 
     total_vertices = sum(len(t["vertices"]) for t in tiles_dict.values())
     total_faces = sum(len(t["faces"]) for t in tiles_dict.values())
@@ -288,13 +310,14 @@ def export_merged_dae(
     return output_path
 
 
-def create_terrain_materials_json(tiles_dict, level_name="World_to_BeamNG"):
+def create_terrain_materials_json(tiles_dict, level_name="World_to_BeamNG", tile_size=400):
     """
     Erstellt materials.json Einträge für Terrain-Tiles.
 
     Args:
         tiles_dict: Dictionary von tile_slicer.slice_mesh_into_tiles()
         level_name: Name des BeamNG Levels (für Texturpfade)
+        tile_size: Tile-Größe in Metern (zur Koordinaten-Umrechnung)
 
     Returns:
         Dict mit Material-Definitionen
@@ -305,8 +328,13 @@ def create_terrain_materials_json(tiles_dict, level_name="World_to_BeamNG"):
         if len(tiles_dict[(tile_x, tile_y)]["faces"]) == 0:
             continue
 
-        mat_name = f"tile_{tile_x}_{tile_y}"
-        texture_path = f"/levels/{level_name}/art/shapes/textures/tile_{tile_x}_{tile_y}.jpg"
+        # Berechne Welt-Koordinaten der Tile-Ecke (wie in aerial.py)
+        corner_x = tile_x * tile_size
+        corner_y = tile_y * tile_size
+
+        # Material-Name, Key und Texturpfad alle mit Welt-Koordinaten
+        mat_name = f"tile_{corner_x}_{corner_y}"
+        texture_path = f"/levels/{level_name}/art/shapes/textures/tile_{corner_x}_{corner_y}.jpg"
 
         materials[mat_name] = {
             "name": mat_name,
@@ -319,18 +347,23 @@ def create_terrain_materials_json(tiles_dict, level_name="World_to_BeamNG"):
     return materials
 
 
-def create_terrain_items_json(dae_filename="terrain.dae"):
+def create_terrain_items_json(dae_filename):
     """
     Erstellt items.json Eintrag für terrain.dae.
 
     Args:
-        dae_filename: Dateiname der Terrain-DAE
+        dae_filename: Dateiname der Terrain-DAE (mit Koordinaten-Index, z.B. "terrain_0_0.dae")
 
     Returns:
-        Dict mit TSStatic-Eintrag
+        Dict mit TSStatic-Eintrag (Key und __name basierend auf dae_filename)
     """
+    # Extrahiere Basename ohne Extension (z.B. "terrain_0_0.dae" -> "terrain_0_0")
+    import os
+
+    item_name = os.path.splitext(dae_filename)[0]
+
     return {
-        "__name": "terrain_mesh",
+        "__name": item_name,
         "class": "TSStatic",
         "shapeName": dae_filename,
         "position": [0, 0, 0],
@@ -340,7 +373,7 @@ def create_terrain_items_json(dae_filename="terrain.dae"):
     }
 
 
-def export_terrain_materials_json(tiles_dict, output_dir, level_name="World_to_BeamNG"):
+def export_terrain_materials_json(tiles_dict, output_dir, level_name="World_to_BeamNG", tile_size=400):
     """
     Exportiert/merged main.materials.json für Terrain.
 
@@ -348,6 +381,7 @@ def export_terrain_materials_json(tiles_dict, output_dir, level_name="World_to_B
         tiles_dict: Tiles Dictionary
         output_dir: BeamNG Level-Root
         level_name: Level-Name für Pfade
+        tile_size: Tile-Größe in Metern (zur Koordinaten-Umrechnung)
 
     Returns:
         Pfad zur materials.json
@@ -358,7 +392,7 @@ def export_terrain_materials_json(tiles_dict, output_dir, level_name="World_to_B
     output_path = Path(output_dir)
     materials_file = output_path / "main.materials.json"
 
-    materials = create_terrain_materials_json(tiles_dict, level_name)
+    materials = create_terrain_materials_json(tiles_dict, level_name, tile_size)
 
     # Wenn existiert: merge
     if materials_file.exists():

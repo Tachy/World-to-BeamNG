@@ -338,10 +338,9 @@ def cache_lod2_buildings(
 
     bbox_utm = (min_x_utm, min_y_utm, max_x_utm, max_y_utm)
 
-    # Cache-Key aus BBOX (UTM) und Height-Hash
-    bbox_str = f"{bbox_utm[0]:.1f}_{bbox_utm[1]:.1f}_{bbox_utm[2]:.1f}_{bbox_utm[3]:.1f}"
-    cache_key = hashlib.md5(f"{bbox_str}_{height_hash}".encode()).hexdigest()[:12]
-    cache_file = Path(cache_dir) / f"lod2_{cache_key}.pkl"
+    # Cache-Key: Verwende direkt height_hash (tile_hash) für einheitliche Konsistenz
+    # Alle Cache-Files für diesen Tile (OSM, LoD2, elevations, grid) nutzen dasselbe Hash
+    cache_file = Path(cache_dir) / f"lod2_{height_hash}.pkl"
 
     if cache_file.exists():
         print(f"  [i] LoD2-Cache gefunden: {cache_file.name}")
@@ -441,6 +440,29 @@ def export_buildings_to_dae(
         Pfad zur erzeugten .dae-Datei oder None
     """
     from xml.etree.ElementTree import Element, SubElement, ElementTree
+    from .. import config
+
+    if not buildings:
+        return None
+
+    # Filtere Gebäude: Nur solche, deren Schwerpunkt innerhalb der Grid-Bounds liegt
+    bounds = config.GRID_BOUNDS_LOCAL
+    if bounds is not None:
+        min_x, max_x, min_y, max_y = bounds
+        buildings_in_bounds = []
+        for building in buildings:
+            # Berechne Schwerpunkt aus bounds (min_x, min_y, min_z, max_x, max_y, max_z)
+            b = building.get("bounds")
+            if b:
+                centroid_x = (b[0] + b[3]) / 2.0
+                centroid_y = (b[1] + b[4]) / 2.0
+                if min_x <= centroid_x <= max_x and min_y <= centroid_y <= max_y:
+                    buildings_in_bounds.append(building)
+
+        if len(buildings) != len(buildings_in_bounds):
+            print(f"  [LoD2] {len(buildings) - len(buildings_in_bounds)} Gebäude außerhalb Grid-Bounds übersprungen")
+
+        buildings = buildings_in_bounds
 
     if not buildings:
         return None
@@ -748,11 +770,12 @@ def create_items_json_entry(dae_path: str, tile_x: int, tile_y: int) -> Dict:
 
     Args:
         dae_path: Relativer Pfad zur .dae-Datei
-        tile_x, tile_y: Tile-Koordinaten
+        tile_x, tile_y: Tile-Koordinaten (Welt-Koordinaten der oberen linken Ecke)
 
     Returns:
         Dict für items.json
     """
+    # tile_x und tile_y sind bereits Welt-Koordinaten (z.B. 0, 400, 800...)
     return {
         "__name": f"buildings_tile_{tile_x}_{tile_y}",
         "class": "TSStatic",

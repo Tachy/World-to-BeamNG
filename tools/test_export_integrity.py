@@ -7,6 +7,7 @@ Prüft:
 - Texturen
 - Material/Shape-Referenzen
 - XML-Validität
+- Texture-Mapping (Tile-Namen zu Texturdateien)
 """
 
 import sys
@@ -14,6 +15,7 @@ import os
 from pathlib import Path
 import json
 import xml.etree.ElementTree as ET
+from lxml import etree as lxml_etree
 
 # Füge Parent-Directory zum Path hinzu
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -54,13 +56,15 @@ class ExportIntegrityTest:
         """Teste terrain.dae Integrität."""
         print("\n[1] Teste terrain.dae...")
 
-        terrain_dae = self.shapes_dir / "terrain.dae"
-
-        if not terrain_dae.exists():
-            self.error(f"terrain.dae nicht gefunden: {terrain_dae}")
+        # Suche dynamisch nach terrain_<x>_<y>.dae
+        terrain_daes = list(self.shapes_dir.glob("terrain_*.dae"))
+        
+        if not terrain_daes:
+            self.error(f"Keine terrain_*.dae gefunden in: {self.shapes_dir}")
             return
 
-        self.success(f"terrain.dae gefunden: {terrain_dae}")
+        terrain_dae = terrain_daes[0]
+        self.success(f"terrain.dae gefunden: {terrain_dae.name}")
 
         # Parse XML
         try:
@@ -249,10 +253,13 @@ class ExportIntegrityTest:
                     self.success("Alle DAE-Material-Referenzen in materials.json vorhanden")
 
                 # Optionale Warnung für ungenutzte Materialien in JSON
+                # Ignoriere Tile-Materialien (tile_<x>_<y>) und Terrain-Basis-Materialien
                 unused = [m for m in json_material_names if m not in used_materials]
                 unused = [m for m in unused if m not in ("unknown",)]  # allow fallback
+                # Filtere Tile-Materialien heraus (normal für BeamNG Material-System)
+                unused = [m for m in unused if not m.startswith("tile_")]
                 if unused:
-                    self.warning(f"{len(unused)} Materialien in materials.json ungenutzt (z.B. {unused[:3]})")
+                    self.warning(f"{len(unused)} Straßen-Materialien in materials.json ungenutzt (z.B. {unused[:3]})")
 
         except json.JSONDecodeError as e:
             self.error(f"JSON-Parse-Fehler: {e}")
@@ -277,16 +284,18 @@ class ExportIntegrityTest:
 
             self.success(f"{len(items)} Items definiert")
 
-            # Prüfe Terrain-Item
-            terrain_item = items.get("terrain_mesh")
-            if terrain_item:
-                self.success("Terrain-Mesh-Item vorhanden")
+            # Prüfe Terrain-Item (dynamisch: "terrain_<x>_<y>")
+            terrain_items = [k for k in items.keys() if k.startswith("terrain_")]
+            if terrain_items:
+                terrain_item_name = terrain_items[0]
+                terrain_item = items[terrain_item_name]
+                self.success(f"Terrain-Mesh-Item vorhanden: {terrain_item_name}")
                 if terrain_item.get("class") != "TSStatic":
-                    self.error("Terrain-Item: class != TSStatic")
+                    self.error(f"Terrain-Item {terrain_item_name}: class != TSStatic")
                 if terrain_item.get("collisionType") != "Visible Mesh":
-                    self.warning("Terrain-Item: collisionType != Visible Mesh")
+                    self.warning(f"Terrain-Item {terrain_item_name}: collisionType != Visible Mesh")
             else:
-                self.warning("Kein terrain_mesh Item gefunden")
+                self.warning("Kein terrain_<x>_<y> Item gefunden")
 
             # Zähle Gebäude-Items
             building_items = [k for k in items.keys() if k.startswith("buildings_tile_")]
@@ -381,6 +390,84 @@ class ExportIntegrityTest:
         # Berechne Gesamt-Größe
         total_size = sum(tex.stat().st_size for tex in textures)
         self.success(f"Gesamt-Textur-Größe: {total_size/1024/1024:.1f} MB")
+
+    def _index_to_coords(self, tile_index_x, tile_index_y):
+        """
+        Konvertiere Tile-Indizes zu absoluten Koordinaten.
+        Index -2, -1, 0, 1 correspond zu Koordinaten -1000, -500, 0, 500.
+        """
+        x_coord = tile_index_x * 500
+        y_coord = tile_index_y * 500
+        return (x_coord, y_coord)
+
+    def test_texture_mapping(self):
+        """Teste Texture-Mapping: DAE Geometry-Namen zu Texturdateien."""
+        print("\n[5b] Teste Texture-Mapping (DAE ↔ Texturen)...")
+
+        # Lade verfügbare Texturdateien
+        if not self.textures_dir.exists():
+            self.warning("Textures-Verzeichnis nicht gefunden, überspringe Mapping-Test")
+            return
+
+        texture_files = list(self.textures_dir.glob("tile_*.jpg"))
+        texture_keys = set(f.stem for f in texture_files)
+        
+        if not texture_keys:
+            self.warning("Keine Tile-Texturen vorhanden")
+            return
+
+        self.success(f"{len(texture_keys)} Texturdateien vorhanden")
+
+        # Teste alle Terrain-DAE Dateien
+        terrain_daes = list(self.shapes_dir.glob("terrain_*.dae"))
+        
+        if not terrain_daes:
+            self.warning("Keine terrain_*.dae gefunden")
+            return
+
+        total_geometries = 0
+        unmapped_geometries = []
+        
+        for dae_file in terrain_daes:
+            try:
+                tree = lxml_etree.parse(str(dae_file))
+                root = tree.getroot()
+                ns = {"collada": "http://www.collada.org/2005/11/COLLADASchema"}
+
+                # Extrahiere alle Geometry-Namen
+                geometries = root.findall(".//collada:geometry", ns)
+                
+                for geometry in geometries:
+                    geom_name = geometry.get("name", "unknown")
+                    total_geometries += 1
+
+                    # Konvertiere Geometry-Name zu Texture-Key
+                    if geom_name.startswith("tile_"):
+                        parts = geom_name.split("_")
+                        if len(parts) == 3:  # "tile_X_Y"
+                            try:
+                                idx_x = int(parts[1])
+                                idx_y = int(parts[2])
+                                coords = self._index_to_coords(idx_x, idx_y)
+                                texture_key = f"tile_{coords[0]}_{coords[1]}"
+                                
+                                if texture_key not in texture_keys:
+                                    unmapped_geometries.append((dae_file.name, geom_name, texture_key))
+                            except (ValueError, IndexError):
+                                unmapped_geometries.append((dae_file.name, geom_name, "PARSE_ERROR"))
+
+            except Exception as e:
+                self.error(f"{dae_file.name}: Konnte nicht geparst werden - {e}")
+                continue
+
+        if unmapped_geometries:
+            self.error(f"{len(unmapped_geometries)}/{total_geometries} Geometrien haben keine Texturen:")
+            for dae_name, geom_name, tex_key in unmapped_geometries[:10]:
+                self.error(f"  {dae_name}: {geom_name} → {tex_key} [MISSING]")
+            if len(unmapped_geometries) > 10:
+                self.error(f"  ... und {len(unmapped_geometries)-10} weitere")
+        else:
+            self.success(f"Alle {total_geometries} Geometrien haben Texturen")
 
     def test_debug_network_json(self):
         """Teste debug_network.json Integrität und Konsistenz."""
@@ -855,6 +942,7 @@ class ExportIntegrityTest:
         self.test_materials_json()
         self.test_items_json()
         self.test_textures()
+        self.test_texture_mapping()
         self.test_debug_network_json()
         self.test_xyz_normalization()
 

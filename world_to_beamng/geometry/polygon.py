@@ -23,6 +23,9 @@ def clip_road_polygons(road_polygons, grid_bounds_local, margin=3.0):
     Returns:
         Geclippte road_polygons (Strassen die komplett ausserhalb liegen werden entfernt)
     """
+    if not config.ENABLE_ROAD_CLIPPING:
+        return road_polygons
+
     if not grid_bounds_local:
         return road_polygons
 
@@ -51,8 +54,8 @@ def clip_road_polygons(road_polygons, grid_bounds_local, margin=3.0):
             # Nutze road_width für dynamische Segment-Länge
             osm_tags = road.get("osm_tags", {})
             road_width = OSM_MAPPER.get_road_properties(osm_tags)["width"]
-            max_seg = road_width * config.SAMPLE_SPACING_FACTOR
-
+            # max_seg = road_width * config.SAMPLE_SPACING_FACTOR
+            max_seg = config.GRID_SPACING
             final_coords = []
             for i, coord in enumerate(new_coords):
                 final_coords.append(coord)
@@ -97,8 +100,16 @@ def clip_road_polygons(road_polygons, grid_bounds_local, margin=3.0):
     return clipped_roads
 
 
-def get_road_polygons(roads, bbox, height_points, height_elevations):
-    """Extrahiert Strassen-Polygone mit ihren Koordinaten und Hoehen (OPTIMIERT)."""
+def get_road_polygons(roads, bbox, height_points, height_elevations, tile_hash=None):
+    """Extrahiert Strassen-Polygone mit ihren Koordinaten und Hoehen (OPTIMIERT).
+    
+    Args:
+        roads: OSM-Strassen-Daten
+        bbox: (lat_min, lon_min, lat_max, lon_max) BBox
+        height_points: Höhendaten-Punkte
+        height_elevations: Z-Werte
+        tile_hash: Optional - tile_hash für Cache-Konsistenz
+    """
     road_polygons = []
 
     # Sammle alle Koordinaten fuer Batch-Verarbeitung
@@ -121,7 +132,7 @@ def get_road_polygons(roads, bbox, height_points, height_elevations):
 
     # Batch-Elevation-Lookup
     print(f"  Lade Elevations fuer {len(all_coords)} Strassen-Punkte...")
-    all_elevations = get_elevations_for_points(all_coords, bbox, height_points, height_elevations)
+    all_elevations = get_elevations_for_points(all_coords, bbox, height_points, height_elevations, height_hash=tile_hash)
 
     # Batch-UTM-Transformation (vektorisiert)
     lats = np.array([c[0] for c in all_coords])
@@ -263,17 +274,55 @@ def smooth_roads_with_spline(road_polygons):
             total_points_after += len(coords)
             continue
 
-        # Sample gleichmässig entlang der Kurve
-        # Stelle sicher, dass die Segmentlänge <= segment_length bleibt
-        # (n-1) Segmente pro Kurve, daher +1 Samples
+        # Sample entlang der Kurve mit optionaler Richtungs-Deckelung
         num_samples = max(
             len(coords_array),
             int(np.ceil(total_length / segment_length)) + 1,
             2,
         )
 
-        # Gleichmässig verteilte Parameter entlang der Kurve
-        sample_params = np.linspace(0, total_length, num_samples)
+        max_dir_change_rad = None
+        if getattr(config, "ROAD_SMOOTH_MAX_DIR_CHANGE_DEG", 0.0) > 0.0:
+            max_dir_change_rad = np.radians(config.ROAD_SMOOTH_MAX_DIR_CHANGE_DEG)
+
+        if max_dir_change_rad is None:
+            sample_params = np.linspace(0, total_length, num_samples)
+        else:
+            # Nutze Ableitungen, um Richtungsänderungen zu kontrollieren
+            der_x = interp_x.derivative()
+            der_y = interp_y.derivative()
+
+            def heading_change(t0, t1):
+                v0 = np.array([der_x(t0), der_y(t0)])
+                v1 = np.array([der_x(t1), der_y(t1)])
+                n0 = np.linalg.norm(v0)
+                n1 = np.linalg.norm(v1)
+                if n0 < 1e-9 or n1 < 1e-9:
+                    return 0.0
+                dot = np.clip(np.dot(v0, v1) / (n0 * n1), -1.0, 1.0)
+                return np.arccos(dot)
+
+            target_spacing = total_length / max(num_samples - 1, 1)
+            min_spacing = max(0.25, target_spacing * 0.25)
+
+            sample_params = [0.0]
+            current = 0.0
+            max_iter = 32
+            while current < total_length:
+                step = min(target_spacing, total_length - current)
+                for _ in range(max_iter):
+                    candidate = current + step
+                    if candidate > total_length:
+                        candidate = total_length
+                    angle = heading_change(current, candidate)
+                    if angle > max_dir_change_rad and step > min_spacing:
+                        step *= 0.5
+                        continue
+                    break
+                current = candidate
+                if sample_params and abs(current - sample_params[-1]) < 1e-6:
+                    break
+                sample_params.append(current)
 
         # Evaluiere Interpolation an Sample-Punkten
         smooth_x = interp_x(sample_params)

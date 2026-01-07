@@ -9,10 +9,15 @@ from .. import config
 from ..io.cache import load_from_cache, save_to_cache
 
 
-def get_osm_data(bbox):
-    """Holt ALLE OSM-Daten fuer eine BBox von der Overpass API oder aus dem Cache."""
+def get_osm_data(bbox, height_hash=None):
+    """Holt ALLE OSM-Daten fuer eine BBox von der Overpass API oder aus dem Cache.
+    
+    Args:
+        bbox: (lat_min, lon_min, lat_max, lon_max) Bounding Box
+        height_hash: Optional - tile_hash für Cache-Konsistenz
+    """
     # Pruefe Cache zuerst
-    cached_data = load_from_cache(bbox, "osm_all")
+    cached_data = load_from_cache(bbox, "osm_all", height_hash=height_hash)
     if cached_data is not None:
         return cached_data
 
@@ -43,7 +48,7 @@ def get_osm_data(bbox):
                 print(f"  [OK] Erfolgreich! {len(elements)} OSM-Elemente gefunden.")
 
                 # Im Cache speichern
-                save_to_cache(bbox, "osm_all", elements)
+                save_to_cache(bbox, "osm_all", elements, height_hash=height_hash)
                 return elements
 
             except requests.exceptions.Timeout:

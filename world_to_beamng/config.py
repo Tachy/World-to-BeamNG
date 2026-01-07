@@ -35,14 +35,17 @@ DEBUG_EXPORTS = True  # Debug-Dumps (Netz, Grid) nur bei Bedarf aktivieren
 DEBUG_VERBOSE = False  # Zusätzliche Konsolen-Logs
 
 # === STRASSENGLÄTTUNG / OPTIONEN ===
-ENABLE_ROAD_SMOOTHING = False  # False = Spline-Glättung komplett aus
+ENABLE_ROAD_SMOOTHING = True  # False = Spline-Glättung komplett aus
 ROAD_SMOOTH_ANGLE_THRESHOLD = 10.0  # Winkel in Grad - ab diesem Wert werden Kurven unterteilt
 SAMPLE_SPACING_FACTOR = 0.5  # Faktor für Segment-Spacing: road_width * SAMPLE_SPACING_FACTOR
 # (Alte feste Werte für Referenz: bei 7m Straßen war 2.5m → jetzt dynamisch via Faktor 0.5)
 ROAD_SMOOTH_TENSION = 0.05  # Spline-Glättungsfaktor (0.0 = eng an Originalpunkten, 1.0 = sehr glatt)
+ROAD_SMOOTH_MAX_DIR_CHANGE_DEG = 0.0  # Optional: maximale Richtungsänderung pro Segment (Grad); 0 = aus
 
 # === CLIPPING ===
-ROAD_CLIP_MARGIN = 10.0  # Clipping-Abstand vom Grid-Rand in Metern (Faces < 3m vom Rand werden entfernt)
+ENABLE_ROAD_CLIPPING = True  # True = Clip + Segment-Unterteilung am Grid-Rand, False = Skip (Testbetrieb)
+ROAD_CLIP_MARGIN = -20.0  # Clipping-Abstand vom Grid-Rand in Metern (Faces < 3m vom Rand werden entfernt)
+CLIP_ROAD_FACES_AT_BOUNDS = True  # True = Entferne Straßen-Dreiecke, die komplett außerhalb der Grid-Bounds liegen
 
 # === TILE-EXPORT (DAE) ===
 TILE_SIZE = 500  # Größe pro DAE-Tile in Metern
@@ -72,10 +75,9 @@ HEIGHT_LOOKUP_MODE = "kdtree"
 MAX_ROADS_PER_BATCH = 500
 
 # === GLOBALE ZUSTANDSVARIABLEN (werden in main() initialisiert) ===
-BBOX = None
-LOCAL_OFFSET = None  # Globaler Offset fuer lokale Koordinaten
-GRID_BOUNDS_LOCAL = None  # Grid Bounds in lokalen Koordinaten
-HEIGHT_HASH = None  # Height-Daten Hash (wird in main() gesetzt)
+# WICHTIG: Nur echte GLOBALE Parameter hier! Keine Tile-spezifischen Werte!
+LOCAL_OFFSET = None  # Globaler Offset fuer lokale Koordinaten (zentral für alle Tiles)
+GRID_BOUNDS_LOCAL = None  # Grid Bounds in lokalen Koordinaten (wird pro Tile überschrieben)
 
 # === OVERPASS API ENDPOINTS ===
 OVERPASS_ENDPOINTS = [

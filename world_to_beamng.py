@@ -45,6 +45,7 @@ from world_to_beamng.mesh.mesh import Mesh
 from world_to_beamng.mesh.terrain_mesh import generate_full_grid_mesh
 from world_to_beamng.mesh.stitch_gaps import stitch_all_gaps
 from world_to_beamng.mesh.tile_slicer import slice_mesh_into_tiles
+from world_to_beamng.mesh.cleanup import remove_road_faces_outside_bounds
 from world_to_beamng.io.dae import export_merged_dae, export_terrain_materials_json, create_terrain_items_json
 from world_to_beamng.io.lod2 import (
     cache_lod2_buildings,
@@ -53,7 +54,15 @@ from world_to_beamng.io.lod2 import (
     create_items_json_entry as create_lod2_items_entry,
 )
 from world_to_beamng.io.materials import reset_materials_json, append_materials_to_json
+from world_to_beamng.io.cache import load_height_hashes, save_height_hashes, calculate_file_hash
+from world_to_beamng.io.materials_merge import merge_materials_json, merge_items_json, save_materials_json, save_items_json
+from world_to_beamng.utils.tile_scanner import scan_lgl_tiles, compute_global_bbox, compute_global_center
 from world_to_beamng.utils.timing import StepTimer
+from world_to_beamng.utils.multitile import (
+    phase1_multitile_init,
+    phase2_process_tile,
+    phase3_multitile_finalize,
+)
 
 
 def main():
@@ -109,6 +118,26 @@ def main():
     # Materials reset (fresh main.materials.json pro Lauf)
     materials_path = os.path.join(config.BEAMNG_DIR, "main.materials.json")
     reset_materials_json(materials_path)
+
+    # Multi-Tile-Pipeline immer aktiv (auch bei nur einer DGM1-Kachel)
+    tiles, global_offset = phase1_multitile_init(config.HEIGHT_DATA_DIR)
+
+    if not tiles:
+        print("[!] Keine DGM1-Kacheln gefunden – Abbruch")
+        return
+
+    buildings_data = None  # Platzhalter: LoD2-Handling je Tile kann später ergänzt werden
+
+    for tile in tiles:
+        phase2_process_tile(
+            tile,
+            global_offset=global_offset,
+            buildings_data=buildings_data,
+        )
+
+    phase3_multitile_finalize(config.BEAMNG_DIR)
+    timer.report()
+    return
 
     # ===== SCHRITT 1: Lade Höhendaten =====
     print("=" * 60)
@@ -547,6 +576,11 @@ def main():
             }
         )
 
+    # ===== SCHRITT 9e: Cleanup - Entferne Straßen-Faces außerhalb der Bounds =====
+    timer.begin("Cleanup - Entferne Straßen-Faces außerhalb Bounds")
+    remove_road_faces_outside_bounds(mesh, vertex_manager)
+    timer.end()
+
     # ===== SCHRITT 9d: Stitching - Suche und Fülle Terrain-Lücken =====
     timer.begin("Stitching - Terrain-Lücken")
     stitch_faces = stitch_all_gaps(
@@ -601,18 +635,24 @@ def main():
 
         # Exportiere ALLE Tiles in EINE .dae Datei nach BEAMNG_DIR_SHAPES
         dae_output_path = os.path.join(config.BEAMNG_DIR_SHAPES, "terrain.dae")
-        export_merged_dae(
+        actual_dae_filename = export_merged_dae(
             tiles_dict=tiles_dict,
             output_path=dae_output_path,
+            tile_size=config.TILE_SIZE,
         )
 
         # Exportiere materials.json für Terrain
         timer.begin("Exportiere Terrain Materials JSON")
-        export_terrain_materials_json(tiles_dict=tiles_dict, output_dir=config.BEAMNG_DIR, level_name=config.LEVEL_NAME)
+        export_terrain_materials_json(
+            tiles_dict=tiles_dict,
+            output_dir=config.BEAMNG_DIR,
+            level_name=config.LEVEL_NAME,
+            tile_size=config.TILE_SIZE,
+        )
 
         # Exportiere items.json für Terrain
         timer.begin("Exportiere Terrain Items JSON")
-        terrain_item = create_terrain_items_json(dae_filename="terrain.dae")
+        terrain_item = create_terrain_items_json(dae_filename=actual_dae_filename)
         items_json_path = os.path.join(config.BEAMNG_DIR, "main.items.json")
 
         # Lade/erstelle items.json
@@ -624,6 +664,9 @@ def main():
 
         # Füge Terrain-Item hinzu
         items_data[terrain_item["__name"]] = terrain_item
+
+        # Entferne alte Building-Items (falls vorhanden)
+        items_data = {k: v for k, v in items_data.items() if not k.startswith("buildings_tile_")}
 
         # ===== LoD2-Gebäude exportieren =====
         if buildings_data and config.LOD2_ENABLED:
@@ -640,8 +683,9 @@ def main():
                     # Berechne Tile aus Center
                     center_x = (bounds[0] + bounds[3]) / 2
                     center_y = (bounds[1] + bounds[4]) / 2
-                    tile_x = int(center_x // config.TILE_SIZE)
-                    tile_y = int(center_y // config.TILE_SIZE)
+                    # Berechne Koordinaten der oberen linken Ecke des Tiles
+                    tile_x = int((center_x // config.TILE_SIZE) * config.TILE_SIZE)
+                    tile_y = int((center_y // config.TILE_SIZE) * config.TILE_SIZE)
                     buildings_by_tile[(tile_x, tile_y)].append(building)
 
             print(f"  [i] Gebaeude auf {len(buildings_by_tile)} Tiles verteilt")
