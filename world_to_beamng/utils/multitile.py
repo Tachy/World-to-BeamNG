@@ -69,11 +69,11 @@ def _load_tile_height_data(tile, tile_hash=None):
 
     WICHTIG: Ein LGL DGM1-ZIP enthält 4 XYZ-Dateien (2×2 Kacheln à 1000×1000m).
     Diese werden zu einem 2000×2000m Gebiet zusammengesetzt.
-    
+
     Args:
         tile: Tile-Metadaten Dict
         tile_hash: Optional - Hash für Cache (wenn None, wird aus filepath berechnet)
-    
+
     Returns:
         Tuple (height_points, height_elevations) oder (None, None) bei Fehler
     """
@@ -86,8 +86,9 @@ def _load_tile_height_data(tile, tile_hash=None):
     # Prüfe Cache
     if tile_hash is None:
         from world_to_beamng.io.cache import calculate_file_hash
+
         tile_hash = calculate_file_hash(filepath)
-    
+
     if tile_hash:
         cache_file = os.path.join(config.CACHE_DIR, f"height_raw_{tile_hash}.npz")
         if os.path.exists(cache_file):
@@ -362,16 +363,16 @@ def phase2_process_tile(tile, global_offset=None, bbox_margin=50.0, buildings_da
     # === LoD2-Gebäude laden (wenn aktiviert) ===
     if buildings_data is None and config.LOD2_ENABLED:
         timer.begin("Lade LoD2-Gebaeude")
-        
+
         # Prüfe zuerst ob normalisierte Gebäude im Cache sind
         from world_to_beamng.io.lod2 import (
             cache_lod2_buildings,
             load_buildings_from_cache,
             cache_normalized_buildings,
         )
-        
+
         normalized_cache_path = os.path.join(config.CACHE_DIR, f"lod2_normalized_{tile_hash}.pkl")
-        
+
         if os.path.exists(normalized_cache_path):
             # Lade bereits normalisierte Gebäude aus Cache
             buildings_data = load_buildings_from_cache(normalized_cache_path)
@@ -390,7 +391,7 @@ def phase2_process_tile(tile, global_offset=None, bbox_margin=50.0, buildings_da
                 raw_buildings = load_buildings_from_cache(buildings_cache_path)
                 if raw_buildings:
                     print(f"  [OK] {len(raw_buildings)} Gebaeude geladen")
-                    
+
                     # Normalisiere und cache
                     normalized_cache = cache_normalized_buildings(
                         raw_buildings,
