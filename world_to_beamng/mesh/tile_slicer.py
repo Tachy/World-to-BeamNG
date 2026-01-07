@@ -43,11 +43,12 @@ def slice_mesh_into_tiles(vertices, faces, materials_per_face, tile_size=400, gr
 
     x_min, x_max, y_min, y_max = grid_bounds
 
-    # Tile-Indizes berechnen
+    # Tile-Indizes berechnen (korrigiert)
+    # floor() für Min, floor() für Max (da wir bereits im Tile-Index-System sind)
     tile_x_min = int(np.floor(x_min / tile_size))
-    tile_x_max = int(np.ceil(x_max / tile_size))
+    tile_x_max = int(np.floor(x_max / tile_size))  # Nicht ceil()!
     tile_y_min = int(np.floor(y_min / tile_size))
-    tile_y_max = int(np.ceil(y_max / tile_size))
+    tile_y_max = int(np.floor(y_max / tile_size))  # Nicht ceil()!
 
     print(f"  Slicing Mesh in {tile_size}m Tiles...")
     print(f"    Tile-Range: X [{tile_x_min}...{tile_x_max}], Y [{tile_y_min}...{tile_y_max}]")

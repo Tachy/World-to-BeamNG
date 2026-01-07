@@ -105,11 +105,12 @@ def load_height_hashes():
     Lädt die Hash-Registry für Height-Daten (Multi-Tile-System).
 
     Format der height_data_hash.txt:
+    __GLOBAL_TILES_HASH__: abc123def456  (globaler Hash über alle Tiles)
     dgm1_4658000_5394000.xyz.zip: abc123def456
     dgm1_4660000_5394000.xyz.zip: xyz789
 
     Returns:
-        Dict: {filename: hash_value}
+        Dict: {filename: hash_value} (enthält auch "__GLOBAL_TILES_HASH__" als Key)
     """
     hash_file = os.path.join(config.CACHE_DIR, "height_data_hash.txt")
     hashes = {}
@@ -173,3 +174,76 @@ def calculate_file_hash(filepath, chunk_size=8192):
     except Exception as e:
         print(f"  [!] Fehler beim Berechnen des File-Hash: {e}")
         return None
+
+
+def calculate_global_tiles_hash(tiles):
+    """
+    Berechnet einen globalen Hash über alle Tiles.
+
+    Dieser Hash ändert sich, wenn:
+    - Tiles hinzugefügt oder entfernt werden
+    - Die Reihenfolge sich ändert
+    - Ein einzelnes Tile geändert wird
+
+    Args:
+        tiles: Liste von Tile-Dicts mit 'filename' und 'filepath'
+
+    Returns:
+        str: MD5-Hash (12 Zeichen)
+    """
+    # Sortiere nach Filename für konsistente Reihenfolge
+    sorted_tiles = sorted(tiles, key=lambda t: t.get("filename", ""))
+
+    # Kombiniere Filenames und Hashes
+    hash_input = ""
+    for tile in sorted_tiles:
+        filename = tile.get("filename", "")
+        filepath = tile.get("filepath", "")
+
+        # Berechne Hash des einzelnen Tiles
+        tile_hash = calculate_file_hash(filepath) or "none"
+        hash_input += f"{filename}:{tile_hash};"
+
+    # Berechne globalen Hash
+    global_hash = hashlib.md5(hash_input.encode()).hexdigest()[:12]
+    return global_hash
+
+
+def clear_all_caches():
+    """
+    Löscht alle Cache-Dateien (bei globalem Tiles-Hash-Wechsel).
+
+    Betroffen:
+    - height_raw_*.npz
+    - grid_v3_*.npz
+    - elevations_*.json
+    - osm_all_*.json
+    - lod2_*.pkl
+    - lod2_normalized_*.pkl
+    """
+    import glob
+
+    patterns = [
+        "height_raw_*.npz",
+        "grid_v3_*.npz",
+        "grid_v2_*.npz",  # Alte Version
+        "elevations_*.json",
+        "osm_all_*.json",
+        "lod2_*.pkl",
+        "lod2_normalized_*.pkl",
+    ]
+
+    deleted_count = 0
+    for pattern in patterns:
+        cache_pattern = os.path.join(config.CACHE_DIR, pattern)
+        for cache_file in glob.glob(cache_pattern):
+            try:
+                os.remove(cache_file)
+                deleted_count += 1
+            except Exception as e:
+                print(f"  [!] Fehler beim Löschen von {os.path.basename(cache_file)}: {e}")
+
+    if deleted_count > 0:
+        print(f"  [OK] {deleted_count} Cache-Datei(en) gelöscht")
+
+    return deleted_count

@@ -17,7 +17,13 @@ import numpy as np
 
 from world_to_beamng import config
 from world_to_beamng.utils.tile_scanner import scan_lgl_tiles, compute_global_bbox, compute_global_center
-from world_to_beamng.io.cache import load_height_hashes, save_height_hashes, calculate_file_hash
+from world_to_beamng.io.cache import (
+    load_height_hashes,
+    save_height_hashes,
+    calculate_file_hash,
+    calculate_global_tiles_hash,
+    clear_all_caches,
+)
 from world_to_beamng.io.materials_merge import (
     merge_materials_json,
     merge_items_json,
@@ -190,6 +196,40 @@ def phase1_multitile_init(dgm1_dir="data/DGM1"):
 
     print(f"[OK] {len(tiles)} DGM1-Kachel(n) gefunden")
 
+    # Berechne globalen Tiles-Hash (über alle Tiles)
+    print("\nPrüfe Tile-Konfiguration...")
+    global_tiles_hash = calculate_global_tiles_hash(tiles)
+    print(f"  [i] Globaler Tiles-Hash: {global_tiles_hash}")
+
+    # Prüfe ob height_data_hash.txt existiert - wenn nicht, lösche alle Caches
+    import os
+
+    hash_file = os.path.join(config.CACHE_DIR, "height_data_hash.txt")
+    if not os.path.exists(hash_file):
+        print(f"  [!] height_data_hash.txt nicht gefunden - lösche alle Caches")
+        clear_all_caches()
+        height_hashes = {}
+    else:
+        # Lade existierende Hashes
+        height_hashes = load_height_hashes()
+        stored_global_hash = height_hashes.get("__GLOBAL_TILES_HASH__")
+
+        # Prüfe ob sich die Tile-Konfiguration geändert hat
+        if stored_global_hash and stored_global_hash != global_tiles_hash:
+            print(f"  [!] Tile-Konfiguration hat sich geändert!")
+            print(f"      Alt: {stored_global_hash}")
+            print(f"      Neu: {global_tiles_hash}")
+            print(f"  [!] Lösche alle Caches (neue Tile-Zusammensetzung)...")
+            clear_all_caches()
+            height_hashes = {}  # Leere Registry
+        elif stored_global_hash == global_tiles_hash:
+            print(f"  [✓] Tile-Konfiguration unverändert")
+        else:
+            print(f"  [i] Keine bisherige Tile-Konfiguration gefunden (erster Lauf)")
+
+    # Speichere globalen Hash
+    height_hashes["__GLOBAL_TILES_HASH__"] = global_tiles_hash
+
     # Berechne globale Bounding Box
     global_bbox = compute_global_bbox(tiles)
     global_center = compute_global_center(tiles)
@@ -200,11 +240,13 @@ def phase1_multitile_init(dgm1_dir="data/DGM1"):
     )
     print(f"[OK] Globaler Center (UTM): ({global_center[0]:.1f}, {global_center[1]:.1f})")
 
-    # Lade existierende Height-Hashes
+    # Lade existierende Height-Hashes für einzelne Tiles
     print("\nLade Height-Data-Hashes...")
-    height_hashes = load_height_hashes()
     if height_hashes:
-        print(f"  [OK] {len(height_hashes)} Hashes geladen")
+        # Zähle nur Tile-Hashes (ohne __GLOBAL_TILES_HASH__)
+        tile_hash_count = len([k for k in height_hashes.keys() if not k.startswith("__")])
+        if tile_hash_count > 0:
+            print(f"  [OK] {tile_hash_count} Tile-Hashes geladen")
     else:
         print("  [i] Keine bestehenden Hashes gefunden (Neustart)")
 
@@ -237,10 +279,9 @@ def phase1_multitile_init(dgm1_dir="data/DGM1"):
             height_hashes[filename] = file_hash
             print(f"  [!] {filename} - Geändert (Cache invalidiert)")
 
-    # Speichere aktualisierte Hashes
-    if changed_tiles or not height_hashes:
-        print("\nSpeichere Height-Data-Hashes...")
-        save_height_hashes(height_hashes)
+    # Speichere aktualisierte Hashes (immer speichern, da globaler Hash jetzt dabei ist)
+    print("\nSpeichere Height-Data-Hashes...")
+    save_height_hashes(height_hashes)
 
     # Löschen alte Materials/Items für Fresh Start
     materials_path = os.path.join(config.BEAMNG_DIR, "main.materials.json")
