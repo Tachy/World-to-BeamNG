@@ -334,7 +334,10 @@ def create_terrain_materials_json(tiles_dict, level_name="World_to_BeamNG", tile
 
         # Material-Name, Key und Texturpfad alle mit Welt-Koordinaten
         mat_name = f"tile_{corner_x}_{corner_y}"
-        texture_path = f"/levels/{level_name}/art/shapes/textures/tile_{corner_x}_{corner_y}.jpg"
+        # Relative Pfade für materials.json
+        from .. import config
+
+        texture_path = config.RELATIVE_DIR_TEXTURES + f"tile_{corner_x}_{corner_y}.dds"
 
         materials[mat_name] = {
             "name": mat_name,
@@ -362,10 +365,15 @@ def create_terrain_items_json(dae_filename):
 
     item_name = os.path.splitext(dae_filename)[0]
 
+    # Relative Pfade für items.json
+    from .. import config
+
+    relative_dae_path = config.RELATIVE_DIR_SHAPES + dae_filename
+
     return {
         "__name": item_name,
         "class": "TSStatic",
-        "shapeName": dae_filename,
+        "shapeName": relative_dae_path,
         "position": [0, 0, 0],
         "rotation": [0, 0, 1, 0],
         "scale": [1, 1, 1],

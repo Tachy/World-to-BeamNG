@@ -275,15 +275,50 @@ def process_aerial_images(aerial_dir, output_dir, tile_size=1000, grid_bounds=No
                     # Berechne Koordinaten der oberen linken Ecke dieses Tiles
                     tile_corner_x = int(grid_min_x + global_x_idx * tile_world_size)
                     tile_corner_y = int(grid_min_y + global_y_idx * tile_world_size)
-                    filename = f"tile_{tile_corner_x}_{tile_corner_y}.jpg"
-                    filepath = output_path / filename
+                    filename_base = f"tile_{tile_corner_x}_{tile_corner_y}"
+                    png_filename = f"{filename_base}.png"
+                    dds_filename = f"{filename_base}.dds"
+                    png_filepath = output_path / png_filename
+                    dds_filepath = output_path / dds_filename
 
                     # Konvertiere zu RGB falls nötig
                     if tile_img.mode != "RGB":
                         tile_img = tile_img.convert("RGB")
 
-                    # Speichere als JPG (immer schreiben, auch wenn bereits vorhanden)
-                    tile_img.save(filepath, "JPEG", quality=85, optimize=True)
+                    # Speichere temporär als PNG für texconv
+                    tile_img.save(png_filepath, "PNG")
+
+                    # Konvertiere zu DDS (4096×4096, BC7, volle Mipmap-Kette) mit texconv
+                    import subprocess
+                    import os
+
+                    texconv_exe = "bin/texconv.exe"
+                    cmd = [
+                        texconv_exe,
+                        "-f",
+                        "BC7_UNORM",
+                        "-w",
+                        "4096",
+                        "-h",
+                        "4096",
+                        "-m",
+                        "0",
+                        "-y",
+                        "-o",
+                        str(output_path),
+                        str(png_filepath),
+                    ]
+                    subprocess.run(cmd, capture_output=True, text=True, check=True)
+
+                    # texconv erstellt DDS mit gleichem Stammnamen
+                    texconv_output = output_path / png_filename.replace(".png", ".dds")
+                    if texconv_output.exists() and texconv_output != dds_filepath:
+                        texconv_output.rename(dds_filepath)
+
+                    # Lösche PNG nach erfolgreicher Konvertierung
+                    if png_filepath.exists():
+                        png_filepath.unlink()
+
                     tile_counter += 1
                     unique_tiles.add((global_x_idx, global_y_idx))
 

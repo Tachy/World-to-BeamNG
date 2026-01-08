@@ -11,11 +11,7 @@ import json
 import os
 from typing import Iterable, Dict, Any
 
-
-def reset_materials_json(output_path: str) -> None:
-    """Löscht materials.json zu Beginn des Laufs, falls vorhanden."""
-    if os.path.exists(output_path):
-        os.remove(output_path)
+from .. import config
 
 
 def append_materials_to_json(material_entries: Iterable[Dict[str, Any]], output_path: str) -> None:

@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 Unit-Test für die Integrität aller exportierten BeamNG-Daten.
 
@@ -12,7 +14,12 @@ Prüft:
 
 import sys
 import os
+import io
 from pathlib import Path
+
+# Setze UTF-8 Encoding für stdout
+if sys.stdout.encoding != "utf-8":
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 import json
 import xml.etree.ElementTree as ET
 from lxml import etree as lxml_etree
@@ -38,6 +45,37 @@ class ExportIntegrityTest:
         self.cache_dir = Path(config.CACHE_DIR)
         self.debug_network_path = self.cache_dir / "debug_network.json"
 
+    def _resolve_relative_path(self, relative_path):
+        r"""
+        Konvertiert einen relativen BeamNG-Pfad zu absolutem Windows-Pfad.
+
+        Args:
+            relative_path: Pfad im Format '\levels\World_to_BeamNG\art\shapes\textures\file.dds'
+
+        Returns:
+            Absoluter Path-Objekt
+        """
+        if relative_path.startswith("\\levels\\"):
+            # Entferne Präfix und konvertiere zu Windows-Pfad
+            level_path = relative_path.replace("\\levels\\", "").lstrip("\\")
+            # Extrahiere Level-Namen (z.B. "World_to_BeamNG")
+            level_name = level_path.split("\\")[0]
+            # Restlicher Pfad
+            rest_path = "\\".join(level_path.split("\\")[1:])
+            # Kombiniere mit BEAMNG_DIR
+            full_path = self.beamng_dir / rest_path
+            return full_path
+        elif relative_path.startswith("/levels/"):
+            # Unix-Format
+            level_path = relative_path.replace("/levels/", "").lstrip("/")
+            level_name = level_path.split("/")[0]
+            rest_path = "/".join(level_path.split("/")[1:])
+            full_path = self.beamng_dir / rest_path.replace("/", "\\")
+            return full_path
+        else:
+            # Direkt im BEAMNG_DIR suchen
+            return self.beamng_dir / relative_path
+
     def error(self, msg):
         """Registriere kritischen Fehler."""
         self.errors.append(f"❌ {msg}")
@@ -45,12 +83,12 @@ class ExportIntegrityTest:
 
     def warning(self, msg):
         """Registriere Warnung."""
-        self.warnings.append(f"⚠️  {msg}")
-        print(f"  ⚠️  {msg}")
+        self.warnings.append(f"⚠️ {msg}")
+        print(f"  ⚠️ {msg}")
 
     def success(self, msg):
         """Registriere Erfolg."""
-        print(f"  ✓ {msg}")
+        print(f"  ✅ {msg}")
 
     def test_terrain_dae(self):
         """Teste terrain.dae Integrität."""
@@ -218,15 +256,14 @@ class ExportIntegrityTest:
             if texture_refs:
                 self.success(f"{len(texture_refs)} Textur-Referenzen gefunden")
 
-                # Prüfe ob referenzierte Texturen existieren
+                # Prüfe ob referenzierte Texturen existieren (mit relativen Pfaden)
                 missing_textures = []
                 for tex_path in texture_refs:
-                    # Extrahiere Dateinamen aus Pfad (z.B. levels/World_to_BeamNG/art/shapes/textures/tile_0_0.jpg)
-                    tex_file = Path(tex_path).name
-                    full_path = self.textures_dir / tex_file
+                    # Konvertiere relativen Pfad zu absolutem Windows-Pfad
+                    full_path = self._resolve_relative_path(tex_path)
 
                     if not full_path.exists():
-                        missing_textures.append(tex_file)
+                        missing_textures.append(f"{tex_path} -> {full_path}")
 
                 if missing_textures:
                     self.warning(f"{len(missing_textures)} referenzierte Texturen fehlen:")
@@ -237,7 +274,7 @@ class ExportIntegrityTest:
                 else:
                     self.success("Alle referenzierten Texturen existieren")
 
-                # Bidirektionaler Abgleich DAE ↔ materials.json
+                # Bidirektionaler Abgleich DAE <-> materials.json
                 # Materialien, die in DAEs referenziert werden, müssen hier existieren
                 used_materials = set(self.dae_materials) | set(self.triangle_materials)
                 json_material_names = set(materials.keys())
@@ -253,13 +290,15 @@ class ExportIntegrityTest:
                     self.success("Alle DAE-Material-Referenzen in materials.json vorhanden")
 
                 # Optionale Warnung für ungenutzte Materialien in JSON
-                # Ignoriere Tile-Materialien (tile_<x>_<y>) und Terrain-Basis-Materialien
+                # Ignoriere Tile-Materialien (tile_<x>_<y>), Terrain-Basis-Materialien und Horizon-Materialien
                 unused = [m for m in json_material_names if m not in used_materials]
                 unused = [m for m in unused if m not in ("unknown",)]  # allow fallback
                 # Filtere Tile-Materialien heraus (normal für BeamNG Material-System)
                 unused = [m for m in unused if not m.startswith("tile_")]
+                # Filtere Horizon-Materialien heraus (werden vom Item direkt verwendet, nicht von Geometrien)
+                unused = [m for m in unused if not m.startswith("horizon_")]
                 if unused:
-                    self.warning(f"{len(unused)} Straßen-Materialien in materials.json ungenutzt (z.B. {unused[:3]})")
+                    self.warning(f"{len(unused)} Strassenmaterialien in materials.json ungenutzt (z.B. {unused[:3]})")
 
         except json.JSONDecodeError as e:
             self.error(f"JSON-Parse-Fehler: {e}")
@@ -316,15 +355,13 @@ class ExportIntegrityTest:
                 if "shapeName" not in item_data:
                     invalid_items.append(f"{item_name}: fehlt 'shapeName'")
                 else:
-                    # Prüfe ob Shape-Datei existiert
+                    # Prüfe ob Shape-Datei existiert (mit relativen Pfaden)
                     shape_name = item_data["shapeName"]
-                    if shape_name.startswith("buildings/"):
-                        shape_file = self.buildings_dir / shape_name.replace("buildings/", "")
-                    else:
-                        shape_file = self.shapes_dir / shape_name
+                    # Konvertiere relativen Pfad zu absolutem Windows-Pfad
+                    shape_file = self._resolve_relative_path(shape_name)
 
                     if not shape_file.exists():
-                        missing_shapes.append(f"{item_name} → {shape_name}")
+                        missing_shapes.append(f"{item_name} → {shape_name} ({shape_file})")
 
             if invalid_items:
                 for err in invalid_items[:5]:
@@ -356,7 +393,7 @@ class ExportIntegrityTest:
             self.warning(f"Textures-Verzeichnis nicht gefunden: {self.textures_dir}")
             return
 
-        textures = list(self.textures_dir.glob("tile_*.jpg"))
+        textures = list(self.textures_dir.glob("tile_*.dds"))
 
         if len(textures) == 0:
             self.warning("Keine Tile-Texturen gefunden")
@@ -372,7 +409,7 @@ class ExportIntegrityTest:
             size = tex.stat().st_size
             if size == 0:
                 empty_textures.append(tex.name)
-            elif size > 10 * 1024 * 1024:  # > 10 MB
+            elif size > 50 * 1024 * 1024:  # > 50 MB
                 large_textures.append(f"{tex.name} ({size/1024/1024:.1f}MB)")
 
         if empty_textures:
@@ -402,14 +439,14 @@ class ExportIntegrityTest:
 
     def test_texture_mapping(self):
         """Teste Texture-Mapping: DAE Geometry-Namen zu Texturdateien."""
-        print("\n[5b] Teste Texture-Mapping (DAE ↔ Texturen)...")
+        print("\n[5b] Teste Texture-Mapping (DAE <-> Texturen)...")
 
         # Lade verfügbare Texturdateien
         if not self.textures_dir.exists():
             self.warning("Textures-Verzeichnis nicht gefunden, überspringe Mapping-Test")
             return
 
-        texture_files = list(self.textures_dir.glob("tile_*.jpg"))
+        texture_files = list(self.textures_dir.glob("tile_*.dds"))
         texture_keys = set(f.stem for f in texture_files)
 
         if not texture_keys:
@@ -430,7 +467,8 @@ class ExportIntegrityTest:
 
         for dae_file in terrain_daes:
             try:
-                tree = lxml_etree.parse(str(dae_file))
+                parser = lxml_etree.XMLParser(huge_tree=True)
+                tree = lxml_etree.parse(str(dae_file), parser)
                 root = tree.getroot()
                 ns = {"collada": "http://www.collada.org/2005/11/COLLADASchema"}
 
@@ -780,7 +818,7 @@ class ExportIntegrityTest:
                     z_mean = np.mean(terrain_z_values)
 
                     self.success(
-                        f"Terrain: {len(terrain_z_values)} Vertices, Z=[{z_min:.2f}, {z_max:.2f}], μ={z_mean:.2f}"
+                        f"Terrain: {len(terrain_z_values)} Vertices, Z=[{z_min:.2f}, {z_max:.2f}], M={z_mean:.2f}"
                     )
             except Exception as e:
                 self.warning(f"Terrain-DAE-Analyse: {e}")
@@ -812,7 +850,7 @@ class ExportIntegrityTest:
                 z_mean = np.mean(building_z_values)
 
                 self.success(
-                    f"Gebäude: {len(building_z_values)} Vertices, Z=[{z_min:.2f}, {z_max:.2f}], μ={z_mean:.2f}"
+                    f"Gebäude: {len(building_z_values)} Vertices, Z=[{z_min:.2f}, {z_max:.2f}], M={z_mean:.2f}"
                 )
 
                 # Detaillierte Analyse
@@ -861,7 +899,7 @@ class ExportIntegrityTest:
                         z_mean = np.mean(z_values)
                         count = len(z_values)
                         self.success(
-                            f"Debug {key.capitalize()}: {count} Coordinates, Z=[{z_min:.2f}, {z_max:.2f}], μ={z_mean:.2f}"
+                            f"Debug {key.capitalize()}: {count} Coordinates, Z=[{z_min:.2f}, {z_max:.2f}], M={z_mean:.2f}"
                         )
 
             except Exception as e:
@@ -926,9 +964,332 @@ class ExportIntegrityTest:
                 if outliers_high + outliers_low == 0:
                     self.success(f"Keine extremen Z-Koordinaten-Ausreißer gefunden")
                 else:
-                    self.warning(f"{outliers_high + outliers_low} extreme Ausreißer (>μ±10σ) gefunden")
+                    self.warning(f"{outliers_high + outliers_low} extreme Ausreisser (>M±10s) gefunden")
         else:
             self.warning("Keine Z-Koordinaten zum Vergleich vorhanden")
+
+    def test_horizon_dae(self):
+        """Teste terrain_horizon.dae Integrität."""
+        print("\n[Horizon] Teste terrain_horizon.dae...")
+
+        horizon_dae = self.shapes_dir / "terrain_horizon.dae"
+
+        if not horizon_dae.exists():
+            self.warning("terrain_horizon.dae nicht gefunden - Horizon-Layer nicht generiert")
+            return
+
+        self.success(f"terrain_horizon.dae gefunden")
+
+        # Parse XML
+        try:
+            tree = ET.parse(horizon_dae)
+            root = tree.getroot()
+
+            # Definiere Namespace
+            ns = {"collada": "http://www.collada.org/2005/11/COLLADASchema"}
+
+            # Prüfe COLLADA-Root
+            if "COLLADA" not in root.tag:
+                self.error("Kein valides COLLADA-Root-Element in horizon DAE")
+                return
+
+            self.success("Valides COLLADA XML in horizon DAE")
+
+            # Zähle Geometrien
+            geometries = root.findall(".//collada:geometry", ns)
+            if len(geometries) == 0:
+                self.error("Keine Geometrien in horizon DAE gefunden")
+                return
+            else:
+                self.success(f"{len(geometries)} Geometrie(n) in horizon DAE")
+
+            # Prüfe Vertices
+            sources = root.findall(".//collada:source", ns)
+            if len(sources) < 2:  # Mindestens Vertices + UVs
+                self.warning(f"Nur {len(sources)} Source(n) gefunden (erwartet: Vertices + UVs)")
+
+            # Prüfe UV-Mapping vorhanden
+            uv_sources = [s for s in sources if "uv" in s.get("id", "").lower()]
+            if uv_sources:
+                self.success("UV-Mapping in horizon DAE gefunden")
+            else:
+                self.warning("Keine UV-Sources in horizon DAE gefunden")
+
+            # Zähle Faces (triangles/polylist)
+            triangles = root.findall(".//collada:triangles", ns)
+            polylists = root.findall(".//collada:polylist", ns)
+
+            total_faces = len(triangles) + len(polylists)
+            if total_faces == 0:
+                self.error("Keine Faces (triangles/polylist) in horizon DAE")
+            else:
+                self.success(f"{total_faces} Face-Primitive in horizon DAE")
+
+            # Extrahiere Vertex-Anzahl aus float_array count
+            float_arrays = root.findall(".//collada:float_array", ns)
+            for fa in float_arrays:
+                count_str = fa.get("count", "")
+                if count_str:
+                    try:
+                        count = int(count_str)
+                        if "vertex" in fa.get("id", "").lower():
+                            vertex_count = count // 3  # 3 Koordinaten pro Vertex
+                            self.success(f"{vertex_count} Vertices in horizon DAE")
+                        elif "uv" in fa.get("id", "").lower():
+                            uv_count = count // 2  # 2 UV-Koordinaten pro Vertex
+                            self.success(f"{uv_count} UV-Koordinaten in horizon DAE")
+                    except ValueError:
+                        pass
+
+        except ET.ParseError as e:
+            self.error(f"Fehler beim Parsen horizon DAE: {e}")
+
+    def test_horizon_materials(self):
+        """Teste Horizon-Material in materials.json."""
+        print("\n[Horizon] Teste Horizon-Material...")
+
+        materials_path = self.beamng_dir / "main.materials.json"
+
+        if not materials_path.exists():
+            self.warning("main.materials.json nicht gefunden")
+            return
+
+        try:
+            with open(materials_path, "r") as f:
+                materials = json.load(f)
+
+            # Prüfe horizon_terrain Material
+            if "horizon_terrain" not in materials:
+                self.warning("horizon_terrain Material nicht in materials.json")
+                return
+
+            horizon_mat = materials["horizon_terrain"]
+            self.success("horizon_terrain Material gefunden")
+
+            # Prüfe erforderliche Felder (mit Ausnahme diffuseMap für Phase 5)
+            required_fields = ["name", "mapTo", "version"]
+            for field in required_fields:
+                if field in horizon_mat:
+                    self.success(f"  - {field}: {horizon_mat[field]}")
+                else:
+                    self.warning(f"  - {field}: FEHLT")
+
+            # Prüfe DDS-Texture
+            diff_map = horizon_mat.get("diffuseMap", "")
+            if not diff_map and "Stages" in horizon_mat and horizon_mat["Stages"]:
+                diff_map = horizon_mat["Stages"][0].get("colorMap", "")
+
+            if "horizon_sentinel2.dds" in diff_map or "horizon_sentinel2" in diff_map:
+                # Konvertiere relativen Pfad zu absolutem Windows-Pfad
+                dds_path = self._resolve_relative_path(diff_map)
+                if dds_path.exists():
+                    self.success(f"DDS-Texture existiert: {dds_path.name}")
+                else:
+                    self.error(f"DDS-Texture nicht gefunden: {diff_map} -> {dds_path}")
+            else:
+                self.warning(f"Unexpected diffuseMap: {diff_map}")
+
+        except json.JSONDecodeError as e:
+            self.error(f"Fehler beim Parsen materials.json: {e}")
+
+    def test_horizon_items(self):
+        """Teste Horizon-Item in items.json."""
+        print("\n[Horizon] Teste Horizon-Item...")
+
+        items_path = self.beamng_dir / "main.items.json"
+
+        if not items_path.exists():
+            self.warning("main.items.json nicht gefunden")
+            return
+
+        try:
+            with open(items_path, "r") as f:
+                items = json.load(f)
+
+            # Prüfe Horizon Item
+            if "Horizon" not in items:
+                self.warning("Horizon Item nicht in items.json")
+                return
+
+            horizon_item = items["Horizon"]
+            self.success("Horizon Item gefunden")
+
+            # Prüfe erforderliche Felder
+            required_fields = {
+                "__name": "Horizon",
+                "className": "TSStatic",
+                "datablock": "DefaultStaticShape",
+            }
+
+            for field, expected_value in required_fields.items():
+                if field in horizon_item:
+                    actual = horizon_item[field]
+                    if actual == expected_value:
+                        self.success(f"  - {field}: {actual} [OK]")
+                    else:
+                        self.warning(f"  - {field}: {actual} (erwartet: {expected_value})")
+                else:
+                    self.warning(f"  - {field}: FEHLT")
+
+            # Prüfe Position (sollte [0, 0, 0] sein für lokal)
+            position = horizon_item.get("position", [])
+            if position == [0, 0, 0]:
+                self.success(f"  - position: {position} [OK] (lokal)")
+            else:
+                self.warning(f"  - position: {position} (erwartet: [0, 0, 0] für lokale Koordinaten)")
+
+            # Prüfe Rotation (sollte [0, 0, 1, 0] sein)
+            rotation = horizon_item.get("rotation", [])
+            if rotation == [0, 0, 1, 0]:
+                self.success(f"  - rotation: {rotation} [OK]")
+            else:
+                self.warning(f"  - rotation: {rotation} (erwartet: [0, 0, 1, 0])")
+
+            # Prüfe Scale (sollte [1, 1, 1] sein)
+            scale = horizon_item.get("scale", [])
+            if scale == [1, 1, 1]:
+                self.success(f"  - scale: {scale} [OK]")
+            else:
+                self.warning(f"  - scale: {scale} (erwartet: [1, 1, 1])")
+
+            # Prüfe shapeName
+            shape_name = horizon_item.get("shapeName", "")
+            if "terrain_horizon.dae" in shape_name or "horizon" in shape_name.lower():
+                # Konvertiere relativen Pfad zu absolutem Windows-Pfad
+                horizon_dae = self._resolve_relative_path(shape_name)
+                if horizon_dae.exists():
+                    self.success(f"  - shapeName: {shape_name} [OK]")
+                else:
+                    self.error(f"  - shapeName referenziert nicht-existente DAE: {shape_name} ({horizon_dae})")
+            else:
+                self.warning(f"  - shapeName: {shape_name} (erwartet: terrain_horizon.dae)")
+
+            # Prüfe meshCulling und originSort
+            if horizon_item.get("meshCulling") == 0:
+                self.success(f"  - meshCulling: 0 [OK]")
+            if horizon_item.get("originSort") == 0:
+                self.success(f"  - originSort: 0 [OK]")
+
+        except json.JSONDecodeError as e:
+            self.error(f"Fehler beim Parsen items.json: {e}")
+
+    def test_horizon_uv_mapping(self):
+        """Teste UV-Mapping Plausibilität in horizon DAE."""
+        print("\n[Horizon] Teste UV-Mapping Plausibilität...")
+
+        horizon_dae = self.shapes_dir / "terrain_horizon.dae"
+
+        if not horizon_dae.exists():
+            self.warning("terrain_horizon.dae nicht gefunden - überspringe UV-Test")
+            return
+
+        try:
+            tree = ET.parse(horizon_dae)
+            root = tree.getroot()
+            ns = {"collada": "http://www.collada.org/2005/11/COLLADASchema"}
+
+            # Extrahiere UV-Koordinaten
+            float_arrays = root.findall(".//collada:float_array", ns)
+            uv_values = []
+
+            for fa in float_arrays:
+                if "uv" in fa.get("id", "").lower():
+                    text = fa.text.strip()
+                    if text:
+                        values = [float(v) for v in text.split()]
+                        uv_values.extend(values)
+
+            if not uv_values:
+                self.warning("Keine UV-Werte in horizon DAE gefunden")
+                return
+
+            # Analysiere UV-Bereich
+            uv_min = min(uv_values)
+            uv_max = max(uv_values)
+
+            print(f"  [i] UV-Range: [{uv_min:.4f} .. {uv_max:.4f}]")
+
+            # Prüfe ob UVs im erwarteten Bereich sind (mit Offset/Skalierung)
+            # Normalerweise sollten sie zwischen -0.1 und 1.1 sein (mit kleinen Offsets)
+            if uv_min >= -0.5 and uv_max <= 1.5:
+                self.success(f"UV-Werte im erwarteten Bereich [{uv_min:.4f}..{uv_max:.4f}]")
+            else:
+                self.warning(f"UV-Werte außerhalb erwarteter Range: [{uv_min:.4f}..{uv_max:.4f}]")
+
+            # Prüfe auf gültige UV-Dichte (sollten mehrere eindeutige Werte sein)
+            unique_uvs = len(set(round(v, 6) for v in uv_values))
+            if unique_uvs > 1:
+                self.success(f"{unique_uvs} eindeutige UV-Werte gefunden")
+            else:
+                self.warning(f"Nur {unique_uvs} eindeutige UV-Wert(e) - möglicherweise fehler in UV-Mapping")
+
+        except ET.ParseError as e:
+            self.error(f"Fehler beim UV-Analyse in horizon DAE: {e}")
+
+    def test_horizon_coordinates(self):
+        """Teste Koordinaten-Plausibilität von Horizon-Mesh."""
+        print("\n[Horizon] Teste Koordinaten-Plausibilität...")
+
+        horizon_dae = self.shapes_dir / "terrain_horizon.dae"
+
+        if not horizon_dae.exists():
+            self.warning("terrain_horizon.dae nicht gefunden - überspringe Koordinaten-Test")
+            return
+
+        try:
+            tree = ET.parse(horizon_dae)
+            root = tree.getroot()
+            ns = {"collada": "http://www.collada.org/2005/11/COLLADASchema"}
+
+            # Extrahiere Vertices
+            float_arrays = root.findall(".//collada:float_array", ns)
+            vertices = []
+
+            for fa in float_arrays:
+                if "vertices" in fa.get("id", "").lower():
+                    text = fa.text.strip() if fa.text else ""
+                    if text:
+                        values = [float(v) for v in text.split()]
+                        # 3 Werte pro Vertex (X, Y, Z)
+                        for i in range(0, len(values), 3):
+                            if i + 2 < len(values):
+                                vertices.append((values[i], values[i + 1], values[i + 2]))
+
+            if not vertices:
+                self.warning("Keine Vertices in horizon DAE gefunden")
+                return
+
+            # Analysiere Koordinaten-Bereiche
+            xs = [v[0] for v in vertices]
+            ys = [v[1] for v in vertices]
+            zs = [v[2] for v in vertices]
+
+            x_min, x_max = min(xs), max(xs)
+            y_min, y_max = min(ys), max(ys)
+            z_min, z_max = min(zs), max(zs)
+
+            print(f"  [i] Mesh-Bounds:")
+            print(f"      X: [{x_min:.0f}..{x_max:.0f}] ({x_max - x_min:.0f}m)")
+            print(f"      Y: [{y_min:.0f}..{y_max:.0f}] ({y_max - y_min:.0f}m)")
+            print(f"      Z: [{z_min:.0f}..{z_max:.0f}] ({z_max - z_min:.0f}m)")
+
+            # Prüfe ob Mesh in lokalen Koordinaten ist (sollte um 0,0,0 sein)
+            mesh_center_x = (x_min + x_max) / 2
+            mesh_center_y = (y_min + y_max) / 2
+
+            if abs(mesh_center_x) < 100000 and abs(mesh_center_y) < 100000:
+                self.success(f"Mesh-Center in lokalen Koordinaten: ({mesh_center_x:.0f}, {mesh_center_y:.0f})")
+            else:
+                self.warning(f"Mesh-Center außerhalb erwartet: ({mesh_center_x:.0f}, {mesh_center_y:.0f})")
+
+            # Prüfe ob Höhenvarianz plausibel ist (sollte nicht zu klein sein für Horizont)
+            if z_max - z_min > 1.0:
+                self.success(f"Höhenvarianz im Mesh: {z_max - z_min:.2f}m")
+            else:
+                self.warning(f"Kleine Höhenvarianz im Horizont-Mesh: {z_max - z_min:.2f}m (flach?)")
+
+        except ET.ParseError as e:
+            self.error(f"Fehler beim Parsen Koordinaten in horizon DAE: {e}")
 
     def run_all_tests(self):
         """Führe alle Tests aus."""
@@ -945,6 +1306,13 @@ class ExportIntegrityTest:
         self.test_texture_mapping()
         self.test_debug_network_json()
         self.test_xyz_normalization()
+
+        # Horizon-Tests
+        self.test_horizon_dae()
+        self.test_horizon_materials()
+        self.test_horizon_items()
+        self.test_horizon_uv_mapping()
+        self.test_horizon_coordinates()
 
         # Zusammenfassung
         print("\n" + "=" * 60)
@@ -972,7 +1340,7 @@ class ExportIntegrityTest:
             return 0
         elif not self.errors:
             print("\n" + "=" * 60)
-            print("✓ Export ist funktionsfähig (mit Warnungen).")
+            print("[OK] Export ist funktionsfähig (mit Warnungen).")
             print("=" * 60)
             return 0
         else:

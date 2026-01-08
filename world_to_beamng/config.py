@@ -13,6 +13,15 @@ BEAMNG_DIR_SHAPES = BEAMNG_DIR + "\\art\\shapes"
 BEAMNG_DIR_TEXTURES = BEAMNG_DIR_SHAPES + "\\textures"
 BEAMNG_DIR_BUILDINGS = BEAMNG_DIR_SHAPES + "\\buildings"
 
+RELATIVE_DIR = "/levels/World_to_BeamNG/"
+RELATIVE_DIR_SHAPES = RELATIVE_DIR + "art/shapes/"
+RELATIVE_DIR_TEXTURES = RELATIVE_DIR_SHAPES + "textures/"
+RELATIVE_DIR_BUILDINGS = RELATIVE_DIR_SHAPES + "buildings/"
+
+# === OpenTopography API ===
+OPENTOPOGRAPHY_API_KEY = "9805a06e82a636afd885c07a2f2e1838"  # Registrierung: https://opentopography.org/
+OPENTOPOGRAPHY_ENABLED = False  # Automatischer Download von DGM30 aktivieren
+
 # === MESH-PARAMETER ===
 ROAD_WIDTH = 7.0
 # Winkel-Schwelle für dynamischen Junction-Buffer (Grad). Unterhalb dieses Winkels wird ein winkelabhängiger Buffer aktiviert.
@@ -33,6 +42,7 @@ LEVEL_NAME = "World_to_BeamNG"  # Name des BeamNG Levels (muss mit BEAMNG_DIR ü
 # DEBUG / EXPORTS
 DEBUG_EXPORTS = True  # Debug-Dumps (Netz, Grid) nur bei Bedarf aktivieren
 DEBUG_VERBOSE = False  # Zusätzliche Konsolen-Logs
+SKIP_PHASES_2_TO_4_IF_MAIN_ITEMS_EXISTS = True  # Wenn main.items.json existiert, Phase 2-4 überspringen
 
 # === STRASSENGLÄTTUNG / OPTIONEN ===
 ENABLE_ROAD_SMOOTHING = True  # False = Spline-Glättung komplett aus
@@ -56,6 +66,8 @@ MATERIAL_TYPES = ["terrain", "road"]  # Verfügbare Materialien (später erweite
 CACHE_DIR = "cache"  # Verzeichnis fuer Cache-Dateien
 HEIGHT_DATA_DIR = "data/DGM1"  # Verzeichnis mit Hoehendaten
 LOD2_DATA_DIR = "data/LOD2"  # Verzeichnis mit 3D-Gebäudemodellen (CityGML)
+DGM30_DATA_DIR = "data/DGM30"  # Verzeichnis mit 30m Höhendaten für Horizont
+DOP300_DATA_DIR = "data/DOP300"  # Verzeichnis mit Sentinel-2 RGB Bildern
 
 # === GEBÄUDE (LoD2) ===
 LOD2_ENABLED = True  # LoD2-Gebäude verarbeiten
@@ -63,6 +75,11 @@ LOD2_WALL_COLOR = (1.0, 1.0, 1.0)  # Weiß (RGB 0-1)
 LOD2_ROOF_COLOR = (0.8, 0.3, 0.2)  # Ziegelrot
 LOD2_SNAP_TO_TERRAIN = True  # Gebäude auf Terrain ausrichten
 LOD2_FOUNDATION_EXTRUDE = 0.5  # Meter: Wände nach unten verlängern für Fundament
+
+# === PHASE 5: HORIZONT-LAYER ===
+PHASE5_ENABLED = True  # Horizont-Layer aktivieren (erfordert DGM30 + DOP300 Daten)
+HORIZON_BBOX_BUFFER = 50000  # Buffer um Kerngebiet in Metern (50km)
+HORIZON_GRID_SPACING = 1000  # Horizont-Grid Auflösung in Metern (1km)
 
 # === MULTIPROCESSING ===
 # WARNUNG: Unter Windows kann Multiprocessing hängen bleiben!

@@ -27,8 +27,9 @@ def load_dae_tile(filepath):
         }
     """
 
-    # Lade und parse DAE mit lxml
-    tree = ET.parse(str(filepath))
+    # Lade und parse DAE mit lxml (huge_tree erlaubt große Textknoten, z.B. Horizon)
+    parser = ET.XMLParser(huge_tree=True, resolve_entities=False)
+    tree = ET.parse(str(filepath), parser)
     root = tree.getroot()
 
     # Namespace handling (Collada verwendet Namespaces)
@@ -94,9 +95,7 @@ def load_dae_tile(filepath):
             # Finde p (indices)
             p = triangles.find("collada:p", ns)
             if p is None:
-                print(
-                    f"[!] p (indices) nicht gefunden in triangles für tile {tile_name}"
-                )
+                print(f"[!] p (indices) nicht gefunden in triangles für tile {tile_name}")
                 continue
 
             if p.text is None:
@@ -198,9 +197,7 @@ def load_all_dae_tiles(tiles_dir="tiles_dae"):
 
             if len(data["vertices"]) > 0:
                 tiles_data[tile_id] = data
-                print(
-                    f"  Tile {tile_id}: {len(data['vertices'])} vertices, {len(data['faces'])} faces"
-                )
+                print(f"  Tile {tile_id}: {len(data['vertices'])} vertices, {len(data['faces'])} faces")
 
         except Exception as e:
             print(f"  Fehler beim Laden von {dae_file}: {e}")

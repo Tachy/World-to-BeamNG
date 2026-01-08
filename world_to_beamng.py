@@ -53,7 +53,7 @@ from world_to_beamng.io.lod2 import (
     export_materials_json as export_lod2_materials_json,
     create_items_json_entry as create_lod2_items_entry,
 )
-from world_to_beamng.io.materials import reset_materials_json, append_materials_to_json
+from world_to_beamng.io.materials import append_materials_to_json
 from world_to_beamng.io.cache import load_height_hashes, save_height_hashes, calculate_file_hash
 from world_to_beamng.io.materials_merge import (
     merge_materials_json,
@@ -64,6 +64,7 @@ from world_to_beamng.io.materials_merge import (
 from world_to_beamng.utils.tile_scanner import scan_lgl_tiles, compute_global_bbox, compute_global_center
 from world_to_beamng.utils.timing import StepTimer
 from world_to_beamng.utils.multitile import (
+    reset_items_materials_json,
     phase1_multitile_init,
     phase2_process_tile,
     phase3_multitile_finalize,
@@ -120,10 +121,6 @@ def main():
     start_time = time_module.time()
     timer = StepTimer()
 
-    # Materials reset (fresh main.materials.json pro Lauf)
-    materials_path = os.path.join(config.BEAMNG_DIR, "main.materials.json")
-    reset_materials_json(materials_path)
-
     # Multi-Tile-Pipeline immer aktiv (auch bei nur einer DGM1-Kachel)
     tiles, global_offset = phase1_multitile_init(config.HEIGHT_DATA_DIR)
 
@@ -136,21 +133,42 @@ def main():
     # Sammle Debug-Daten aus allen Tiles
     all_tiles_results = []
 
-    for tile in tiles:
-        result = phase2_process_tile(
-            tile,
-            global_offset=global_offset,
-            buildings_data=buildings_data,
+    # Optional: Phasen 2-4 überspringen, falls bereits ein kompletter Export vorliegt
+    items_json_path = os.path.join(config.BEAMNG_DIR, "main.items.json")
+    skip_phases_2_to_4 = config.SKIP_PHASES_2_TO_4_IF_MAIN_ITEMS_EXISTS and os.path.exists(items_json_path)
+    if not skip_phases_2_to_4:
+        # Materials reset (nur wenn wir Phase 2-4 wirklich laufen lassen)
+        reset_items_materials_json()
+
+        for tile in tiles:
+            result = phase2_process_tile(
+                tile,
+                global_offset=global_offset,
+                buildings_data=buildings_data,
+            )
+            if result:
+                all_tiles_results.append(result)
+
+        phase3_multitile_finalize(config.BEAMNG_DIR)
+
+        # Phase 4: Schreibe debug_network.json
+        from world_to_beamng.utils.multitile import write_debug_network_json
+
+        write_debug_network_json(all_tiles_results, config.CACHE_DIR)
+    else:
+        print(
+            "  [i] main.items.json vorhanden – überspringe Phase 2-4 (abschaltbar via config.SKIP_PHASES_2_TO_4_IF_MAIN_ITEMS_EXISTS)"
         )
-        if result:
-            all_tiles_results.append(result)
 
-    phase3_multitile_finalize(config.BEAMNG_DIR)
+    # Phase 5: Generiere Horizont-Layer
+    if config.PHASE5_ENABLED and global_offset:
+        from world_to_beamng.utils.multitile import phase5_generate_horizon_layer
+        from world_to_beamng.io.cache import calculate_global_tiles_hash
 
-    # Phase 4: Schreibe debug_network.json
-    from world_to_beamng.utils.multitile import write_debug_network_json
+        # Berechne globalen Hash für Phase 5 Cache
+        phase5_hash = calculate_global_tiles_hash(tiles)
 
-    write_debug_network_json(all_tiles_results, config.CACHE_DIR)
+        phase5_generate_horizon_layer(global_offset, config.BEAMNG_DIR, tile_hash=phase5_hash)
 
     timer.report()
     return

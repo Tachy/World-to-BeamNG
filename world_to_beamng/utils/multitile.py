@@ -173,6 +173,19 @@ def _ensure_local_offset(global_offset, height_points, height_elevations):
     return config.LOCAL_OFFSET
 
 
+def reset_items_materials_json() -> None:
+    """Löscht materials.json zu Beginn des Laufs, falls vorhanden."""
+    # Löschen alte Materials/Items für Fresh Start
+    materials_path = os.path.join(config.BEAMNG_DIR, "main.materials.json")
+    items_path = os.path.join(config.BEAMNG_DIR, "main.items.json")
+
+    print(f"\nInitialisiere Materials & Items...")
+    for path in [materials_path, items_path]:
+        if os.path.exists(path):
+            os.remove(path)
+            print(f"  [OK] Gelöschte alte Datei: {os.path.basename(path)}")
+
+
 def phase1_multitile_init(dgm1_dir="data/DGM1"):
     """
     PHASE 1: Pre-Scan aller Tiles und Initialisierung.
@@ -283,16 +296,6 @@ def phase1_multitile_init(dgm1_dir="data/DGM1"):
     print("\nSpeichere Height-Data-Hashes...")
     save_height_hashes(height_hashes)
 
-    # Löschen alte Materials/Items für Fresh Start
-    materials_path = os.path.join(config.BEAMNG_DIR, "main.materials.json")
-    items_path = os.path.join(config.BEAMNG_DIR, "main.items.json")
-
-    print(f"\nInitialisiere Materials & Items...")
-    for path in [materials_path, items_path]:
-        if os.path.exists(path):
-            os.remove(path)
-            print(f"  [OK] Gelöschte alte Datei: {os.path.basename(path)}")
-
     # Globaler Offset: Nutze den Center des Grids
     # Später wird dieser beim Laden der Höhendaten verfeinert
     global_offset = (global_center[0], global_center[1], 0.0)  # Z wird später gesetzt
@@ -319,7 +322,9 @@ def phase2_process_tile(tile, global_offset=None, bbox_margin=50.0, buildings_da
     - Materials/Items additiv mergen (add_new)
     """
 
-    print(f"\n[PHASE 2] Verarbeite Tile: {tile.get('filename')}")
+    print("\n" + "=" * 60)
+    print(f"[PHASE 2] Verarbeite Tile: {tile.get('filename')}")
+    print("=" * 60)
 
     timer = StepTimer()
 
@@ -653,8 +658,10 @@ def phase2_process_tile(tile, global_offset=None, bbox_margin=50.0, buildings_da
 
                 if dae_path:
                     dae_files.append(os.path.basename(dae_path))
+                    # Relative Pfade für items.json
+                    relative_building_path = config.RELATIVE_DIR_BUILDINGS + os.path.basename(dae_path)
                     item = create_lod2_items_entry(
-                        dae_path=f"buildings/{os.path.basename(dae_path)}",
+                        dae_path=relative_building_path,
                         tile_x=tile_x,
                         tile_y=tile_y,
                     )
@@ -878,3 +885,174 @@ def write_debug_network_json(all_tiles_results, cache_dir):
 
     print(f"  [OK] {len(all_roads)} Straßen, {len(all_junctions)} Junctions")
     print(f"  [Debug] Netz-Daten exportiert: {debug_network_path}")
+
+
+def phase5_generate_horizon_layer(global_offset, beamng_dir, tile_hash=None):
+    """
+    PHASE 5: Generiert Horizont-Layer aus DGM30 und Sentinel-2.
+
+    Erstellt niederauflösendes Horizont-Mesh (1km Auflösung) für Sichtlinie.
+
+    Args:
+        global_offset: (ox, oy, oz) Globaler Offset
+        beamng_dir: Zielverzeichnis
+        tile_hash: Optional - Hash für Cache
+
+    Returns:
+        Dict mit Horizont-Daten oder None
+    """
+    from world_to_beamng.terrain.horizon import (
+        load_dgm30_tiles,
+        load_sentinel2_geotiff,
+        generate_horizon_mesh,
+        texture_horizon_mesh,
+        export_horizon_dae,
+    )
+
+    print("\n" + "=" * 60)
+    print("[PHASE 5] Generiere Horizont-Layer")
+    print("=" * 60)
+
+    # Prüfe ob Phase 5 aktiviert ist
+    if not config.PHASE5_ENABLED:
+        print("[i] Phase 5 ist deaktiviert")
+        return None
+
+    timer = StepTimer()
+
+    # Berechne Horizont-BBOX (±50km um Kerngebiet)
+    ox, oy, oz = global_offset
+    horizon_bbox = (ox - 50000, ox + 50000, oy - 50000, oy + 50000)
+    x_min, x_max, y_min, y_max = horizon_bbox
+
+    print(f"[i] Horizont-BBOX: ±50km um ({ox:.0f}, {oy:.0f})")
+    print(f"      UTM (EPSG:25832): X=[{x_min:.0f}..{x_max:.0f}], Y=[{y_min:.0f}..{y_max:.0f}]")
+    print(f"      Breite: {x_max - x_min:.0f}m, Höhe: {y_max - y_min:.0f}m")
+
+    # Zeige Horizon-BBOX auch in Lat/Lon
+    try:
+        from pyproj import Transformer
+
+        transformer = Transformer.from_crs("EPSG:25832", "EPSG:4326", always_xy=True)
+        lon_w, lat_s = transformer.transform(x_min, y_min)
+        lon_e, lat_n = transformer.transform(x_max, y_max)
+        print(f"      BBOX (lat/lon): N={lat_n:.6f} S={lat_s:.6f} E={lon_e:.6f} W={lon_w:.6f}")
+    except Exception as e:
+        print(f"      [!] Konnte Horizon-BBOX nicht in Lat/Lon umrechnen: {e}")
+
+    # === DGM30 laden ===
+    timer.begin("Lade DGM30-Daten (30m)")
+    height_points, height_elevations = load_dgm30_tiles(
+        config.DGM30_DATA_DIR, horizon_bbox, local_offset=global_offset, tile_hash=tile_hash
+    )
+
+    if height_points is None:
+        print("[!] DGM30-Daten nicht gefunden - Phase 5 übersprungen")
+        return None
+
+    # === Mesh generieren ===
+    timer.begin("Generiere Horizont-Mesh")
+    vertices, faces, nx, ny = generate_horizon_mesh(height_points, height_elevations, global_offset)
+
+    # === Sentinel-2 laden ===
+    timer.begin("Lade Sentinel-2 Satellitenbilder")
+    sentinel2_data = load_sentinel2_geotiff(config.DOP300_DATA_DIR, horizon_bbox, tile_hash=tile_hash)
+
+    if sentinel2_data is None:
+        print("[i] Sentinel-2 nicht vorhanden - Horizont ohne Textur")
+        return None
+
+    horizon_image, bounds_utm, transform = sentinel2_data
+
+    # Zeige Koordinaten-Übereinstimmung mit Mesh
+    mesh_x_min, mesh_x_max = vertices[:, 0].min(), vertices[:, 0].max()
+    mesh_y_min, mesh_y_max = vertices[:, 1].min(), vertices[:, 1].max()
+
+    print(f"  [i] Mesh Bounds (lokal): X=[{mesh_x_min:.0f}..{mesh_x_max:.0f}], Y=[{mesh_y_min:.0f}..{mesh_y_max:.0f}]")
+    print(
+        f"  [i] Texture Bounds (UTM): X=[{bounds_utm[0]:.0f}..{bounds_utm[2]:.0f}], Y=[{bounds_utm[1]:.0f}..{bounds_utm[3]:.0f}]"
+    )
+
+    # === Texturierung ===
+    timer.begin("Texturiere Horizont-Mesh")
+    texture_info = texture_horizon_mesh(vertices, horizon_image, nx, ny, bounds_utm, transform, global_offset)
+
+    # === Export ===
+    timer.begin("Exportiere Horizont DAE")
+    dae_filename = export_horizon_dae(
+        vertices, faces, texture_info, beamng_dir, level_name=config.LEVEL_NAME, global_offset=global_offset
+    )
+
+    # === Materials & Items ===
+    timer.begin("Registriere Materials & Items")
+
+    # Horizon-Material (mit BeamNG-konformen Stages)
+    horizon_material = {
+        "name": "horizon_terrain",
+        "mapTo": "horizon_terrain",
+        "class": "Material",
+        "version": 2,
+        "Stages": [
+            {
+                "colorMap": texture_info.get("texture_path", "shapes/textures/white.png"),
+                "specularPower": 16,
+                "pixelSpecular": True,
+            }
+        ],
+        "groundModelName": "sky",
+    }
+
+    materials_path = os.path.join(beamng_dir, "main.materials.json")
+    import json
+
+    if os.path.exists(materials_path):
+        with open(materials_path, "r", encoding="utf-8") as f:
+            materials = json.load(f)
+    else:
+        materials = {}
+
+    materials["horizon_terrain"] = horizon_material
+
+    with open(materials_path, "w", encoding="utf-8") as f:
+        json.dump(materials, f, indent=2)
+
+    # Horizon-Item
+    # Relative Pfade für items.json
+    relative_dae_path = config.RELATIVE_DIR_SHAPES + dae_filename
+
+    horizon_item = {
+        "__name": "Horizon",
+        "class": "TSStatic",
+        "className": "TSStatic",
+        "position": [0, 0, 0],
+        "rotation": [0, 0, 1, 0],
+        "scale": [1, 1, 1],
+        "datablock": "DefaultStaticShape",
+        "shapeName": relative_dae_path,
+        "meshCulling": 0,
+        "originSort": 0,
+    }
+
+    items_path = os.path.join(beamng_dir, "main.items.json")
+
+    if os.path.exists(items_path):
+        with open(items_path, "r", encoding="utf-8") as f:
+            items = json.load(f)
+    else:
+        items = {}
+
+    items["Horizon"] = horizon_item
+
+    with open(items_path, "w", encoding="utf-8") as f:
+        json.dump(items, f, indent=2)
+
+    timer.report()
+
+    print(f"[OK] Phase 5 abgeschlossen")
+
+    return {
+        "dae_file": dae_filename,
+        "vertices": len(vertices),
+        "faces": len(faces),
+        "texture": texture_info.get("texture_path"),
+    }

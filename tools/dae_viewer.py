@@ -35,6 +35,32 @@ from world_to_beamng import config
 from tools.dae_loader import load_dae_tile
 
 
+# BeamNG-Relative Pfade ("/levels/<Level>/...") nach absoluten Pfaden auflösen
+def _resolve_beamng_path(path_str: str) -> str | None:
+    if not path_str:
+        return None
+
+    p = path_str.replace("\\", "/")
+
+    # 1) Präfix /levels/<LEVEL_NAME>/...
+    level_prefix = f"/levels/{config.LEVEL_NAME}/"
+    if p.startswith(level_prefix):
+        rel = p[len(level_prefix) :]
+        return os.path.join(config.BEAMNG_DIR, rel.replace("/", os.sep))
+
+    # 2) Präfix aus config.RELATIVE_DIR (identisch, aber bereitgestellt)
+    if p.startswith(config.RELATIVE_DIR):
+        rel = p[len(config.RELATIVE_DIR) :]
+        return os.path.join(config.BEAMNG_DIR, rel.replace("/", os.sep))
+
+    # 3) art/… Präfix relativ zum Level-Root
+    if p.startswith("art/"):
+        return os.path.join(config.BEAMNG_DIR, p.replace("/", os.sep))
+
+    # 4) Fallback: behandle als relative Shape-Angabe
+    return os.path.join(config.BEAMNG_DIR_SHAPES, p)
+
+
 class DAETileViewer:
     def __init__(self):
         # Lade Items und Materialien aus JSON
@@ -61,8 +87,8 @@ class DAETileViewer:
         for item_name, item_data in self.items.items():
             shape_name = item_data.get("shapeName")
             if shape_name and shape_name.endswith(".dae"):
-                dae_path = os.path.join(config.BEAMNG_DIR_SHAPES, shape_name)
-                if os.path.exists(dae_path):
+                dae_path = _resolve_beamng_path(shape_name)
+                if dae_path and os.path.exists(dae_path):
                     self.dae_files.append((item_name, dae_path))
                 else:
                     print(f"  [!] DAE nicht gefunden: {shape_name}")
@@ -420,6 +446,7 @@ class DAETileViewer:
 
         # Bestimme ob Terrain oder Building
         is_terrain = item_name.startswith("terrain_")
+        is_horizon = "horizon" in item_name.lower()
         is_building = item_name.startswith("buildings_")
 
         # Farben aus grid_colors
@@ -437,7 +464,7 @@ class DAETileViewer:
         }
 
         # Rendering mit Texturen (nur für Terrain)
-        if self.use_textures and tiles_info and is_terrain:
+        if self.use_textures and tiles_info and (is_terrain or is_horizon):
             for tile_name, tile_info in tiles_info.items():
                 tile_vertices_local = tile_info.get("vertices", [])
                 tile_faces_local = tile_info.get("faces_local", [])
@@ -465,7 +492,15 @@ class DAETileViewer:
                         except:
                             pass  # Fallback zu Original tile_name
 
-                texture = self.textures.get(texture_key)
+                lookup_key = texture_key.lower()
+                texture = self.textures.get(lookup_key)
+
+                if texture is None and is_horizon:
+                    # Fallback: nutze die bekannte Horizont-Textur, falls der Tile-Name nicht passt
+                    texture = self.textures.get("horizon_sentinel2") or next(
+                        (tex for key, tex in self.textures.items() if "horizon" in key),
+                        None,
+                    )
 
                 if texture is not None and len(tile_uvs) > 0:
                     try:
@@ -697,21 +732,33 @@ class DAETileViewer:
             print(f"  [!] Textures-Verzeichnis nicht gefunden: {self.textures_dir}")
             return textures
 
-        # Finde alle tile_*.jpg Dateien
-        texture_files = list(Path(self.textures_dir).glob("tile_*.jpg"))
+        patterns = ["*.jpg", "*.jpeg", "*.png", "*.dds"]
+        texture_files = []
+
+        for pattern in patterns:
+            texture_files.extend(Path(self.textures_dir).glob(pattern))
 
         for texture_path in texture_files:
-            tile_name = texture_path.stem  # z.B. "tile_0_0"
+            texture_key = texture_path.stem.lower()  # z.B. "tile_0_0" oder "horizon_sentinel2"
 
             try:
-                # Lade Bild mit PIL
-                img = Image.open(texture_path)
+                if texture_path.suffix.lower() == ".dds":
+                    try:
+                        import importlib
 
-                # Konvertiere zu RGB array
-                img_array = np.array(img)
+                        imageio = importlib.import_module("imageio.v2")
+                        img_array = imageio.imread(texture_path)
+                    except ImportError:
+                        print(f"  [!] imageio nicht verfügbar, überspringe DDS Textur {texture_path.name}")
+                        continue
+                else:
+                    img = Image.open(texture_path)
+                    img_array = np.array(img.convert("RGB"))
 
-                # PyVista Texture erwartet RGB im 0-255 Bereich
-                textures[tile_name] = pv.Texture(img_array)
+                if img_array.ndim == 2:  # Grauwerte -> RGB duplizieren
+                    img_array = np.stack([img_array] * 3, axis=-1)
+
+                textures[texture_key] = pv.Texture(img_array)
 
             except Exception as e:
                 print(f"  [!] Fehler beim Laden von {texture_path.name}: {e}")
@@ -1192,8 +1239,8 @@ class DAETileViewer:
             for item_name, item_data in self.items.items():
                 shape_name = item_data.get("shapeName")
                 if shape_name and shape_name.endswith(".dae"):
-                    dae_path = os.path.join(config.BEAMNG_DIR_SHAPES, shape_name)
-                    if os.path.exists(dae_path):
+                    dae_path = _resolve_beamng_path(shape_name)
+                    if dae_path and os.path.exists(dae_path):
                         self.dae_files.append((item_name, dae_path))
 
             # Lade alle DAE-Dateien neu
@@ -1478,4 +1525,7 @@ class DAETileViewer:
 
 if __name__ == "__main__":
     viewer = DAETileViewer()
-    viewer.show()
+    if hasattr(viewer, "plotter") and viewer.plotter is not None:
+        viewer.show()
+    else:
+        print("[!] Kein Plotter initialisiert (vermutlich keine DAE-Dateien geladen).")
