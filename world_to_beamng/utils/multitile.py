@@ -986,65 +986,24 @@ def phase5_generate_horizon_layer(global_offset, beamng_dir, tile_hash=None):
     # === Materials & Items ===
     timer.begin("Registriere Materials & Items")
 
-    # Horizon-Material (mit BeamNG-konformen Stages)
-    horizon_material = {
-        "name": "horizon_terrain",
-        "mapTo": "horizon_terrain",
-        "class": "Material",
-        "version": 2,
-        "Stages": [
-            {
-                "colorMap": texture_info.get("texture_path", "shapes/textures/white.png"),
-                "specularPower": 16,
-                "pixelSpecular": True,
-            }
-        ],
-        "groundModelName": "sky",
-    }
+    from world_to_beamng.managers import MaterialManager, ItemManager
 
-    materials_path = os.path.join(beamng_dir, "main.materials.json")
-    import json
+    # Material-Manager
+    mat_manager = MaterialManager(beamng_dir)
+    mat_manager.load()  # Lade existierende
+    
+    texture_path = texture_info.get("texture_path", "shapes/textures/white.png")
+    mat_manager.add_horizon_material(texture_path)
+    
+    mat_manager.save()
 
-    if os.path.exists(materials_path):
-        with open(materials_path, "r", encoding="utf-8") as f:
-            materials = json.load(f)
-    else:
-        materials = {}
-
-    materials["horizon_terrain"] = horizon_material
-
-    with open(materials_path, "w", encoding="utf-8") as f:
-        json.dump(materials, f, indent=2)
-
-    # Horizon-Item
-    # Relative Pfade für items.json
-    relative_dae_path = config.RELATIVE_DIR_SHAPES + dae_filename
-
-    horizon_item = {
-        "__name": "Horizon",
-        "class": "TSStatic",
-        "className": "TSStatic",
-        "position": [0, 0, 0],
-        "rotation": [0, 0, 1, 0],
-        "scale": [1, 1, 1],
-        "datablock": "DefaultStaticShape",
-        "shapeName": relative_dae_path,
-        "meshCulling": 0,
-        "originSort": 0,
-    }
-
-    items_path = os.path.join(beamng_dir, "main.items.json")
-
-    if os.path.exists(items_path):
-        with open(items_path, "r", encoding="utf-8") as f:
-            items = json.load(f)
-    else:
-        items = {}
-
-    items["Horizon"] = horizon_item
-
-    with open(items_path, "w", encoding="utf-8") as f:
-        json.dump(items, f, indent=2)
+    # Item-Manager
+    item_manager = ItemManager(beamng_dir)
+    item_manager.load()  # Lade existierende
+    
+    item_manager.add_horizon(name="Horizon", dae_filename=dae_filename)
+    
+    item_manager.save()
 
     timer.report()
 

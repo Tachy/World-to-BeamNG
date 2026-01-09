@@ -728,51 +728,27 @@ def create_materials_json() -> Dict:
     Returns:
         Dict mit Material-Definitionen
     """
-    return {
-        "lod2_wall_white": {
-            "name": "lod2_wall_white",
-            "mapTo": "lod2_wall_white",
-            "class": "Material",
-            "Stages": [{"diffuseColor": [0.95, 0.95, 0.95, 1.0], "specularPower": 1, "pixelSpecular": True}],
-            "groundType": "STONE",
-            "materialTag0": "beamng",
-            "materialTag1": "Building",
-        },
-        "lod2_roof_red": {
-            "name": "lod2_roof_red",
-            "mapTo": "lod2_roof_red",
-            "class": "Material",
-            "Stages": [{"diffuseColor": [0.6, 0.2, 0.1, 1.0], "specularPower": 1, "pixelSpecular": True}],
-            "groundType": "ROOF_TILES",
-        },
-    }
-
-
-def create_materials_json() -> Dict:
-    """
-    Erstellt die main.materials.json Einträge für LoD2-Gebäude.
-
-    Returns:
-        Dict mit Material-Definitionen für BeamNG
-    """
-    return {
-        "lod2_wall_white": {
-            "name": "lod2_wall_white",
-            "mapTo": "lod2_wall_white",
-            "class": "Material",
-            "Stages": [{"diffuseColor": [0.95, 0.95, 0.95, 1.0], "specularPower": 1, "pixelSpecular": True}],
-            "groundType": "STONE",
-            "materialTag0": "beamng",
-            "materialTag1": "Building",
-        },
-        "lod2_roof_red": {
-            "name": "lod2_roof_red",
-            "mapTo": "lod2_roof_red",
-            "class": "Material",
-            "Stages": [{"diffuseColor": [0.6, 0.2, 0.1, 1.0], "specularPower": 1, "pixelSpecular": True}],
-            "groundType": "ROOF_TILES",
-        },
-    }
+    from ..managers import MaterialManager
+    
+    manager = MaterialManager(beamng_dir="")
+    
+    # Wall-Material
+    manager.add_building_material(
+        "wall",
+        color=[0.95, 0.95, 0.95, 1.0],
+        groundType="STONE",
+        materialTag0="beamng",
+        materialTag1="Building"
+    )
+    
+    # Roof-Material
+    manager.add_building_material(
+        "roof",
+        color=[0.6, 0.2, 0.1, 1.0],
+        groundType="ROOF_TILES"
+    )
+    
+    return manager.materials
 
 
 def export_materials_json(output_dir: str) -> str:
@@ -817,13 +793,13 @@ def create_items_json_entry(dae_path: str, tile_x: int, tile_y: int) -> Dict:
     Returns:
         Dict für items.json
     """
-    # tile_x und tile_y sind bereits Welt-Koordinaten (z.B. 0, 400, 800...)
-    return {
-        "__name": f"buildings_tile_{tile_x}_{tile_y}",
-        "class": "TSStatic",
-        "shapeName": dae_path,
-        "position": [0, 0, 0],
-        "rotation": [0, 0, 1, 0],  # Quaternion: keine Rotation
-        "scale": [1, 1, 1],
-        "collisionType": "Visible Mesh",
-    }
+    from ..managers import ItemManager
+    import os
+    
+    manager = ItemManager(beamng_dir="")
+    dae_filename = os.path.basename(dae_path)
+    item_name = f"buildings_tile_{tile_x}_{tile_y}"
+    
+    manager.add_building(item_name, dae_filename, position=(0, 0, 0))
+    
+    return manager.items[item_name]
