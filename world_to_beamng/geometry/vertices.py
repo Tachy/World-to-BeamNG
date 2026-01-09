@@ -33,6 +33,7 @@ def classify_grid_vertices(
     # Konvertiere zu Shapely-Polygone
     print("  Konvertiere Polygone zu Shapely...")
     road_data = []
+    debug_skipped = {"len_too_small": 0, "exception": 0, "not_polygon_after_fix": 0}
 
     for idx, poly_data in enumerate(road_slope_polygons_2d):
         road_poly_xy = poly_data["road_polygon"]
@@ -41,6 +42,7 @@ def classify_grid_vertices(
 
         # Road-Polygon muss vorhanden sein
         if len(road_poly_xy) < 3:
+            debug_skipped["len_too_small"] += 1
             continue
 
         try:
@@ -55,6 +57,7 @@ def classify_grid_vertices(
 
             # Nochmal pruefen nach Fix
             if not isinstance(road_poly, Polygon):
+                debug_skipped["not_polygon_after_fix"] += 1
                 continue
 
             # Berechne dynamischen Search-Radius basierend auf Straßenbreite
@@ -64,7 +67,7 @@ def classify_grid_vertices(
 
             # Verwende die GETRIMTE Centerline (nach Junction-Trimming)!
             # (bereits in lokalen Koordinaten durch get_road_polygons)
-            if trimmed_centerline and len(trimmed_centerline) >= 2:
+            if trimmed_centerline is not None and len(trimmed_centerline) >= 2:
                 centerline_3d = np.array(trimmed_centerline, dtype=float)
                 centerline_coords = centerline_3d[:, :2]
                 has_real_centerline = True
@@ -86,6 +89,7 @@ def classify_grid_vertices(
                 }
             )
         except Exception:
+            debug_skipped["exception"] += 1
             continue
 
     if not road_data:

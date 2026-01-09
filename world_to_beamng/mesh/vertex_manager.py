@@ -149,25 +149,6 @@ class VertexManager:
                 indices.append(new_idx)
         return indices
 
-    def add_vertices_batch(self, coords):
-        """
-        Fuegt mehrere Vertices auf einmal hinzu (effizient).
-
-        Args:
-            coords: Liste/Array von (x, y, z) Koordinaten
-
-        Returns:
-            list: Liste von globalen Vertex-Indices
-        """
-        indices = []
-        for coord in coords:
-            if len(coord) == 3:
-                indices.append(self.add_vertex(coord[0], coord[1], coord[2]))
-            else:
-                # Tuple unpacking
-                indices.append(self.add_vertex(*coord))
-        return indices
-
     # --- Interne Helfer fuer Spatial Hash ---
     def _cell_key(self, point):
         return (

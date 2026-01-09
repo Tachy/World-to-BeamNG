@@ -48,6 +48,19 @@ def export_merged_dae(
             mat_name = materials_per_face[idx] if idx < len(materials_per_face) else "unknown"
             faces_by_material.setdefault(mat_name, []).append(face)
 
+        # WICHTIG: UV-Koordinaten müssen die Tile-Bounds reflektieren, nicht Vertex-Bounds!
+        # Berechne absolute Tile-Bounds in lokalen Koordinaten
+        tile_bounds = tile_data.get("bounds", None)
+        if tile_bounds:
+            # bounds = (x_min, x_max, y_min, y_max)
+            x_min, x_max, y_min, y_max = tile_bounds
+        else:
+            # Fallback: Berechne aus tile_x/tile_y
+            x_min = tile_x * tile_size
+            x_max = (tile_x + 1) * tile_size
+            y_min = tile_y * tile_size
+            y_max = (tile_y + 1) * tile_size
+
         meshes.append(
             {
                 "id": f"tile_{tile_x}_{tile_y}",
@@ -55,6 +68,7 @@ def export_merged_dae(
                 "faces": faces_by_material,
                 "uv_offset": (0.0, 0.0),
                 "uv_scale": (1.0, 1.0),
+                "tile_bounds": (x_min, x_max, y_min, y_max),  # Für korrekte UV-Berechnung
             }
         )
 

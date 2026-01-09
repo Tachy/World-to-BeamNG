@@ -811,7 +811,7 @@ class DAETileViewer:
                         actor = self.plotter.add_mesh(
                             mesh,
                             color="white",  # Reinweiß reflektiert Licht am besten
-                            opacity=1.0,
+                            opacity=1.0,  # Fully opaque in texture mode
                             label=f"{building_path.stem}_walls",
                             smooth_shading=False,
                             lighting=True,  # ZWINGEND
@@ -828,7 +828,7 @@ class DAETileViewer:
                         actor = self.plotter.add_mesh(
                             mesh,
                             color=[0.6, 0.2, 0.1],
-                            opacity=1.0,
+                            opacity=1.0,  # Fully opaque in texture mode
                             label=f"{building_path.stem}_roofs",
                             smooth_shading=False,
                             lighting=True,  # ZWINGEND
@@ -857,7 +857,7 @@ class DAETileViewer:
                         actor = self.plotter.add_mesh(
                             mesh,
                             color=wall_colors.get("face", [0.95, 0.95, 0.95]),
-                            opacity=wall_colors.get("face_opacity", 0.5),
+                            opacity=0.5,  # Semi-transparent in grid mode
                             show_edges=True,
                             edge_color=wall_colors.get("edge", [0.3, 0.3, 0.3]),
                             line_width=1.0,
@@ -876,7 +876,7 @@ class DAETileViewer:
                         actor = self.plotter.add_mesh(
                             mesh,
                             color=roof_colors.get("face", [0.6, 0.2, 0.1]),
-                            opacity=roof_colors.get("face_opacity", 0.5),
+                            opacity=0.5,  # Semi-transparent in grid mode
                             show_edges=True,
                             edge_color=roof_colors.get("edge", [0.3, 0.1, 0.05]),
                             line_width=1.0,
@@ -1517,6 +1517,105 @@ class DAETileViewer:
                     print(f"  [Debug] Boundary-Polygone kombiniert gerendert (1 Actor)")
                 except Exception as e:
                     print(f"  [!] Fehler beim Rendern der Boundary-Polygone: {e}")
+
+        # === COMPONENT-LINIEN aus debug_network.json ===
+        component_lines = debug_data.get("component_lines", [])
+
+        if component_lines:
+            print(f"  [Debug] Lade {len(component_lines)} Component-Linien...")
+
+            # Gruppiere Components nach Typ (terrain/road)
+            terrain_components = []
+            road_components = []
+
+            for component in component_lines:
+                label = component.get("label", "component")
+                if "road" in label:
+                    road_components.append(component)
+                else:
+                    terrain_components.append(component)
+
+            # Rendere Terrain-Components (grün)
+            if terrain_components:
+                all_points = []
+                all_lines = []
+                point_offset = 0
+
+                for component in terrain_components:
+                    coords = component.get("coords", [])
+                    if len(coords) < 2:
+                        continue
+
+                    coords_array = np.array(coords)
+                    n = len(coords_array)
+                    all_points.extend(coords_array)
+
+                    for i in range(n - 1):
+                        all_lines.append([2, point_offset + i, point_offset + i + 1])
+                    point_offset += n
+
+                if len(all_points) > 0:
+                    try:
+                        all_points = np.array(all_points)
+                        all_lines = np.array(all_lines)
+
+                        terrain_color = self.grid_colors.get("component_terrain", {}).get("color", [0.2, 0.8, 0.2])
+                        terrain_width = self.grid_colors.get("component_terrain", {}).get("line_width", 3.0)
+
+                        terrain_mesh = pv.PolyData(all_points, lines=all_lines)
+                        actor = self.plotter.add_mesh(
+                            terrain_mesh,
+                            color=terrain_color,
+                            line_width=terrain_width,
+                            opacity=1.0,
+                            label="Terrain Component Lines",
+                            render_lines_as_tubes=False,
+                        )
+                        self.debug_actors.append(actor)
+                        print(f"  [Debug] {len(terrain_components)} Terrain-Component-Linien (grün)")
+                    except Exception as e:
+                        print(f"  [!] Fehler beim Rendern der Terrain-Component-Linien: {e}")
+
+            # Rendere Road-Components (rot)
+            if road_components:
+                all_points = []
+                all_lines = []
+                point_offset = 0
+
+                for component in road_components:
+                    coords = component.get("coords", [])
+                    if len(coords) < 2:
+                        continue
+
+                    coords_array = np.array(coords)
+                    n = len(coords_array)
+                    all_points.extend(coords_array)
+
+                    for i in range(n - 1):
+                        all_lines.append([2, point_offset + i, point_offset + i + 1])
+                    point_offset += n
+
+                if len(all_points) > 0:
+                    try:
+                        all_points = np.array(all_points)
+                        all_lines = np.array(all_lines)
+
+                        road_color = self.grid_colors.get("component_road", {}).get("color", [0.8, 0.2, 0.2])
+                        road_width = self.grid_colors.get("component_road", {}).get("line_width", 3.0)
+
+                        road_mesh = pv.PolyData(all_points, lines=all_lines)
+                        actor = self.plotter.add_mesh(
+                            road_mesh,
+                            color=road_color,
+                            line_width=road_width,
+                            opacity=1.0,
+                            label="Road Component Lines",
+                            render_lines_as_tubes=False,
+                        )
+                        self.debug_actors.append(actor)
+                        print(f"  [Debug] {len(road_components)} Road-Component-Linien (rot)")
+                    except Exception as e:
+                        print(f"  [!] Fehler beim Rendern der Road-Component-Linien: {e}")
 
     def show(self):
         """Zeige das Viewer-Fenster."""

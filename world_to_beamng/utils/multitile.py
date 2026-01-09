@@ -385,7 +385,7 @@ def phase2_process_tile(tile, global_offset=None, bbox_margin=50.0, buildings_da
     )
 
     # === Luftbilder verarbeiten (falls vorhanden) ===
-    timer.begin("Verarbeite Luftbilder")
+    timer.begin("Verarbeite Luftbilder (Tile-spezifisch)")
 
     # Prüfe ob Elevations-Cache existiert - wenn ja, dann Luftbilder überspringen
     elevations_cache_path = os.path.join(config.CACHE_DIR, f"elevations_{tile_hash}.json")
@@ -396,58 +396,46 @@ def phase2_process_tile(tile, global_offset=None, bbox_margin=50.0, buildings_da
         try:
             from world_to_beamng.io.aerial import process_aerial_images
 
+            # Nutze Tile-spezifische grid_bounds_local und global_offset
             tile_count = process_aerial_images(
-                aerial_dir="data/DOP20", output_dir=config.BEAMNG_DIR_TEXTURES, tile_size=2500
+                aerial_dir="data/DOP20",
+                output_dir=config.BEAMNG_DIR_TEXTURES,
+                grid_bounds=config.GRID_BOUNDS_LOCAL,  # Tile-spezifische Bounds
+                global_offset=(ox, oy, oz),  # Tile-spezifischer Offset
+                tile_world_size=config.TILE_SIZE,
+                tile_size=1000,  # Pixel-Größe der Kacheln
             )
             if tile_count > 0:
-                print(f"  [OK] {tile_count} Luftbild-Kacheln exportiert")
+                print(f"  [OK] {tile_count} Luftbild-Kacheln für dieses Tile exportiert")
             else:
-                print("  [i] Keine Luftbilder verarbeitet")
+                print("  [i] Keine Luftbilder für dieses Tile verarbeitet")
         except Exception as e:
-            print(f"  [i] Luftbild-Verarbeitung übersprungen: {e}")
+            print(f"  [!] Fehler bei Luftbild-Verarbeitung: {e}")
 
     # === LoD2-Gebäude laden (wenn aktiviert) ===
     if buildings_data is None and config.LOD2_ENABLED:
         timer.begin("Lade LoD2-Gebaeude")
 
-        # Prüfe zuerst ob normalisierte Gebäude im Cache sind
         from world_to_beamng.io.lod2 import (
             cache_lod2_buildings,
             load_buildings_from_cache,
-            cache_normalized_buildings,
         )
 
-        normalized_cache_path = os.path.join(config.CACHE_DIR, f"lod2_normalized_{tile_hash}.pkl")
-
-        if os.path.exists(normalized_cache_path):
-            # Lade bereits normalisierte Gebäude aus Cache
-            buildings_data = load_buildings_from_cache(normalized_cache_path)
+        # Lade Gebäude mit sofortiger 3D-Normalisierung (z_min vom Terrain)
+        # WICHTIG: height_points hat nur 2 Spalten (X, Y), Z-Werte sind in height_elevations
+        z_min = float(height_elevations.min()) if len(height_elevations) > 0 else 0.0
+        buildings_cache_path = cache_lod2_buildings(
+            lod2_dir=config.LOD2_DATA_DIR,
+            bbox=bbox_latlon,  # Tile-spezifische WGS84-BBox
+            local_offset=(ox, oy, z_min),  # 3D-Offset mit z_min!
+            cache_dir=config.CACHE_DIR,
+            height_hash=tile_hash,  # Tile-Hash
+        )
+        if buildings_cache_path:
+            # Gebäude sind bereits normalisiert nach Import
+            buildings_data = load_buildings_from_cache(buildings_cache_path)
             if buildings_data:
-                print(f"  [OK] {len(buildings_data)} normalisierte Gebaeude aus Cache geladen")
-        else:
-            # Lade rohe Gebäude und normalisiere sie
-            buildings_cache_path = cache_lod2_buildings(
-                lod2_dir=config.LOD2_DATA_DIR,
-                bbox=bbox_latlon,  # Tile-spezifische WGS84-BBox
-                local_offset=(ox, oy),
-                cache_dir=config.CACHE_DIR,
-                height_hash=tile_hash,  # Tile-Hash
-            )
-            if buildings_cache_path:
-                raw_buildings = load_buildings_from_cache(buildings_cache_path)
-                if raw_buildings:
-                    print(f"  [OK] {len(raw_buildings)} Gebaeude geladen")
-
-                    # Normalisiere und cache
-                    normalized_cache = cache_normalized_buildings(
-                        raw_buildings,
-                        height_points,
-                        height_elevations,
-                        config.CACHE_DIR,
-                        tile_hash,
-                    )
-                    if normalized_cache:
-                        buildings_data = load_buildings_from_cache(normalized_cache)
+                print(f"  [OK] {len(buildings_data)} normalisierte Gebaeude geladen")
 
         if not buildings_data:
             print("  [i] Keine LoD2-Gebaeude gefunden")
@@ -679,34 +667,30 @@ def phase2_process_tile(tile, global_offset=None, bbox_margin=50.0, buildings_da
 
     print(f"  [OK] Tile abgeschlossen: {tile.get('filename')}")
 
-    # Sammle Debug-Netzwerk-Daten (für debug_network.json)
-    trimmed_roads_data = []
-    junction_connections = {}
+    # Sammle Debug-Netzwerk-Daten via DebugNetworkExporter (Singleton)
+    from ..utils.debug_exporter import DebugNetworkExporter
 
+    debug_exporter = DebugNetworkExporter.get_instance()
+
+    # Sammle Road-Daten
+    junction_connections = {}
     for road_meta in road_slope_polygons_2d:
         if "trimmed_centerline" in road_meta and road_meta["trimmed_centerline"]:
-            coords = road_meta["trimmed_centerline"]
-            dump_idx = len(trimmed_roads_data)
+            dump_idx = len(debug_exporter.roads)  # Aktueller Index vor add_road
 
-            start_jid = road_meta.get("junction_start_id")
-            end_jid = road_meta.get("junction_end_id")
+            road_data = {
+                "road_id": road_meta.get("road_id"),
+                "original_idx": road_meta.get("original_idx"),
+                "coords": road_meta["trimmed_centerline"],
+                "num_points": len(road_meta["trimmed_centerline"]),
+                "junction_start_id": road_meta.get("junction_start_id"),
+                "junction_end_id": road_meta.get("junction_end_id"),
+                "junction_buffer_start": road_meta.get("junction_buffer_start"),
+                "junction_buffer_end": road_meta.get("junction_buffer_end"),
+            }
+            debug_exporter.add_road(road_data)
 
-            trimmed_roads_data.append(
-                {
-                    "road_id": road_meta.get("road_id"),
-                    "original_idx": road_meta.get("original_idx"),
-                    "coords": coords if isinstance(coords, list) else coords.tolist(),
-                    "num_points": len(coords),
-                    "junction_start_id": start_jid,
-                    "junction_end_id": end_jid,
-                    "junction_buffer_start": road_meta.get("junction_buffer_start"),
-                    "junction_buffer_end": road_meta.get("junction_buffer_end"),
-                    "color": [0.0, 0.0, 1.0],
-                    "line_width": 2.0,
-                    "opacity": 1.0,
-                }
-            )
-
+            # Tracke Junction-Connections für Junction-Daten
             def _add_conn(jid, conn_type):
                 if jid is None:
                     return
@@ -715,33 +699,29 @@ def phase2_process_tile(tile, global_offset=None, bbox_margin=50.0, buildings_da
                     data["road_indices"].append(dump_idx)
                 data["connection_types"].setdefault(dump_idx, []).append(conn_type)
 
-            _add_conn(start_jid, "start")
-            _add_conn(end_jid, "end")
+            _add_conn(road_meta.get("junction_start_id"), "start")
+            _add_conn(road_meta.get("junction_end_id"), "end")
 
-    junction_dump = []
+    # Sammle Junction-Daten
     for j_idx, j in enumerate(junctions):
         conn_data = junction_connections.get(j_idx, {})
         road_idxs = sorted(conn_data.get("road_indices", []))
         connection_types = conn_data.get("connection_types", {})
 
-        junction_dump.append(
-            {
-                "position": list(j.get("position", (0, 0, 0))),
-                "road_indices": road_idxs,
-                "connection_types": connection_types,
-                "num_connections": len(road_idxs),
-                "color": [0.0, 0.0, 1.0],
-                "opacity": 0.5,
-            }
-        )
+        junction_data = {
+            "position": j.get("position", (0, 0, 0)),
+            "road_indices": road_idxs,
+            "connection_types": connection_types,
+            "num_connections": len(road_idxs),
+        }
+        debug_exporter.add_junction(junction_data)
 
     return {
         "tile": tile,
         "materials": materials_path,
         "items": items_path,
         "dae_files": dae_files,
-        "debug_roads": trimmed_roads_data,
-        "debug_junctions": junction_dump,
+        "debug_exporter": debug_exporter,  # Übergebe Exporter statt separate Listen
     }
 
 
@@ -798,93 +778,29 @@ def write_debug_network_json(all_tiles_results, cache_dir):
     print("[PHASE 4] Schreibe Debug-Netzwerk-Daten")
     print("=" * 60)
 
-    os.makedirs(cache_dir, exist_ok=True)
-    debug_network_path = os.path.join(cache_dir, "debug_network.json")
+    from ..utils.debug_exporter import DebugNetworkExporter
+
+    # Hole zentralen Debug-Exporter (Singleton)
+    debug_exporter = DebugNetworkExporter.get_instance()
 
     # Sammle Daten aus allen Tiles
-    all_roads = []
-    all_junctions = []
-    road_offset = 0  # Offset für Straßen-Indizes bei mehreren Tiles
-    junction_offset = 0  # Offset für Junction-Indizes bei mehreren Tiles
-
     for result in all_tiles_results:
         if result is None:
             continue
 
-        # Straßen mit Offset hinzufügen
-        roads = result.get("debug_roads", [])
-        for road in roads:
-            road_copy = road.copy()
-            all_roads.append(road_copy)
+        # Hole debug_exporter aus Result (falls vorhanden)
+        tile_exporter = result.get("debug_exporter")
+        if tile_exporter:
+            debug_exporter.merge(tile_exporter)
+        else:
+            # Fallback: Nutze alte Struktur (debug_roads/debug_junctions)
+            roads = result.get("debug_roads", [])
+            junctions = result.get("debug_junctions", [])
+            debug_exporter.add_roads_batch(roads)
+            debug_exporter.add_junctions_batch(junctions)
 
-        # Junctions mit angepassten Indizes hinzufügen
-        junctions = result.get("debug_junctions", [])
-        for j in junctions:
-            j_copy = j.copy()
-            # Passe road_indices an (beziehen sich auf Straßen-Indizes)
-            j_copy["road_indices"] = [idx + road_offset for idx in j_copy.get("road_indices", [])]
-            all_junctions.append(j_copy)
-
-        road_offset += len(roads)
-        junction_offset += len(junctions)
-
-    # Grid-Farben definieren
-    grid_colors = {
-        "terrain": {
-            "face": [0.8, 0.95, 0.8],
-            "edge": [0.2, 0.5, 0.2],
-            "face_opacity": 0.5,
-            "edge_opacity": 1.0,
-        },
-        "road": {
-            "face": [1.0, 1.0, 1.0],
-            "edge": [1.0, 0.0, 0.0],
-            "face_opacity": 0.5,
-            "edge_opacity": 1.0,
-        },
-        "building_wall": {
-            "face": [0.95, 0.95, 0.95],
-            "edge": [0.3, 0.3, 0.3],
-            "face_opacity": 0.5,
-            "edge_opacity": 1.0,
-        },
-        "building_roof": {
-            "face": [0.6, 0.2, 0.1],
-            "edge": [0.3, 0.1, 0.05],
-            "face_opacity": 0.5,
-            "edge_opacity": 1.0,
-        },
-        "junction": {
-            "color": [0.0, 0.0, 1.0],
-            "opacity": 0.5,
-        },
-        "centerline": {
-            "color": [0.0, 0.0, 1.0],
-            "line_width": 2.0,
-            "opacity": 1.0,
-        },
-        "boundary": {
-            "color": [1.0, 0.0, 1.0],
-            "line_width": 2.0,
-            "opacity": 1.0,
-        },
-    }
-
-    # Schreibe debug_network.json
-    with open(debug_network_path, "w", encoding="utf-8") as f:
-        json.dump(
-            {
-                "roads": all_roads,
-                "junctions": all_junctions,
-                "grid_colors": grid_colors,
-                "boundary_polygons": [],
-            },
-            f,
-            indent=2,
-        )
-
-    print(f"  [OK] {len(all_roads)} Straßen, {len(all_junctions)} Junctions")
-    print(f"  [Debug] Netz-Daten exportiert: {debug_network_path}")
+    # Exportiere debug_network.json (Singleton hat bereits Boundaries und Components)
+    debug_exporter.export(cache_dir)
 
 
 def phase5_generate_horizon_layer(global_offset, beamng_dir, tile_hash=None):

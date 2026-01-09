@@ -204,7 +204,7 @@ def get_elevation_cache(bbox, height_hash=None):
     from ..io.cache import get_cache_path
 
     # Verwende übergebenes height_hash oder fallback auf config (wenn vorhanden)
-    effective_hash = height_hash or (getattr(config, "HEIGHT_HASH", None))
+    effective_hash = height_hash or (config.HEIGHT_HASH if hasattr(config, "HEIGHT_HASH") else None)
 
     if effective_hash:
         cache_path = get_cache_path(bbox, "elevations", effective_hash)
@@ -237,7 +237,7 @@ def save_elevation_cache(bbox, cache_data, height_hash=None):
     from ..io.cache import get_cache_path
 
     # Verwende übergebenes height_hash oder fallback auf config (wenn vorhanden)
-    effective_hash = height_hash or (getattr(config, "HEIGHT_HASH", None))
+    effective_hash = height_hash or (config.HEIGHT_HASH if hasattr(config, "HEIGHT_HASH") else None)
 
     if effective_hash:
         cache_path = get_cache_path(bbox, "elevations", effective_hash)
@@ -254,14 +254,15 @@ def save_elevation_cache(bbox, cache_data, height_hash=None):
         print(f"  [!] Fehler beim Speichern des Elevation-Cache: {e}")
 
 
-def get_elevations_for_points(pts, bbox, height_points, height_elevations, height_hash=None):
+def get_elevations_for_points(pts, bbox, height_points, height_elevations, global_offset, height_hash=None):
     """Holt Hoehendaten fuer Koordinaten - aus Cache oder durch Interpolation aus lokalen Daten.
 
     Args:
-        pts: Koordinaten (lat, lon)
+        pts: Koordinaten (lat, lon) in WGS84
         bbox: Bounding Box
-        height_points: Höhendaten-Punkte (XY)
-        height_elevations: Z-Werte
+        height_points: Höhendaten-Punkte (XY) - LOKAL, bereits normalisiert!
+        height_elevations: Z-Werte - LOKAL, bereits normalisiert!
+        global_offset: (origin_x, origin_y) für Transformation WGS84->UTM->Lokal
         height_hash: Optional - tile_hash für Cache-Konsistenz
     """
     from ..geometry.coordinates import transformer_to_utm
@@ -285,23 +286,21 @@ def get_elevations_for_points(pts, bbox, height_points, height_elevations, heigh
     if missing_pts:
         print(f"  Interpoliere {len(missing_pts)} Hoehenwerte...")
 
-        # Konvertiere WGS84 zu UTM und dann zu lokal
-        from .. import config
+        # Konvertiere WGS84 zu UTM und dann zu lokal mit global_offset
+        ox, oy = global_offset
 
         missing_pts_local = []
         for pt in missing_pts:
-            x, y = transformer_to_utm.transform(pt[1], pt[0])  # lon, lat -> x, y
+            x_utm, y_utm = transformer_to_utm.transform(pt[1], pt[0])  # lon, lat -> x, y
             # Transformiere zu lokalen Koordinaten
-            if config.LOCAL_OFFSET is not None:
-                ox, oy, oz = config.LOCAL_OFFSET
-                x -= ox
-                y -= oy
+            x = x_utm - ox
+            y = y_utm - oy
             missing_pts_local.append([x, y])
 
         missing_pts_local = np.array(missing_pts_local)
 
         # Interpoliere Hoehen (nearest neighbor fuer schnellere Berechnung)
-        # WICHTIG: height_elevations ist BEREITS normalisiert (oz wurde in world_to_beamng.py subtrahiert)!
+        # WICHTIG: height_elevations ist BEREITS normalisiert (lokal)!
         new_elevations = griddata(height_points, height_elevations, missing_pts_local, method="nearest")
 
         # Fuege zum Cache hinzu

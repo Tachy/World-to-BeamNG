@@ -27,6 +27,8 @@ ROAD_WIDTH = 7.0
 # Winkel-Schwelle für dynamischen Junction-Buffer (Grad). Unterhalb dieses Winkels wird ein winkelabhängiger Buffer aktiviert.
 # Buffer = half_width / sin(angle/2) - half_width (asymmetrisch pro Straße)
 JUNCTION_STOP_ANGLE_THRESHOLD = 90.0
+# Buffer-Abstand beim Stoppen vor Junctions (Meter)
+JUNCTION_STOP_BUFFER = 5.0
 # Böschungs-Generierung (vorübergehend deaktiviert bis Remeshing stabil)
 GENERATE_SLOPES = False
 # Minimale Boeschungsbreite (Meter) unabhängig von Hoehenunterschieden

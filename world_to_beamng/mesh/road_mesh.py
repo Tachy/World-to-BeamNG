@@ -218,7 +218,7 @@ def calculate_junction_buffer(
 
     # Nimm den kleinsten Winkel (spitzeste Ecke)
     angle_min = min(ang_prev, ang_next)
-    angle_threshold = getattr(config, "JUNCTION_STOP_ANGLE_THRESHOLD", 90.0)
+    angle_threshold = config.JUNCTION_STOP_ANGLE_THRESHOLD
 
     # Wenn Winkel >= threshold: kein Buffer nötig
     if angle_min >= angle_threshold:
@@ -382,11 +382,12 @@ def clip_road_to_bounds(coords, bounds_local):
     # Erweiterung der Bounds falls ROAD_CLIP_MARGIN negativ ist ("rausziehen")
     buffer = 0.0
     try:
-        margin = float(getattr(config, "ROAD_CLIP_MARGIN", 0.0))
+        margin = float(config.ROAD_CLIP_MARGIN)
         if margin < 0:
             buffer = -margin
     except Exception:
         buffer = 0.0
+
     min_x -= buffer
     min_y -= buffer
     max_x += buffer
@@ -820,7 +821,7 @@ def _process_road_batch(
 
         abs_left = np.abs(height_diff_left)
         abs_right = np.abs(height_diff_right)
-        min_slope = getattr(config, "MIN_SLOPE_WIDTH", 0.2)
+        min_slope = config.MIN_SLOPE_WIDTH
         slope_width_left = np.clip(np.maximum(min_slope, abs_left), None, 30.0)
         slope_width_right = np.clip(np.maximum(min_slope, abs_right), None, 30.0)
 
@@ -957,7 +958,7 @@ def generate_road_mesh_strips(road_polygons, height_points, height_elevations, v
     if junctions:
         junction_centers = [np.asarray(j["position"]) for j in junctions if "position" in j]
         junctions_full = junctions  # Vollständige Junction-Objekte für Anzahl-Prüfung
-    junction_stop_buffer = getattr(config, "JUNCTION_STOP_BUFFER", 5.0)
+    junction_stop_buffer = config.JUNCTION_STOP_BUFFER
 
     all_road_faces = []
     all_road_face_to_idx = []
@@ -975,7 +976,7 @@ def generate_road_mesh_strips(road_polygons, height_points, height_elevations, v
     local_offset = config.LOCAL_OFFSET
     grid_bounds = config.GRID_BOUNDS_LOCAL
 
-    lookup_mode = (getattr(config, "HEIGHT_LOOKUP_MODE", "kdtree") or "kdtree").lower()
+    lookup_mode = (config.HEIGHT_LOOKUP_MODE or "kdtree").lower()
 
     # Pre-compute junction road counts (global view before batching)
     junction_road_counts = {}
@@ -1007,7 +1008,7 @@ def generate_road_mesh_strips(road_polygons, height_points, height_elevations, v
 
     if use_mp and total_roads > 0:
         workers = num_workers or None
-        max_roads_per_batch = getattr(config, "MAX_ROADS_PER_BATCH", 500) or 500
+        max_roads_per_batch = config.MAX_ROADS_PER_BATCH or 500
         chunk_size = ceil(total_roads / (workers or 1))
         chunk_size = max(1, min(chunk_size, max_roads_per_batch))
         batches = []
@@ -1039,7 +1040,7 @@ def generate_road_mesh_strips(road_polygons, height_points, height_elevations, v
                 print(f"  Batch {idx}/{len(batches)} fertig (Vertices: {len(batch_vertices):,})")
     else:
         # Single-thread fallback - AUCH mit Batching für Performance!
-        max_roads_per_batch = getattr(config, "MAX_ROADS_PER_BATCH", 500) or 500
+        max_roads_per_batch = config.MAX_ROADS_PER_BATCH or 500
         batches = []
         for start in range(0, total_roads, max_roads_per_batch):
             end = min(start + max_roads_per_batch, total_roads)

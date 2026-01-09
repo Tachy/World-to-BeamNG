@@ -44,20 +44,23 @@ def load_citygml_from_zip(zip_path: Path) -> List[etree.Element]:
     return buildings
 
 
-def parse_citygml_buildings(gml_root: etree.Element, local_offset: Tuple[float, float]) -> List[Dict]:
+def parse_citygml_buildings(gml_root: etree.Element, local_offset=None) -> List[Dict]:
     """
     Parst CityGML-Daten und extrahiert Gebäudegeometrie.
 
+    WICHTIG: Diese Funktion gibt NUR die RAW UTM-Koordinaten zurück, OHNE Normalisierung!
+    Die Normalisierung erfolgt später in normalize_buildings_full() mit vollständiger 3D-Offset.
+
     Args:
         gml_root: XML-Wurzel des CityGML-Dokuments
-        local_offset: (x_offset, y_offset) für Koordinatentransformation
+        local_offset: NICHT VERWENDET - nur für Rückwärtskompatibilität
 
     Returns:
         Liste von Gebäude-Dicts mit:
         - 'id': Gebäude-ID
-        - 'walls': List of (vertices, faces) für Wände
-        - 'roofs': List of (vertices, faces) für Dächer
-        - 'bounds': (min_x, min_y, min_z, max_x, max_y, max_z)
+        - 'walls': List of (vertices, faces) für Wände (UTM-Koordinaten!)
+        - 'roofs': List of (vertices, faces) für Dächer (UTM-Koordinaten!)
+        - 'bounds': (min_x, min_y, min_z, max_x, max_y, max_z) in UTM
     """
     # Namespaces für CityGML 1.0 (LGL Baden-Württemberg)
     namespaces = {
@@ -123,8 +126,16 @@ def _extract_surface_geometry(
     """
     Extrahiert Geometrie aus WallSurface oder RoofSurface.
 
+    WICHTIG: Gibt RAW UTM-Koordinaten zurück, OHNE Normalisierung!
+    Die Normalisierung erfolgt später zentral in normalize_buildings_full().
+
+    Args:
+        surface_elem: XML-Element für Oberfläche
+        namespaces: XML-Namespaces
+        local_offset: WIRD NICHT VERWENDET - nur für Kompatibilität
+
     Returns:
-        Liste von (vertices, faces) Tupeln
+        Liste von (vertices, faces) Tupeln mit UTM-Koordinaten
     """
     geometries = []
 
@@ -142,11 +153,11 @@ def _extract_surface_geometry(
         if len(coords) < 3:
             continue
 
-        # Transformiere zu lokalen Koordinaten
-        coords_local = transform_to_local_coords(coords, local_offset)
+        # WICHTIG: KEINE Normalisierung hier! Gib RAW UTM-Koordinaten zurück
+        coords_utm = coords.astype(np.float64)
 
         # Erstelle Faces (Triangulation für Polygone)
-        n_verts = len(coords_local)
+        n_verts = len(coords_utm)
         if n_verts == 3:
             # Dreieck
             faces = np.array([[0, 1, 2]])
@@ -160,7 +171,7 @@ def _extract_surface_geometry(
                 faces.append([0, i, i + 1])
             faces = np.array(faces)
 
-        geometries.append((coords_local, faces))
+        geometries.append((coords_utm, faces))
 
     return geometries
 
@@ -307,20 +318,98 @@ def snap_building_to_terrain(building: Dict, height_points: np.ndarray, height_e
     return building
 
 
+def normalize_buildings_full(
+    buildings: List[Dict],
+    local_offset: Tuple[float, float, float],
+) -> List[Dict]:
+    """
+    Normalisiert Gebäude-Vertices ins lokale Koordinatensystem (X, Y, Z).
+
+    ZENTRALE NORMALISIERUNG nach dem Import:
+    - Alle Vertices werden sofort mit global_offset (inkl. Z) normalisiert
+    - X, Y, Z-Koordinaten werden konsistent transformiert
+    - Gebäude stehen direkt auf dem korrekten Höhenniveau
+
+    Args:
+        buildings: Liste von Gebäude-Dicts
+        local_offset: (origin_x, origin_y, z_min) - 3D-Offset
+
+    Returns:
+        Liste von normalisierten Gebäude-Dicts
+    """
+    if not buildings or len(local_offset) < 3:
+        return buildings
+
+    ox, oy, oz = local_offset[0], local_offset[1], local_offset[2]
+    normalized = []
+
+    for building in buildings:
+        # Kopiere Gebäude-Struktur
+        building_norm = {
+            "id": building.get("id"),
+            "walls": [],
+            "roofs": [],
+            "bounds": building.get("bounds"),
+        }
+
+        # Normalisiere alle Wand-Vertices
+        for verts, faces in building.get("walls", []):
+            # Verts: (N, 3) array - konvertiere zu float für Subtraktion
+            verts_norm = np.asarray(verts, dtype=np.float64).copy()
+            verts_norm[:, 0] -= ox
+            verts_norm[:, 1] -= oy
+            verts_norm[:, 2] -= oz
+            building_norm["walls"].append((verts_norm, faces))
+
+        # Normalisiere alle Dach-Vertices
+        for verts, faces in building.get("roofs", []):
+            # Verts: (N, 3) array - konvertiere zu float für Subtraktion
+            verts_norm = np.asarray(verts, dtype=np.float64).copy()
+            verts_norm[:, 0] -= ox
+            verts_norm[:, 1] -= oy
+            verts_norm[:, 2] -= oz
+            building_norm["roofs"].append((verts_norm, faces))
+
+        # WICHTIG: Bounds NEU BERECHNEN aus normalisierten Vertices!
+        # (Nicht einfach vom Offset subtrahieren, da parse_citygml_buildings schon
+        # X/Y teilweise normalisiert hat)
+        all_normalized_verts = []
+        for verts, _ in building_norm["walls"]:
+            all_normalized_verts.append(verts)
+        for verts, _ in building_norm["roofs"]:
+            all_normalized_verts.append(verts)
+
+        if all_normalized_verts:
+            all_verts_combined = np.vstack(all_normalized_verts)
+            bounds = (
+                float(np.min(all_verts_combined[:, 0])),
+                float(np.min(all_verts_combined[:, 1])),
+                float(np.min(all_verts_combined[:, 2])),
+                float(np.max(all_verts_combined[:, 0])),
+                float(np.max(all_verts_combined[:, 1])),
+                float(np.max(all_verts_combined[:, 2])),
+            )
+            building_norm["bounds"] = bounds
+
+        normalized.append(building_norm)
+
+    return normalized
+
+
 def cache_lod2_buildings(
     lod2_dir: str,
     bbox: Tuple[float, float, float, float],
-    local_offset: Tuple[float, float],
+    local_offset: Tuple[float, float, float],
     cache_dir: str,
     height_hash: str,
 ) -> str:
     """
-    Lädt und cached LoD2-Gebäudedaten.
+    Lädt und cached LoD2-Gebäudedaten - mit sofortiger 3D-Normalisierung.
 
     Args:
         lod2_dir: Verzeichnis mit ZIP-Dateien
         bbox: (min_lat, min_lon, max_lat, max_lon) in WGS84
-        local_offset: (x_offset, y_offset) in UTM
+        local_offset: (x_offset, y_offset, z_offset) in lokalen Koordinaten - 3D!
         cache_dir: Cache-Verzeichnis
         height_hash: Hash für Cache-Validierung
 
@@ -361,43 +450,38 @@ def cache_lod2_buildings(
 
     print(f"  [i] {len(zip_files)} ZIP-Archive gefunden")
 
-    all_buildings = []
-    buildings_in_bbox = 0
+    # ZENTRALE PIPELINE: Parse → BBOX-Filter (UTM) → Normalisierung (EINMAL!)
+    all_buildings_raw_utm = []  # RAW UTM-Gebäude vor Filterung
     total_parsed = 0
 
+    # PHASE 1: Parse alle Gebäude aus ZIPs (RAW UTM-Koordinaten)
     for zip_path in zip_files:
-        # Lade CityGML aus ZIP
         gml_roots = load_citygml_from_zip(zip_path)
-
         for gml_root in gml_roots:
-            # Parse Gebäude
-            buildings = parse_citygml_buildings(gml_root, local_offset)
-            total_parsed += len(buildings)
+            buildings_raw = parse_citygml_buildings(gml_root, None)
+            all_buildings_raw_utm.extend(buildings_raw)
+            total_parsed += len(buildings_raw)
 
-            # Filtere nach BBOX (in lokalen Koordinaten)
-            # bbox_utm ist in UTM-Metern, buildings.bounds sind in lokalen Metern
-            bbox_local = (
-                bbox_utm[0] - local_offset[0],
-                bbox_utm[1] - local_offset[1],
-                bbox_utm[2] - local_offset[0],
-                bbox_utm[3] - local_offset[1],
-            )
+    print(f"  [i] {total_parsed} Gebäude aus ZIPs geparst")
 
-            for building in buildings:
-                bounds = building["bounds"]
-                # bounds = (min_x, min_y, min_z, max_x, max_y, max_z)
-                # bbox_local = (min_x, min_y, max_x, max_y)
-                # Prüfe ob Gebäude in BBOX liegt (2D-Overlap-Check)
-                if (
-                    bounds[0] <= bbox_local[2]  # building.min_x <= bbox.max_x
-                    and bounds[3] >= bbox_local[0]  # building.max_x >= bbox.min_x
-                    and bounds[1] <= bbox_local[3]  # building.min_y <= bbox.max_y
-                    and bounds[4] >= bbox_local[1]  # building.max_y >= bbox.min_y
-                ):
-                    all_buildings.append(building)
-                    buildings_in_bbox += 1
+    # PHASE 2: BBOX-Filterung in UTM-Koordinaten (VOR Normalisierung!)
+    buildings_in_bbox_utm = []
+    for building in all_buildings_raw_utm:
+        bounds = building.get("bounds")
+        if not bounds:
+            continue
+        # bounds = (min_x, min_y, min_z, max_x, max_y, max_z) in UTM
+        center_x = (bounds[0] + bounds[3]) / 2
+        center_y = (bounds[1] + bounds[4]) / 2
+        # Prüfe ob Zentrum in BBOX liegt
+        if bbox_utm[0] <= center_x <= bbox_utm[2] and bbox_utm[1] <= center_y <= bbox_utm[3]:
+            buildings_in_bbox_utm.append(building)
 
-    print(f"  [i] {total_parsed} Gebäude geparst, {buildings_in_bbox} in BBOX gefunden")
+    print(f"  [i] {len(buildings_in_bbox_utm)} Gebäude in UTM-BBOX gefunden")
+
+    # PHASE 3: ZENTRALE Normalisierung EINMAL (danach NIE WIEDER!)
+    all_buildings = normalize_buildings_full(buildings_in_bbox_utm, local_offset)
+    print(f"  [✓] {len(all_buildings)} Gebäude normalisiert")
 
     # Pickle-Cache schreiben
     cache_file.parent.mkdir(parents=True, exist_ok=True)
@@ -475,13 +559,13 @@ def export_buildings_to_dae(
         buildings: Liste von Gebäude-Dicts
         output_dir: Ausgabeverzeichnis
         tile_x, tile_y: Tile-Koordinaten
-        wall_color: RGB-Farbe für Wände (0-1)
-        roof_color: RGB-Farbe für Dächer (0-1)
+        wall_color: RGB-Farbe für Wände (0-1) [UNUSED - via MaterialManager]
+        roof_color: RGB-Farbe für Dächer (0-1) [UNUSED - via MaterialManager]
 
     Returns:
         Pfad zur erzeugten .dae-Datei oder None
     """
-    from xml.etree.ElementTree import Element, SubElement, ElementTree
+    from ..managers import DAEExporter
     from .. import config
 
     if not buildings:
@@ -493,7 +577,6 @@ def export_buildings_to_dae(
         min_x, max_x, min_y, max_y = bounds
         buildings_in_bounds = []
         for building in buildings:
-            # Berechne Schwerpunkt aus bounds (min_x, min_y, min_z, max_x, max_y, max_z)
             b = building.get("bounds")
             if b:
                 centroid_x = (b[0] + b[3]) / 2.0
@@ -511,76 +594,11 @@ def export_buildings_to_dae(
 
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
-
     dae_file = output_path / f"buildings_tile_{tile_x}_{tile_y}.dae"
 
-    # ============ DAE XML Structure ============
-    collada = Element("COLLADA")
-    collada.set("xmlns", "http://www.collada.org/2005/11/COLLADASchema")
-    collada.set("version", "1.4.1")
-
-    # Asset (Metadaten)
-    asset = SubElement(collada, "asset")
-    created = SubElement(asset, "created")
-    created.text = "2026-01-06T00:00:00"
-    modified = SubElement(asset, "modified")
-    modified.text = "2026-01-06T00:00:00"
-    unit = SubElement(asset, "unit")
-    unit.set("name", "meter")
-    unit.set("meter", "1")
-    up_axis = SubElement(asset, "up_axis")
-    up_axis.text = "Z_UP"
-
-    # Library: Materials (wall + roof)
-    lib_materials = SubElement(collada, "library_materials")
-
-    wall_mat = SubElement(lib_materials, "material")
-    wall_mat.set("id", "lod2_wall_white")
-    wall_mat.set("name", "lod2_wall_white")
-    wall_effect = SubElement(wall_mat, "instance_effect")
-    wall_effect.set("url", "#effect_wall")
-
-    roof_mat = SubElement(lib_materials, "material")
-    roof_mat.set("id", "lod2_roof_red")
-    roof_mat.set("name", "lod2_roof_red")
-    roof_effect = SubElement(roof_mat, "instance_effect")
-    roof_effect.set("url", "#effect_roof")
-
-    # Library: Effects (Farben)
-    lib_effects = SubElement(collada, "library_effects")
-
-    # Wall Effect
-    wall_eff = SubElement(lib_effects, "effect")
-    wall_eff.set("id", "effect_wall")
-    wall_profile = SubElement(wall_eff, "profile_COMMON")
-    wall_technique = SubElement(wall_profile, "technique")
-    wall_technique.set("sid", "common")
-    wall_phong = SubElement(wall_technique, "phong")
-    wall_diffuse = SubElement(wall_phong, "diffuse")
-    wall_color_elem = SubElement(wall_diffuse, "color")
-    wall_color_elem.set("sid", "diffuse")
-    wall_color_elem.text = f"{wall_color[0]} {wall_color[1]} {wall_color[2]} 1"
-
-    # Roof Effect
-    roof_eff = SubElement(lib_effects, "effect")
-    roof_eff.set("id", "effect_roof")
-    roof_profile = SubElement(roof_eff, "profile_COMMON")
-    roof_technique = SubElement(roof_profile, "technique")
-    roof_technique.set("sid", "common")
-    roof_phong = SubElement(roof_technique, "phong")
-    roof_diffuse = SubElement(roof_phong, "diffuse")
-    roof_color_elem = SubElement(roof_diffuse, "color")
-    roof_color_elem.set("sid", "diffuse")
-    roof_color_elem.text = f"{roof_color[0]} {roof_color[1]} {roof_color[2]} 1"
-
-    # Library: Geometries (eine pro Gebäude)
-    lib_geometries = SubElement(collada, "library_geometries")
-
+    # Konvertiere Buildings zu DAEExporter Format
+    meshes = []
     for bldg_idx, building in enumerate(buildings):
-        building_id = building.get("id", f"building_{bldg_idx}")
-        mesh_name = f"building_{bldg_idx}"
-
-        # Sammle alle Vertices (Wände + Dächer)
         all_vertices = []
         vertex_offset = 0
         wall_faces = []
@@ -588,7 +606,6 @@ def export_buildings_to_dae(
 
         # Wände
         for verts, faces in building.get("walls", []):
-            # Reindexiere Faces mit aktuellem Offset
             for face in faces:
                 wall_faces.append([f + vertex_offset for f in face])
             all_vertices.append(verts)
@@ -604,117 +621,19 @@ def export_buildings_to_dae(
         if not all_vertices:
             continue
 
-        # Kombiniere alle Vertices
         vertices_combined = np.vstack(all_vertices)
 
-        # Erstelle Geometrie
-        geometry = SubElement(lib_geometries, "geometry")
-        geometry.set("id", f"{mesh_name}_geometry")
-        geometry.set("name", mesh_name)
+        meshes.append(
+            {
+                "id": f"building_{bldg_idx}",
+                "vertices": vertices_combined,
+                "faces": {"lod2_wall_white": wall_faces, "lod2_roof_red": roof_faces},
+            }
+        )
 
-        mesh = SubElement(geometry, "mesh")
-
-        # ============ Vertices Source ============
-        vertices_source_id = f"{mesh_name}_vertices"
-        vertices_source = SubElement(mesh, "source")
-        vertices_source.set("id", vertices_source_id)
-
-        vertices_array = SubElement(vertices_source, "float_array")
-        vertices_array.set("id", f"{vertices_source_id}_array")
-        vertices_array.set("count", str(len(vertices_combined) * 3))
-        vertices_array.text = " ".join(map(str, vertices_combined.ravel()))
-
-        vertices_accessor = SubElement(vertices_source, "technique_common")
-        accessor = SubElement(vertices_accessor, "accessor")
-        accessor.set("source", f"#{vertices_source_id}_array")
-        accessor.set("count", str(len(vertices_combined)))
-        accessor.set("stride", "3")
-
-        for param_name in ["X", "Y", "Z"]:
-            param = SubElement(accessor, "param")
-            param.set("name", param_name)
-            param.set("type", "float")
-
-        # ============ Vertices Element ============
-        vertices_elem = SubElement(mesh, "vertices")
-        vertices_elem.set("id", f"{mesh_name}_vertices_elem")
-        input_pos = SubElement(vertices_elem, "input")
-        input_pos.set("semantic", "POSITION")
-        input_pos.set("source", f"#{vertices_source_id}")
-
-        # ============ Triangles (Wall) ============
-        if wall_faces:
-            wall_triangles = SubElement(mesh, "triangles")
-            wall_triangles.set("material", "lod2_wall_white")
-            wall_triangles.set("count", str(len(wall_faces)))
-
-            wall_input = SubElement(wall_triangles, "input")
-            wall_input.set("semantic", "VERTEX")
-            wall_input.set("source", f"#{mesh_name}_vertices_elem")
-            wall_input.set("offset", "0")
-
-            wall_p = SubElement(wall_triangles, "p")
-            wall_indices = []
-            for face in wall_faces:
-                wall_indices.extend(face)
-            wall_p.text = " ".join(map(str, wall_indices))
-
-        # ============ Triangles (Roof) ============
-        if roof_faces:
-            roof_triangles = SubElement(mesh, "triangles")
-            roof_triangles.set("material", "lod2_roof_red")
-            roof_triangles.set("count", str(len(roof_faces)))
-
-            roof_input = SubElement(roof_triangles, "input")
-            roof_input.set("semantic", "VERTEX")
-            roof_input.set("source", f"#{mesh_name}_vertices_elem")
-            roof_input.set("offset", "0")
-
-            roof_p = SubElement(roof_triangles, "p")
-            roof_indices = []
-            for face in roof_faces:
-                roof_indices.extend(face)
-            roof_p.text = " ".join(map(str, roof_indices))
-
-    # Library: Visual Scenes
-    lib_scenes = SubElement(collada, "library_visual_scenes")
-    visual_scene = SubElement(lib_scenes, "visual_scene")
-    visual_scene.set("id", "Scene")
-    visual_scene.set("name", "Scene")
-
-    for bldg_idx, building in enumerate(buildings):
-        if not building.get("walls") and not building.get("roofs"):
-            continue
-
-        mesh_name = f"building_{bldg_idx}"
-        node = SubElement(visual_scene, "node")
-        node.set("id", f"{mesh_name}_node")
-        node.set("name", mesh_name)
-
-        instance_geometry = SubElement(node, "instance_geometry")
-        instance_geometry.set("url", f"#{mesh_name}_geometry")
-
-        bind_material = SubElement(instance_geometry, "bind_material")
-        technique_common = SubElement(bind_material, "technique_common")
-
-        # Wall Material Binding
-        wall_inst = SubElement(technique_common, "instance_material")
-        wall_inst.set("symbol", "lod2_wall_white")
-        wall_inst.set("target", "#lod2_wall_white")
-
-        # Roof Material Binding
-        roof_inst = SubElement(technique_common, "instance_material")
-        roof_inst.set("symbol", "lod2_roof_red")
-        roof_inst.set("target", "#lod2_roof_red")
-
-    # Scene
-    scene = SubElement(collada, "scene")
-    instance_scene = SubElement(scene, "instance_visual_scene")
-    instance_scene.set("url", "#Scene")
-
-    # Schreibe XML
-    tree = ElementTree(collada)
-    tree.write(str(dae_file), encoding="utf-8", xml_declaration=True)
+    # Export mit DAEExporter
+    exporter = DAEExporter()
+    exporter.export_multi_mesh(output_path=str(dae_file), meshes=meshes, with_uv=False)
 
     print(f"  [✓] DAE exportiert: {dae_file.name} ({len(buildings)} Gebäude)")
 
@@ -732,13 +651,23 @@ def create_materials_json() -> Dict:
 
     manager = MaterialManager(beamng_dir="")
 
-    # Wall-Material
+    # Wall-Material (weiss)
     manager.add_building_material(
-        "wall", color=[0.95, 0.95, 0.95, 1.0], groundType="STONE", materialTag0="beamng", materialTag1="Building"
+        "lod2_wall_white",
+        color=[0.95, 0.95, 0.95, 1.0],
+        groundType="STONE",
+        materialTag0="beamng",
+        materialTag1="Building",
     )
 
-    # Roof-Material
-    manager.add_building_material("roof", color=[0.6, 0.2, 0.1, 1.0], groundType="ROOF_TILES")
+    # Roof-Material (rot)
+    manager.add_building_material(
+        "lod2_roof_red",
+        color=[0.6, 0.2, 0.1, 1.0],
+        groundType="ROOF_TILES",
+        materialTag0="beamng",
+        materialTag1="Building",
+    )
 
     return manager.materials
 

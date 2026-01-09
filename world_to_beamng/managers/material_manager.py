@@ -165,12 +165,12 @@ class MaterialManager:
         )
         return mat_name
 
-    def add_building_material(self, material_type: str, color: List[float], overwrite: bool = False, **kwargs) -> str:
+    def add_building_material(self, material_name: str, color: List[float], overwrite: bool = False, **kwargs) -> str:
         """
         Füge Gebäude-Material hinzu (Convenience-Methode).
 
         Args:
-            material_type: "wall" oder "roof"
+            material_name: Material-Name (z.B. "lod2_wall_white", "lod2_roof_red")
             color: RGBA Color [r, g, b, a] (0-1)
             overwrite: Überschreibe existierendes Material
             **kwargs: Zusätzliche Properties (groundType, materialTag0, etc.)
@@ -178,11 +178,18 @@ class MaterialManager:
         Returns:
             Material-Name
         """
-        template = f"building_{material_type}"
-        mat_name = f"lod2_{material_type}_{int(color[0]*255):02x}{int(color[1]*255):02x}{int(color[2]*255):02x}"
+        # Bestimme Template basierend auf Namen
+        if "wall" in material_name.lower():
+            template = "building_wall"
+        elif "roof" in material_name.lower():
+            template = "building_roof"
+        else:
+            template = "building_wall"  # Default
 
-        self.add_material(mat_name, template=template, overwrite=overwrite, Stages={"diffuseColor": color}, **kwargs)
-        return mat_name
+        self.add_material(
+            material_name, template=template, overwrite=overwrite, Stages={"diffuseColor": color}, **kwargs
+        )
+        return material_name
 
     def add_horizon_material(self, texture_path: str, overwrite: bool = False) -> str:
         """
@@ -196,7 +203,8 @@ class MaterialManager:
             Material-Name
         """
         mat_name = "horizon_terrain"
-        self.add_material(mat_name, template="horizon", overwrite=overwrite, Stages={"colorMap": texture_path})
+        # Verwende diffuseMap (nicht colorMap) für Horizont-Textur
+        self.add_material(mat_name, template="horizon", overwrite=overwrite, Stages={"diffuseMap": texture_path})
         return mat_name
 
     def get_material(self, name: str) -> Optional[Dict[str, Any]]:

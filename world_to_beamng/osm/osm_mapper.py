@@ -63,19 +63,33 @@ class OSMMapper:
     def generate_materials_json_entry(self, mat_name, props):
         """Erzeugt einen einzelnen Eintrag für die main.materials.json."""
         tex = props.get("textures", {})
+
+        # Fallback für fehlende Texturen - nutze einfache Farben
+        stages_config = {
+            "useAnisotropic": True,
+            "specularPower": 1.0,
+            "pixelSpecular": True,
+        }
+
+        # Nur nicht-None Texturen hinzufügen
+        if tex.get("baseColorMap"):
+            stages_config["baseColorMap"] = tex.get("baseColorMap")
+        if tex.get("normalMap"):
+            stages_config["normalMap"] = tex.get("normalMap")
+        if tex.get("roughnessMap"):
+            stages_config["roughnessMap"] = tex.get("roughnessMap")
+
+        # Fallback: Wenn keine Texturen, nutze einfache Farbe
+        if not any(k in stages_config for k in ["baseColorMap", "normalMap", "roughnessMap"]):
+            stages_config["colorMap"] = "0.5 0.5 0.5 1.0"  # Mittleres Grau
+
         return {
+            "__name": mat_name,  # ← WICHTIG: __name für MaterialManager
             "name": mat_name,
             "mapTo": mat_name,
             "class": "Material",
-            "version": 1.5,
-            "Stages": [
-                {
-                    "baseColorMap": tex.get("baseColorMap"),
-                    "normalMap": tex.get("normalMap"),
-                    "roughnessMap": tex.get("roughnessMap"),
-                    "useAnisotropic": True,
-                }
-            ],
+            "version": 2,
+            "Stages": [stages_config],
             "groundModelName": props.get("groundModelName", "asphalt"),
             "materialTag0": "beamng",
             "materialTag1": "italy",

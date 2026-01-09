@@ -19,6 +19,8 @@ def clip_road_polygons(road_polygons, grid_bounds_local, margin=3.0):
         road_polygons: Liste von Strassen-Dictionaries mit 'coords'
         grid_bounds_local: (min_x, max_x, min_y, max_y) in lokalen Koordinaten
         margin: Abstand vom Grid-Rand in Metern (default 3.0)
+                Positiv = Straßen werden VOR dem Rand geschnitten
+                Negativ = Straßen werden ÜBER den Rand hinaus erweitert
 
     Returns:
         Geclippte road_polygons (Strassen die komplett ausserhalb liegen werden entfernt)
@@ -30,6 +32,11 @@ def clip_road_polygons(road_polygons, grid_bounds_local, margin=3.0):
         return road_polygons
 
     min_x, max_x, min_y, max_y = grid_bounds_local
+
+    # WICHTIG: Margin-Semantik:
+    # - Positiv (z.B. +10): Clip-Box wird KLEINER → Straßen enden 10m VOR dem Grid-Rand
+    # - Negativ (z.B. -20): Clip-Box wird GRÖSSER → Straßen enden 20m HINTER dem Grid-Rand
+    # Formel: clip_min = min + margin (bei margin=-20 → -1000 + (-20) = -1020 ✓)
     clip_min_x = min_x + margin
     clip_max_x = max_x - margin
     clip_min_y = min_y + margin
@@ -100,14 +107,15 @@ def clip_road_polygons(road_polygons, grid_bounds_local, margin=3.0):
     return clipped_roads
 
 
-def get_road_polygons(roads, bbox, height_points, height_elevations, tile_hash=None):
+def get_road_polygons(roads, bbox, height_points, height_elevations, global_offset, tile_hash=None):
     """Extrahiert Strassen-Polygone mit ihren Koordinaten und Hoehen (OPTIMIERT).
 
     Args:
         roads: OSM-Strassen-Daten
         bbox: (lat_min, lon_min, lat_max, lon_max) BBox
-        height_points: Höhendaten-Punkte
-        height_elevations: Z-Werte
+        height_points: Höhendaten-Punkte (LOKAL, bereits normalisiert!)
+        height_elevations: Z-Werte (LOKAL, bereits normalisiert!)
+        global_offset: (origin_x, origin_y) für Koordinaten-Transformation
         tile_hash: Optional - tile_hash für Cache-Konsistenz
     """
     road_polygons = []
@@ -133,22 +141,18 @@ def get_road_polygons(roads, bbox, height_points, height_elevations, tile_hash=N
     # Batch-Elevation-Lookup
     print(f"  Lade Elevations fuer {len(all_coords)} Strassen-Punkte...")
     all_elevations = get_elevations_for_points(
-        all_coords, bbox, height_points, height_elevations, height_hash=tile_hash
+        all_coords, bbox, height_points, height_elevations, global_offset, height_hash=tile_hash
     )
 
     # Batch-UTM-Transformation (vektorisiert)
     lats = np.array([c[0] for c in all_coords])
     lons = np.array([c[1] for c in all_coords])
-    xs, ys = transformer_to_utm.transform(lons, lats)
+    xs_utm, ys_utm = transformer_to_utm.transform(lons, lats)
 
-    # Transformiere direkt in lokale Koordinaten
-    from .. import config
-
-    if config.LOCAL_OFFSET is not None:
-        ox, oy, oz = config.LOCAL_OFFSET
-        xs = xs - ox
-        ys = ys - oy
-        # Z-Koordinaten sind bereits normalisiert (aus get_elevations_for_points)!
+    # Transformiere zu lokalen Koordinaten mit global_offset
+    ox, oy = global_offset
+    xs = xs_utm - ox
+    ys = ys_utm - oy
 
     # Erstelle Strassen-Polygone (bereits in lokalen Koordinaten)
     for start_idx, end_idx, way in road_indices:
@@ -284,7 +288,7 @@ def smooth_roads_with_spline(road_polygons):
         )
 
         max_dir_change_rad = None
-        if getattr(config, "ROAD_SMOOTH_MAX_DIR_CHANGE_DEG", 0.0) > 0.0:
+        if config.ROAD_SMOOTH_MAX_DIR_CHANGE_DEG > 0.0:
             max_dir_change_rad = np.radians(config.ROAD_SMOOTH_MAX_DIR_CHANGE_DEG)
 
         if max_dir_change_rad is None:

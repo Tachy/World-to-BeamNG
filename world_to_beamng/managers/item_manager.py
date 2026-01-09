@@ -70,6 +70,8 @@ class ItemManager:
         item = {
             "__name": name,
             "class": item_class,
+            "className": item_class,
+            "datablock": item_class,
             "position": list(position),
             "rotation": list(rotation),
             "scale": list(scale),
@@ -184,6 +186,7 @@ class ItemManager:
             position=position,
             overwrite=overwrite,
             collisionType="Visible Mesh",
+            datablock="DefaultStaticShape",
         )
         return name
 

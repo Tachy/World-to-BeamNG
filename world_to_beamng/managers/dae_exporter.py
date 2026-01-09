@@ -150,20 +150,27 @@ class DAEExporter:
         vertices: np.ndarray,
         uv_offset: Tuple[float, float] = (0.0, 0.0),
         uv_scale: Tuple[float, float] = (1.0, 1.0),
+        tile_bounds: Optional[Tuple[float, float, float, float]] = None,
     ) -> np.ndarray:
         """
-        Berechne UV-Koordinaten (normalisiert auf Mesh-Bounds).
+        Berechne UV-Koordinaten (normalisiert auf Mesh-Bounds oder Tile-Bounds).
 
         Args:
             vertices: (N, 3) Vertices
             uv_offset: (u_offset, v_offset)
             uv_scale: (u_scale, v_scale)
+            tile_bounds: Optional (x_min, x_max, y_min, y_max) - Wenn gesetzt, nutze diese
+                        Bounds statt der Vertex-Bounds (wichtig für Multi-Tile UV-Mapping)
 
         Returns:
             (N, 2) UV-Koordinaten
         """
-        x_min, x_max = vertices[:, 0].min(), vertices[:, 0].max()
-        y_min, y_max = vertices[:, 1].min(), vertices[:, 1].max()
+        # Nutze Tile-Bounds wenn verfügbar, sonst Vertex-Bounds
+        if tile_bounds is not None:
+            x_min, x_max, y_min, y_max = tile_bounds
+        else:
+            x_min, x_max = vertices[:, 0].min(), vertices[:, 0].max()
+            y_min, y_max = vertices[:, 1].min(), vertices[:, 1].max()
 
         # Normalisiere auf 0..1
         u = (vertices[:, 0] - x_min) / (x_max - x_min) if x_max > x_min else 0.0
@@ -256,7 +263,8 @@ class DAEExporter:
             # UV Source (optional)
             if with_uv:
                 uv_src_id = f"{mesh_id}_uvs"
-                uv_coords = self._compute_uv_normalized(vertices, uv_offset, uv_scale)
+                # Single-Mesh Export: keine tile_bounds (None)
+                uv_coords = self._compute_uv_normalized(vertices, uv_offset, uv_scale, None)
                 self._write_uv_source(f, uv_src_id, uv_coords)
             else:
                 uv_src_id = None
@@ -357,7 +365,8 @@ class DAEExporter:
                 # UV Source (optional)
                 if with_uv:
                     uv_src_id = f"{mesh_id}_uvs"
-                    uv_coords = self._compute_uv_normalized(vertices, uv_offset, uv_scale)
+                    tile_bounds = mesh_data.get("tile_bounds", None)
+                    uv_coords = self._compute_uv_normalized(vertices, uv_offset, uv_scale, tile_bounds)
                     self._write_uv_source(f, uv_src_id, uv_coords)
                 else:
                     uv_src_id = None

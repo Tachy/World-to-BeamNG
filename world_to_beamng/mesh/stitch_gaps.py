@@ -9,23 +9,7 @@ from scipy.spatial import cKDTree
 
 from .. import config
 from ..config import OSM_MAPPER
-from .stitch_local import find_boundary_polygons_in_circle, export_boundary_polygons_to_json
-
-
-# Globale Liste zum Sammeln von Boundary-Polygonen für Debug-Export
-_collected_boundary_polygons = []
-
-
-def reset_collected_boundary_polygons():
-    """Setze die gesammelten Boundary-Polygone zurück (zu Beginn eines Programmlaufs)."""
-    global _collected_boundary_polygons
-    _collected_boundary_polygons = []
-
-
-def get_collected_boundary_polygons():
-    """Hole alle gesammelten Boundary-Polygone für Export in debug_network.json."""
-    global _collected_boundary_polygons
-    return _collected_boundary_polygons
+from .stitch_local import find_boundary_polygons_in_circle
 
 
 def stitch_all_gaps(
@@ -43,15 +27,18 @@ def stitch_all_gaps(
     Für jede Straße: Sample entlang der Centerline, suche in Suchkreisen
     nach Boundary-Polygonen und trianguliere sie mit Terrain-Faces.
     """
-
-    # Setze gesammelte Boundary-Polygone zurück
-    reset_collected_boundary_polygons()
-
     print("  Stitche Terrain-Gaps entlang Centerlines...")
     if filter_road_id is not None:
         print(f"  [Filter] Nur Straße mit road_id={filter_road_id}")
     if filter_junction_id is not None:
         print(f"  [Filter] Nur Junction mit id={filter_junction_id}")
+
+    # DEBUG: Prüfe ob Daten vorhanden sind
+    print(
+        f"  [DEBUG] road_data_for_classification: {len(road_data_for_classification) if road_data_for_classification else 0} Einträge"
+    )
+    if not road_data_for_classification:
+        return []
 
     road_count = 0
 
@@ -75,7 +62,7 @@ def stitch_all_gaps(
         # Hole Centerline
         trimmed_centerline = road_info.get("trimmed_centerline", [])
 
-        if not trimmed_centerline or len(trimmed_centerline) < 2:
+        if trimmed_centerline is None or len(trimmed_centerline) < 2:
             continue
 
         # Berechne dynamische Stitching-Parameter basierend auf Straßenbreite
@@ -98,8 +85,6 @@ def stitch_all_gaps(
         num_samples = max(2, int(np.ceil(total_length / dynamic_sample_spacing)) + 1)
         sample_distances = np.linspace(0, total_length, num_samples)
 
-        suchkreise = 0
-
         # Verarbeite Sample-Punkte
         for distance in sample_distances:
             sample_pt_2d = centerline_linestring.interpolate(distance)
@@ -116,6 +101,7 @@ def stitch_all_gaps(
                 centerline_point=centerline_sample,
                 centerline_geometry=centerline_3d,
                 search_radius=dynamic_search_radius,
+                road_width=road_width,
                 vertex_manager=vertex_manager,
                 mesh=mesh,
                 terrain_vertex_indices=terrain_vertex_indices,
@@ -126,15 +112,6 @@ def stitch_all_gaps(
                 cached_terrain_face_indices=terrain_face_indices,
                 debug=False,
             )
-
-            # Sammle Boundary-Polygone für Debug-Export (nur ein Sample pro 100)
-            global _collected_boundary_polygons
-            if polygons and config.DEBUG_EXPORTS and suchkreise % 100 == 0:
-                # Konvertiere zu JSON-Format
-                json_polygons = export_boundary_polygons_to_json(
-                    polygons=polygons, centerline_point=centerline_sample, search_radius=dynamic_search_radius
-                )
-                _collected_boundary_polygons.extend(json_polygons)
 
             # Neue Faces in Cache übernehmen (Triangulation fügt Terrain-Faces hinzu)
             if len(mesh.faces) > total_face_count:
@@ -148,12 +125,8 @@ def stitch_all_gaps(
                     if mat == "terrain":
                         terrain_face_indices.add(global_idx)
                 total_face_count = len(mesh.faces)
-            suchkreise += 1
-            # if suchkreise > 1:
-            #     break
-    # Junction-Punkte ebenfalls mit Suchkreis prüfen
-    # Für Junctions: Berechne dynamischen Radius basierend auf der breitesten ankommenden Straße
 
+    # Junction-Punkte mit Suchkreis prüfen
     if junction_points:
         print(f"  Verarbeite {len(junction_points)} Junction-Punkte...")
         for jp_idx, jp in enumerate(junction_points):
@@ -203,6 +176,7 @@ def stitch_all_gaps(
                 centerline_point=centerline_sample,
                 centerline_geometry=np.array([centerline_sample, centerline_sample]),
                 search_radius=junction_search_radius,
+                road_width=max_road_width,
                 vertex_manager=vertex_manager,
                 mesh=mesh,
                 terrain_vertex_indices=terrain_vertex_indices,

@@ -136,7 +136,7 @@ def tile_image(image, tile_size=1000):
     return tiles
 
 
-def process_aerial_images(aerial_dir, output_dir, tile_size=1000, grid_bounds=None):
+def process_aerial_images(aerial_dir, output_dir, grid_bounds, global_offset, tile_world_size=400.0, tile_size=1000):
     """
     Verarbeitet alle Luftbilder: Extrahiert aus ZIPs, kachelt basierend auf Georeferenzierung.
 
@@ -146,13 +146,14 @@ def process_aerial_images(aerial_dir, output_dir, tile_size=1000, grid_bounds=No
     Args:
         aerial_dir: Verzeichnis mit ZIP-Archiven
         output_dir: Zielverzeichnis für Kacheln
+        grid_bounds: (min_x, max_x, min_y, max_y) in lokalen Koordinaten
+        global_offset: (utm_x, utm_y, utm_z) tuple - UTM Offset für Koordinaten-Transformation
+        tile_world_size: Tile-Größe in Metern (Standard: 400.0)
         tile_size: Kachelgröße in Pixeln (Standard: 1000)
-        grid_bounds: (min_x, max_x, min_y, max_y) in lokalen Koordinaten (optional)
 
     Returns:
         Anzahl gespeicherter Kacheln
     """
-    from world_to_beamng import config
 
     # Extrahiere Bilder mit Georeferenzierung
     images = extract_images_from_zips(aerial_dir)
@@ -182,27 +183,14 @@ def process_aerial_images(aerial_dir, output_dir, tile_size=1000, grid_bounds=No
         )
         print(f"    UTM Origin: ({first_info['x_origin']:.1f}, {first_info['y_origin']:.1f})")
 
-    # Bestimme Grid-Bounds (in lokalen Koordinaten)
-    if grid_bounds is None:
-        grid_bounds = config.GRID_BOUNDS_LOCAL
-
-    if grid_bounds is None:
-        print("  [!] Keine Grid-Bounds verfügbar")
-        return 0
-
+    # Grid-Bounds
     grid_min_x, grid_max_x, grid_min_y, grid_max_y = grid_bounds
     grid_width = grid_max_x - grid_min_x
     grid_height = grid_max_y - grid_min_y
 
-    # Local Offset (UTM -> lokal)
-    if config.LOCAL_OFFSET is None:
-        print("  [!] LOCAL_OFFSET nicht gesetzt")
-        return 0
-
-    offset_x, offset_y, offset_z = config.LOCAL_OFFSET
-
-    # Tile-Größe in Weltkoordinaten (z.B. 400m)
-    tile_world_size = config.TILE_SIZE  # 400m
+    # Global Offset (UTM -> lokal) - Z ist optional
+    offset_x, offset_y = global_offset[:2]
+    offset_z = global_offset[2] if len(global_offset) > 2 else 0.0
 
     print(
         f"  [DEBUG] Grid Bounds (lokal): X=[{grid_min_x:.1f}..{grid_max_x:.1f}], Y=[{grid_min_y:.1f}..{grid_max_y:.1f}]"
