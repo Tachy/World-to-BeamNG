@@ -353,7 +353,7 @@ def _merge_nearby_components(components_edges, verts, merge_threshold=2.0):
         eps_i = component_endpoints[i]
         if not eps_i:  # Skip wenn keine Endpoints
             continue
-            
+
         for j in range(i + 1, len(components_edges)):
             eps_j = component_endpoints[j]
             if not eps_j:  # Skip wenn keine Endpoints
@@ -407,7 +407,7 @@ def _merge_nearby_components(components_edges, verts, merge_threshold=2.0):
     # Baue neue Component-Liste (optimiert mit Vertex-Caching)
     merged_components = defaultdict(list)
     merged_components_verts = defaultdict(set)  # Cache für Vertex-Sets
-    
+
     for idx, comp_edges in enumerate(components_edges):
         root = find(idx)
         merged_components[root].extend(comp_edges)
