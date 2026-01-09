@@ -729,25 +729,17 @@ def create_materials_json() -> Dict:
         Dict mit Material-Definitionen
     """
     from ..managers import MaterialManager
-    
+
     manager = MaterialManager(beamng_dir="")
-    
+
     # Wall-Material
     manager.add_building_material(
-        "wall",
-        color=[0.95, 0.95, 0.95, 1.0],
-        groundType="STONE",
-        materialTag0="beamng",
-        materialTag1="Building"
+        "wall", color=[0.95, 0.95, 0.95, 1.0], groundType="STONE", materialTag0="beamng", materialTag1="Building"
     )
-    
+
     # Roof-Material
-    manager.add_building_material(
-        "roof",
-        color=[0.6, 0.2, 0.1, 1.0],
-        groundType="ROOF_TILES"
-    )
-    
+    manager.add_building_material("roof", color=[0.6, 0.2, 0.1, 1.0], groundType="ROOF_TILES")
+
     return manager.materials
 
 
@@ -795,11 +787,11 @@ def create_items_json_entry(dae_path: str, tile_x: int, tile_y: int) -> Dict:
     """
     from ..managers import ItemManager
     import os
-    
+
     manager = ItemManager(beamng_dir="")
     dae_filename = os.path.basename(dae_path)
     item_name = f"buildings_tile_{tile_x}_{tile_y}"
-    
+
     manager.add_building(item_name, dae_filename, position=(0, 0, 0))
-    
+
     return manager.items[item_name]

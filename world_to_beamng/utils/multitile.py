@@ -991,18 +991,18 @@ def phase5_generate_horizon_layer(global_offset, beamng_dir, tile_hash=None):
     # Material-Manager
     mat_manager = MaterialManager(beamng_dir)
     mat_manager.load()  # Lade existierende
-    
+
     texture_path = texture_info.get("texture_path", "shapes/textures/white.png")
     mat_manager.add_horizon_material(texture_path)
-    
+
     mat_manager.save()
 
     # Item-Manager
     item_manager = ItemManager(beamng_dir)
     item_manager.load()  # Lade existierende
-    
+
     item_manager.add_horizon(name="Horizon", dae_filename=dae_filename)
-    
+
     item_manager.save()
 
     timer.report()

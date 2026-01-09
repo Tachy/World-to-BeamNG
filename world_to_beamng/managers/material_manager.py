@@ -79,9 +79,7 @@ class MaterialManager:
             },
         }
 
-    def add_material(
-        self, name: str, template: Optional[str] = None, overwrite: bool = False, **kwargs
-    ) -> bool:
+    def add_material(self, name: str, template: Optional[str] = None, overwrite: bool = False, **kwargs) -> bool:
         """
         Füge Material hinzu.
 
@@ -121,9 +119,7 @@ class MaterialManager:
         self.materials[name] = material
         return True
 
-    def add_terrain_material(
-        self, tile_x: int, tile_y: int, texture_path: str, overwrite: bool = False
-    ) -> str:
+    def add_terrain_material(self, tile_x: int, tile_y: int, texture_path: str, overwrite: bool = False) -> str:
         """
         Füge Terrain-Material für Tile hinzu (Convenience-Methode).
 
@@ -137,9 +133,7 @@ class MaterialManager:
             Material-Name
         """
         mat_name = f"tile_{tile_x}_{tile_y}"
-        self.add_material(
-            mat_name, template="terrain", overwrite=overwrite, Stages={"colorMap": texture_path}
-        )
+        self.add_material(mat_name, template="terrain", overwrite=overwrite, Stages={"colorMap": texture_path})
         return mat_name
 
     def add_road_material(self, road_type: str, properties: Dict[str, Any], overwrite: bool = False) -> str:
@@ -171,9 +165,7 @@ class MaterialManager:
         )
         return mat_name
 
-    def add_building_material(
-        self, material_type: str, color: List[float], overwrite: bool = False, **kwargs
-    ) -> str:
+    def add_building_material(self, material_type: str, color: List[float], overwrite: bool = False, **kwargs) -> str:
         """
         Füge Gebäude-Material hinzu (Convenience-Methode).
 
@@ -189,13 +181,7 @@ class MaterialManager:
         template = f"building_{material_type}"
         mat_name = f"lod2_{material_type}_{int(color[0]*255):02x}{int(color[1]*255):02x}{int(color[2]*255):02x}"
 
-        self.add_material(
-            mat_name, 
-            template=template, 
-            overwrite=overwrite, 
-            Stages={"diffuseColor": color},
-            **kwargs
-        )
+        self.add_material(mat_name, template=template, overwrite=overwrite, Stages={"diffuseColor": color}, **kwargs)
         return mat_name
 
     def add_horizon_material(self, texture_path: str, overwrite: bool = False) -> str:

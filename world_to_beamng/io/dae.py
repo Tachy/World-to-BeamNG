@@ -9,8 +9,6 @@ Exportiert eine .dae Datei mit:
 
 import numpy as np
 import os
-from xml.etree.ElementTree import Element, SubElement, ElementTree
-from pathlib import Path
 
 
 def export_merged_dae(
@@ -33,64 +31,57 @@ def export_merged_dae(
         Tatsächlicher DAE-Dateiname mit Koordinaten-Index
     """
     from ..managers import DAEExporter
-    
+
     # Konvertiere tiles_dict zu DAEExporter Format
     meshes = []
     for (tile_x, tile_y), tile_data in sorted(tiles_dict.items()):
         vertices = np.array(tile_data["vertices"])
         faces = tile_data["faces"]
         materials_per_face = tile_data.get("materials", [])
-        
+
         if len(faces) == 0:
             continue
-        
+
         # Gruppiere Faces pro Material
         faces_by_material = {}
         for idx, face in enumerate(faces):
             mat_name = materials_per_face[idx] if idx < len(materials_per_face) else "unknown"
             faces_by_material.setdefault(mat_name, []).append(face)
-        
-        # UV-Berechnung basierend auf Tile-Position
-        tile_origin_x = tile_x * tile_size
-        tile_origin_y = tile_y * tile_size
-        
-        meshes.append({
-            "id": f"tile_{tile_x}_{tile_y}",
-            "vertices": vertices,
-            "faces": faces_by_material,
-            "uv_offset": (0.0, 0.0),
-            "uv_scale": (1.0, 1.0)
-        })
-    
+
+        meshes.append(
+            {
+                "id": f"tile_{tile_x}_{tile_y}",
+                "vertices": vertices,
+                "faces": faces_by_material,
+                "uv_offset": (0.0, 0.0),
+                "uv_scale": (1.0, 1.0),
+            }
+        )
+
     # Berechne minimale Koordinaten für Dateinamen
     if tiles_dict:
         min_tile_x = min(tile_x for tile_x, tile_y in tiles_dict.keys())
         min_tile_y = min(tile_y for tile_x, tile_y in tiles_dict.keys())
         corner_x = min_tile_x * tile_size
         corner_y = min_tile_y * tile_size
-        
+
         output_dir = os.path.dirname(output_path)
         actual_output_path = os.path.join(output_dir, f"terrain_{corner_x}_{corner_y}.dae")
         actual_dae_filename = f"terrain_{corner_x}_{corner_y}.dae"
     else:
         actual_output_path = output_path
         actual_dae_filename = os.path.basename(output_path)
-    
+
     # Export mit DAEExporter
     exporter = DAEExporter()
-    exporter.export_multi_mesh(
-        output_path=actual_output_path,
-        meshes=meshes,
-        with_uv=True
-    )
-    
+    exporter.export_multi_mesh(output_path=actual_output_path, meshes=meshes, with_uv=True)
+
     total_vertices = sum(len(m["vertices"]) for m in meshes)
     total_faces = sum(sum(len(f) for f in m["faces"].values()) for m in meshes)
     print(f"  [OK] DAE exportiert: {actual_dae_filename}")
     print(f"    -> {len(meshes)} Tiles, {total_vertices} Vertices, {total_faces} Faces")
-    
-    return actual_dae_filename
 
+    return actual_dae_filename
 
 
 def create_terrain_materials_json(tiles_dict, level_name="World_to_BeamNG", tile_size=400):
@@ -107,7 +98,7 @@ def create_terrain_materials_json(tiles_dict, level_name="World_to_BeamNG", tile
     """
     from ..managers import MaterialManager
     from .. import config
-    
+
     manager = MaterialManager(beamng_dir="")  # Nur für dict-Erstellung
 
     for tile_x, tile_y in sorted(tiles_dict.keys()):
@@ -120,7 +111,7 @@ def create_terrain_materials_json(tiles_dict, level_name="World_to_BeamNG", tile
 
         # Texturpfad
         texture_path = config.RELATIVE_DIR_TEXTURES + f"tile_{corner_x}_{corner_y}.dds"
-        
+
         # Füge Material über Manager hinzu
         manager.add_terrain_material(corner_x, corner_y, texture_path)
 
@@ -142,9 +133,9 @@ def create_terrain_items_json(dae_filename):
 
     manager = ItemManager(beamng_dir="")  # Nur für dict-Erstellung
     item_name = os.path.splitext(dae_filename)[0]
-    
+
     manager.add_terrain(item_name, dae_filename)
-    
+
     return manager.items[item_name]
 
 
