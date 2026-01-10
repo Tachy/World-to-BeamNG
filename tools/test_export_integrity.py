@@ -151,6 +151,127 @@ class ExportIntegrityTest:
         except Exception as e:
             self.error(f"Fehler beim Testen: {e}")
 
+    def test_terrain_face_materials(self):
+        """Teste dass JEDES Face in terrain_x_y.dae ein Material hat."""
+        print("\n[1b] Teste Terrain Face-Materialien...")
+
+        # Suche dynamisch nach terrain_<x>_<y>.dae
+        terrain_daes = list(self.shapes_dir.glob("terrain_*.dae"))
+
+        if not terrain_daes:
+            self.warning("Keine terrain_*.dae gefunden - überspringe Face-Material-Test")
+            return
+
+        terrain_dae = terrain_daes[0]
+        self.success(f"Teste Face-Materialien in: {terrain_dae.name}")
+
+        try:
+            tree = ET.parse(terrain_dae)
+            root = tree.getroot()
+            ns = {"collada": "http://www.collada.org/2005/11/COLLADASchema"}
+
+            # Sammle alle definierten Materialien
+            materials = root.findall(".//collada:material", ns)
+            defined_materials = set()
+            for mat in materials:
+                mat_id = mat.get("id")
+                if mat_id:
+                    defined_materials.add(mat_id)
+
+            self.success(f"{len(defined_materials)} Materialien in library_materials definiert: {defined_materials}")
+
+            # Prüfe alle triangles und polylist Primitive
+            triangles_list = root.findall(".//collada:triangles", ns)
+            polylists = root.findall(".//collada:polylist", ns)
+
+            faces_without_material = []
+            faces_with_undefined_material = []
+            material_face_count = {}  # material -> anzahl faces
+
+            # Prüfe triangles
+            for tri_idx, tri in enumerate(triangles_list):
+                material = tri.get("material")
+                count = int(tri.get("count", 0))
+
+                # Zähle Faces pro Material
+                if material:
+                    material_face_count[material] = material_face_count.get(material, 0) + count
+
+                if material is None or material == "":
+                    faces_without_material.append(f"triangles[{tri_idx}]: material-Attribut FEHLT")
+                elif material not in defined_materials:
+                    faces_with_undefined_material.append(
+                        f"triangles[{tri_idx}]: material='{material}' nicht in library_materials definiert"
+                    )
+
+            # Prüfe polylist
+            for poly_idx, poly in enumerate(polylists):
+                material = poly.get("material")
+                count = int(poly.get("count", 0))
+
+                # Zähle Faces pro Material
+                if material:
+                    material_face_count[material] = material_face_count.get(material, 0) + count
+
+                if material is None or material == "":
+                    faces_without_material.append(f"polylist[{poly_idx}]: material-Attribut FEHLT")
+                elif material not in defined_materials:
+                    faces_with_undefined_material.append(
+                        f"polylist[{poly_idx}]: material='{material}' nicht in library_materials definiert"
+                    )
+
+            # Berichte Fehler
+            if faces_without_material:
+                self.error(f"{len(faces_without_material)} Faces ohne Material-Attribut:")
+                for err in faces_without_material[:10]:
+                    self.error(f"  - {err}")
+                if len(faces_without_material) > 10:
+                    self.error(f"  ... und {len(faces_without_material) - 10} weitere")
+
+            if faces_with_undefined_material:
+                self.error(f"{len(faces_with_undefined_material)} Faces mit undefined Material:")
+                for err in faces_with_undefined_material[:10]:
+                    self.error(f"  - {err}")
+                if len(faces_with_undefined_material) > 10:
+                    self.error(f"  ... und {len(faces_with_undefined_material) - 10} weitere")
+
+            if not faces_without_material and not faces_with_undefined_material:
+                total_faces = len(triangles_list) + len(polylists)
+                self.success(f"✓ Alle {total_faces} Faces haben definierte Materialien")
+
+            # === Material-Statistik ===
+            if material_face_count:
+                print("\n  [Material-Verteilung] Dreiecke pro Material:")
+                
+                # Sortiere nach Anzahl (absteigend)
+                sorted_materials = sorted(material_face_count.items(), key=lambda x: x[1], reverse=True)
+                
+                for material_name, face_count in sorted_materials:
+                    # Unterscheide zwischen Tile-Materialien und Road-Materialien
+                    if material_name.startswith("tile_"):
+                        mat_type = "Terrain-Tile"
+                    elif material_name.startswith("italy_"):
+                        mat_type = "Straße"
+                    else:
+                        mat_type = "Sonstiges"
+                    
+                    print(f"    • {material_name:30s} ({mat_type:15s}): {face_count:6d} Faces")
+                
+                # Zusammenfassung
+                total_faces_counted = sum(material_face_count.values())
+                terrain_tile_faces = sum(c for m, c in material_face_count.items() if m.startswith("tile_"))
+                road_faces = sum(c for m, c in material_face_count.items() if m.startswith("italy_"))
+                
+                print(f"\n  [Zusammenfassung]")
+                print(f"    Total:      {total_faces_counted:6d} Faces")
+                print(f"    Terrain:    {terrain_tile_faces:6d} Faces ({100*terrain_tile_faces/total_faces_counted:.1f}%)")
+                print(f"    Straßen:    {road_faces:6d} Faces ({100*road_faces/total_faces_counted:.1f}%)")
+
+        except ET.ParseError as e:
+            self.error(f"XML-Parse-Fehler: {e}")
+        except Exception as e:
+            self.error(f"Fehler beim Face-Material-Test: {e}")
+
     def test_building_daes(self):
         """Teste buildings/*.dae Integrität."""
         print("\n[2] Teste buildings/*.dae...")
@@ -1299,6 +1420,7 @@ class ExportIntegrityTest:
         print(f"BeamNG-Verzeichnis: {self.beamng_dir}")
 
         self.test_terrain_dae()
+        self.test_terrain_face_materials()
         self.test_building_daes()
         self.test_materials_json()
         self.test_items_json()

@@ -1,0 +1,146 @@
+{
+    "highway_defaults": {
+        "secondary": {
+            "width": 7.0,
+            "internal_name": "asphalt_road_main",
+            "groundModelName": "asphalt",
+            "priority": 8,
+            "drivability": 0.9,
+            "textures": {
+                "baseColorMap": "/assets/materials/decalroad/asphalt_road_01_d.dds",
+                "normalMap": "/assets/materials/decalroad/asphalt_road_01_n.dds",
+                "roughnessMap": "/assets/materials/decalroad/asphalt_road_01_r.dds"
+            }
+        },
+        "tertiary": {
+            "width": 6.0,
+            "internal_name": "asphalt_road_standard",
+            "groundModelName": "asphalt",
+            "priority": 7,
+            "drivability": 0.8,
+            "textures": {
+                "baseColorMap": "/assets/materials/decalroad/asphalt_road_old_01_d.dds",
+                "normalMap": "/assets/materials/decalroad/asphalt_road_old_01_n.dds",
+                "roughnessMap": "/assets/materials/decalroad/asphalt_road_old_01_r.dds"
+            }
+        },
+        "unclassified": {
+            "width": 5.0,
+            "internal_name": "asphalt_road_old",
+            "groundModelName": "asphalt",
+            "priority": 6,
+            "drivability": 0.6,
+            "textures": {
+                "baseColorMap": "/assets/materials/decalroad/asphalt_road_old_01_d.dds",
+                "normalMap": "/assets/materials/decalroad/asphalt_road_old_01_n.dds",
+                "roughnessMap": "/assets/materials/decalroad/asphalt_road_old_01_r.dds"
+            }
+        },
+        "residential": {
+            "width": 5.0,
+            "internal_name": "asphalt_road_old",
+            "groundModelName": "asphalt",
+            "priority": 5,
+            "drivability": 0.6,
+            "textures": {
+                "baseColorMap": "/assets/materials/decalroad/asphalt_road_old_01_d.dds",
+                "normalMap": "/assets/materials/decalroad/asphalt_road_old_01_n.dds",
+                "roughnessMap": "/assets/materials/decalroad/asphalt_road_old_01_r.dds"
+            }
+        },
+        "living_street": {
+            "width": 4.5,
+            "internal_name": "cobblestone_road",
+            "groundModelName": "cobblestone",
+            "priority": 4,
+            "drivability": 0.5,
+            "textures": {
+                "baseColorMap": "/assets/materials/decalroad/cobblestone_01_d.dds",
+                "normalMap": "/assets/materials/decalroad/cobblestone_01_n.dds",
+                "roughnessMap": "/assets/materials/decalroad/cobblestone_01_r.dds"
+            }
+        },
+        "service": {
+            "width": 3.5,
+            "internal_name": "asphalt_road_old",
+            "groundModelName": "asphalt",
+            "priority": 3,
+            "drivability": 0.4,
+            "textures": {
+                "baseColorMap": "/assets/materials/decalroad/asphalt_road_old_01_d.dds",
+                "normalMap": "/assets/materials/decalroad/asphalt_road_old_01_n.dds",
+                "roughnessMap": "/assets/materials/decalroad/asphalt_road_old_01_r.dds"
+            }
+        },
+        "track": {
+            "width": 3.0,
+            "internal_name": "dirt_road_stony",
+            "groundModelName": "dirt",
+            "priority": 2,
+            "drivability": 0.3,
+            "textures": {
+                "baseColorMap": "/assets/materials/decalroad/dirt_road_stony_01_d.dds",
+                "normalMap": "/assets/materials/decalroad/dirt_road_stony_01_n.dds",
+                "roughnessMap": "/assets/materials/decalroad/dirt_road_stony_01_r.dds"
+            }
+        },
+        "path": {
+            "width": 2.0,
+            "internal_name": "dirt_road",
+            "groundModelName": "dirt",
+            "priority": 1,
+            "drivability": 0.1,
+            "textures": {
+                "baseColorMap": "/assets/materials/decalroad/dirt_road_01_d.dds",
+                "normalMap": "/assets/materials/decalroad/dirt_road_01_n.dds",
+                "roughnessMap": "/assets/materials/decalroad/dirt_road_01_r.dds"
+            }
+        },
+        "footway": {
+            "width": 2.0,
+            "internal_name": "pavement_area",
+            "groundModelName": "pavement",
+            "priority": 0,
+            "drivability": 0.0,
+            "textures": {
+                "baseColorMap": "/assets/materials/decalroad/pavement_01_d.dds",
+                "normalMap": "/assets/materials/decalroad/pavement_01_n.dds",
+                "roughnessMap": "/assets/materials/decalroad/pavement_01_r.dds"
+            }
+        },
+        "steps": {
+            "width": 1.5,
+            "internal_name": "concrete_steps",
+            "groundModelName": "concrete",
+            "priority": 0,
+            "drivability": 0.0,
+            "textures": {
+                "baseColorMap": "/assets/materials/decalroad/concrete_01_d.dds",
+                "normalMap": "/assets/materials/decalroad/concrete_01_n.dds",
+                "roughnessMap": "/assets/materials/decalroad/concrete_01_r.dds"
+            }
+        }
+    },
+    "surface_overrides": {
+        "gravel": {
+            "internal_name": "gravel_road",
+            "groundModelName": "gravel",
+            "drivability": 0.5,
+            "textures": {
+                "baseColorMap": "/assets/materials/decalroad/gravel_01_d.dds",
+                "normalMap": "/assets/materials/decalroad/gravel_01_n.dds",
+                "roughnessMap": "/assets/materials/decalroad/gravel_01_r.dds"
+            }
+        },
+        "paved": {
+            "internal_name": "asphalt_road_paved",
+            "groundModelName": "asphalt",
+            "drivability": 0.9,
+            "textures": {
+                "baseColorMap": "/assets/materials/decalroad/asphalt_road_01_d.dds",
+                "normalMap": "/assets/materials/decalroad/asphalt_road_01_n.dds",
+                "roughnessMap": "/assets/materials/decalroad/asphalt_road_01_r.dds"
+            }
+        }
+    }
+}

@@ -1,5 +1,9 @@
 # Height data files (DGM1, DOP20, LOD2)
-data/
+data/DGM1
+data/DOP20
+data/LOD2
+data/DGM30
+data/DOP300
 
 # Cache files
 cache/

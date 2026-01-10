@@ -185,7 +185,7 @@ class ItemManager:
             shape_name=shape_name,
             position=position,
             overwrite=overwrite,
-            collisionType="Visible Mesh",
+            collisionType="None",
             datablock="DefaultStaticShape",
         )
         return name
