@@ -97,7 +97,7 @@ def stitch_all_gaps(
             centerline_sample = np.array([sample_pt_2d.x, sample_pt_2d.y, z])
 
             # Finde Boundaries in Suchkreis (mit dynamischen Parametern)
-            polygons = find_boundary_polygons_in_circle(
+            find_boundary_polygons_in_circle(
                 centerline_point=centerline_sample,
                 centerline_geometry=centerline_3d,
                 search_radius=dynamic_search_radius,
