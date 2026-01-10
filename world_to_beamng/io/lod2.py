@@ -651,7 +651,7 @@ def create_materials_json() -> Dict:
     # Wall-Material aus OSM_MAPPER Config
     wall_props = OSM_MAPPER.get_building_properties("wall")
     wall_name = wall_props.get("internal_name", "lod2_wall_white")
-    
+
     manager.add_building_material(
         wall_name,
         textures=wall_props.get("textures"),
@@ -664,7 +664,7 @@ def create_materials_json() -> Dict:
     # Roof-Material aus OSM_MAPPER Config
     roof_props = OSM_MAPPER.get_building_properties("roof")
     roof_name = roof_props.get("internal_name", "lod2_roof_red")
-    
+
     manager.add_building_material(
         roof_name,
         textures=roof_props.get("textures"),

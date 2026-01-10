@@ -172,7 +172,7 @@ class MaterialManager:
         textures: Dict[str, str] = None,
         tiling_scale: float = 1.0,
         overwrite: bool = False,
-        **kwargs
+        **kwargs,
     ) -> str:
         """
         Füge Gebäude-Material hinzu (Convenience-Methode).
