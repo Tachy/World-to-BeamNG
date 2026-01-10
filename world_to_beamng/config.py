@@ -73,8 +73,6 @@ DOP300_DATA_DIR = "data/DOP300"  # Verzeichnis mit Sentinel-2 RGB Bildern
 
 # === GEBÄUDE (LoD2) ===
 LOD2_ENABLED = True  # LoD2-Gebäude verarbeiten
-LOD2_WALL_COLOR = (1.0, 1.0, 1.0)  # Weiß (RGB 0-1)
-LOD2_ROOF_COLOR = (0.8, 0.3, 0.2)  # Ziegelrot
 LOD2_SNAP_TO_TERRAIN = True  # Gebäude auf Terrain ausrichten
 LOD2_FOUNDATION_EXTRUDE = 0.5  # Meter: Wände nach unten verlängern für Fundament
 

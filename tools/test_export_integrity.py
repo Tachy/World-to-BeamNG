@@ -242,10 +242,10 @@ class ExportIntegrityTest:
             # === Material-Statistik ===
             if material_face_count:
                 print("\n  [Material-Verteilung] Dreiecke pro Material:")
-                
+
                 # Sortiere nach Anzahl (absteigend)
                 sorted_materials = sorted(material_face_count.items(), key=lambda x: x[1], reverse=True)
-                
+
                 for material_name, face_count in sorted_materials:
                     # Unterscheide zwischen Tile-Materialien und Road-Materialien
                     if material_name.startswith("tile_"):
@@ -254,17 +254,19 @@ class ExportIntegrityTest:
                         mat_type = "Straße"
                     else:
                         mat_type = "Sonstiges"
-                    
+
                     print(f"    • {material_name:30s} ({mat_type:15s}): {face_count:6d} Faces")
-                
+
                 # Zusammenfassung
                 total_faces_counted = sum(material_face_count.values())
                 terrain_tile_faces = sum(c for m, c in material_face_count.items() if m.startswith("tile_"))
                 road_faces = sum(c for m, c in material_face_count.items() if m.startswith("italy_"))
-                
+
                 print(f"\n  [Zusammenfassung]")
                 print(f"    Total:      {total_faces_counted:6d} Faces")
-                print(f"    Terrain:    {terrain_tile_faces:6d} Faces ({100*terrain_tile_faces/total_faces_counted:.1f}%)")
+                print(
+                    f"    Terrain:    {terrain_tile_faces:6d} Faces ({100*terrain_tile_faces/total_faces_counted:.1f}%)"
+                )
                 print(f"    Straßen:    {road_faces:6d} Faces ({100*road_faces/total_faces_counted:.1f}%)")
 
         except ET.ParseError as e:

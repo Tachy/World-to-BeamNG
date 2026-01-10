@@ -549,8 +549,6 @@ def export_buildings_to_dae(
     output_dir: str,
     tile_x: int,
     tile_y: int,
-    wall_color: Tuple[float, float, float],
-    roof_color: Tuple[float, float, float],
 ) -> Optional[str]:
     """
     Exportiert Gebäude als .dae-Datei.
@@ -559,8 +557,6 @@ def export_buildings_to_dae(
         buildings: Liste von Gebäude-Dicts
         output_dir: Ausgabeverzeichnis
         tile_x, tile_y: Tile-Koordinaten
-        wall_color: RGB-Farbe für Wände (0-1) [UNUSED - via MaterialManager]
-        roof_color: RGB-Farbe für Dächer (0-1) [UNUSED - via MaterialManager]
 
     Returns:
         Pfad zur erzeugten .dae-Datei oder None
@@ -642,28 +638,37 @@ def export_buildings_to_dae(
 
 def create_materials_json() -> Dict:
     """
-    Erstellt die main.materials.json Einträge für LoD2-Gebäude.
+    Erstellt die main.materials.json Einträge für LoD2-Gebäude aus osm_to_beamng.json.
 
     Returns:
         Dict mit Material-Definitionen
     """
     from ..managers import MaterialManager
+    from ..config import OSM_MAPPER
 
     manager = MaterialManager(beamng_dir="")
 
-    # Wall-Material (weiss)
+    # Wall-Material aus OSM_MAPPER Config
+    wall_props = OSM_MAPPER.get_building_properties("wall")
+    wall_name = wall_props.get("internal_name", "lod2_wall_white")
+    
     manager.add_building_material(
-        "lod2_wall_white",
-        color=[0.95, 0.95, 0.95, 1.0],
+        wall_name,
+        textures=wall_props.get("textures"),
+        tiling_scale=wall_props.get("tiling_scale", 4.0),
         groundType="STONE",
         materialTag0="beamng",
         materialTag1="Building",
     )
 
-    # Roof-Material (rot)
+    # Roof-Material aus OSM_MAPPER Config
+    roof_props = OSM_MAPPER.get_building_properties("roof")
+    roof_name = roof_props.get("internal_name", "lod2_roof_red")
+    
     manager.add_building_material(
-        "lod2_roof_red",
-        color=[0.6, 0.2, 0.1, 1.0],
+        roof_name,
+        textures=roof_props.get("textures"),
+        tiling_scale=roof_props.get("tiling_scale", 2.0),
         groundType="ROOF_TILES",
         materialTag0="beamng",
         materialTag1="Building",

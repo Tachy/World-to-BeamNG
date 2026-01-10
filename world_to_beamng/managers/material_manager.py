@@ -58,7 +58,7 @@ class MaterialManager:
             },
             "building_wall": {
                 "class": "Material",
-                "version": 2,
+                "version": 1.5,
                 "Stages": [{"specularPower": 1, "pixelSpecular": True}],
                 "groundType": "STONE",
                 "materialTag0": "beamng",
@@ -66,7 +66,7 @@ class MaterialManager:
             },
             "building_roof": {
                 "class": "Material",
-                "version": 2,
+                "version": 1.5,
                 "Stages": [{"specularPower": 1, "pixelSpecular": True}],
                 "groundType": "STONE",
                 "materialTag0": "beamng",
@@ -165,13 +165,23 @@ class MaterialManager:
         )
         return mat_name
 
-    def add_building_material(self, material_name: str, color: List[float], overwrite: bool = False, **kwargs) -> str:
+    def add_building_material(
+        self,
+        material_name: str,
+        color: List[float] = None,
+        textures: Dict[str, str] = None,
+        tiling_scale: float = 1.0,
+        overwrite: bool = False,
+        **kwargs
+    ) -> str:
         """
         Füge Gebäude-Material hinzu (Convenience-Methode).
 
         Args:
             material_name: Material-Name (z.B. "lod2_wall_white", "lod2_roof_red")
-            color: RGBA Color [r, g, b, a] (0-1)
+            color: RGBA Color [r, g, b, a] (0-1) - Optional wenn Texturen gegeben
+            textures: Dict mit Textur-Pfaden {baseColorMap, normalMap, roughnessMap}
+            tiling_scale: UV-Wiederholung in Metern (z.B. 4.0 = alle 4m wiederholen)
             overwrite: Überschreibe existierendes Material
             **kwargs: Zusätzliche Properties (groundType, materialTag0, etc.)
 
@@ -186,9 +196,24 @@ class MaterialManager:
         else:
             template = "building_wall"  # Default
 
-        self.add_material(
-            material_name, template=template, overwrite=overwrite, Stages={"diffuseColor": color}, **kwargs
-        )
+        stages_config = {}
+
+        # Fallback: Wenn Texturen gegeben, verwende diese; sonst Farbe
+        if textures:
+            if textures.get("baseColorMap"):
+                stages_config["baseColorMap"] = textures["baseColorMap"]
+            if textures.get("normalMap"):
+                stages_config["normalMap"] = textures["normalMap"]
+            if textures.get("roughnessMap"):
+                stages_config["roughnessMap"] = textures["roughnessMap"]
+        elif color:
+            stages_config["diffuseColor"] = color
+
+        # Tiling-Skala hinzufügen (für UV-Wiederholung)
+        if tiling_scale != 1.0:
+            stages_config["materialFactors"] = f"1 1 {tiling_scale} 1"  # z.B. "1 1 4.0 1" für 4m Wiederholung
+
+        self.add_material(material_name, template=template, overwrite=overwrite, Stages=stages_config, **kwargs)
         return material_name
 
     def add_horizon_material(self, texture_path: str, overwrite: bool = False) -> str:

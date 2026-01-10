@@ -202,42 +202,34 @@ class BeamNGExporter:
         return count
 
     def _add_lod2_materials(self):
-        """Füge LoD2-Gebäude-Materialien zu gemeinsamen Materials hinzu."""
-        import os
+        """Füge LoD2-Gebäude-Materialien zu gemeinsamen Materials hinzu (aus osm_to_beamng.json)."""
+        from ..config import OSM_MAPPER
 
-        # LoD2-Wall-Material (weiß) - mit korrekter BeamNG-Struktur
-        r, g, b = config.LOD2_WALL_COLOR
-        wall_mat = {
-            "class": "Material",
-            "name": "lod2_wall_white",
-            "mapTo": "lod2_wall_white",
-            "version": 2,
-            "Stages": [
-                {
-                    "colorMap": f"{r} {g} {b} 1.0",
-                    "specularPower": 8,
-                    "pixelSpecular": False,
-                }
-            ],
-        }
-        self.materials.materials["lod2_wall_white"] = wall_mat
+        # Wall-Material aus OSM_MAPPER Config
+        wall_props = OSM_MAPPER.get_building_properties("wall")
+        wall_name = wall_props.get("internal_name", "lod2_wall_white")
+        
+        self.materials.add_building_material(
+            wall_name,
+            textures=wall_props.get("textures"),
+            tiling_scale=wall_props.get("tiling_scale", 4.0),
+            groundType="STONE",
+            materialTag0="beamng",
+            materialTag1="Building",
+        )
 
-        # LoD2-Roof-Material (ziegelrot) - mit korrekter BeamNG-Struktur
-        r, g, b = config.LOD2_ROOF_COLOR
-        roof_mat = {
-            "class": "Material",
-            "name": "lod2_roof_red",
-            "mapTo": "lod2_roof_red",
-            "version": 2,
-            "Stages": [
-                {
-                    "colorMap": f"{r} {g} {b} 1.0",
-                    "specularPower": 4,
-                    "pixelSpecular": False,
-                }
-            ],
-        }
-        self.materials.materials["lod2_roof_red"] = roof_mat
+        # Roof-Material aus OSM_MAPPER Config
+        roof_props = OSM_MAPPER.get_building_properties("roof")
+        roof_name = roof_props.get("internal_name", "lod2_roof_red")
+        
+        self.materials.add_building_material(
+            roof_name,
+            textures=roof_props.get("textures"),
+            tiling_scale=roof_props.get("tiling_scale", 2.0),
+            groundType="ROOF_TILES",
+            materialTag0="beamng",
+            materialTag1="Building",
+        )
 
     def _finalize_export(self):
         """Finalisiere Export: Speichere Materials/Items JSON und Debug-Daten."""

@@ -41,6 +41,33 @@ class OSMMapper:
 
         return props
 
+    def get_building_properties(self, building_type="wall"):
+        """
+        Gibt ein Dictionary mit allen Gebäude-Material-Parametern zurück.
+
+        Args:
+            building_type: "wall" oder "roof"
+
+        Returns:
+            Dict mit internal_name, groundModelName, textures, und tiling_scale (Wiederholung in Metern)
+        """
+        buildings_config = self.config.get("buildings", {})
+        building_data = buildings_config.get(building_type, {})
+
+        # Kopiere alle Daten aus Config
+        props = building_data.copy()
+
+        # Setze Tiling-Skala basierend auf Typ
+        # Wände: 4m Wiederholung, Dächer: 2m Wiederholung
+        if building_type == "wall":
+            props["tiling_scale"] = 4.0  # Wände: alle 4 Meter wiederholen
+        elif building_type == "roof":
+            props["tiling_scale"] = 2.0  # Dächer: alle 2 Meter wiederholen
+        else:
+            props["tiling_scale"] = 1.0  # Default
+
+        return props
+
     def _calculate_width(self, tags, fallback_width):
         """Logik für die Breitenermittlung."""
         # A. Explizites width Tag

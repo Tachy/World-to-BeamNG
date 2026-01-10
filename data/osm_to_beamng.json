@@ -142,5 +142,213 @@
                 "roughnessMap": "/assets/materials/decalroad/asphalt_road_01_r.dds"
             }
         }
+    },
+    "buildings": {
+        "wall": {
+            "internal_name": "lod2_wall_white",
+            "groundModelName": "stone",
+            "textures": {
+                "baseColorMap": "/assets/materials/building/generic/wall_plaster_white_01_d.dds",
+                "normalMap": "/assets/materials/building/generic/wall_plaster_white_01_n.dds",
+                "roughnessMap": "/assets/materials/building/generic/wall_plaster_white_01_r.dds",
+                "useAnisotropic": true
+            }
+        },
+        "roof": {
+            "internal_name": "lod2_roof_red",
+            "groundModelName": "roof_tiles",
+            "textures": {
+                "baseColorMap": "/assets/materials/building/generic/roof_clay_tiles_01_d.dds",
+                "normalMap": "/assets/materials/building/generic/roof_clay_tiles_01_n.dds",
+                "roughnessMap": "/assets/materials/building/generic/roof_clay_tiles_01_r.dds",
+                "useAnisotropic": true
+            }
+        }
+    },
+    "landuse_mappings": {
+        "base": {
+            "splat_map": null,
+            "channel": null,
+            "priority": 0,
+            "internal_name": "mat_base_satellite",
+            "groundModelName": "grass",
+            "baseColorMap": null,
+            "normalMap": null,
+            "groundCover": [],
+            "comment": "Fallback für nicht gemappte Bereiche, zeigt nur das DOP20-Luftbild."
+        },
+        "water": {
+            "splat_map": "A",
+            "channel": 3,
+            "priority": 15,
+            "internal_name": "mat_water",
+            "groundModelName": "water",
+            "baseColorMap": "/assets/materials/water/water_base_d.dds",
+            "normalMap": "/assets/materials/water/water_base_n.dds",
+            "groundCover": [
+                {
+                    "type": "water_reeds",
+                    "probability": 0.2
+                }
+            ]
+        },
+        "basin": {
+            "splat_map": "A",
+            "channel": 3,
+            "priority": 15,
+            "internal_name": "mat_water",
+            "groundModelName": "water",
+            "baseColorMap": "/assets/materials/water/water_base_d.dds",
+            "normalMap": "/assets/materials/water/water_base_n.dds",
+            "groundCover": [
+                {
+                    "type": "water_lily",
+                    "probability": 0.1
+                }
+            ]
+        },
+        "industrial": {
+            "splat_map": "B",
+            "channel": 2,
+            "priority": 12,
+            "internal_name": "mat_concrete",
+            "groundModelName": "concrete",
+            "baseColorMap": "/assets/materials/decalroad/concrete_01_d.dds",
+            "normalMap": "/assets/materials/decalroad/concrete_01_n.dds",
+            "groundCover": [
+                {
+                    "type": "weeds_cracks",
+                    "probability": 0.3
+                }
+            ]
+        },
+        "commercial": {
+            "splat_map": "B",
+            "channel": 2,
+            "priority": 12,
+            "internal_name": "mat_concrete",
+            "groundModelName": "concrete",
+            "baseColorMap": "/assets/materials/decalroad/concrete_01_d.dds",
+            "normalMap": "/assets/materials/decalroad/concrete_01_n.dds",
+            "groundCover": [
+                {
+                    "type": "urban_trash",
+                    "probability": 0.1
+                }
+            ]
+        },
+        "residential": {
+            "splat_map": "B",
+            "channel": 2,
+            "priority": 11,
+            "internal_name": "mat_asphalt_urban",
+            "groundModelName": "asphalt",
+            "baseColorMap": "/assets/materials/decalroad/asphalt_road_old_01_d.dds",
+            "normalMap": "/assets/materials/decalroad/asphalt_road_old_01_n.dds",
+            "groundCover": [
+                {
+                    "type": "grass_edge",
+                    "probability": 0.2
+                }
+            ]
+        },
+        "forest": {
+            "splat_map": "A",
+            "channel": 0,
+            "priority": 10,
+            "internal_name": "mat_forest",
+            "groundModelName": "forest",
+            "baseColorMap": "/assets/materials/terrains/forest_floor_01_d.dds",
+            "normalMap": "/assets/materials/terrains/forest_floor_01_n.dds",
+            "groundCover": [
+                {
+                    "type": "forest_fern",
+                    "probability": 0.4
+                },
+                {
+                    "type": "forest_dry_leaves",
+                    "probability": 0.8
+                }
+            ]
+        },
+        "vineyard": {
+            "splat_map": "B",
+            "channel": 0,
+            "priority": 9,
+            "internal_name": "mat_vineyard",
+            "groundModelName": "dirt_dusty",
+            "baseColorMap": "/assets/materials/terrains/dirt_loose_01_d.dds",
+            "normalMap": "/assets/materials/terrains/dirt_loose_01_n.dds",
+            "groundCover": [
+                {
+                    "type": "vine_plants",
+                    "probability": 0.9
+                }
+            ]
+        },
+        "greenhouse_horticulture": {
+            "splat_map": "B",
+            "channel": 3,
+            "priority": 9,
+            "internal_name": "mat_mud",
+            "groundModelName": "mud",
+            "baseColorMap": "/assets/materials/terrains/mud_01_d.dds",
+            "normalMap": "/assets/materials/terrains/mud_01_n.dds",
+            "groundCover": [
+                {
+                    "type": "patchy_grass",
+                    "probability": 0.3
+                }
+            ]
+        },
+        "orchard": {
+            "splat_map": "B",
+            "channel": 1,
+            "priority": 8,
+            "internal_name": "mat_orchard",
+            "groundModelName": "grass",
+            "baseColorMap": "/assets/materials/terrains/grass_long_dry_01_d.dds",
+            "normalMap": "/assets/materials/terrains/grass_long_dry_01_n.dds",
+            "groundCover": [
+                {
+                    "type": "fruit_trees_undergrowth",
+                    "probability": 0.5
+                }
+            ]
+        },
+        "farmland": {
+            "splat_map": "A",
+            "channel": 2,
+            "priority": 5,
+            "internal_name": "mat_dirt",
+            "groundModelName": "dirt",
+            "baseColorMap": "/assets/materials/terrains/dirt_01_d.dds",
+            "normalMap": "/assets/materials/terrains/dirt_01_n.dds",
+            "groundCover": [
+                {
+                    "type": "crop_stubble",
+                    "probability": 0.6
+                }
+            ]
+        },
+        "meadow": {
+            "splat_map": "A",
+            "channel": 1,
+            "priority": 4,
+            "internal_name": "mat_grass",
+            "groundModelName": "grass",
+            "baseColorMap": "/assets/materials/terrains/grass_green_01_d.dds",
+            "normalMap": "/assets/materials/terrains/grass_green_01_n.dds",
+            "groundCover": [
+                {
+                    "type": "grass_flowers",
+                    "probability": 0.5
+                },
+                {
+                    "type": "grass_long",
+                    "probability": 0.7
+                }
+            ]
+        }
     }
 }
