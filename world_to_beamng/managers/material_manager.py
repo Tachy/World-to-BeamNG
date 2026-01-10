@@ -228,8 +228,7 @@ class MaterialManager:
             Material-Name
         """
         mat_name = "horizon_terrain"
-        # Verwende diffuseMap (nicht colorMap) für Horizont-Textur
-        self.add_material(mat_name, template="horizon", overwrite=overwrite, Stages={"diffuseMap": texture_path})
+        self.add_material(mat_name, template="horizon", overwrite=overwrite, Stages={"baseColorMap": texture_path})
         return mat_name
 
     def get_material(self, name: str) -> Optional[Dict[str, Any]]:
