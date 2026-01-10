@@ -365,8 +365,13 @@ class DAEExporter:
                 # UV Source (optional)
                 if with_uv:
                     uv_src_id = f"{mesh_id}_uvs"
-                    tile_bounds = mesh_data.get("tile_bounds", None)
-                    uv_coords = self._compute_uv_normalized(vertices, uv_offset, uv_scale, tile_bounds)
+                    # Prüfe ob explizite UVs im mesh_data vorhanden sind
+                    if "uvs" in mesh_data:
+                        uv_coords = mesh_data["uvs"]
+                    else:
+                        # Fallback: berechne UVs automatisch
+                        tile_bounds = mesh_data.get("tile_bounds", None)
+                        uv_coords = self._compute_uv_normalized(vertices, uv_offset, uv_scale, tile_bounds)
                     self._write_uv_source(f, uv_src_id, uv_coords)
                 else:
                     uv_src_id = None

@@ -544,6 +544,84 @@ def cache_normalized_buildings(
     return str(cache_file)
 
 
+def _compute_wall_uvs(vertices: np.ndarray, tiling_scale: float = 4.0) -> np.ndarray:
+    """
+    Berechne UV-Koordinaten für Wand-Vertices (3D-basiert).
+
+    Für Wände: U = horizontale Distanz (X), V = Z-Höhe.
+    Tiling alle tiling_scale Meter.
+
+    Args:
+        vertices: (N, 3) NumPy Array mit XYZ-Koordinaten (Weltkoordinaten!)
+        tiling_scale: Wiederholung alle X Meter (z.B. 4.0 für 4m)
+
+    Returns:
+        (N, 2) UV-Koordinaten (0..tiling_count, wobei tiling_count = Mesh_Größe / tiling_scale)
+    """
+    # Normalisiere auf Mesh-Bounds
+    x_min, x_max = vertices[:, 0].min(), vertices[:, 0].max()
+    z_min, z_max = vertices[:, 2].min(), vertices[:, 2].max()
+
+    # Normalisiere auf 0..1
+    if x_max > x_min:
+        u = (vertices[:, 0] - x_min) / (x_max - x_min)
+    else:
+        u = np.zeros(len(vertices))
+
+    if z_max > z_min:
+        v = (vertices[:, 2] - z_min) / (z_max - z_min)
+    else:
+        v = np.zeros(len(vertices))
+
+    # Skaliere auf Tiling (z.B. 0..4 für 4m Tiling)
+    mesh_width = x_max - x_min
+    mesh_height = z_max - z_min
+
+    u = u * (mesh_width / tiling_scale)
+    v = v * (mesh_height / tiling_scale)
+
+    return np.column_stack([u, v])
+
+
+def _compute_roof_uvs(vertices: np.ndarray, tiling_scale: float = 2.0) -> np.ndarray:
+    """
+    Berechne UV-Koordinaten für Dach-Vertices (planare XY-Projektion).
+
+    Für Dächer: U = X, V = Y (planare Projektion).
+    Tiling alle tiling_scale Meter.
+
+    Args:
+        vertices: (N, 3) NumPy Array mit XYZ-Koordinaten (Weltkoordinaten!)
+        tiling_scale: Wiederholung alle X Meter (z.B. 2.0 für 2m)
+
+    Returns:
+        (N, 2) UV-Koordinaten (0..tiling_count, wobei tiling_count = Mesh_Größe / tiling_scale)
+    """
+    # Normalisiere auf Mesh-Bounds
+    x_min, x_max = vertices[:, 0].min(), vertices[:, 0].max()
+    y_min, y_max = vertices[:, 1].min(), vertices[:, 1].max()
+
+    # Normalisiere auf 0..1
+    if x_max > x_min:
+        u = (vertices[:, 0] - x_min) / (x_max - x_min)
+    else:
+        u = np.zeros(len(vertices))
+
+    if y_max > y_min:
+        v = (vertices[:, 1] - y_min) / (y_max - y_min)
+    else:
+        v = np.zeros(len(vertices))
+
+    # Skaliere auf Tiling (z.B. 0..2 für 2m Tiling)
+    mesh_width = x_max - x_min
+    mesh_depth = y_max - y_min
+
+    u = u * (mesh_width / tiling_scale)
+    v = v * (mesh_depth / tiling_scale)
+
+    return np.column_stack([u, v])
+
+
 def export_buildings_to_dae(
     buildings: List[Dict],
     output_dir: str,
@@ -596,6 +674,7 @@ def export_buildings_to_dae(
     meshes = []
     for bldg_idx, building in enumerate(buildings):
         all_vertices = []
+        all_uvs = []
         vertex_offset = 0
         wall_faces = []
         roof_faces = []
@@ -605,6 +684,9 @@ def export_buildings_to_dae(
             for face in faces:
                 wall_faces.append([f + vertex_offset for f in face])
             all_vertices.append(verts)
+            # UV für Wände: 3D-basiert (horizontale Distanz + Höhe), 4m Tiling
+            wall_uvs = _compute_wall_uvs(verts, tiling_scale=4.0)
+            all_uvs.append(wall_uvs)
             vertex_offset += len(verts)
 
         # Dächer
@@ -612,24 +694,29 @@ def export_buildings_to_dae(
             for face in faces:
                 roof_faces.append([f + vertex_offset for f in face])
             all_vertices.append(verts)
+            # UV für Dächer: planare XY-Projektion, 2m Tiling
+            roof_uvs = _compute_roof_uvs(verts, tiling_scale=2.0)
+            all_uvs.append(roof_uvs)
             vertex_offset += len(verts)
 
         if not all_vertices:
             continue
 
         vertices_combined = np.vstack(all_vertices)
+        uvs_combined = np.vstack(all_uvs)
 
         meshes.append(
             {
                 "id": f"building_{bldg_idx}",
                 "vertices": vertices_combined,
+                "uvs": uvs_combined,
                 "faces": {"lod2_wall_white": wall_faces, "lod2_roof_red": roof_faces},
             }
         )
 
     # Export mit DAEExporter
     exporter = DAEExporter()
-    exporter.export_multi_mesh(output_path=str(dae_file), meshes=meshes, with_uv=False)
+    exporter.export_multi_mesh(output_path=str(dae_file), meshes=meshes, with_uv=True)
 
     print(f"  [✓] DAE exportiert: {dae_file.name} ({len(buildings)} Gebäude)")
 

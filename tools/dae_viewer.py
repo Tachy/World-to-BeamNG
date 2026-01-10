@@ -80,7 +80,16 @@ class DAETileViewer:
             with open(materials_path, "r", encoding="utf-8") as f:
                 self.materials = json.load(f)
         else:
-            self.materials = {}
+            # Generiere materials aus osm_to_beamng.json Config
+            print(f"  [!] {materials_path} nicht gefunden, generiere aus Config...")
+            try:
+                from world_to_beamng.io.lod2 import create_materials_json
+
+                self.materials = create_materials_json()
+                print(f"  [✓] Materials generiert aus Config")
+            except Exception as e:
+                print(f"  [!] Fehler beim Generieren von Materials: {e}")
+                self.materials = {}
 
         # Extrahiere alle DAE-Dateien aus Items
         self.dae_files = []
@@ -138,8 +147,13 @@ class DAETileViewer:
         self.textures_dir = os.path.join(config.BEAMNG_DIR_SHAPES, "textures")
         self.textures = self._load_textures()
 
+        # Lade Material-Texturen aus main.materials.json
+        self.material_textures = self._load_material_textures()
+
         if self.textures:
-            print(f"  -> {len(self.textures)} Texturen geladen")
+            print(f"  -> {len(self.textures)} Tile-Texturen geladen")
+        if self.material_textures:
+            print(f"  -> {len(self.material_textures)} Material-Texturen geladen")
 
         # Status-Actors
         self._reload_actor = None
@@ -148,9 +162,9 @@ class DAETileViewer:
         self._render_update_counter = 0  # Für RenderEvent Drosselung
 
         # Global Material Properties (zentrale Definition)
-        self.material_ambient = 0.6  # EXTREMWERT: Schatten müssen pechschwarz sein
-        self.material_diffuse = 0.8  # EXTREMWERT: Volle Sonnenlicht-Reaktion
-        self.material_specular = 0.0  # EXTREMWERT: Starker Glanz
+        self.material_ambient = 0.6
+        self.material_diffuse = 0.8
+        self.material_specular = 0.0
 
         # PyVista Setup
         self.plotter = pv.Plotter()
@@ -573,56 +587,207 @@ class DAETileViewer:
             if road_faces:
                 road_mesh = self._create_mesh(vertices, road_faces)
                 road_opacity = self.grid_colors.get("road", {}).get("face_opacity", 0.5)
-                actor = self.plotter.add_mesh(
-                    road_mesh,
-                    color=face_colors["road"],
-                    label=f"{item_name}_roads",
-                    opacity=road_opacity,
-                    show_edges=True,
-                    edge_color=edge_colors["road"],
-                    line_width=2.0,
-                    lighting=True,
-                    ambient=self.material_ambient,
-                    diffuse=self.material_diffuse,
-                    specular=self.material_specular,
-                )
+
+                # In Textur-Ansicht: Versuche Material-Textur zu verwenden (nur wenn UVs vorhanden)
+                if (
+                    self.use_textures
+                    and materials
+                    and hasattr(road_mesh, "active_texture_coordinates")
+                    and road_mesh.active_texture_coordinates is not None
+                ):
+                    # Finde das erste Road-Material
+                    road_material = next((mat for mat in materials if "road" in mat.lower()), None)
+                    if road_material and road_material in self.material_textures:
+                        texture = self.material_textures[road_material]
+                        actor = self.plotter.add_mesh(
+                            road_mesh,
+                            texture=texture,
+                            label=f"{item_name}_roads",
+                            opacity=1.0,
+                            show_edges=False,
+                            lighting=True,
+                            ambient=self.material_ambient,
+                            diffuse=self.material_diffuse,
+                            specular=self.material_specular,
+                        )
+                    else:
+                        # Fallback: Farbe
+                        actor = self.plotter.add_mesh(
+                            road_mesh,
+                            color=face_colors["road"],
+                            label=f"{item_name}_roads",
+                            opacity=road_opacity,
+                            show_edges=True,
+                            edge_color=edge_colors["road"],
+                            line_width=2.0,
+                            lighting=True,
+                            ambient=self.material_ambient,
+                            diffuse=self.material_diffuse,
+                            specular=self.material_specular,
+                        )
+                else:
+                    # Grid-Ansicht oder keine UVs: Farbe mit Kanten
+                    actor = self.plotter.add_mesh(
+                        road_mesh,
+                        color=face_colors["road"],
+                        label=f"{item_name}_roads",
+                        opacity=road_opacity,
+                        show_edges=True,
+                        edge_color=edge_colors["road"],
+                        line_width=2.0,
+                        lighting=True,
+                        ambient=self.material_ambient,
+                        diffuse=self.material_diffuse,
+                        specular=self.material_specular,
+                    )
+
                 self.road_actors.append(actor)
                 actor.SetVisibility(self.show_roads)
 
             # Rendere Buildings (Walls + Roofs)
             if wall_faces:
-                wall_mesh = self._create_mesh(vertices, wall_faces)
-                actor = self.plotter.add_mesh(
-                    wall_mesh,
-                    color=face_colors["building_wall"],
-                    label=f"{item_name}_walls",
-                    opacity=0.9,
-                    show_edges=True,
-                    edge_color=edge_colors["building_wall"],
-                    line_width=1.0,
-                    lighting=True,
-                    ambient=self.material_ambient,
-                    diffuse=self.material_diffuse,
-                    specular=self.material_specular,
-                )
+                # Extrahiere UVs für Building aus tiles_info
+                building_uvs = self._extract_building_uvs(tiles_info, vertices)
+
+                if len(building_uvs) > 0 and len(building_uvs) == len(vertices):
+                    wall_mesh = self._create_mesh_with_uvs(vertices, wall_faces, building_uvs)
+                else:
+                    wall_mesh = self._create_mesh(vertices, wall_faces)
+
+                # In Textur-Ansicht: Versuche Material-Textur zu verwenden
+                if self.use_textures and materials:
+                    # Finde das Wall-Material
+                    wall_material = next((mat for mat in materials if "wall" in mat.lower()), None)
+                    if wall_material and wall_material in self.material_textures:
+                        texture = self.material_textures[wall_material]
+                        # UVs NICHT normalisieren! PyVista/OpenGL handhabt Wiederholungen automatisch
+                        # Die UVs sind bereits korrekt skaliert für das Tiling (z.B. 0-32 für 4m Textur auf großem Gebäude)
+                        # Textur wird vorausgesetzt - Fehler werfen wenn UVs fehlen
+                        try:
+                            actor = self.plotter.add_mesh(
+                                wall_mesh,
+                                texture=texture,
+                                label=f"{item_name}_walls",
+                                opacity=1.0,
+                                show_edges=False,
+                                lighting=True,
+                                ambient=0.9,
+                                diffuse=0.9,
+                                specular=0.1,
+                            )
+                        except Exception as e:
+                            print(f"  [!] Fehler beim Textur-Rendering: {e}. Fallback zu Farbe.")
+                            actor = self.plotter.add_mesh(
+                                wall_mesh,
+                                color=face_colors["building_wall"],
+                                label=f"{item_name}_walls",
+                                opacity=1.0,
+                                show_edges=False,
+                                lighting=True,
+                                ambient=1.0,
+                                diffuse=1.0,
+                                specular=0.1,
+                            )
+                    else:
+                        # Fallback: Farbe
+                        actor = self.plotter.add_mesh(
+                            wall_mesh,
+                            color=face_colors["building_wall"],
+                            label=f"{item_name}_walls",
+                            opacity=1.0,
+                            show_edges=False,
+                            lighting=True,
+                            ambient=self.material_ambient,
+                            diffuse=self.material_diffuse,
+                            specular=self.material_specular,
+                        )
+                else:
+                    # Grid-Ansicht oder keine UVs: Farbe (kein Drahtgitter für bessere Sichtbarkeit)
+                    actor = self.plotter.add_mesh(
+                        wall_mesh,
+                        color=face_colors["building_wall"],
+                        label=f"{item_name}_walls",
+                        opacity=1.0,
+                        show_edges=False,
+                        lighting=True,
+                        ambient=self.material_ambient,
+                        diffuse=self.material_diffuse,
+                        specular=self.material_specular,
+                    )
+
                 self.building_actors.append(actor)
                 actor.SetVisibility(self.show_buildings)
 
             if roof_faces:
-                roof_mesh = self._create_mesh(vertices, roof_faces)
-                actor = self.plotter.add_mesh(
-                    roof_mesh,
-                    color=face_colors["building_roof"],
-                    label=f"{item_name}_roofs",
-                    opacity=0.9,
-                    show_edges=True,
-                    edge_color=edge_colors["building_roof"],
-                    line_width=1.0,
-                    lighting=True,
-                    ambient=self.material_ambient,
-                    diffuse=self.material_diffuse,
-                    specular=self.material_specular,
-                )
+                # Extrahiere UVs für Building aus tiles_info
+                building_uvs = self._extract_building_uvs(tiles_info, vertices)
+
+                if len(building_uvs) > 0 and len(building_uvs) == len(vertices):
+                    roof_mesh = self._create_mesh_with_uvs(vertices, roof_faces, building_uvs)
+                else:
+                    roof_mesh = self._create_mesh(vertices, roof_faces)
+
+                # In Textur-Ansicht: Versuche Material-Textur zu verwenden
+                if self.use_textures and materials:
+                    # Finde das Roof-Material
+                    roof_material = next((mat for mat in materials if "roof" in mat.lower()), None)
+                    if roof_material and roof_material in self.material_textures:
+                        texture = self.material_textures[roof_material]
+                        # UVs NICHT normalisieren! PyVista/OpenGL handhabt Wiederholungen automatisch
+                        # Die UVs sind bereits korrekt skaliert für das Tiling (z.B. 0-16 für 2m Textur auf großem Dach)
+                        # Textur wird vorausgesetzt - Fehler werfen wenn UVs fehlen
+                        try:
+                            actor = self.plotter.add_mesh(
+                                roof_mesh,
+                                texture=texture,
+                                label=f"{item_name}_roofs",
+                                opacity=1.0,
+                                show_edges=False,
+                                lighting=True,
+                                ambient=0.9,
+                                diffuse=0.9,
+                                specular=0.1,
+                            )
+                        except Exception as e:
+                            print(f"  [!] Fehler beim Textur-Rendering: {e}. Fallback zu Farbe.")
+                            actor = self.plotter.add_mesh(
+                                roof_mesh,
+                                color=face_colors["building_roof"],
+                                label=f"{item_name}_roofs",
+                                opacity=1.0,
+                                show_edges=False,
+                                lighting=True,
+                                ambient=1.0,
+                                diffuse=1.0,
+                                specular=0.1,
+                            )
+                    else:
+                        # Fallback: Farbe
+                        actor = self.plotter.add_mesh(
+                            roof_mesh,
+                            color=face_colors["building_roof"],
+                            label=f"{item_name}_roofs",
+                            opacity=1.0,
+                            show_edges=False,
+                            lighting=True,
+                            ambient=1.0,
+                            diffuse=1.0,
+                            specular=0.1,
+                        )
+                else:
+                    # Grid-Ansicht oder keine UVs: Farbe (kein Drahtgitter für bessere Sichtbarkeit)
+                    actor = self.plotter.add_mesh(
+                        roof_mesh,
+                        color=face_colors["building_roof"],
+                        label=f"{item_name}_roofs",
+                        opacity=1.0,
+                        show_edges=False,
+                        lighting=True,
+                        ambient=self.material_ambient,
+                        diffuse=self.material_diffuse,
+                        specular=self.material_specular,
+                    )
+
                 self.building_actors.append(actor)
                 actor.SetVisibility(self.show_buildings)
 
@@ -644,6 +809,43 @@ class DAETileViewer:
             # Fallback: älter PyVista ohne split_sharp_edges
             mesh = mesh.compute_normals(cell_normals=True, point_normals=True)
         return mesh
+
+    def _extract_building_uvs(self, tiles_info, vertices):
+        """
+        Extrahiere UV-Koordinaten für Building aus tiles_info.
+
+        Args:
+            tiles_info: Dict mit Tile-Informationen (enthält UVs)
+            vertices: NumPy Array mit Vertices
+
+        Returns:
+            NumPy Array mit UV-Koordinaten (n, 2) oder leeres Array
+        """
+        if not tiles_info:
+            print(f"  [DEBUG] _extract_building_uvs: tiles_info ist leer")
+            return np.array([])
+
+        print(f"  [DEBUG] _extract_building_uvs: tiles_info keys = {list(tiles_info.keys())}")
+
+        # Sammle UVs von allen Building-Tiles (sie sind bereits in der richtigen Reihenfolge)
+        all_uvs = []
+        for tile_name, tile_data in tiles_info.items():
+            print(f"    Checking tile: {tile_name}")
+            uvs = tile_data.get("uvs", np.array([]))
+            if len(uvs) > 0:
+                print(f"      → Hat UVs: shape={uvs.shape}")
+                all_uvs.append(uvs)
+            else:
+                print(f"      → Keine UVs")
+
+        # Kombiniere alle UVs
+        if all_uvs:
+            combined_uvs = np.vstack(all_uvs)
+            print(f"  [DEBUG] Combined UVs: shape={combined_uvs.shape}, vertices shape={vertices.shape}")
+            return combined_uvs
+
+        print(f"  [DEBUG] Keine UVs gefunden!")
+        return np.array([])
 
     def _create_mesh_with_uvs(self, vertices, faces, uvs):
         """Erstelle ein PyVista PolyData Mesh mit UV-Koordinaten."""
@@ -765,6 +967,119 @@ class DAETileViewer:
 
         return textures
 
+    def _load_material_textures(self):
+        """
+        Lade Texturen aus main.materials.json für Straßen und Gebäude.
+
+        Returns:
+            Dict {material_name: pv.Texture}
+        """
+        material_textures = {}
+
+        if not self.materials:
+            return material_textures
+
+        for mat_name, mat_data in self.materials.items():
+            stages = mat_data.get("Stages", [])
+            if not stages or not isinstance(stages, list) or len(stages) == 0:
+                continue
+
+            stage = stages[0]  # Erste Stage nutzen
+
+            if not isinstance(stage, dict):
+                continue
+
+            # Suche nach baseColorMap (primäre Textur)
+            texture_path = stage.get("baseColorMap")
+
+            if not texture_path:
+                continue
+
+            # Konvertiere BeamNG-Pfad zu absolutem Pfad
+            abs_texture_path = self._resolve_asset_path(texture_path)
+
+            if not abs_texture_path:
+                # Zeige den Pfad, der tatsächlich gesucht wurde
+                if texture_path.startswith("/assets/"):
+                    rel_path = texture_path[1:].replace("/", os.sep)
+                    data_dir = os.path.join(os.path.dirname(__file__), "..", "data")
+                    attempted_path = os.path.abspath(os.path.join(data_dir, rel_path))
+                    print(f"  [!] Material-Textur für {mat_name} nicht gefunden: {attempted_path}")
+                elif texture_path.startswith("/levels/") or texture_path.startswith(config.RELATIVE_DIR):
+                    attempted_path = _resolve_beamng_path(texture_path)
+                    print(f"  [!] Material-Textur für {mat_name} nicht gefunden: {attempted_path or texture_path}")
+                else:
+                    print(f"  [!] Material-Textur für {mat_name} nicht auflösbar: {texture_path.replace('/', os.sep)}")
+                continue
+
+            if not os.path.exists(abs_texture_path):
+                print(f"  [!] Material-Textur für {mat_name} nicht gefunden: {abs_texture_path}")
+                continue
+
+            try:
+                # Lade Textur
+                if abs_texture_path.lower().endswith(".dds"):
+                    try:
+                        import importlib
+
+                        imageio = importlib.import_module("imageio.v2")
+                        img_array = imageio.imread(abs_texture_path)
+                        # Konvertiere RGBA zu RGB (entferne Alpha-Kanal für volle Opazität)
+                        if img_array.ndim == 3 and img_array.shape[2] == 4:
+                            img_array = img_array[:, :, :3]
+                        print(f"  [✓] Material-Textur geladen: {mat_name} -> {abs_texture_path.replace('/', os.sep)}")
+                    except ImportError:
+                        print(f"  [!] imageio nicht verfügbar, überspringe {mat_name} DDS Textur")
+                        continue
+                else:
+                    img = Image.open(abs_texture_path)
+                    img_array = np.array(img.convert("RGB"))
+                    print(f"  [✓] Material-Textur geladen: {mat_name} -> {abs_texture_path.replace('/', os.sep)}")
+
+                if img_array.ndim == 2:  # Grauwerte -> RGB
+                    img_array = np.stack([img_array] * 3, axis=-1)
+
+                texture = pv.Texture(img_array)
+                # Aktiviere Mipmap und Interpolation für bessere Qualität
+                texture.mipmap = True
+                texture.interpolate = True
+                material_textures[mat_name] = texture
+
+            except Exception as e:
+                print(f"  [!] Fehler beim Laden der Material-Textur {mat_name}: {e}")
+
+        return material_textures
+
+    def _resolve_asset_path(self, texture_path: str) -> str:
+        """
+        Konvertiere BeamNG Asset-Pfad zu absolutem Dateisystempfad.
+
+        Texturen für Straßen und Gebäude liegen im lokalen data/ Verzeichnis.
+
+        Args:
+            texture_path: BeamNG Asset-Pfad (z.B. "/assets/materials/...")
+
+        Returns:
+            Absoluter Pfad oder None
+        """
+        if not texture_path:
+            return None
+
+        # 1. Level-spezifische Pfade (/levels/World_to_BeamNG/...) -> nutze _resolve_beamng_path
+        if texture_path.startswith("/levels/") or texture_path.startswith(config.RELATIVE_DIR):
+            return _resolve_beamng_path(texture_path)
+
+        # 2. Asset-Pfade (/assets/materials/...) -> suche in data/assets/
+        if texture_path.startswith("/assets/"):
+            rel_path = texture_path[1:].replace("/", os.sep)  # Entferne nur führenden /, behalte "assets"
+            # Suche relativ zum aktuellen Verzeichnis
+            data_dir = os.path.join(os.path.dirname(__file__), "..", "data")
+            abs_path = os.path.join(data_dir, rel_path)
+            abs_path = os.path.abspath(abs_path)  # Normalisiere Pfad
+            return abs_path if os.path.exists(abs_path) else None
+
+        return None
+
     def _load_buildings(self):
         """Lade buildings_*.dae aus dem buildings-Verzeichnis."""
         buildings_dir = os.path.join(config.BEAMNG_DIR_SHAPES, "buildings")
@@ -778,6 +1093,8 @@ class DAETileViewer:
             return
 
         print(f"  [Buildings] Lade {len(building_files)} building DAEs...")
+        print(f"  [Buildings DEBUG] Material_textures verfügbar: {list(self.material_textures.keys())}")
+        print(f"  [Buildings DEBUG] use_textures: {self.use_textures}")
 
         for building_path in building_files:
             try:
@@ -793,6 +1110,11 @@ class DAETileViewer:
                 if len(vertices) == 0:
                     continue
 
+                print(f"\n  [Buildings DEBUG] {building_path.stem}:")
+                print(f"    Vertices: {len(vertices)}")
+                print(f"    Faces: {len(faces)}")
+                print(f"    Materials: {set(materials)}")
+
                 # Rendering-Ansicht: Nutze Materials (lod2_wall_white, lod2_roof_red)
                 if self.use_textures:
                     # Gruppiere Faces nach Material
@@ -805,38 +1127,113 @@ class DAETileViewer:
                         elif "roof" in material.lower():
                             roof_faces.append(faces[face_idx])
 
-                    # Rendere Walls (weiß) mit zentralen Material-Werten
+                    print(f"    Wall faces: {len(wall_faces)}, Roof faces: {len(roof_faces)}")
+
+                    # Hole UVs aus den Tiles
+                    tiles_info = building_data.get("tiles", {})
+                    all_uvs = None
+
+                    # Sammle alle UVs aus allen Tiles
+                    for tile_name, tile_data in tiles_info.items():
+                        tile_uvs = tile_data.get("uvs")
+                        if tile_uvs is not None and len(tile_uvs) > 0:
+                            if all_uvs is None:
+                                all_uvs = tile_uvs
+                            else:
+                                all_uvs = np.vstack([all_uvs, tile_uvs])
+                            print(
+                                f"    Tile {tile_name}: UVs shape={tile_uvs.shape}, min={tile_uvs.min(axis=0)}, max={tile_uvs.max(axis=0)}"
+                            )
+                            break  # Für Gebäude verwenden wir meist nur ein Tile
+
+                    if all_uvs is None:
+                        print(f"    [!] KEINE UVs gefunden!")
+
+                    # Rendere Walls mit Textur
                     if wall_faces:
-                        mesh = self._create_mesh(vertices, wall_faces)
-                        actor = self.plotter.add_mesh(
-                            mesh,
-                            color="white",  # Reinweiß reflektiert Licht am besten
-                            opacity=1.0,  # Fully opaque in texture mode
-                            label=f"{building_path.stem}_walls",
-                            smooth_shading=False,
-                            lighting=True,  # ZWINGEND
-                            scalars=None,  # Verhindert Farb-Übersteuerung
-                            ambient=self.material_ambient,
-                            diffuse=self.material_diffuse,
-                            specular=self.material_specular,
-                        )
+                        wall_mesh = self._create_mesh(vertices, wall_faces)
+
+                        # Setze UVs wenn vorhanden
+                        if all_uvs is not None:
+                            wall_mesh.active_texture_coordinates = all_uvs % 1.0
+                            print(f"    UVs auf Wall-Mesh gesetzt: {wall_mesh.active_texture_coordinates.shape}")
+
+                        # Finde Wall-Material-Textur
+                        wall_material = "lod2_wall_white"
+                        if wall_material in self.material_textures:
+                            texture = self.material_textures[wall_material]
+                            print(f"    ✓ Wall-Textur gefunden: {wall_material}")
+                            actor = self.plotter.add_mesh(
+                                wall_mesh,
+                                texture=texture,
+                                opacity=1.0,
+                                label=f"{building_path.stem}_walls",
+                                show_edges=False,
+                                lighting=True,
+                                ambient=self.material_ambient,
+                                diffuse=self.material_diffuse,
+                                specular=self.material_specular,
+                            )
+                            print(f"    ✓ Wall mit Textur gerendert")
+                        else:
+                            # Fallback: Farbe (weiß)
+                            print(f"    [!] Wall-Textur NICHT gefunden: {wall_material}")
+                            print(f"        Verfügbare Materials: {list(self.material_textures.keys())}")
+                            actor = self.plotter.add_mesh(
+                                wall_mesh,
+                                color="white",
+                                opacity=1.0,
+                                label=f"{building_path.stem}_walls",
+                                show_edges=False,
+                                lighting=True,
+                                ambient=self.material_ambient,
+                                diffuse=self.material_diffuse,
+                                specular=self.material_specular,
+                            )
+                            print(f"    [!] Wall mit Farb-Fallback gerendert")
                         self.building_actors.append(actor)
 
-                    # Rendere Roofs (rot) mit zentralen Material-Werten
+                    # Rendere Roofs mit Textur
                     if roof_faces:
-                        mesh = self._create_mesh(vertices, roof_faces)
-                        actor = self.plotter.add_mesh(
-                            mesh,
-                            color=[0.6, 0.2, 0.1],
-                            opacity=1.0,  # Fully opaque in texture mode
-                            label=f"{building_path.stem}_roofs",
-                            smooth_shading=False,
-                            lighting=True,  # ZWINGEND
-                            scalars=None,  # Verhindert Farb-Übersteuerung
-                            ambient=self.material_ambient,
-                            diffuse=self.material_diffuse,
-                            specular=self.material_specular,
-                        )
+                        roof_mesh = self._create_mesh(vertices, roof_faces)
+
+                        # Setze UVs wenn vorhanden
+                        if all_uvs is not None:
+                            roof_mesh.active_texture_coordinates = all_uvs % 1.0
+                            print(f"    UVs auf Roof-Mesh gesetzt: {roof_mesh.active_texture_coordinates.shape}")
+
+                        # Finde Roof-Material-Textur
+                        roof_material = "lod2_roof_red"
+                        if roof_material in self.material_textures:
+                            texture = self.material_textures[roof_material]
+                            print(f"    ✓ Roof-Textur gefunden: {roof_material}")
+                            actor = self.plotter.add_mesh(
+                                roof_mesh,
+                                texture=texture,
+                                opacity=1.0,
+                                label=f"{building_path.stem}_roofs",
+                                show_edges=False,
+                                lighting=True,
+                                ambient=self.material_ambient,
+                                diffuse=self.material_diffuse,
+                                specular=self.material_specular,
+                            )
+                            print(f"    ✓ Roof mit Textur gerendert")
+                        else:
+                            # Fallback: Farbe (dunkelrot)
+                            print(f"    [!] Roof-Textur NICHT gefunden: {roof_material}")
+                            actor = self.plotter.add_mesh(
+                                roof_mesh,
+                                color=[0.6, 0.2, 0.1],
+                                opacity=1.0,
+                                label=f"{building_path.stem}_roofs",
+                                show_edges=False,
+                                lighting=True,
+                                ambient=self.material_ambient,
+                                diffuse=self.material_diffuse,
+                                specular=self.material_specular,
+                            )
+                            print(f"    [!] Roof mit Farb-Fallback gerendert")
                         self.building_actors.append(actor)
 
                 # Grid-Ansicht: Nutze grid_colors mit Edges

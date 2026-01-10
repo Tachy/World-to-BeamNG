@@ -98,13 +98,17 @@ class OSMMapper:
             "pixelSpecular": True,
         }
 
-        # Nur nicht-None Texturen hinzufügen
+        # Alle Textur-Typen hinzufügen, die in osm_to_beamng.json definiert sind
         if tex.get("baseColorMap"):
             stages_config["baseColorMap"] = tex.get("baseColorMap")
         if tex.get("normalMap"):
             stages_config["normalMap"] = tex.get("normalMap")
         if tex.get("roughnessMap"):
             stages_config["roughnessMap"] = tex.get("roughnessMap")
+        if tex.get("ambientOcclusionMap"):
+            stages_config["ambientOcclusionMap"] = tex.get("ambientOcclusionMap")
+        if tex.get("opacityMap"):
+            stages_config["opacityMap"] = tex.get("opacityMap")
 
         # Fallback: Wenn keine Texturen, nutze einfache Farbe
         if not any(k in stages_config for k in ["baseColorMap", "normalMap", "roughnessMap"]):

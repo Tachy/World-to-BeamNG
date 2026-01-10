@@ -79,7 +79,7 @@ class BuildingWorkflow:
 
         output_path = os.path.join(config.BEAMNG_DIR_BUILDINGS, f"buildings_tile_{tile_x}_{tile_y}.dae")
 
-        self.dae.export_multi_mesh(output_path=output_path, meshes=meshes, with_uv=False)
+        self.dae.export_multi_mesh(output_path=output_path, meshes=meshes, with_uv=True)
 
         print(f"  [✓] Buildings DAE: {os.path.basename(output_path)} ({len(meshes)} Gebäude)")
 

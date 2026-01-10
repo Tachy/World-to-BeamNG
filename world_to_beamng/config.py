@@ -8,12 +8,12 @@ from .osm.osm_mapper import OSMMapper
 OSM_MAPPER = OSMMapper(config_path="data/osm_to_beamng.json")
 
 # BEAMNG Zielordner (Anpassbar)
-BEAMNG_DIR = "C:\\Users\\johan\\AppData\\Local\\BeamNG.drive\\0.36\\levels\\World_to_BeamNG"
+BEAMNG_DIR = "C:\\Users\\johan\\AppData\\Local\\BeamNG\\BeamNG.drive\\current\\levels\\world_to_beamng"
 BEAMNG_DIR_SHAPES = BEAMNG_DIR + "\\art\\shapes"
 BEAMNG_DIR_TEXTURES = BEAMNG_DIR_SHAPES + "\\textures"
 BEAMNG_DIR_BUILDINGS = BEAMNG_DIR_SHAPES + "\\buildings"
 
-RELATIVE_DIR = "/levels/World_to_BeamNG/"
+RELATIVE_DIR = "/levels/world_to_beamng/"
 RELATIVE_DIR_SHAPES = RELATIVE_DIR + "art/shapes/"
 RELATIVE_DIR_TEXTURES = RELATIVE_DIR_SHAPES + "textures/"
 RELATIVE_DIR_BUILDINGS = RELATIVE_DIR_SHAPES + "buildings/"
@@ -39,7 +39,7 @@ SLOPE_ANGLE = 45.0  # Neigungswinkel der Boeschung in Grad (45° = 1:1 Steigung)
 # Vorab-Reduktion ueber groeberes Grid (Strategie 2). Fuer feineres Terrain z.B. 1.0 setzen.
 GRID_SPACING = 2.0  # Abstand zwischen Grid-Punkten in Metern (1.0 = sehr fein, 10.0 = grob)
 TERRAIN_REDUCTION = 0  # Decimation bleibt aus; steuern wir ueber GRID_SPACING
-LEVEL_NAME = "World_to_BeamNG"  # Name des BeamNG Levels (muss mit BEAMNG_DIR übereinstimmen)
+LEVEL_NAME = "world_to_beamng"  # Name des BeamNG Levels (muss mit BEAMNG_DIR übereinstimmen)
 
 # DEBUG / EXPORTS
 DEBUG_EXPORTS = True  # Debug-Dumps (Netz, Grid) nur bei Bedarf aktivieren

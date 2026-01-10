@@ -498,7 +498,10 @@ class BuildingMeshBuilder:
 
     def _building_to_mesh(self, building: Dict, idx: int) -> Optional[Dict]:
         """Konvertiere Building zu Mesh-Dict."""
+        from ..io.lod2 import _compute_wall_uvs, _compute_roof_uvs
+
         all_vertices = []
+        all_uvs = []
         vertex_offset = 0
         wall_faces = []
         roof_faces = []
@@ -508,6 +511,9 @@ class BuildingMeshBuilder:
             for face in faces:
                 wall_faces.append([f + vertex_offset for f in face])
             all_vertices.append(verts)
+            # UV für Wände: 3D-basiert (horizontale Distanz + Höhe), 4m Tiling
+            wall_uvs = _compute_wall_uvs(verts, tiling_scale=4.0)
+            all_uvs.append(wall_uvs)
             vertex_offset += len(verts)
 
         # Dächer
@@ -515,15 +521,20 @@ class BuildingMeshBuilder:
             for face in faces:
                 roof_faces.append([f + vertex_offset for f in face])
             all_vertices.append(verts)
+            # UV für Dächer: planare XY-Projektion, 2m Tiling
+            roof_uvs = _compute_roof_uvs(verts, tiling_scale=2.0)
+            all_uvs.append(roof_uvs)
             vertex_offset += len(verts)
 
         if not all_vertices:
             return None
 
         vertices_combined = np.vstack(all_vertices)
+        uvs_combined = np.vstack(all_uvs)
 
         return {
             "id": f"building_{idx}",
             "vertices": vertices_combined,
+            "uvs": uvs_combined,
             "faces": {"lod2_wall_white": wall_faces, "lod2_roof_red": roof_faces},
         }

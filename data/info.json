@@ -1,0 +1,28 @@
+{
+    "title": "world to BeamNG - LGL DOP20/LOD2 Export",
+    "description": "Automatisierter Export von LGL-Daten (DOP20 / LOD2).",
+    "author": "Tachy AI",
+    "mapType": "terrain",
+    "suitableFor": "freeroam",
+    "size": [
+        2000,
+        2000
+    ],
+    "preview": "preview.jpg",
+    "spawnPoints": [
+        {
+            "name": "Startpunkt Nullpunkt",
+            "translation": [
+                0,
+                0,
+                300
+            ],
+            "rotation": [
+                0,
+                0,
+                0,
+                1
+            ]
+        }
+    ]
+}
