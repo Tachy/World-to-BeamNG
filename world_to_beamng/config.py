@@ -9,6 +9,9 @@ OSM_MAPPER = OSMMapper(config_path="data/osm_to_beamng.json")
 
 # BEAMNG Zielordner (Anpassbar)
 BEAMNG_DIR = "C:\\Users\\johan\\AppData\\Local\\BeamNG\\BeamNG.drive\\current\\levels\\world_to_beamng"
+BEAMNG_DIR_MAIN = BEAMNG_DIR + "\\main\\"
+ITEMS_JSON = "items.json"
+BEAMNG_ITEMS_JSON = BEAMNG_DIR_MAIN + ITEMS_JSON
 BEAMNG_DIR_SHAPES = BEAMNG_DIR + "\\art\\shapes"
 BEAMNG_DIR_TEXTURES = BEAMNG_DIR_SHAPES + "\\textures"
 BEAMNG_DIR_BUILDINGS = BEAMNG_DIR_SHAPES + "\\buildings"
@@ -17,6 +20,7 @@ RELATIVE_DIR = "/levels/world_to_beamng/"
 RELATIVE_DIR_SHAPES = RELATIVE_DIR + "art/shapes/"
 RELATIVE_DIR_TEXTURES = RELATIVE_DIR_SHAPES + "textures/"
 RELATIVE_DIR_BUILDINGS = RELATIVE_DIR_SHAPES + "buildings/"
+
 
 # === OpenTopography API ===
 OPENTOPOGRAPHY_API_KEY = "9805a06e82a636afd885c07a2f2e1838"  # Registrierung: https://opentopography.org/
@@ -90,6 +94,9 @@ NUM_WORKERS = 4  # None = Automatisch (alle CPU-Kerne), oder Anzahl (z.B. 4)
 HEIGHT_LOOKUP_MODE = "kdtree"
 # Maximale Strassen pro Batch im Multiprocessing
 MAX_ROADS_PER_BATCH = 500
+
+# === PHASE-SKIPPING ===
+SKIP_PHASES_2_TO_4_IF_ITEMS_EXISTS = True  # Wenn items.json existiert, Phase 2-4 überspringen
 
 # === GLOBALE ZUSTANDSVARIABLEN (werden in main() initialisiert) ===
 # WICHTIG: Nur echte GLOBALE Parameter hier! Keine Tile-spezifischen Werte!

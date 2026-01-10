@@ -429,16 +429,16 @@ class ExportIntegrityTest:
             self.error(f"Fehler beim Testen: {e}")
 
     def test_items_json(self):
-        """Teste main.items.json Integrität."""
-        print("\n[4] Teste main.items.json...")
+        """Teste items.json Integrität."""
+        print("\n[4] Teste items.json...")
 
-        items_json = self.beamng_dir / "main.items.json"
+        items_json = self.beamng_dir / "main" / "items.json"
 
         if not items_json.exists():
-            self.error(f"main.items.json nicht gefunden: {items_json}")
+            self.error(f"items.json nicht gefunden: {items_json}")
             return
 
-        self.success(f"main.items.json gefunden")
+        self.success(f"items.json gefunden")
 
         try:
             with open(items_json, "r", encoding="utf-8") as f:
@@ -1219,10 +1219,10 @@ class ExportIntegrityTest:
         """Teste Horizon-Item in items.json."""
         print("\n[Horizon] Teste Horizon-Item...")
 
-        items_path = self.beamng_dir / "main.items.json"
+        items_path = self.beamng_dir / "main" / "items.json"
 
         if not items_path.exists():
-            self.warning("main.items.json nicht gefunden")
+            self.warning("items.json nicht gefunden")
             return
 
         try:

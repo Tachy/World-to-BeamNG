@@ -269,13 +269,13 @@ class ItemManager:
 
     def save(self, filepath: Optional[str] = None) -> None:
         """
-        Exportiere Items zu main.items.json.
+        Exportiere Items zu items.json.
 
         Args:
-            filepath: Optionaler custom Pfad, ansonsten {beamng_dir}/main.items.json
+            filepath: Optionaler custom Pfad, ansonsten {beamng_dir}/main/items.json
         """
         if filepath is None:
-            filepath = os.path.join(self.beamng_dir, "main.items.json")
+            filepath = os.path.join(self.beamng_dir, "main", "items.json")
 
         os.makedirs(os.path.dirname(filepath), exist_ok=True)
 
@@ -284,13 +284,13 @@ class ItemManager:
 
     def load(self, filepath: Optional[str] = None) -> None:
         """
-        Lade Items aus main.items.json.
+        Lade Items aus items.json.
 
         Args:
-            filepath: Optionaler custom Pfad, ansonsten {beamng_dir}/main.items.json
+            filepath: Optionaler custom Pfad, ansonsten {beamng_dir}/main/items.json
         """
         if filepath is None:
-            filepath = os.path.join(self.beamng_dir, "main.items.json")
+            filepath = os.path.join(self.beamng_dir, "main", "items.json")
 
         if not os.path.exists(filepath):
             return

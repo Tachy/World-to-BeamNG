@@ -497,14 +497,14 @@ def generate_horizon_mesh(height_points, height_elevations, local_offset):
 
 def get_terrain_tile_bounds(items_json_path=None, beamng_dir=None):
     """
-    Liest main.items.json und extrahiert die Bounds aller Terrain-Tiles aus Item-Namen.
+    Liest items.json und extrahiert die Bounds aller Terrain-Tiles aus Item-Namen.
 
     Format der Item-Namen: "terrain_X_Y" wobei X, Y die lokalen Koordinaten der Tile-Ursprünge sind.
     Jedes Terrain-Tile ist 2000×2000m (2×2 km).
     Beispiel: "terrain_-1000_-1000" → Bounds X=[-1000, 1000], Y=[-1000, 1000]
 
     Args:
-        items_json_path: Pfad zu main.items.json (wird geprüft zuerst)
+        _path: Pfad zu items.json (wird geprüft zuerst)
         beamng_dir: BeamNG Verzeichnis (Fallback für items_json_path)
 
     Returns:
@@ -513,13 +513,13 @@ def get_terrain_tile_bounds(items_json_path=None, beamng_dir=None):
     """
     # Versuche items_json_path direkt
     if items_json_path is None and beamng_dir is not None:
-        items_json_path = os.path.join(beamng_dir, "main.items.json")
+        items_json_path = os.path.join(beamng_dir, "main", "items.json")
 
     tile_bounds = []
     tile_size = 2000  # Jeder Terrain-Tile ist 2000×2000m (2×2 km)
     collected_tiles = set()
 
-    # Lese main.items.json
+    # Lese items.json
     if items_json_path and os.path.exists(items_json_path):
         try:
             with open(items_json_path, "r", encoding="utf-8") as f:

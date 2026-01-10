@@ -797,7 +797,7 @@ def export_materials_json(output_dir: str) -> str:
 
 def create_items_json_entry(dae_path: str, tile_x: int, tile_y: int) -> Dict:
     """
-    Erstellt einen main.items.json-Eintrag für ein Gebäude-Tile.
+    Erstellt einen items.json-Eintrag für ein Gebäude-Tile.
 
     Args:
         dae_path: Relativer Pfad zur .dae-Datei

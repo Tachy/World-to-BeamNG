@@ -103,7 +103,7 @@ class DAETileViewer:
                     print(f"  [!] DAE nicht gefunden: {shape_name}")
 
         if not self.dae_files:
-            print("Keine DAE-Dateien in main.items.json gefunden!")
+            print("Keine DAE-Dateien in items.json gefunden!")
             return
 
         print(f"  -> {len(self.dae_files)} DAE-Dateien gefunden")
