@@ -9,9 +9,6 @@ OSM_MAPPER = OSMMapper(config_path="data/osm_to_beamng.json")
 
 # BEAMNG Zielordner (Anpassbar)
 BEAMNG_DIR = "C:\\Users\\johan\\AppData\\Local\\BeamNG\\BeamNG.drive\\current\\levels\\world_to_beamng"
-BEAMNG_DIR_MAIN = BEAMNG_DIR + "\\main\\"
-ITEMS_JSON = "items.json"
-BEAMNG_ITEMS_JSON = BEAMNG_DIR_MAIN + ITEMS_JSON
 BEAMNG_DIR_SHAPES = BEAMNG_DIR + "\\art\\shapes"
 BEAMNG_DIR_TEXTURES = BEAMNG_DIR_SHAPES + "\\textures"
 BEAMNG_DIR_BUILDINGS = BEAMNG_DIR_SHAPES + "\\buildings"
@@ -21,6 +18,7 @@ RELATIVE_DIR_SHAPES = RELATIVE_DIR + "art/shapes/"
 RELATIVE_DIR_TEXTURES = RELATIVE_DIR_SHAPES + "textures/"
 RELATIVE_DIR_BUILDINGS = RELATIVE_DIR_SHAPES + "buildings/"
 
+ITEMS_JSON = "main\\items.level.json"
 
 # === OpenTopography API ===
 OPENTOPOGRAPHY_API_KEY = "9805a06e82a636afd885c07a2f2e1838"  # Registrierung: https://opentopography.org/

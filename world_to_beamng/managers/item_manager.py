@@ -269,37 +269,49 @@ class ItemManager:
 
     def save(self, filepath: Optional[str] = None) -> None:
         """
-        Exportiere Items zu items.json.
+        Exportiere Items zu items.json im JSONL-Format (Line-JSON).
 
         Args:
-            filepath: Optionaler custom Pfad, ansonsten {beamng_dir}/main/items.json
+            filepath: Optionaler custom Pfad, ansonsten aus config.ITEMS_JSON
         """
         if filepath is None:
-            filepath = os.path.join(self.beamng_dir, "main", "items.json")
+            from .. import config
+            filepath = os.path.join(self.beamng_dir, config.ITEMS_JSON)
 
         os.makedirs(os.path.dirname(filepath), exist_ok=True)
 
         with open(filepath, "w", encoding="utf-8") as f:
-            json.dump(self.items, f, indent=2, ensure_ascii=False)
+            for item in self.items.values():
+                json.dump(item, f, ensure_ascii=False)
+                f.write("\n")
 
     def load(self, filepath: Optional[str] = None) -> None:
         """
-        Lade Items aus items.json.
+        Lade Items aus items.json im JSONL-Format (Line-JSON).
 
         Args:
-            filepath: Optionaler custom Pfad, ansonsten {beamng_dir}/main/items.json
+            filepath: Optionaler custom Pfad, ansonsten aus config.ITEMS_JSON
         """
         if filepath is None:
-            filepath = os.path.join(self.beamng_dir, "main", "items.json")
+            from .. import config
+            filepath = os.path.join(self.beamng_dir, config.ITEMS_JSON)
 
         if not os.path.exists(filepath):
             return
 
+        self.items = {}
         with open(filepath, "r", encoding="utf-8") as f:
-            try:
-                self.items = json.load(f)
-            except json.JSONDecodeError:
-                self.items = {}
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    item = json.loads(line)
+                    item_name = item.get("__name", "")
+                    if item_name:
+                        self.items[item_name] = item
+                except json.JSONDecodeError:
+                    continue
 
     def merge(self, other: "ItemManager", overwrite: bool = False) -> int:
         """
