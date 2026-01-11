@@ -213,7 +213,7 @@ class BeamNGExporter:
             wall_name,
             textures=wall_props.get("textures"),
             tiling_scale=wall_props.get("tiling_scale", 4.0),
-            groundType="STONE",
+            groundType="concrete",
             materialTag0="beamng",
             materialTag1="Building",
         )
@@ -226,7 +226,7 @@ class BeamNGExporter:
             roof_name,
             textures=roof_props.get("textures"),
             tiling_scale=roof_props.get("tiling_scale", 2.0),
-            groundType="ROOF_TILES",
+            groundType="concrete",
             materialTag0="beamng",
             materialTag1="Building",
         )

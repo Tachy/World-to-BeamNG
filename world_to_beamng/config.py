@@ -13,7 +13,7 @@ BEAMNG_DIR_SHAPES = BEAMNG_DIR + "\\art\\shapes"
 BEAMNG_DIR_TEXTURES = BEAMNG_DIR_SHAPES + "\\textures"
 BEAMNG_DIR_BUILDINGS = BEAMNG_DIR_SHAPES + "\\buildings"
 
-RELATIVE_DIR = "/levels/world_to_beamng/"
+RELATIVE_DIR = "levels/world_to_beamng/"
 RELATIVE_DIR_SHAPES = RELATIVE_DIR + "art/shapes/"
 RELATIVE_DIR_TEXTURES = RELATIVE_DIR_SHAPES + "textures/"
 RELATIVE_DIR_BUILDINGS = RELATIVE_DIR_SHAPES + "buildings/"
@@ -79,7 +79,7 @@ LOD2_SNAP_TO_TERRAIN = True  # Gebäude auf Terrain ausrichten
 LOD2_FOUNDATION_EXTRUDE = 0.5  # Meter: Wände nach unten verlängern für Fundament
 
 # === PHASE 5: HORIZONT-LAYER ===
-PHASE5_ENABLED = True  # Horizont-Layer aktivieren (erfordert DGM30 + DOP300 Daten)
+PHASE5_ENABLED = False  # Horizont-Layer aktivieren (erfordert DGM30 + DOP300 Daten)
 HORIZON_BBOX_BUFFER = 50000  # Buffer um Kerngebiet in Metern (50km)
 HORIZON_GRID_SPACING = 1000  # Horizont-Grid Auflösung in Metern (1km)
 

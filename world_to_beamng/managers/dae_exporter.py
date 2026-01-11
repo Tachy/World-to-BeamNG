@@ -104,12 +104,12 @@ class DAEExporter:
             source_id: ID für <source>
             vertices: (N, 3) NumPy Array
         """
-        f.write(f'        <source id="{source_id}">\n')
-        f.write(f'          <float_array id="{source_id}_array" count="{len(vertices) * 3}">')
+        f.write(f'        <source id="{source_id}">')
+        f.write(f'\n          <float_array id="{source_id}_array" count="{len(vertices) * 3}">')
 
-        # Optimiert: Batch-Write
-        for v in vertices:
-            f.write(f"\n{v[0]:.2f} {v[1]:.2f} {v[2]:.2f}")
+        # Alle Vertex-Werte in einer Zeile
+        vertex_str = ' '.join(f"{v[0]:.2f} {v[1]:.2f} {v[2]:.2f}" for v in vertices)
+        f.write(f"\n{vertex_str}")
 
         f.write("\n          </float_array>\n")
         f.write("          <technique_common>\n")
@@ -130,11 +130,12 @@ class DAEExporter:
             source_id: ID für <source>
             uv_coords: (N, 2) NumPy Array
         """
-        f.write(f'        <source id="{source_id}">\n')
-        f.write(f'          <float_array id="{source_id}_array" count="{len(uv_coords) * 2}">')
+        f.write(f'        <source id="{source_id}">')
+        f.write(f'\n          <float_array id="{source_id}_array" count="{len(uv_coords) * 2}">')
 
-        for uv in uv_coords:
-            f.write(f"\n{uv[0]:.6f} {uv[1]:.6f}")
+        # Alle UV-Werte in einer Zeile
+        uv_str = ' '.join(f"{uv[0]:.6f} {uv[1]:.6f}" for uv in uv_coords)
+        f.write(f"\n{uv_str}")
 
         f.write("\n          </float_array>\n")
         f.write("          <technique_common>\n")
@@ -203,15 +204,15 @@ class DAEExporter:
 
         f.write("          <p>")
 
-        # Schreibe Indizes
-        for face in faces:
-            if uv_id:
-                # Mit UV: v0 uv0 v1 uv1 v2 uv2
-                f.write(f"\n{face[0]} {face[0]} {face[1]} {face[1]} {face[2]} {face[2]}")
-            else:
-                # Ohne UV: v0 v1 v2
-                f.write(f"\n{face[0]} {face[1]} {face[2]}")
+        # Alle Indizes in einer Zeile
+        if uv_id:
+            # Mit UV: v0 uv0 v1 uv1 v2 uv2
+            indices_str = ' '.join(f"{face[0]} {face[0]} {face[1]} {face[1]} {face[2]} {face[2]}" for face in faces)
+        else:
+            # Ohne UV: v0 v1 v2
+            indices_str = ' '.join(f"{face[0]} {face[1]} {face[2]}" for face in faces)
 
+        f.write(f"\n{indices_str}")
         f.write("\n          </p>\n")
         f.write("        </triangles>\n")
 

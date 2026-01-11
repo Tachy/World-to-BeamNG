@@ -47,7 +47,7 @@ class MaterialManager:
         return {
             "terrain": {
                 "class": "Material",
-                "version": 2,
+                "version": 1.5,
                 "Stages": [{"specularPower": 1, "pixelSpecular": True}],
                 "groundModelName": "grass",
             },
@@ -60,7 +60,7 @@ class MaterialManager:
                 "class": "Material",
                 "version": 1.5,
                 "Stages": [{"specularPower": 1, "pixelSpecular": True}],
-                "groundType": "STONE",
+                "groundType": "concrete",
                 "materialTag0": "beamng",
                 "materialTag1": "Building",
             },
@@ -68,13 +68,13 @@ class MaterialManager:
                 "class": "Material",
                 "version": 1.5,
                 "Stages": [{"specularPower": 1, "pixelSpecular": True}],
-                "groundType": "STONE",
+                "groundType": "concrete",
                 "materialTag0": "beamng",
                 "materialTag1": "Building",
             },
             "horizon": {
                 "class": "Material",
-                "version": 2,
+                "version": 1.5,
                 "Stages": [{"specularPower": 16, "pixelSpecular": True}],
             },
         }

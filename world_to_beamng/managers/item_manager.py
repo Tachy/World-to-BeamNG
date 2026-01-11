@@ -10,6 +10,7 @@ Verwaltet Items für:
 
 import json
 import os
+import uuid
 from typing import Dict, Any, Optional, List, Tuple
 from pathlib import Path
 
@@ -26,6 +27,40 @@ class ItemManager:
     - Merge-Unterstützung für Multi-Tile-Workflows
     - Bounds-Berechnung für Terrain-Tiles
     """
+
+    # persistentId der MissionGroup (Hauptelement)
+    MISSION_GROUP_ID = "6d21ca3b-3f81-4cd8-aeb9-0e780223c20e"
+    MISSION_GROUP_NAME = "MissionGroup"
+
+    # Hardcodierte Grundstruktur als JSONL-Zeilen
+    BASE_LINES = [
+        {"name": "MissionGroup", "class": "SimGroup", "persistentId": MISSION_GROUP_ID},
+        {
+            "name": "the_level_info",
+            "class": "LevelInfo",
+            "persistentId": "64e006880-24f4-417d-a0c8-25e1e7d59cce",
+            "gravity": -9.81,
+            "parentId": MISSION_GROUP_NAME,
+            "globalEnviromentMap": "BNG_Sky_02_cubemap",
+        },
+        {
+            "name": "the_sun",
+            "class": "Sun",
+            "persistentId": "e75fc72e-4ec9-42ca-b08a-24eca2141534",
+            "direction": [0.5, 0.5, -0.5],
+            "brightness": 1.5,
+            "parentId": MISSION_GROUP_NAME,
+        },
+        {
+            "name": "PlayerDropPoint",
+            "class": "SpawnSphere",
+            "dataBlock": "SpawnSphereMarker",
+            "persistentId": "3d08e3b2-2514-49f8-8b76-8351a12dea51",
+            "position": [0, 0, 5],
+            "rotation": [0, 0, 0, 1],
+            "parentId": MISSION_GROUP_NAME,
+        },
+    ]
 
     def __init__(self, beamng_dir: str):
         """
@@ -68,10 +103,8 @@ class ItemManager:
             return False
 
         item = {
-            "__name": name,
+            "name": name,
             "class": item_class,
-            "className": item_class,
-            "datablock": item_class,
             "position": list(position),
             "rotation": list(rotation),
             "scale": list(scale),
@@ -82,6 +115,12 @@ class ItemManager:
 
         # Merge zusätzliche Properties
         item.update(kwargs)
+
+        # Generiere persistentId (UUID v4)
+        item["persistentId"] = str(uuid.uuid4())
+
+        # Setze parentId auf MissionGroup
+        item["parentId"] = self.MISSION_GROUP_NAME
 
         self.items[name] = item
         return True
@@ -116,7 +155,7 @@ class ItemManager:
             shape_name=shape_name,
             position=position,
             overwrite=overwrite,
-            collisionType="Visible Mesh",
+            collisionType="Visible Mesh Final",
         )
         return name
 
@@ -152,7 +191,7 @@ class ItemManager:
             position=position,
             rotation=rotation,
             overwrite=overwrite,
-            collisionType="Visible Mesh",
+            collisionType="Visible Mesh Final",
         )
         return name
 
@@ -270,6 +309,7 @@ class ItemManager:
     def save(self, filepath: Optional[str] = None) -> None:
         """
         Exportiere Items zu items.json im JSONL-Format (Line-JSON).
+        Kombiniert BASE_LINES mit neu hinzugefügten Items.
 
         Args:
             filepath: Optionaler custom Pfad, ansonsten aus config.ITEMS_JSON
@@ -282,6 +322,12 @@ class ItemManager:
         os.makedirs(os.path.dirname(filepath), exist_ok=True)
 
         with open(filepath, "w", encoding="utf-8") as f:
+            # Schreibe zuerst alle base lines
+            for base_line in self.BASE_LINES:
+                json.dump(base_line, f, ensure_ascii=False)
+                f.write("\n")
+
+            # Dann alle neu hinzugefügten Items
             for item in self.items.values():
                 json.dump(item, f, ensure_ascii=False)
                 f.write("\n")
@@ -309,7 +355,7 @@ class ItemManager:
                     continue
                 try:
                     item = json.loads(line)
-                    item_name = item.get("__name", "")
+                    item_name = item.get("name", "")
                     if item_name:
                         self.items[item_name] = item
                 except json.JSONDecodeError:
@@ -352,7 +398,7 @@ class ItemManager:
             stats["by_class"][item_class] = stats["by_class"].get(item_class, 0) + 1
 
             # Zähle nach Typ (terrain, building, etc.)
-            name = item.get("__name", "")
+            name = item.get("name", "")
             if name.startswith("terrain_"):
                 stats["by_type"]["terrain"] = stats["by_type"].get("terrain", 0) + 1
             elif "building" in name.lower():

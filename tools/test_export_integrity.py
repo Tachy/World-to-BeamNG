@@ -454,8 +454,8 @@ class ExportIntegrityTest:
                 self.success(f"Terrain-Mesh-Item vorhanden: {terrain_item_name}")
                 if terrain_item.get("class") != "TSStatic":
                     self.error(f"Terrain-Item {terrain_item_name}: class != TSStatic")
-                if terrain_item.get("collisionType") != "Visible Mesh":
-                    self.warning(f"Terrain-Item {terrain_item_name}: collisionType != Visible Mesh")
+                if terrain_item.get("collisionType") != "Visible Mesh Final":
+                    self.warning(f"Terrain-Item {terrain_item_name}: collisionType != Visible Mesh Final")
             else:
                 self.warning("Kein terrain_<x>_<y> Item gefunden")
 

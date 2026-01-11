@@ -888,7 +888,7 @@ def export_horizon_dae(vertices, faces, texture_info, output_dir, level_name="de
         f.write('        <instance_geometry url="#horizon_mesh">\n')
         f.write("          <bind_material>\n")
         f.write("            <technique_common>\n")
-        f.write('              <instance_material symbol="horizon_terrain" target="#horizon_terrain_material"/>\n')
+        f.write('              <instance_material symbol="horizon_terrain" target="#horizon_terrain"/>\n')
         f.write("            </technique_common>\n")
         f.write("          </bind_material>\n")
         f.write("        </instance_geometry>\n")

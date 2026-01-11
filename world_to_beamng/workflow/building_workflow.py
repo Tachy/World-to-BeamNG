@@ -123,5 +123,5 @@ class BuildingWorkflow:
             position=tuple(item_entry.get("position", (0, 0, 0))),
             rotation=tuple(item_entry.get("rotation", (0, 0, 1, 0))),
             scale=tuple(item_entry.get("scale", (1, 1, 1))),
-            collisionType=item_entry.get("collisionType", "Visible Mesh"),
+            collisionType=item_entry.get("collisionType", "Visible Mesh Final"),
         )
