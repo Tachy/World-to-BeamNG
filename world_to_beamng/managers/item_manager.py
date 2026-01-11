@@ -276,6 +276,7 @@ class ItemManager:
         """
         if filepath is None:
             from .. import config
+
             filepath = os.path.join(self.beamng_dir, config.ITEMS_JSON)
 
         os.makedirs(os.path.dirname(filepath), exist_ok=True)
@@ -294,6 +295,7 @@ class ItemManager:
         """
         if filepath is None:
             from .. import config
+
             filepath = os.path.join(self.beamng_dir, config.ITEMS_JSON)
 
         if not os.path.exists(filepath):

@@ -432,7 +432,7 @@ class ExportIntegrityTest:
         """Teste items.json Integrität."""
         print("\n[4] Teste items.json...")
 
-        items_json = self.beamng_dir / "main" / "items.json"
+        items_json = self.beamng_dir / Path(config.ITEMS_JSON)
 
         if not items_json.exists():
             self.error(f"items.json nicht gefunden: {items_json}")
@@ -1219,7 +1219,7 @@ class ExportIntegrityTest:
         """Teste Horizon-Item in items.json."""
         print("\n[Horizon] Teste Horizon-Item...")
 
-        items_path = self.beamng_dir / "main" / "items.json"
+        items_path = self.beamng_dir / Path(config.ITEMS_JSON)
 
         if not items_path.exists():
             self.warning("items.json nicht gefunden")

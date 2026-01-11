@@ -239,7 +239,7 @@ class BeamNGExporter:
         print(f"\n[✓] Materials: {os.path.basename(mat_path)}")
 
         # Items
-        items_path = os.path.join(config.BEAMNG_DIR, "main", "items.json")
+        items_path = os.path.join(config.BEAMNG_DIR, config.ITEMS_JSON)
         self.items.save(items_path)
         print(f"[✓] Items: {os.path.basename(items_path)}")
 
@@ -255,7 +255,7 @@ class BeamNGExporter:
     def reset_export(self):
         """Reset: Lösche Materials/Items JSON."""
         mat_path = os.path.join(config.BEAMNG_DIR, "main.materials.json")
-        items_path = os.path.join(config.BEAMNG_DIR, "main", "items.json")
+        items_path = os.path.join(config.BEAMNG_DIR, config.ITEMS_JSON)
 
         if os.path.exists(mat_path):
             os.remove(mat_path)

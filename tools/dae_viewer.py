@@ -64,7 +64,7 @@ def _resolve_beamng_path(path_str: str) -> str | None:
 class DAETileViewer:
     def __init__(self):
         # Lade Items und Materialien aus JSON
-        items_path = os.path.join(config.BEAMNG_DIR, "main.items.json")
+        items_path = os.path.join(config.BEAMNG_DIR, config.ITEMS_JSON)
         materials_path = os.path.join(config.BEAMNG_DIR, "main.materials.json")
 
         if not os.path.exists(items_path):
@@ -1627,7 +1627,7 @@ class DAETileViewer:
                 print(f"[!] Fehler beim Speichern der Kamera-Position: {e}")
 
             # Lade Items neu
-            items_path = os.path.join(config.BEAMNG_DIR, "main.items.json")
+            items_path = os.path.join(config.BEAMNG_DIR, config.ITEMS_JSON)
             with open(items_path, "r", encoding="utf-8") as f:
                 self.items = json.load(f)
 
