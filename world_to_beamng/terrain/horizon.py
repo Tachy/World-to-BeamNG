@@ -514,6 +514,7 @@ def get_terrain_tile_bounds(items_json_path=None, beamng_dir=None):
     # Versuche items_json_path direkt
     if items_json_path is None and beamng_dir is not None:
         from .. import config
+
         items_json_path = os.path.join(beamng_dir, config.ITEMS_JSON)
 
     tile_bounds = []

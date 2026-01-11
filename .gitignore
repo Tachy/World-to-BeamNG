@@ -9,6 +9,7 @@ data/assets
 # Cache files
 cache/
 debug/
+bin/
 
 # Vorlage BeamNG
 levels/
@@ -27,6 +28,7 @@ venv/
 *.zip
 *.tar.gz
 *.log
+*.exe
 
 
 # IDE
