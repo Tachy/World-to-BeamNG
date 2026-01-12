@@ -14,11 +14,16 @@ BEAMNG_DIR_TEXTURES = BEAMNG_DIR_SHAPES + "\\textures"
 BEAMNG_DIR_BUILDINGS = BEAMNG_DIR_SHAPES + "\\buildings"
 
 RELATIVE_DIR = "levels/world_to_beamng/"
-RELATIVE_DIR_SHAPES = RELATIVE_DIR + "art/shapes/"
+RELATIVE_DIR_SHAPES = RELATIVE_DIR + "art/shapes/"  # Mit levels/world_to_beamng/ Prefix für BeamNG!
 RELATIVE_DIR_TEXTURES = RELATIVE_DIR_SHAPES + "textures/"
 RELATIVE_DIR_BUILDINGS = RELATIVE_DIR_SHAPES + "buildings/"
 
-ITEMS_JSON = "main\\items.level.json"
+# === BEAMNG LEVEL-STRUKTUR ===
+ITEMS_JSON = "main\\items.level.json"  # Enthält nur MissionGroup (BeamNG lädt dann automatisch main/MissionGroup/items.level.json)
+MATERIALS_JSON = "main\\materials.json"  # Enthält Material-Definitionen
+
+# === MATERIAL-EINSTELLUNGEN ===
+# Materialien verwenden IMMER Texturen (keine Farb-Fallbacks)
 
 # === OpenTopography API ===
 OPENTOPOGRAPHY_API_KEY = "9805a06e82a636afd885c07a2f2e1838"  # Registrierung: https://opentopography.org/
@@ -74,7 +79,7 @@ DGM30_DATA_DIR = "data/DGM30"  # Verzeichnis mit 30m Höhendaten für Horizont
 DOP300_DATA_DIR = "data/DOP300"  # Verzeichnis mit Sentinel-2 RGB Bildern
 
 # === GEBÄUDE (LoD2) ===
-LOD2_ENABLED = True  # LoD2-Gebäude verarbeiten
+LOD2_ENABLED = False  # LoD2-Gebäude verarbeiten
 LOD2_SNAP_TO_TERRAIN = True  # Gebäude auf Terrain ausrichten
 LOD2_FOUNDATION_EXTRUDE = 0.5  # Meter: Wände nach unten verlängern für Fundament
 

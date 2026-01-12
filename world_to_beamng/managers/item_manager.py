@@ -30,35 +30,61 @@ class ItemManager:
 
     # persistentId der MissionGroup (Hauptelement)
     MISSION_GROUP_ID = "6d21ca3b-3f81-4cd8-aeb9-0e780223c20e"
-    MISSION_GROUP_NAME = "MissionGroup"
 
-    # Hardcodierte Grundstruktur als JSONL-Zeilen
-    BASE_LINES = [
-        {"name": "MissionGroup", "class": "SimGroup", "persistentId": MISSION_GROUP_ID},
+    # MissionGroup - wird in main.level.json geschrieben
+    MISSION_GROUP_LINE = {
+        "name": "MissionGroup",
+        "class": "SimGroup",
+        "persistentId": MISSION_GROUP_ID,
+    }
+
+    # Weitere Base-Items - werden in main/items.level.json geschrieben
+    OTHER_BASE_LINES = [
         {
             "name": "the_level_info",
             "class": "LevelInfo",
-            "persistentId": "64e006880-24f4-417d-a0c8-25e1e7d59cce",
+            "persistentId": "64e00688-24f4-417d-a0c8-25e1e7d59cce",
             "gravity": -9.81,
-            "parentId": MISSION_GROUP_NAME,
-            "globalEnviromentMap": "BNG_Sky_02_cubemap",
+            "parentId": "MissionGroup",
+            "levelName": "world_to_beamng",
+            "decalsEnabled": True,
+            "canSave": True,
+            "globalEnvironmentMap": "BNG_Sky_02_cubemap",
+        },
+        {
+            "name": "the_sky",
+            "class": "ScatterSky",
+            "persistentId": "f0c7b6f6-7e4a-4b2a-8c4f-5c6f0c2a9c55",
+            "cloudHeight": 1500,
+            "cloudCover": 0.4,
+            "cloudSpeed": [0.0005, 0.0],
+            "sunScale": 1.0,
+            "moonScale": 1.0,
+            "colorize": [1.0, 1.0, 1.0, 1.0],
+            "ambient": [0.5, 0.5, 0.5, 1.0],
+            "brightness": 1.0,
+            "skyBrightness": 1.0,
+            "fogHeight": 1000,
+            "fogDensity": 0.0005,
+            "parentId": "MissionGroup",
         },
         {
             "name": "the_sun",
             "class": "Sun",
             "persistentId": "e75fc72e-4ec9-42ca-b08a-24eca2141534",
-            "direction": [0.5, 0.5, -0.5],
-            "brightness": 1.5,
-            "parentId": MISSION_GROUP_NAME,
+            "azimuth": 0,
+            "elevation": 45,
+            "brightness": 1.0,
+            "parentId": "MissionGroup",
         },
         {
             "name": "PlayerDropPoint",
             "class": "SpawnSphere",
             "dataBlock": "SpawnSphereMarker",
             "persistentId": "3d08e3b2-2514-49f8-8b76-8351a12dea51",
-            "position": [0, 0, 5],
+            "position": [0, 0, 400],
             "rotation": [0, 0, 0, 1],
-            "parentId": MISSION_GROUP_NAME,
+            "parentId": "MissionGroup",
         },
     ]
 
@@ -120,7 +146,7 @@ class ItemManager:
         item["persistentId"] = str(uuid.uuid4())
 
         # Setze parentId auf MissionGroup
-        item["parentId"] = self.MISSION_GROUP_NAME
+        item["parentId"] = "MissionGroup"
 
         self.items[name] = item
         return True
@@ -308,26 +334,43 @@ class ItemManager:
 
     def save(self, filepath: Optional[str] = None) -> None:
         """
-        Exportiere Items zu items.json im JSONL-Format (Line-JSON).
-        Kombiniert BASE_LINES mit neu hinzugefügten Items.
+        Exportiere Items in die richtige BeamNG-Struktur.
+
+        Erzeugt:
+        - main/items.level.json: MissionGroup + alle Child-Items (komplette Level-Struktur in JSONL)
 
         Args:
-            filepath: Optionaler custom Pfad, ansonsten aus config.ITEMS_JSON
+            filepath: Optionaler custom Pfad,
+                      ansonsten aus config.ITEMS_JSON
         """
         if filepath is None:
             from .. import config
 
+            # Nutze ITEMS_JSON (items.level.json - enthält alles)
             filepath = os.path.join(self.beamng_dir, config.ITEMS_JSON)
 
-        os.makedirs(os.path.dirname(filepath), exist_ok=True)
+        # BeamNG erwartet zwei Dateien:
+        # 1. main/items.level.json - nur MissionGroup
+        # 2. main/MissionGroup/items.level.json - alle anderen Items
 
-        with open(filepath, "w", encoding="utf-8") as f:
-            # Schreibe zuerst alle base lines
-            for base_line in self.BASE_LINES:
+        main_items = os.path.join(self.beamng_dir, "main", "items.level.json")
+        missiongroup_items = os.path.join(self.beamng_dir, "main", "MissionGroup", "items.level.json")
+
+        # Schreibe main/items.level.json (nur MissionGroup)
+        os.makedirs(os.path.dirname(main_items), exist_ok=True)
+        with open(main_items, "w", encoding="utf-8") as f:
+            json.dump(self.MISSION_GROUP_LINE, f, ensure_ascii=False)
+            f.write("\n")
+
+        # Schreibe main/MissionGroup/items.level.json (alle anderen Items)
+        os.makedirs(os.path.dirname(missiongroup_items), exist_ok=True)
+        with open(missiongroup_items, "w", encoding="utf-8") as f:
+            # OTHER_BASE_LINES (the_level_info, the_sky, the_sun, PlayerDropPoint)
+            for base_line in self.OTHER_BASE_LINES:
                 json.dump(base_line, f, ensure_ascii=False)
                 f.write("\n")
 
-            # Dann alle neu hinzugefügten Items
+            # Alle neu hinzugefügten Items
             for item in self.items.values():
                 json.dump(item, f, ensure_ascii=False)
                 f.write("\n")

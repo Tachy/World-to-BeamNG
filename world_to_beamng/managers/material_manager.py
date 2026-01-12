@@ -10,6 +10,7 @@ Verwaltet Materials für:
 
 import json
 import os
+import uuid
 from typing import Dict, Any, Optional, List
 from pathlib import Path
 
@@ -47,7 +48,7 @@ class MaterialManager:
         return {
             "terrain": {
                 "class": "Material",
-                "version": 1.5,
+                "version": 2,
                 "Stages": [{"specularPower": 1, "pixelSpecular": True}],
                 "groundModelName": "grass",
             },
@@ -107,6 +108,7 @@ class MaterialManager:
         # Setze name und mapTo
         material["name"] = name
         material["mapTo"] = name
+        material["persistentId"] = str(uuid.uuid4())
 
         # Merge kwargs (überschreibt Template-Werte)
         for key, value in kwargs.items():
@@ -133,7 +135,7 @@ class MaterialManager:
             Material-Name
         """
         mat_name = f"tile_{tile_x}_{tile_y}"
-        self.add_material(mat_name, template="terrain", overwrite=overwrite, Stages={"colorMap": texture_path})
+        self.add_material(mat_name, template="terrain", overwrite=overwrite, Stages={"baseColorMap": texture_path})
         return mat_name
 
     def add_road_material(self, road_type: str, properties: Dict[str, Any], overwrite: bool = False) -> str:
@@ -198,7 +200,7 @@ class MaterialManager:
 
         stages_config = {}
 
-        # Fallback: Wenn Texturen gegeben, verwende diese; sonst Farbe
+        # Texturen IMMER verwenden wenn vorhanden
         if textures:
             if textures.get("baseColorMap"):
                 stages_config["baseColorMap"] = textures["baseColorMap"]
@@ -208,6 +210,13 @@ class MaterialManager:
                 stages_config["roughnessMap"] = textures["roughnessMap"]
         elif color:
             stages_config["diffuseColor"] = color
+        else:
+            # Fallback: Einfache Farbe wenn keine Texturen und keine Farbe gegeben
+            # Rot für Dach, Weiß für Wand
+            if "roof" in material_name.lower():
+                stages_config["diffuseColor"] = [0.6, 0.2, 0.1, 1.0]  # Rot
+            else:
+                stages_config["diffuseColor"] = [0.9, 0.9, 0.9, 1.0]  # Weiß
 
         # Tiling-Skala hinzufügen (für UV-Wiederholung)
         if tiling_scale != 1.0:
@@ -266,35 +275,42 @@ class MaterialManager:
 
     def save(self, filepath: Optional[str] = None) -> None:
         """
-        Exportiere Materials zu main.materials.json.
+        Exportiere Materials als einzelnes JSON-Objekt (nicht JSONL).
 
         Args:
-            filepath: Optionaler custom Pfad, ansonsten {beamng_dir}/main.materials.json
+            filepath: Optionaler custom Pfad, ansonsten {beamng_dir}/main/materials.json (aus config.MATERIALS_JSON)
         """
         if filepath is None:
-            filepath = os.path.join(self.beamng_dir, "main.materials.json")
+            from .. import config
+
+            filepath = os.path.join(self.beamng_dir, config.MATERIALS_JSON)
 
         os.makedirs(os.path.dirname(filepath), exist_ok=True)
 
+        # Schreibe als einzelnes JSON-Objekt (mit Indentation für Lesbarkeit)
         with open(filepath, "w", encoding="utf-8") as f:
-            json.dump(self.materials, f, indent=2, ensure_ascii=False)
+            json.dump(self.materials, f, ensure_ascii=False, indent=2)
 
     def load(self, filepath: Optional[str] = None) -> None:
         """
-        Lade Materials aus main.materials.json.
+        Lade Materials als einzelnes JSON-Objekt.
 
         Args:
-            filepath: Optionaler custom Pfad, ansonsten {beamng_dir}/main.materials.json
+            filepath: Optionaler custom Pfad, ansonsten {beamng_dir}/main/materials.json (aus config.MATERIALS_JSON)
         """
         if filepath is None:
-            filepath = os.path.join(self.beamng_dir, "main.materials.json")
+            from .. import config
+
+            filepath = os.path.join(self.beamng_dir, config.MATERIALS_JSON)
 
         if not os.path.exists(filepath):
             return
 
         with open(filepath, "r", encoding="utf-8") as f:
             try:
-                self.materials = json.load(f)
+                materials_dict = json.load(f)
+                # Konvertiere zu interner Struktur
+                self.materials = materials_dict if isinstance(materials_dict, dict) else {}
             except json.JSONDecodeError:
                 self.materials = {}
 

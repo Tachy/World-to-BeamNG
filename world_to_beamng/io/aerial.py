@@ -276,7 +276,7 @@ def process_aerial_images(aerial_dir, output_dir, grid_bounds, global_offset, ti
                     # Speichere temporär als PNG für texconv
                     tile_img.save(png_filepath, "PNG")
 
-                    # Konvertiere zu DDS (4096×4096, BC7, volle Mipmap-Kette) mit texconv
+                    # Konvertiere zu DDS (4096×4096, BC1, volle Mipmap-Kette) mit texconv
                     import subprocess
                     import os
 
@@ -284,7 +284,7 @@ def process_aerial_images(aerial_dir, output_dir, grid_bounds, global_offset, ti
                     cmd = [
                         texconv_exe,
                         "-f",
-                        "BC7_UNORM",
+                        "BC1_UNORM",  # BeamNG-kompatibel (nicht BC7!)
                         "-w",
                         "4096",
                         "-h",

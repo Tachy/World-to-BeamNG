@@ -7,6 +7,7 @@ Bietet eine einheitliche API für den gesamten Export-Workflow.
 from typing import List, Dict, Optional, Tuple
 from pathlib import Path
 import os
+import json
 
 from .. import config
 from ..core.cache_manager import CacheManager
@@ -233,19 +234,21 @@ class BeamNGExporter:
 
     def _finalize_export(self):
         """Finalisiere Export: Speichere Materials/Items JSON und Debug-Daten."""
-        # Materials
-        mat_path = os.path.join(config.BEAMNG_DIR, "main.materials.json")
-        self.materials.save(mat_path)
+        # Materials (nutze config.MATERIALS_JSON)
+        self.materials.save()  # nutzt automatisch config.MATERIALS_JSON
+        mat_path = os.path.join(config.BEAMNG_DIR, config.MATERIALS_JSON)
         print(f"\n[✓] Materials: {os.path.basename(mat_path)}")
 
-        # Items
+        # Items (nutze config.ITEMS_JSON - enthält alles)
+        self.items.save()  # nutzt automatisch config.ITEMS_JSON
         items_path = os.path.join(config.BEAMNG_DIR, config.ITEMS_JSON)
-        self.items.save(items_path)
         print(f"[✓] Items: {os.path.basename(items_path)}")
 
-        # Debug-Netzwerk-Export (auskommentiert für Performance)
-        # if config.DEBUG_EXPORTS:
-        #     self.debug_exporter.export(config.CACHE_DIR)
+        # main.level.json ist NICHT nötig - BeamNG lädt automatisch main/items.level.json
+
+    # Debug-Netzwerk-Export (auskommentiert für Performance)
+    # if config.DEBUG_EXPORTS:
+    #     self.debug_exporter.export(config.CACHE_DIR)
 
     def clear_cache(self):
         """Lösche gesamten Cache."""
@@ -254,7 +257,7 @@ class BeamNGExporter:
 
     def reset_export(self):
         """Reset: Lösche Materials/Items JSON."""
-        mat_path = os.path.join(config.BEAMNG_DIR, "main.materials.json")
+        mat_path = os.path.join(config.BEAMNG_DIR, config.MATERIALS_JSON)
         items_path = os.path.join(config.BEAMNG_DIR, config.ITEMS_JSON)
 
         if os.path.exists(mat_path):

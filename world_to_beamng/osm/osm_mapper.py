@@ -89,6 +89,8 @@ class OSMMapper:
 
     def generate_materials_json_entry(self, mat_name, props):
         """Erzeugt einen einzelnen Eintrag für die main.materials.json."""
+        from .. import config
+
         tex = props.get("textures", {})
 
         # Fallback für fehlende Texturen - nutze einfache Farben
@@ -98,7 +100,7 @@ class OSMMapper:
             "pixelSpecular": True,
         }
 
-        # Alle Textur-Typen hinzufügen, die in osm_to_beamng.json definiert sind
+        # Texturen IMMER verwenden (wenn vorhanden)
         if tex.get("baseColorMap"):
             stages_config["baseColorMap"] = tex.get("baseColorMap")
         if tex.get("normalMap"):
@@ -110,9 +112,13 @@ class OSMMapper:
         if tex.get("opacityMap"):
             stages_config["opacityMap"] = tex.get("opacityMap")
 
-        # Fallback: Wenn keine Texturen, nutze einfache Farbe
+        # Fallback nur wenn Texturen-Keys nicht vorhanden sind
         if not any(k in stages_config for k in ["baseColorMap", "normalMap", "roughnessMap"]):
-            stages_config["colorMap"] = "0.5 0.5 0.5 1.0"  # Mittleres Grau
+            # Verwende color aus props, falls vorhanden
+            color = props.get("color", [0.5, 0.5, 0.5, 1.0])
+            if len(color) == 3:
+                color.append(1.0)
+            stages_config["diffuseColor"] = color
 
         return {
             "__name": mat_name,  # ← WICHTIG: __name für MaterialManager

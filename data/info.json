@@ -1,6 +1,7 @@
 {
     "title": "World to BeamNG",
     "description": "Automatischer Export von OpenStreetmap-Elementen in das BeamNG.drive-Format.",
+    "levelName": "world_to_beamng",
     "previews": [
         "preview.jpg"
     ],
@@ -11,5 +12,5 @@
     "authors": "Tachy AI",
     "supportsTraffic": false,
     "supportsTimeOfDay": false,
-    "spawnPointName": "spawn_point"
+    "spawnPointName": "PlayerDropPoint"
 }
