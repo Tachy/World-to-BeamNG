@@ -47,6 +47,11 @@ class BeamNGExporter:
 
         DebugNetworkExporter.reset_instance()
         self.debug_exporter = DebugNetworkExporter.get_instance()
+        
+        # Speichere Höhendaten für Spawn-Punkt-Berechnung
+        self.height_points = None
+        self.height_elevations = None
+        self.global_offset = None
 
     def export_complete_level(
         self,
@@ -78,6 +83,9 @@ class BeamNGExporter:
         print(f"Tiles: {len(tiles)}")
         print(f"Global Offset: {global_offset}")
         print(f"{'='*60}\n")
+        
+        # Speichere global_offset für Spawn-Punkt-Berechnung
+        self.global_offset = global_offset[:2]  # Nur (x, y)
 
         # Erstelle Verzeichnisse
         os.makedirs(config.BEAMNG_DIR_SHAPES, exist_ok=True)
@@ -98,6 +106,12 @@ class BeamNGExporter:
             if result["status"] != "success":
                 stats["tiles_failed"] += 1
                 continue
+            
+            # Speichere Höhendaten vom ersten erfolgreichen Tile für Spawn-Punkt-Berechnung
+            if self.height_points is None and self.height_elevations is None:
+                self.height_points = result.get("height_points")
+                self.height_elevations = result.get("height_elevations")
+                print(f"  [i] Spawn-Höhendaten: {len(self.height_points) if self.height_points is not None else 0} Punkte")
 
             # Exportiere DAE
             tile_x = tile.get("tile_x", 0)
@@ -239,8 +253,12 @@ class BeamNGExporter:
         mat_path = os.path.join(config.BEAMNG_DIR, config.MATERIALS_JSON)
         print(f"\n[✓] Materials: {os.path.basename(mat_path)}")
 
-        # Items (nutze config.ITEMS_JSON - enthält alles)
-        self.items.save()  # nutzt automatisch config.ITEMS_JSON
+        # Items mit Höhendaten für Spawn-Punkt-Berechnung
+        self.items.save(
+            height_points=self.height_points,
+            height_elevations=self.height_elevations,
+            global_offset=self.global_offset
+        )
         items_path = os.path.join(config.BEAMNG_DIR, config.ITEMS_JSON)
         print(f"[✓] Items: {os.path.basename(items_path)}")
 

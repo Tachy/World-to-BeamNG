@@ -78,7 +78,14 @@ class ItemManager:
             "parentId": "MissionGroup",
         },
         {
-            "name": "spawn",  # BeamNG sucht nach "spawn"
+            "name": "PlayerDropPoints",  # SimGroup für Spawn-Punkte (BeamNG-Standard)
+            "class": "SimGroup",
+            "persistentId": "e8177ef1-0445-4ea5-811a-4eda149ca818",
+            "enabled": "1",
+            "parentId": "MissionGroup",
+        },
+        {
+            "name": "spawn",  # Spawn-Sphere unter PlayerDropPoints
             "class": "SpawnSphere",
             "dataBlock": "SpawnSphereMarker",
             "persistentId": "3d08e3b2-2514-49f8-8b76-8351a12dea51",
@@ -88,7 +95,7 @@ class ItemManager:
             "radius": 10,
             "sphereWeight": 100,
             "indoorWeight": 100,
-            "parentId": "MissionGroup",
+            "parentId": "PlayerDropPoints",  # Child von PlayerDropPoints!
         },
     ]
 
@@ -102,7 +109,7 @@ class ItemManager:
         "authors": "Tachy AI",
         "supportsTraffic": False,
         "supportsTimeOfDay": False,
-        "spawnPointName": "spawn",
+        "spawnPointName": "PlayerDropPoints",  # BeamNG sucht nach dieser SimGroup
     }
 
     def __init__(self, beamng_dir: str):
@@ -349,7 +356,67 @@ class ItemManager:
 
         return bounds
 
-    def save(self, filepath: Optional[str] = None) -> None:
+    def _get_spawn_position_with_height(self, height_points, height_elevations, global_offset):
+        """
+        Berechne Spawn-Position mit Höhendaten.
+        
+        Args:
+            height_points: Höhendaten-Punkte (XY) - lokal
+            height_elevations: Z-Werte - lokal
+            global_offset: (origin_x, origin_y) für Transformation WGS84->UTM->Lokal
+        
+        Returns:
+            Liste [x, y, z] mit automatischer Höhenberechnung
+        """
+        from .. import config
+        from ..geometry.coordinates import transformer_to_utm
+        import numpy as np
+        from scipy.interpolate import griddata
+        
+        if not config.SPAWN_POINT or not global_offset:
+            return [0, 0, 400]  # Fallback
+        
+        lat, lon = config.SPAWN_POINT
+        ox, oy = global_offset
+        
+        # Konvertiere WGS84 zu UTM
+        x_utm, y_utm = transformer_to_utm.transform(lon, lat)
+        
+        # Transformiere zu lokalen Koordinaten
+        x_local = x_utm - ox
+        y_local = y_utm - oy
+        
+        print(f"  [i] Berechne Spawn-Punkt: WGS84({lat}, {lon}) -> UTM({x_utm}, {y_utm}) -> Lokal({x_local}, {y_local})")
+        
+        # Interpoliere Höhe an diesem Punkt
+        if len(height_points) > 0 and len(height_elevations) > 0:
+            try:
+                height_points_array = np.array(height_points)
+                height_elevations_array = np.array(height_elevations)
+                
+                # Nutze nearest-neighbor Interpolation
+                z_value = griddata(
+                    height_points_array,
+                    height_elevations_array,
+                    (x_local, y_local),
+                    method='nearest'
+                )
+                
+                if z_value is not None and not np.isnan(z_value):
+                    z_height = float(z_value)
+                else:
+                    z_height = 400  # Fallback: 400m über Grund
+            except Exception as e:
+                print(f"[!] Fehler bei Höheninterpolation: {e}")
+                z_height = 400
+        else:
+            z_height = 400
+        
+        final_pos = [x_local, y_local, z_height + 10]  # +10m Sicherheitsabstand über Terrain
+        print(f"  [OK] Spawn-Position: {final_pos}")
+        return final_pos
+
+    def save(self, filepath: Optional[str] = None, height_points=None, height_elevations=None, global_offset=None) -> None:
         """
         Exportiere Items in die richtige BeamNG-Struktur.
 
@@ -357,8 +424,10 @@ class ItemManager:
         - main/items.level.json: MissionGroup + alle Child-Items (komplette Level-Struktur in JSONL)
 
         Args:
-            filepath: Optionaler custom Pfad,
-                      ansonsten aus config.ITEMS_JSON
+            filepath: Optionaler custom Pfad, ansonsten aus config.ITEMS_JSON
+            height_points: Höhendaten-Punkte für Spawn-Position (optional)
+            height_elevations: Z-Werte für Höheninterpolation (optional)
+            global_offset: (origin_x, origin_y) für Koordinaten-Transformation (optional)
         """
         if filepath is None:
             from .. import config
@@ -384,8 +453,19 @@ class ItemManager:
         with open(missiongroup_items, "w", encoding="utf-8") as f:
             # Schreibe jedes Item auf eigene Zeile (JSONL-Format)
 
-            # OTHER_BASE_LINES (the_level_info, the_sky, the_sun, PlayerDropPoint)
+            # Berechne Spawn-Position mit Höhendaten falls verfügbar
+            spawn_position = [0, 0, 400]  # Default
+            if height_points is not None and height_elevations is not None and global_offset is not None:
+                spawn_position = self._get_spawn_position_with_height(
+                    height_points, height_elevations, global_offset
+                )
+            
+            # OTHER_BASE_LINES (the_level_info, the_sky, the_sun, spawn)
             for base_line in self.OTHER_BASE_LINES:
+                if base_line.get("name") == "spawn":
+                    # Überschreibe Position mit berechneter Position
+                    base_line = base_line.copy()
+                    base_line["position"] = spawn_position
                 json.dump(base_line, f, ensure_ascii=False)
                 f.write("\n")
 
@@ -425,6 +505,7 @@ class ItemManager:
         # Namen der BASE_LINES die beim Load übersprungen werden sollen
         base_line_names = {line.get("name") for line in self.OTHER_BASE_LINES}
         base_line_names.add("PlayerDropPoint")  # Alter Name falls noch vorhanden
+        base_line_names.add("spawn")  # Auch spawn überspringen (wird mit OTHER_BASE_LINES geschrieben)
 
         with open(filepath, "r", encoding="utf-8") as f:
             for line in f:

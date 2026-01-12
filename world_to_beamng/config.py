@@ -7,6 +7,8 @@ from .osm.osm_mapper import OSMMapper
 # OSM Mapper Singleton (lädt data/osm_to_beamng.json)
 OSM_MAPPER = OSMMapper(config_path="data/osm_to_beamng.json")
 
+SPAWN_POINT = (47.842840, 7.684767)  # Standard-Spawn-Punkt (kann pro Level überschrieben werden)
+
 # BEAMNG Zielordner (Anpassbar)
 BEAMNG_DIR = "C:\\Users\\johan\\AppData\\Local\\BeamNG\\BeamNG.drive\\current\\levels\\world_to_beamng"
 BEAMNG_DIR_SHAPES = BEAMNG_DIR + "\\art\\shapes"

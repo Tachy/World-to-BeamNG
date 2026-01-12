@@ -309,6 +309,8 @@ class TerrainWorkflow:
             "grid_bounds_local": grid_bounds_local,
             "global_offset": global_offset,
             "buildings_data": buildings_data,  # Übergebe Gebäude-Daten
+            "height_points": local_points,  # Für Spawn-Punkt-Berechnung
+            "height_elevations": elevations,  # Für Spawn-Punkt-Berechnung
         }
 
     def export_tile(self, tile_x: int, tile_y: int, mesh_data: Dict) -> str:
