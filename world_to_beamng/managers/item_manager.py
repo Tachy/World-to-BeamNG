@@ -58,14 +58,19 @@ class ItemManager:
             "cloudHeight": 1500,
             "cloudCover": 0.4,
             "cloudSpeed": [0.0005, 0.0],
-            "sunScale": 1.0,
+            "sunScale": 1.0,  # Erhöht für stärkere Sonne
             "moonScale": 1.0,
             "colorize": [1.0, 1.0, 1.0, 1.0],
-            "ambient": [0.5, 0.5, 0.5, 1.0],
-            "brightness": 1.0,
-            "skyBrightness": 1.0,
-            "fogHeight": 1000,
-            "fogDensity": 0.0005,
+            "ambient": [0.7, 0.7, 0.7, 1.0],  # Erhöht für helleres Umgebungslicht
+            "brightness": 2.5,  # Erhöht für hellere Atmosphäre
+            "skyBrightness": 3.0,  # Erhöht für helleren Himmel
+            "fogHeight": 2000,
+            "fogDensity": 0.001,  # Reduziert für weniger Dunst
+            "rayleighScattering": 0.01,  # Atmosphärenstreuung
+            "mieScattering": 0.01,  # Dunststreuung
+            "sunSize": 1.0,
+            "exposure": 1.0,
+            "nightBrightness": 0.1,
             "parentId": "MissionGroup",
         },
         {
@@ -73,8 +78,10 @@ class ItemManager:
             "class": "Sun",
             "persistentId": "e75fc72e-4ec9-42ca-b08a-24eca2141534",
             "azimuth": 0,
-            "elevation": 45,
-            "brightness": 1.0,
+            "elevation": 60,  # Erhöht von 45 für höhere Sonne
+            "brightness": 2.0,  # Erhöht für stärkere Sonne
+            "castShadows": True,
+            "coronaEnabled": True,
             "parentId": "MissionGroup",
         },
         {
