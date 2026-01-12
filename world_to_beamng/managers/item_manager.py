@@ -359,12 +359,12 @@ class ItemManager:
     def _get_spawn_position_with_height(self, height_points, height_elevations, global_offset):
         """
         Berechne Spawn-Position mit Höhendaten.
-        
+
         Args:
             height_points: Höhendaten-Punkte (XY) - lokal
             height_elevations: Z-Werte - lokal
             global_offset: (origin_x, origin_y) für Transformation WGS84->UTM->Lokal
-        
+
         Returns:
             Liste [x, y, z] mit automatischer Höhenberechnung
         """
@@ -372,36 +372,33 @@ class ItemManager:
         from ..geometry.coordinates import transformer_to_utm
         import numpy as np
         from scipy.interpolate import griddata
-        
+
         if not config.SPAWN_POINT or not global_offset:
             return [0, 0, 400]  # Fallback
-        
+
         lat, lon = config.SPAWN_POINT
         ox, oy = global_offset
-        
+
         # Konvertiere WGS84 zu UTM
         x_utm, y_utm = transformer_to_utm.transform(lon, lat)
-        
+
         # Transformiere zu lokalen Koordinaten
         x_local = x_utm - ox
         y_local = y_utm - oy
-        
-        print(f"  [i] Berechne Spawn-Punkt: WGS84({lat}, {lon}) -> UTM({x_utm}, {y_utm}) -> Lokal({x_local}, {y_local})")
-        
+
+        print(
+            f"  [i] Berechne Spawn-Punkt: WGS84({lat}, {lon}) -> UTM({x_utm}, {y_utm}) -> Lokal({x_local}, {y_local})"
+        )
+
         # Interpoliere Höhe an diesem Punkt
         if len(height_points) > 0 and len(height_elevations) > 0:
             try:
                 height_points_array = np.array(height_points)
                 height_elevations_array = np.array(height_elevations)
-                
+
                 # Nutze nearest-neighbor Interpolation
-                z_value = griddata(
-                    height_points_array,
-                    height_elevations_array,
-                    (x_local, y_local),
-                    method='nearest'
-                )
-                
+                z_value = griddata(height_points_array, height_elevations_array, (x_local, y_local), method="nearest")
+
                 if z_value is not None and not np.isnan(z_value):
                     z_height = float(z_value)
                 else:
@@ -411,12 +408,14 @@ class ItemManager:
                 z_height = 400
         else:
             z_height = 400
-        
+
         final_pos = [x_local, y_local, z_height + 10]  # +10m Sicherheitsabstand über Terrain
         print(f"  [OK] Spawn-Position: {final_pos}")
         return final_pos
 
-    def save(self, filepath: Optional[str] = None, height_points=None, height_elevations=None, global_offset=None) -> None:
+    def save(
+        self, filepath: Optional[str] = None, height_points=None, height_elevations=None, global_offset=None
+    ) -> None:
         """
         Exportiere Items in die richtige BeamNG-Struktur.
 
@@ -456,10 +455,8 @@ class ItemManager:
             # Berechne Spawn-Position mit Höhendaten falls verfügbar
             spawn_position = [0, 0, 400]  # Default
             if height_points is not None and height_elevations is not None and global_offset is not None:
-                spawn_position = self._get_spawn_position_with_height(
-                    height_points, height_elevations, global_offset
-                )
-            
+                spawn_position = self._get_spawn_position_with_height(height_points, height_elevations, global_offset)
+
             # OTHER_BASE_LINES (the_level_info, the_sky, the_sun, spawn)
             for base_line in self.OTHER_BASE_LINES:
                 if base_line.get("name") == "spawn":
