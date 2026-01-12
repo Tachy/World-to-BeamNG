@@ -55,22 +55,21 @@ class ItemManager:
             "name": "the_sky",
             "class": "ScatterSky",
             "persistentId": "f0c7b6f6-7e4a-4b2a-8c4f-5c6f0c2a9c55",
-            "cloudHeight": 1500,
-            "cloudCover": 0.4,
+            "cloudHeight": 2000,
+            "cloudCover": 0.5,
             "cloudSpeed": [0.0005, 0.0],
-            "sunScale": 1.0,  # Erhöht für stärkere Sonne
-            "moonScale": 1.0,
-            "colorize": [1.0, 1.0, 1.0, 1.0],
-            "ambient": [0.7, 0.7, 0.7, 1.0],  # Erhöht für helleres Umgebungslicht
-            "brightness": 2.5,  # Erhöht für hellere Atmosphäre
-            "skyBrightness": 3.0,  # Erhöht für helleren Himmel
-            "fogHeight": 2000,
-            "fogDensity": 0.001,  # Reduziert für weniger Dunst
-            "rayleighScattering": 0.01,  # Atmosphärenstreuung
-            "mieScattering": 0.01,  # Dunststreuung
-            "sunSize": 1.0,
-            "exposure": 1.0,
-            "nightBrightness": 0.1,
+            "sunScale": 1.2,
+            "colorize": [1.0, 0.9, 0.8, 1.0],  # Leichter Gelb/Warmstich
+            "ambient": [0.12, 0.12, 0.15, 1.0],
+            "brightness": 0.8,  # Etwas dunkler für mehr Atmosphäre
+            "skyBrightness": 0.4,
+            "fogHeight": 800,
+            "fogDensity": 0.0005,
+            "rayleighScattering": 0.005,  # Verstärkt den rötlichen Effekt am Horizont
+            "mieScattering": 0.001,  # Mehr "Dunst" in der Luft
+            "sunSize": 1.5,  # Die Sonne wirkt tiefer stehend größer
+            "exposure": 1.1,
+            "nightBrightness": 0.05,
             "parentId": "MissionGroup",
         },
         {
