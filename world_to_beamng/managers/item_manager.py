@@ -349,22 +349,24 @@ class ItemManager:
             # Nutze ITEMS_JSON (items.level.json - enthält alles)
             filepath = os.path.join(self.beamng_dir, config.ITEMS_JSON)
 
-        # BeamNG erwartet zwei Dateien:
-        # 1. main/items.level.json - nur MissionGroup
-        # 2. main/MissionGroup/items.level.json - alle anderen Items
+        # BeamNG erwartet zwei Dateien im JSONL-Format (Line-delimited JSON):
+        # 1. main/items.level.json - nur MissionGroup (jede Zeile ein JSON-Objekt)
+        # 2. main/MissionGroup/items.level.json - alle anderen Items (jede Zeile ein JSON-Objekt)
 
         main_items = os.path.join(self.beamng_dir, "main", "items.level.json")
         missiongroup_items = os.path.join(self.beamng_dir, "main", "MissionGroup", "items.level.json")
 
-        # Schreibe main/items.level.json (nur MissionGroup)
+        # Schreibe main/items.level.json im JSONL-Format (nur MissionGroup)
         os.makedirs(os.path.dirname(main_items), exist_ok=True)
         with open(main_items, "w", encoding="utf-8") as f:
             json.dump(self.MISSION_GROUP_LINE, f, ensure_ascii=False)
             f.write("\n")
 
-        # Schreibe main/MissionGroup/items.level.json (alle anderen Items)
+        # Schreibe main/MissionGroup/items.level.json im JSONL-Format
         os.makedirs(os.path.dirname(missiongroup_items), exist_ok=True)
         with open(missiongroup_items, "w", encoding="utf-8") as f:
+            # Schreibe jedes Item auf eigene Zeile (JSONL-Format)
+
             # OTHER_BASE_LINES (the_level_info, the_sky, the_sun, PlayerDropPoint)
             for base_line in self.OTHER_BASE_LINES:
                 json.dump(base_line, f, ensure_ascii=False)
