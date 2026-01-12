@@ -55,21 +55,54 @@ class ItemManager:
             "name": "the_sky",
             "class": "ScatterSky",
             "persistentId": "f0c7b6f6-7e4a-4b2a-8c4f-5c6f0c2a9c55",
-            "cloudHeight": 2000,
-            "cloudCover": 0.5,
-            "cloudSpeed": [0.0005, 0.0],
-            "sunScale": 1.2,
-            "colorize": [1.0, 0.9, 0.8, 1.0],  # Leichter Gelb/Warmstich
-            "ambient": [0.12, 0.12, 0.15, 1.0],
-            "brightness": 0.8,  # Etwas dunkler für mehr Atmosphäre
-            "skyBrightness": 0.4,
-            "fogHeight": 800,
-            "fogDensity": 0.0005,
-            "rayleighScattering": 0.005,  # Verstärkt den rötlichen Effekt am Horizont
-            "mieScattering": 0.001,  # Mehr "Dunst" in der Luft
-            "sunSize": 1.5,  # Die Sonne wirkt tiefer stehend größer
-            "exposure": 1.1,
-            "nightBrightness": 0.05,
+            "ambientScale": [1, 0.894117653, 0.78039217, 1],
+            "ambientScaleGradientFile": "/levels/italy/art/sky_gradients/default/gradient_ambient.png",
+            "azimuth": 52.9285278,
+            "colorize": [0.215686277, 0.349019617, 0.603921592, 1],
+            "colorizeGradientFile": "/levels/italy/art/sky_gradients/default/gradient_colorize.png",
+            "elevation": 55.432579,
+            "enableFogFallBack": False,
+            "fadeStartDistance": 1000,
+            "flareScale": 5,
+            "flareType": "BNG_Sunflare_3",
+            "fogScale": [0.396078438, 0.666666687, 1, 1],
+            "fogScaleGradientFile": "/levels/italy/art/sky_gradients/default/gradient_fog.png",
+            "lastSplitTerrainOnly": True,
+            "logWeight": 0.980000019,
+            "mieScattering": 0.000634325785,
+            "moonLightColor": [0.0980392024, 0.0980392024, 0.0980392024, 1],
+            "moonMat": "Moon_Glow_Mat",
+            "moonScale": 0.0299999993,
+            "nightColor": [1, 0.894117653, 0.78039217, 1],
+            "nightCubemap": "nightCubemap",
+            "nightFogColor": [0.396078438, 0.666666687, 1, 1],
+            "nightFogGradientFile": "/levels/italy/art/sky_gradients/default/gradient_fog.png",
+            "nightGradientFile": "/levels/italy/art/sky_gradients/default/gradient_ambient.png",
+            "occlusionScale": 0.0250000004,
+            "overDarkFactor": [40000, 8000, 5000, 650],
+            "shadowDarkenColor": [0, 0, 0, 0],
+            "shadowDistance": 1600,
+            "shadowSoftness": 0.200000003,
+            "skyBrightness": 40,
+            "sunScale": [0.996078432, 0.870588243, 0.784313738, 1],
+            "sunScaleGradientFile": "/levels/italy/art/sky_gradients/default/gradient_sunscale.png",
+            "texSize": 1024,
+            "useNightCubemap": True,
+            # "cloudHeight": 2000,
+            # "cloudCover": 0.5,
+            # "cloudSpeed": [0.0005, 0.0],
+            # "sunScale": 1.2,
+            # "colorize": [1.0, 0.9, 0.8, 1.0],  # Leichter Gelb/Warmstich
+            # "ambient": [0.12, 0.12, 0.15, 1.0],
+            # "brightness": 0.8,  # Etwas dunkler für mehr Atmosphäre
+            # "skyBrightness": 0.4,
+            # "fogHeight": 800,
+            # "fogDensity": 0.0005,
+            # "rayleighScattering": 0.005,  # Verstärkt den rötlichen Effekt am Horizont
+            # "mieScattering": 0.001,  # Mehr "Dunst" in der Luft
+            # "sunSize": 1.5,  # Die Sonne wirkt tiefer stehend größer
+            # "exposure": 1.1,
+            # "nightBrightness": 0.05,
             "parentId": "MissionGroup",
         },
         {
@@ -78,7 +111,7 @@ class ItemManager:
             "persistentId": "e75fc72e-4ec9-42ca-b08a-24eca2141534",
             "azimuth": 0,
             "elevation": 60,  # Erhöht von 45 für höhere Sonne
-            "brightness": 2.0,  # Erhöht für stärkere Sonne
+            "brightness": 1.0,  # Erhöht für stärkere Sonne
             "castShadows": True,
             "coronaEnabled": True,
             "parentId": "MissionGroup",
