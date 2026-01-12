@@ -108,7 +108,7 @@ class DAEExporter:
         f.write(f'\n          <float_array id="{source_id}_array" count="{len(vertices) * 3}">')
 
         # Alle Vertex-Werte in einer Zeile
-        vertex_str = ' '.join(f"{v[0]:.2f} {v[1]:.2f} {v[2]:.2f}" for v in vertices)
+        vertex_str = " ".join(f"{v[0]:.2f} {v[1]:.2f} {v[2]:.2f}" for v in vertices)
         f.write(f"\n{vertex_str}")
 
         f.write("\n          </float_array>\n")
@@ -134,7 +134,7 @@ class DAEExporter:
         f.write(f'\n          <float_array id="{source_id}_array" count="{len(uv_coords) * 2}">')
 
         # Alle UV-Werte in einer Zeile
-        uv_str = ' '.join(f"{uv[0]:.6f} {uv[1]:.6f}" for uv in uv_coords)
+        uv_str = " ".join(f"{uv[0]:.6f} {uv[1]:.6f}" for uv in uv_coords)
         f.write(f"\n{uv_str}")
 
         f.write("\n          </float_array>\n")
@@ -207,10 +207,10 @@ class DAEExporter:
         # Alle Indizes in einer Zeile
         if uv_id:
             # Mit UV: v0 uv0 v1 uv1 v2 uv2
-            indices_str = ' '.join(f"{face[0]} {face[0]} {face[1]} {face[1]} {face[2]} {face[2]}" for face in faces)
+            indices_str = " ".join(f"{face[0]} {face[0]} {face[1]} {face[1]} {face[2]} {face[2]}" for face in faces)
         else:
             # Ohne UV: v0 v1 v2
-            indices_str = ' '.join(f"{face[0]} {face[1]} {face[2]}" for face in faces)
+            indices_str = " ".join(f"{face[0]} {face[1]} {face[2]}" for face in faces)
 
         f.write(f"\n{indices_str}")
         f.write("\n          </p>\n")
