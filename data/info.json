@@ -12,5 +12,5 @@
     "authors": "Tachy AI",
     "supportsTraffic": false,
     "supportsTimeOfDay": false,
-    "spawnPointName": "PlayerDropPoint"
+    "spawnPointName": "spawn"
 }

@@ -53,6 +53,24 @@ class DAEExporter:
         f.write("  </scene>\n")
         f.write("</COLLADA>\n")
 
+    def _write_image_library(self, f, material_textures: Dict[str, str]) -> None:
+        """Schreibe library_images mit Textur-Pfaden.
+
+        Args:
+            f: File handle
+            material_textures: Dict {mat_name: texture_path}
+        """
+        if not material_textures:
+            return
+
+        f.write("  <library_images>\n")
+        for mat_name in sorted(material_textures.keys()):
+            texture_path = material_textures[mat_name]
+            f.write(f'    <image id="{mat_name}_image" name="{mat_name}_image">\n')
+            f.write(f"      <init_from>{texture_path}</init_from>\n")
+            f.write("    </image>\n")
+        f.write("  </library_images>\n")
+
     def _write_material_library(self, f, material_names: List[str]) -> None:
         """Schreibe library_materials mit Effects."""
         f.write("  <library_materials>\n")
@@ -63,7 +81,11 @@ class DAEExporter:
         f.write("  </library_materials>\n")
 
     def _write_effect_library(
-        self, f, material_names: List[str], colors: Optional[Dict[str, Tuple[float, float, float]]] = None
+        self,
+        f,
+        material_names: List[str],
+        colors: Optional[Dict[str, Tuple[float, float, float]]] = None,
+        material_textures: Optional[Dict[str, str]] = None,
     ) -> None:
         """
         Schreibe library_effects.
@@ -72,17 +94,41 @@ class DAEExporter:
             f: File handle
             material_names: Liste von Material-Namen
             colors: Optional Dict {mat_name: (r, g, b)} für diffuse colors
+            material_textures: Optional Dict {mat_name: texture_path} für Texturen
         """
         f.write("  <library_effects>\n")
         for mat_name in sorted(material_names):
             f.write(f'    <effect id="effect_{mat_name}">\n')
             f.write("      <profile_COMMON>\n")
+
+            # Wenn Textur vorhanden: newparam + sampler2D
+            if material_textures and mat_name in material_textures:
+                surface_id = f"{mat_name}_surface"
+                sampler_id = f"{mat_name}_sampler"
+
+                # Surface (verweist auf Image)
+                f.write(f'        <newparam sid="{surface_id}">\n')
+                f.write('          <surface type="2D">\n')
+                f.write(f"            <init_from>{mat_name}_image</init_from>\n")
+                f.write("          </surface>\n")
+                f.write("        </newparam>\n")
+
+                # Sampler2D (verweist auf Surface)
+                f.write(f'        <newparam sid="{sampler_id}">\n')
+                f.write("          <sampler2D>\n")
+                f.write(f"            <source>{surface_id}</source>\n")
+                f.write("          </sampler2D>\n")
+                f.write("        </newparam>\n")
+
             f.write('        <technique sid="common">\n')
             f.write("          <phong>\n")
             f.write("            <diffuse>\n")
 
-            # Color aus Dict oder Fallback grau
-            if colors and mat_name in colors:
+            # Textur oder Color
+            if material_textures and mat_name in material_textures:
+                sampler_id = f"{mat_name}_sampler"
+                f.write(f'              <texture texture="{sampler_id}" texcoord="UVSET0"/>\n')
+            elif colors and mat_name in colors:
                 r, g, b = colors[mat_name]
                 f.write(f'              <color sid="diffuse">{r:.3f} {g:.3f} {b:.3f} 1</color>\n')
             else:
@@ -250,7 +296,7 @@ class DAEExporter:
 
             # Materials
             self._write_material_library(f, [material_name])
-            self._write_effect_library(f, [material_name])
+            self._write_effect_library(f, [material_name], colors=None, material_textures=None)
 
             # Geometries
             f.write("  <library_geometries>\n")
@@ -302,7 +348,13 @@ class DAEExporter:
 
         return output_path
 
-    def export_multi_mesh(self, output_path: str, meshes: List[Dict[str, Any]], with_uv: bool = False) -> str:
+    def export_multi_mesh(
+        self,
+        output_path: str,
+        meshes: List[Dict[str, Any]],
+        with_uv: bool = False,
+        material_textures: Optional[Dict[str, str]] = None,
+    ) -> str:
         """
         Exportiere Multi-Mesh DAE (z.B. Terrain-Tiles, Buildings).
 
@@ -316,6 +368,7 @@ class DAEExporter:
                 - 'uv_offset' (optional): UV-Offset
                 - 'uv_scale' (optional): UV-Skalierung
             with_uv: UV-Koordinaten generieren?
+            material_textures: Optional Dict {mat_name: texture_path} für Textur-Bindings
 
         Returns:
             output_path
@@ -334,6 +387,10 @@ class DAEExporter:
         with open(output_path, "w", encoding="utf-8") as f:
             self._write_header(f)
 
+            # Images (Texturen)
+            if material_textures:
+                self._write_image_library(f, material_textures)
+
             # Materials
             self._write_material_library(f, list(material_names))
 
@@ -344,7 +401,7 @@ class DAEExporter:
             if "lod2_roof_red" in material_names:
                 colors["lod2_roof_red"] = (0.6, 0.2, 0.1)
 
-            self._write_effect_library(f, list(material_names), colors)
+            self._write_effect_library(f, list(material_names), colors, material_textures)
 
             # Geometries
             f.write("  <library_geometries>\n")
@@ -404,8 +461,21 @@ class DAEExporter:
 
             for mesh_data in meshes:
                 mesh_id = mesh_data["id"]
+                faces = mesh_data.get("faces", [])
+
                 f.write(f'      <node id="{mesh_id}_node" name="{mesh_id}" type="NODE">\n')
-                f.write(f'        <instance_geometry url="#{mesh_id}_geometry"/>\n')
+                f.write(f'        <instance_geometry url="#{mesh_id}_geometry">\n')
+
+                # Material Bindings
+                if isinstance(faces, dict) and faces:
+                    f.write("          <bind_material>\n")
+                    f.write("            <technique_common>\n")
+                    for mat_name in sorted(faces.keys()):
+                        f.write(f'              <instance_material symbol="{mat_name}" target="#{mat_name}"/>\n')
+                    f.write("            </technique_common>\n")
+                    f.write("          </bind_material>\n")
+
+                f.write("        </instance_geometry>\n")
                 f.write("      </node>\n")
 
             f.write("    </visual_scene>\n")

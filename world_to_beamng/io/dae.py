@@ -86,14 +86,76 @@ def export_merged_dae(
         actual_output_path = output_path
         actual_dae_filename = os.path.basename(output_path)
 
+    # Erstelle Material-Textur-Mapping
+    from ..managers import MaterialManager
+    from .. import config
+
+    material_manager = MaterialManager(beamng_dir="")
+
+    # Sammle alle verwendeten Material-Namen
+    all_material_names = set()
+    for mesh_data in meshes:
+        faces_dict = mesh_data.get("faces", {})
+        if isinstance(faces_dict, dict):
+            all_material_names.update(faces_dict.keys())
+
+    # Erstelle Materials für alle Namen
+    for mat_name in all_material_names:
+        if mat_name.startswith("tile_"):
+            # Terrain-Material: Extrahiere Koordinaten aus Name
+            try:
+                parts = mat_name.split("_")
+                corner_x = int(parts[1])
+                corner_y = int(parts[2])
+                texture_path = config.RELATIVE_DIR_TEXTURES + f"tile_{corner_x}_{corner_y}.dds"
+                material_manager.add_terrain_material(corner_x, corner_y, texture_path)
+            except (IndexError, ValueError):
+                print(f"  ⚠ Konnte Koordinaten nicht aus Material-Name extrahieren: {mat_name}")
+        else:
+            # Road-Material: Hole Properties aus OSM_MAPPER
+            # Versuche verschiedene OSM-Tag-Kombinationen
+            road_props = config.OSM_MAPPER.get_road_properties({"surface": mat_name})
+            if not road_props or road_props.get("internal_name") != mat_name:
+                # Fallback 1: Suche in allen highway_defaults
+                found = False
+                for highway_type, props in config.OSM_MAPPER.config.get("highway_defaults", {}).items():
+                    if props.get("internal_name") == mat_name:
+                        road_props = props
+                        found = True
+                        break
+
+                # Fallback 2: Suche in surface_overrides
+                if not found:
+                    for surface_type, props in config.OSM_MAPPER.config.get("surface_overrides", {}).items():
+                        if props.get("internal_name") == mat_name:
+                            road_props = props
+                            found = True
+                            break
+
+                if not found:
+                    print(f"  ⚠ Material {mat_name} nicht in OSM_MAPPER gefunden")
+                    continue
+
+            material_manager.add_road_material(mat_name, road_props)
+
+    # Extrahiere Textur-Pfade aus Materials
+    material_textures = {}
+    for mat_name, mat_data in material_manager.materials.items():
+        stages = mat_data.get("Stages", [])
+        if stages and "baseColorMap" in stages[0]:
+            material_textures[mat_name] = stages[0]["baseColorMap"]
+
     # Export mit DAEExporter
     exporter = DAEExporter()
-    exporter.export_multi_mesh(output_path=actual_output_path, meshes=meshes, with_uv=True)
+    exporter.export_multi_mesh(
+        output_path=actual_output_path, meshes=meshes, with_uv=True, material_textures=material_textures
+    )
 
     total_vertices = sum(len(m["vertices"]) for m in meshes)
     total_faces = sum(sum(len(f) for f in m["faces"].values()) for m in meshes)
     print(f"  [OK] DAE exportiert: {actual_dae_filename}")
     print(f"    -> {len(meshes)} Tiles, {total_vertices} Vertices, {total_faces} Faces")
+    print(f"    -> {len(material_textures)} Materialien mit Texturen")
 
     return actual_dae_filename
 

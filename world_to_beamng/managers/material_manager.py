@@ -144,7 +144,7 @@ class MaterialManager:
 
         Args:
             road_type: Road-Typ (z.B. "road_residential", "road_motorway")
-            properties: OSM-Properties-Dict (color, friction, etc.)
+            properties: OSM-Properties-Dict (color, friction, textures, etc.)
             overwrite: Überschreibe existierendes Material
 
         Returns:
@@ -152,16 +152,25 @@ class MaterialManager:
         """
         mat_name = properties.get("internal_name", road_type)
 
-        # Konvertiere Color zu Stage
-        color = properties.get("color", [0.5, 0.5, 0.5, 1.0])
-        if len(color) == 3:
-            color.append(1.0)  # Alpha hinzufügen
+        # Prüfe ob Texturen vorhanden sind
+        textures = properties.get("textures", {})
+        stages_dict = {}
+
+        if textures:
+            # Verwende Texturen (baseColorMap, normalMap, etc.)
+            stages_dict.update(textures)
+        else:
+            # Fallback: Color
+            color = properties.get("color", [0.5, 0.5, 0.5, 1.0])
+            if len(color) == 3:
+                color.append(1.0)  # Alpha hinzufügen
+            stages_dict["diffuseColor"] = color
 
         self.add_material(
             mat_name,
             template="road",
             overwrite=overwrite,
-            Stages={"diffuseColor": color},
+            Stages=stages_dict,
             friction=properties.get("friction", 1.0),
             groundType=properties.get("groundType", "ASPHALT"),
         )

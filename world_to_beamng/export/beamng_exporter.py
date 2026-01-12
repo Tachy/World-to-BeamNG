@@ -244,6 +244,11 @@ class BeamNGExporter:
         items_path = os.path.join(config.BEAMNG_DIR, config.ITEMS_JSON)
         print(f"[✓] Items: {os.path.basename(items_path)}")
 
+        # info.json ins Level-Root-Verzeichnis schreiben
+        self.items.save_info_json()
+        info_path = os.path.join(config.BEAMNG_DIR, "info.json")
+        print(f"[✓] Info: {os.path.basename(info_path)}")
+
         # main.level.json ist NICHT nötig - BeamNG lädt automatisch main/items.level.json
 
     # Debug-Netzwerk-Export (auskommentiert für Performance)

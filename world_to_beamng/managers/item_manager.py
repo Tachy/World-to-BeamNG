@@ -78,15 +78,32 @@ class ItemManager:
             "parentId": "MissionGroup",
         },
         {
-            "name": "PlayerDropPoint",
+            "name": "spawn",  # BeamNG sucht nach "spawn"
             "class": "SpawnSphere",
             "dataBlock": "SpawnSphereMarker",
             "persistentId": "3d08e3b2-2514-49f8-8b76-8351a12dea51",
             "position": [0, 0, 400],
             "rotation": [0, 0, 0, 1],
+            "spawnClass": "Player",
+            "radius": 10,
+            "sphereWeight": 100,
+            "indoorWeight": 100,
             "parentId": "MissionGroup",
         },
     ]
+
+    # Level-Info für info.json
+    LEVEL_INFO = {
+        "title": "World to BeamNG",
+        "description": "Automatischer Export von OpenStreetmap-Elementen in das BeamNG.drive-Format.",
+        "levelName": "world_to_beamng",
+        "previews": ["preview.jpg"],
+        "size": [2000, 2000],
+        "authors": "Tachy AI",
+        "supportsTraffic": False,
+        "supportsTimeOfDay": False,
+        "spawnPointName": "spawn",
+    }
 
     def __init__(self, beamng_dir: str):
         """
@@ -377,6 +394,17 @@ class ItemManager:
                 json.dump(item, f, ensure_ascii=False)
                 f.write("\n")
 
+    def save_info_json(self) -> None:
+        """
+        Schreibe info.json ins Level-Root-Verzeichnis.
+
+        Diese Datei enthält Metadaten für BeamNG (Titel, Autor, Spawn-Point, etc.).
+        """
+        info_path = os.path.join(self.beamng_dir, "info.json")
+
+        with open(info_path, "w", encoding="utf-8") as f:
+            json.dump(self.LEVEL_INFO, f, ensure_ascii=False, indent=4)
+
     def load(self, filepath: Optional[str] = None) -> None:
         """
         Lade Items aus items.json im JSONL-Format (Line-JSON).
@@ -393,6 +421,11 @@ class ItemManager:
             return
 
         self.items = {}
+
+        # Namen der BASE_LINES die beim Load übersprungen werden sollen
+        base_line_names = {line.get("name") for line in self.OTHER_BASE_LINES}
+        base_line_names.add("PlayerDropPoint")  # Alter Name falls noch vorhanden
+
         with open(filepath, "r", encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
@@ -401,6 +434,11 @@ class ItemManager:
                 try:
                     item = json.loads(line)
                     item_name = item.get("name", "")
+
+                    # Überspringe BASE_LINES - diese werden beim save() automatisch geschrieben
+                    if item_name in base_line_names:
+                        continue
+
                     if item_name:
                         self.items[item_name] = item
                 except json.JSONDecodeError:
