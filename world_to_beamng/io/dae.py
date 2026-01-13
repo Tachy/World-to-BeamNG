@@ -117,7 +117,7 @@ def export_merged_dae(
                     v = (y - y_min) / (y_max - y_min) if y_max > y_min else 0.0
                     uv_array[i] = [u, v]
                 explicit_uvs = uv_array
-        
+
         # SICHERHEIT: Falls explicit_uvs IMMER noch None (z.B. keine bounds), nutze Vertex-Bounds als Fallback
         # Das ist kritisch für Stitch-Faces!
         if explicit_uvs is None and len(vertices) > 0:
@@ -125,7 +125,7 @@ def export_merged_dae(
             vertices_arr = np.asarray(vertices)
             x_min, x_max = vertices_arr[:, 0].min(), vertices_arr[:, 0].max()
             y_min, y_max = vertices_arr[:, 1].min(), vertices_arr[:, 1].max()
-            
+
             num_vertices = len(vertices)
             uv_array = np.zeros((num_vertices, 2), dtype=np.float32)
             for i, vertex in enumerate(vertices):
