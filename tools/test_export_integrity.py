@@ -116,7 +116,7 @@ class ExportIntegrityTest:
         r"""
         Konvertiert einen relativen BeamNG-Pfad zu absolutem Windows-Pfad.
 
-        WICHTIG: BEAMNG_DIR ist bereits das Level-Verzeichnis 
+        WICHTIG: BEAMNG_DIR ist bereits das Level-Verzeichnis
         (z.B. C:\...\levels\world_to_beamng\)
 
         Unterstützt Formate:
@@ -132,10 +132,10 @@ class ExportIntegrityTest:
         """
         # Normalisiere Forward-Slashes zu Backslashes
         normalized_path = relative_path.replace("/", "\\")
-        
+
         # Entferne evtl. führenden Backslash
         normalized_path = normalized_path.lstrip("\\")
-        
+
         # Falls Pfad mit 'levels\world_to_beamng\' beginnt, entferne diesen Präfix
         # (da BEAMNG_DIR bereits auf world_to_beamng zeigt)
         if normalized_path.startswith("levels\\world_to_beamng\\"):
@@ -147,7 +147,7 @@ class ExportIntegrityTest:
                 normalized_path = parts[2]
             else:
                 normalized_path = normalized_path.replace("levels\\", "", 1)
-        
+
         # Kombiniere mit beamng_dir (das ist bereits levels/world_to_beamng)
         full_path = Path(self.beamng_dir) / normalized_path
         return full_path

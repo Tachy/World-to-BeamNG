@@ -103,6 +103,7 @@ def export_merged_dae(
                 explicit_uvs = uv_array
 
         # Falls KEINE Road-UVs vorhanden: Nutze tile_bounds für ALLE Vertices (reiner Terrain-Fall)
+        # KRITISCH: Auch reine Terrain-/Stitch-Faces brauchen lokale UVs basierend auf tile_bounds!
         if explicit_uvs is None:
             tile_bounds = tile_data.get("bounds", None)
             if tile_bounds:
@@ -116,6 +117,23 @@ def export_merged_dae(
                     v = (y - y_min) / (y_max - y_min) if y_max > y_min else 0.0
                     uv_array[i] = [u, v]
                 explicit_uvs = uv_array
+        
+        # SICHERHEIT: Falls explicit_uvs IMMER noch None (z.B. keine bounds), nutze Vertex-Bounds als Fallback
+        # Das ist kritisch für Stitch-Faces!
+        if explicit_uvs is None and len(vertices) > 0:
+            # Berechne Bounds aus tatsächlichen Vertices
+            vertices_arr = np.asarray(vertices)
+            x_min, x_max = vertices_arr[:, 0].min(), vertices_arr[:, 0].max()
+            y_min, y_max = vertices_arr[:, 1].min(), vertices_arr[:, 1].max()
+            
+            num_vertices = len(vertices)
+            uv_array = np.zeros((num_vertices, 2), dtype=np.float32)
+            for i, vertex in enumerate(vertices):
+                x, y, z = vertex
+                u = (x - x_min) / (x_max - x_min) if x_max > x_min else 0.0
+                v = (y - y_min) / (y_max - y_min) if y_max > y_min else 0.0
+                uv_array[i] = [u, v]
+            explicit_uvs = uv_array
 
         # Gruppiere Faces pro Material
         # WICHTIG: "terrain" und "unknown" Materialien werden dem Tile-Material zugewiesen!
@@ -123,12 +141,12 @@ def export_merged_dae(
         faces_by_material = {}
         for idx, face in enumerate(faces):
             mat_name = materials_per_face[idx] if idx < len(materials_per_face) else "unknown"
-            
+
             # Stitch-Faces und ungeclippte Terrain-Faces haben material="terrain" oder "unknown"
             # → Weise sie dem Tile-Material zu (z.B. "tile_-1000_-1000")
             if mat_name in ("terrain", "unknown"):
                 mat_name = tile_material_name
-            
+
             faces_by_material.setdefault(mat_name, []).append(face)
 
         # WICHTIG: UV-Koordinaten müssen die Tile-Bounds reflektieren, nicht Vertex-Bounds!

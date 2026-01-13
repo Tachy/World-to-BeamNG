@@ -1,5 +1,6 @@
 import json
 import os
+import uuid
 
 
 class OSMMapper:
@@ -133,4 +134,5 @@ class OSMMapper:
             "Stages": [stages_config],
             "materialTag0": "RoadAndPath",  # ← KRITISCH: BeamNG erkennt nur "RoadAndPath" als Straßen-Material!
             "materialTag1": "custom",  # Custom-Materialien mit BeamNG Standard-Texturen
+            "persistentId": str(uuid.uuid4()),  # ← KRITISCH: BeamNG braucht eindeutige IDs für Material-Persistierung!
         }
