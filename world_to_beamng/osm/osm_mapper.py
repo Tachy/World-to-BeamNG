@@ -120,6 +120,9 @@ class OSMMapper:
                 color.append(1.0)
             stages_config["diffuseColor"] = color
 
+        # groundModelName muss IN den Stages sein für BeamNG Physics!
+        stages_config["groundModelName"] = props.get("groundModelName", "asphalt")
+
         return {
             "__name": mat_name,  # ← WICHTIG: __name für MaterialManager
             "name": mat_name,
@@ -127,7 +130,6 @@ class OSMMapper:
             "class": "Material",
             "version": 2,
             "Stages": [stages_config],
-            "groundModelName": props.get("groundModelName", "asphalt"),
             "materialTag0": "beamng",
-            "materialTag1": "italy",
+            "materialTag1": "custom",  # Custom-Materialien mit BeamNG Standard-Texturen
         }

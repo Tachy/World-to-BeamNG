@@ -1080,7 +1080,9 @@ def generate_road_mesh_strips(road_polygons, height_points, height_elevations, v
 
     junction_fans = {}
     if junction_centers:
-        junction_fans = {idx: {"center_idx": None, "rim": []} for idx in range(len(junction_centers))}
+        junction_fans = {
+            idx: {"center_idx": None, "rim": [], "connected_road_ids": []} for idx in range(len(junction_centers))
+        }
 
     # === Faces und Polygone aufbauen mit globalen Indices ===
     for road_meta in per_road_data:
@@ -1100,6 +1102,7 @@ def generate_road_mesh_strips(road_polygons, height_points, height_elevations, v
 
         start_jid = road_meta.get("junction_start_id")
         end_jid = road_meta.get("junction_end_id")
+        road_id = road_meta["road_id"]  # Vor _add_rim definieren, damit es in der Closure verfügbar ist
 
         def _add_rim(jid, left_idx, right_idx):
             if junction_fans is None or jid is None:
@@ -1112,12 +1115,14 @@ def generate_road_mesh_strips(road_polygons, height_points, height_elevations, v
                     cx, cy, cz = junction_centers[jid]
                     data["center_idx"] = vertex_manager.add_vertex(cx, cy, cz)
             data["rim"].append((left_idx, right_idx))
+            # Speichere auch die angrenzende Straßen-ID für Material-Selection
+            if "connected_road_ids" not in data:
+                data["connected_road_ids"] = []
+            data["connected_road_ids"].append(road_id)
 
         # Sammle Endkanten für Junction-Hub-Fans
         _add_rim(start_jid, road_vertex_indices_left[0], road_vertex_indices_right[0])
         _add_rim(end_jid, road_vertex_indices_left[-1], road_vertex_indices_right[-1])
-
-        road_id = road_meta["road_id"]
 
         # Strassen-Faces
         for i in range(n - 1):
@@ -1214,7 +1219,8 @@ def generate_road_mesh_strips(road_polygons, height_points, height_elevations, v
                 a = boundary_points[i][1]
                 b = boundary_points[(i + 1) % len(boundary_points)][1]
                 all_road_faces.append([a, b, center_idx])
-                all_road_face_to_idx.append(-1)  # Fan-Faces gehören zu keiner spezifischen Road
+                # Speichere Junction-ID als negative Zahl: -(j_id + 1) damit -1 nicht used wird
+                all_road_face_to_idx.append(-(j_id + 1))
 
     print(f"  [OK] {len(all_road_faces)} Strassen-Faces")
     if config.GENERATE_SLOPES:
@@ -1267,4 +1273,5 @@ def generate_road_mesh_strips(road_polygons, height_points, height_elevations, v
         original_to_mesh_idx,
         all_road_polygons_2d,  # ← NEU
         all_slope_polygons_2d,  # ← NEU
+        junction_fans,  # ← NEU: Für Material-Selection bei Junctions
     )

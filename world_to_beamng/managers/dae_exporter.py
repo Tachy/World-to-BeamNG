@@ -192,6 +192,79 @@ class DAEExporter:
         f.write("          </technique_common>\n")
         f.write("        </source>\n")
 
+    def _compute_smooth_normals(self, vertices: np.ndarray, faces: list) -> np.ndarray:
+        """
+        Berechne Smooth Normals (gemittelt von angrenzenden Face-Normals).
+
+        Args:
+            vertices: (N, 3) NumPy Array der Vertex-Positionen
+            faces: List von Face-Indizes oder (M, 3) Array
+
+        Returns:
+            (N, 3) Array mit Vertex-Normals (normalisiert)
+        """
+        if not faces:
+            # Falls keine Faces, gebe default Normals zurück
+            return np.array([[0, 0, 1]] * len(vertices), dtype=np.float32)
+
+        faces = np.array(faces)
+
+        # Initialisiere Normal-Akkumulator
+        vertex_normals = np.zeros_like(vertices)
+
+        # Berechne Face-Normals (Cross Product)
+        v0 = vertices[faces[:, 0]]  # Erste Vertex jedes Dreiecks
+        v1 = vertices[faces[:, 1]]  # Zweite Vertex
+        v2 = vertices[faces[:, 2]]  # Dritte Vertex
+
+        # Kanten
+        edge1 = v1 - v0
+        edge2 = v2 - v0
+
+        # Face-Normals (nicht normalisiert - Fläche wirkt als Gewicht)
+        face_normals = np.cross(edge1, edge2)
+
+        # Addiere Face-Normal zu jedem beteiligten Vertex
+        for i, face_idx_set in enumerate(faces):
+            for vertex_idx in face_idx_set:
+                vertex_normals[vertex_idx] += face_normals[i]
+
+        # Normalisiere alle Vertex-Normals
+        # Berechne Längen
+        lengths = np.linalg.norm(vertex_normals, axis=1, keepdims=True)
+        # Verhindere Division durch Null
+        lengths[lengths == 0] = 1.0
+        # Normalisiere
+        vertex_normals = vertex_normals / lengths
+
+        return vertex_normals
+
+    def _write_normals_source(self, f, source_id: str, normals: np.ndarray) -> None:
+        """
+        Schreibe <source> für Normals (XYZ).
+
+        Args:
+            f: File handle
+            source_id: ID für <source>
+            normals: (N, 3) NumPy Array
+        """
+        f.write(f'        <source id="{source_id}">')
+        f.write(f'\n          <float_array id="{source_id}_array" count="{len(normals) * 3}">')
+
+        # Alle Normal-Werte in einer Zeile
+        normal_str = " ".join(f"{n[0]:.6f} {n[1]:.6f} {n[2]:.6f}" for n in normals)
+        f.write(f"\n{normal_str}")
+
+        f.write("\n          </float_array>\n")
+        f.write("          <technique_common>\n")
+        f.write(f'            <accessor source="#{source_id}_array" count="{len(normals)}" stride="3">\n')
+        f.write('              <param name="X" type="float"/>\n')
+        f.write('              <param name="Y" type="float"/>\n')
+        f.write('              <param name="Z" type="float"/>\n')
+        f.write("            </accessor>\n")
+        f.write("          </technique_common>\n")
+        f.write("        </source>\n")
+
     def _compute_uv_normalized(
         self,
         vertices: np.ndarray,
@@ -229,33 +302,109 @@ class DAEExporter:
 
         return np.column_stack([u, v])
 
-    def _write_triangles(
-        self, f, material_name: str, faces: List[Tuple[int, int, int]], vertices_id: str, uv_id: Optional[str] = None
+    def _write_triangles_with_normals(
+        self,
+        f,
+        material_name: str,
+        faces: Dict[str, np.ndarray],
+        vertices_id: str,
+        normals_id: str,
+        uv_id: Optional[str] = None,
     ) -> None:
         """
-        Schreibe <triangles> Block.
+        Schreibe <triangles> Block mit Normals.
+
+        Args:
+            f: File handle
+            material_name: Material-Symbol
+            faces: Dict {mat_name: (M, 3)} Face-Indizes
+            vertices_id: ID des <vertices> Elements
+            normals_id: ID der Normals <source>
+            uv_id: Optional ID der UV <source>
+        """
+        # Sammle alle Faces aus allen Materialien
+        all_faces = []
+        for mat_name, face_array in faces.items():
+            if mat_name == material_name:
+                all_faces = face_array
+                break
+
+        if len(all_faces) == 0:
+            return
+
+        f.write(f'        <triangles material="{material_name}" count="{len(all_faces)}">\n')
+        f.write(f'          <input semantic="VERTEX" source="#{vertices_id}" offset="0"/>\n')
+        f.write(f'          <input semantic="NORMAL" source="#{normals_id}" offset="1"/>\n')
+
+        if uv_id:
+            f.write(f'          <input semantic="TEXCOORD" source="#{uv_id}" offset="2" set="0"/>\n')
+
+        f.write("          <p>")
+
+        # Alle Indizes mit Normals
+        if uv_id:
+            # Mit Normals + UV: v0 n0 uv0 v1 n1 uv1 v2 n2 uv2
+            indices_str = " ".join(
+                f"{face[0]} {face[0]} {face[0]} {face[1]} {face[1]} {face[1]} {face[2]} {face[2]} {face[2]}"
+                for face in all_faces
+            )
+        else:
+            # Mit Normals nur: v0 n0 v1 n1 v2 n2
+            indices_str = " ".join(f"{face[0]} {face[0]} {face[1]} {face[1]} {face[2]} {face[2]}" for face in all_faces)
+
+        f.write(f"\n{indices_str}")
+        f.write("\n          </p>\n")
+        f.write("        </triangles>\n")
+
+    def _write_triangles(
+        self,
+        f,
+        material_name: str,
+        faces: List[Tuple[int, int, int]],
+        vertices_id: str,
+        normal_id: Optional[str] = None,
+        uv_id: Optional[str] = None,
+    ) -> None:
+        """
+        Schreibe <triangles> Block mit optionalen Normals und UVs.
 
         Args:
             f: File handle
             material_name: Material-Symbol
             faces: Liste von (v0, v1, v2) Face-Indizes
             vertices_id: ID des <vertices> Elements
+            normal_id: Optional ID der Normals <source>
             uv_id: Optional ID der UV <source>
         """
         f.write(f'        <triangles material="{material_name}" count="{len(faces)}">\n')
         f.write(f'          <input semantic="VERTEX" source="#{vertices_id}" offset="0"/>\n')
 
+        offset = 1
+        if normal_id:
+            f.write(f'          <input semantic="NORMAL" source="#{normal_id}" offset="{offset}"/>\n')
+            offset += 1
+
         if uv_id:
-            f.write(f'          <input semantic="TEXCOORD" source="#{uv_id}" offset="1" set="0"/>\n')
+            f.write(f'          <input semantic="TEXCOORD" source="#{uv_id}" offset="{offset}" set="0"/>\n')
+            offset += 1
 
         f.write("          <p>")
 
         # Alle Indizes in einer Zeile
-        if uv_id:
-            # Mit UV: v0 uv0 v1 uv1 v2 uv2
+        if normal_id and uv_id:
+            # Mit Normals + UV: v0 n0 uv0 v1 n1 uv1 v2 n2 uv2
+            indices_str = " ".join(
+                f"{face[0]} {face[0]} {face[0]} {face[1]} {face[1]} {face[1]} {face[2]} {face[2]} {face[2]}"
+                for face in faces
+            )
+        elif normal_id:
+            # Mit Normals nur: v0 n0 v1 n1 v2 n2
+            indices_str = " ".join(f"{face[0]} {face[0]} {face[1]} {face[1]} {face[2]} {face[2]}" for face in faces)
+        elif uv_id:
+            # Mit UV nur: v0 uv0 v1 uv1 v2 uv2
             indices_str = " ".join(f"{face[0]} {face[0]} {face[1]} {face[1]} {face[2]} {face[2]}" for face in faces)
         else:
-            # Ohne UV: v0 v1 v2
+            # Ohne UV/Normals: v0 v1 v2
             indices_str = " ".join(f"{face[0]} {face[1]} {face[2]}" for face in faces)
 
         f.write(f"\n{indices_str}")
@@ -307,6 +456,11 @@ class DAEExporter:
             vert_src_id = f"{mesh_id}_vertices"
             self._write_vertices_source(f, vert_src_id, vertices)
 
+            # Normals Source (NEW: Smooth Normals für BeamNG)
+            normal_src_id = f"{mesh_id}_normals"
+            smooth_normals = self._compute_smooth_normals(vertices, faces)
+            self._write_normals_source(f, normal_src_id, smooth_normals)
+
             # UV Source (optional)
             if with_uv:
                 uv_src_id = f"{mesh_id}_uvs"
@@ -322,8 +476,30 @@ class DAEExporter:
             f.write(f'          <input semantic="POSITION" source="#{vert_src_id}"/>\n')
             f.write("        </vertices>\n")
 
-            # Triangles
-            self._write_triangles(f, material_name, faces, vert_elem_id, uv_src_id)
+            # Triangles mit Normals
+            f.write(f'        <triangles material="{material_name}" count="{len(faces)}">\n')
+            f.write(f'          <input semantic="VERTEX" source="#{vert_elem_id}" offset="0"/>\n')
+            f.write(f'          <input semantic="NORMAL" source="#{normal_src_id}" offset="1"/>\n')
+
+            if uv_src_id:
+                f.write(f'          <input semantic="TEXCOORD" source="#{uv_src_id}" offset="2" set="0"/>\n')
+
+            f.write("          <p>")
+
+            if uv_src_id:
+                # Mit Normals + UV: v0 n0 uv0 v1 n1 uv1 v2 n2 uv2
+                indices_str = " ".join(
+                    f"{face[0]} {face[0]} {face[0]} {face[1]} {face[1]} {face[1]} {face[2]} {face[2]} {face[2]}"
+                    for face in faces
+                )
+            else:
+                # Mit Normals nur: v0 n0 v1 n1 v2 n2
+                indices_str = " ".join(f"{face[0]} {face[0]} {face[1]} {face[1]} {face[2]} {face[2]}" for face in faces)
+
+            f.write(f"\n{indices_str}")
+            f.write("\n          </p>\n")
+            f.write("        </triangles>\n")
+            f.write("        </triangles>\n")
 
             f.write("      </mesh>\n")
             f.write("    </geometry>\n")
@@ -420,6 +596,18 @@ class DAEExporter:
                 vert_src_id = f"{mesh_id}_vertices"
                 self._write_vertices_source(f, vert_src_id, vertices)
 
+                # Normals Source (NEW: Smooth Normals für BeamNG)
+                normal_src_id = f"{mesh_id}_normals"
+                if isinstance(faces, dict):
+                    # Kombiniere alle Faces aus allen Materialen für Normal-Berechnung
+                    all_faces = []
+                    for mat_faces in faces.values():
+                        all_faces.extend(mat_faces)
+                    smooth_normals = self._compute_smooth_normals(vertices, all_faces)
+                else:
+                    smooth_normals = self._compute_smooth_normals(vertices, faces)
+                self._write_normals_source(f, normal_src_id, smooth_normals)
+
                 # UV Source (optional)
                 if with_uv:
                     uv_src_id = f"{mesh_id}_uvs"
@@ -444,11 +632,11 @@ class DAEExporter:
                 if isinstance(faces, dict):
                     for mat_name, mat_faces in faces.items():
                         if len(mat_faces) > 0:
-                            self._write_triangles(f, mat_name, mat_faces, vert_elem_id, uv_src_id)
+                            self._write_triangles(f, mat_name, mat_faces, vert_elem_id, normal_src_id, uv_src_id)
                 else:
                     mat_name = mesh_data.get("material", "default")
                     if len(faces) > 0:
-                        self._write_triangles(f, mat_name, faces, vert_elem_id, uv_src_id)
+                        self._write_triangles(f, mat_name, faces, vert_elem_id, normal_src_id, uv_src_id)
 
                 f.write("      </mesh>\n")
                 f.write("    </geometry>\n")

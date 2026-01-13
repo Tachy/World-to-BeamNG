@@ -283,6 +283,7 @@ class TerrainWorkflow:
             road_mesh[4],  # original_to_mesh_idx
             road_mesh[5],  # all_road_polygons_2d
             road_mesh[6],  # all_slope_polygons_2d
+            road_mesh[7],  # junction_fans (NEU)
         )
 
         # 11. Terrain Mesh (mit Builder)
@@ -367,6 +368,61 @@ class TerrainWorkflow:
         if not unique_materials:
             unique_materials = {}
 
+        # Extrahiere junction_fans aus road_mesh_tuple (falls vorhanden)
+        junction_fans = road_mesh_tuple[7] if len(road_mesh_tuple) > 7 else {}
+
+        # === Hilfsfunktion für Junction-Material-Selection ===
+        def _get_junction_material(junction_id, junction_fans, road_material_map):
+            """
+            Bestimme das Material für eine Junction basierend auf angrenzenden Straßen.
+            Logik:
+            1. Zähle welche Materialien an der Junction ankommen
+            2. Nutze das häufigste Material
+            3. Bei Gleichstand: nutze das Material mit höherer Priorität
+            """
+            junction_data = junction_fans.get(junction_id, {})
+            connected_road_ids = junction_data.get("connected_road_ids", [])
+            
+            if not connected_road_ids:
+                # Keine angrenzenden Straßen: nutze Default
+                return default_mat, default_props
+            
+            # Sammle alle Materialien der angrenzenden Straßen
+            material_counts = {}  # {material_name: count}
+            material_props = {}    # {material_name: properties}
+            
+            for road_id in connected_road_ids:
+                if road_id in road_material_map:
+                    mat_name, props = road_material_map[road_id]
+                    material_counts[mat_name] = material_counts.get(mat_name, 0) + 1
+                    material_props[mat_name] = props
+            
+            if not material_counts:
+                # Keine Materialien gefunden: nutze Default
+                return default_mat, default_props
+            
+            # Finde das häufigste Material
+            max_count = max(material_counts.values())
+            candidates = [mat for mat, count in material_counts.items() if count == max_count]
+            
+            if len(candidates) == 1:
+                # Eindeutiger Gewinner
+                mat_name = candidates[0]
+                return mat_name, material_props[mat_name]
+            
+            # Bei Gleichstand: nutze das Material mit höherer Priorität
+            # Priorität ist in der Properties gespeichert
+            best_mat = candidates[0]
+            best_priority = material_props[best_mat].get("priority", 0)
+            
+            for mat in candidates[1:]:
+                mat_priority = material_props[mat].get("priority", 0)
+                if mat_priority > best_priority:
+                    best_mat = mat
+                    best_priority = mat_priority
+            
+            return best_mat, material_props[best_mat]
+
         # Kombiniere alle Faces mit Materials
         all_faces = []
         materials_per_face = []
@@ -374,7 +430,13 @@ class TerrainWorkflow:
         # Road Faces (mit OSM-Mapper Materials)
         for idx, face in enumerate(all_road_faces):
             r_id = road_face_to_idx[idx] if idx < len(road_face_to_idx) else None
-            if r_id is not None and r_id in road_material_map:
+            
+            # Prüfe ob es eine Junction-ID ist (negative Zahlen)
+            if r_id is not None and r_id < 0:
+                # Junction-ID: -(junction_id + 1)
+                junction_id = -(r_id + 1)
+                mat_name, props = _get_junction_material(junction_id, junction_fans, road_material_map)
+            elif r_id is not None and r_id in road_material_map:
                 mat_name, props = road_material_map[r_id]
             else:
                 mat_name, props = default_mat, default_props

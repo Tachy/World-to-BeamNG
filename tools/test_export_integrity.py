@@ -29,6 +29,56 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from world_to_beamng import config
 
+# ============================================================================
+# GLOBALE KONSTANTEN FÜR EXPORT-INTEGRITÄT TESTS
+# ============================================================================
+
+# Verzeichnisnamen (relativ zu BeamNG-Verzeichnis)
+MAIN_DIR = "main"
+SHAPES_DIR = "art/shapes"
+TEXTURES_DIR = "art/shapes/textures"
+BUILDINGS_DIR = "buildings"
+
+# Dateinamen
+MATERIALS_JSON = "materials.json"
+ITEMS_JSON_FILENAME = "items.json"
+DEBUG_NETWORK_JSON = "debug_network.json"
+
+# DAE Dateinamen und Muster
+TERRAIN_DAE_PATTERN = "terrain_*.dae"
+TERRAIN_HORIZON_DAE = "terrain_horizon.dae"
+
+# Material-Namen und Präfixe
+LOD2_WALL_MATERIAL = "lod2_wall_white"
+LOD2_ROOF_MATERIAL = "lod2_roof_red"
+HORIZON_MATERIAL = "horizon_terrain"
+
+# Material-Präfixe zur Kategorisierung
+MATERIAL_PREFIX_TERRAIN_TILE = "tile_"
+MATERIAL_PREFIX_ROAD = "italy_"
+MATERIAL_PREFIX_LOD2 = "lod2_"
+MATERIAL_PREFIX_HORIZON = "horizon_"
+MATERIAL_PREFIX_JUNCTION = "junction"
+MATERIAL_PREFIX_CENTERLINE = "centerline"
+MATERIAL_PREFIX_BOUNDARY = "boundary"
+
+# Texture-Präfixe
+TEXTURE_PREFIX_TILE = "tile_"
+
+# Item-Namen und Präfixe
+HORIZON_ITEM_NAME = "Horizon"
+BUILDING_ITEMS_PREFIX = "buildings_tile_"
+TERRAIN_ITEMS_PREFIX = "terrain_"
+
+# Konfiguration
+TEXTURE_MAX_SIZE_MB = 50  # Warnung für Texturen > 50 MB
+BUILDING_Z_TOLERANCE_M = 5.0  # Toleranz für Gebäude unter Terrain (m)
+UV_RANGE_MIN = -0.5
+UV_RANGE_MAX = 1.5
+Z_OUTLIER_SIGMA = 10  # Standard-Abweichungen für Ausreißer-Erkennung
+
+# ============================================================================
+
 
 class ExportIntegrityTest:
     """Test-Suite für Export-Integrität."""
@@ -43,7 +93,24 @@ class ExportIntegrityTest:
         self.textures_dir = Path(config.BEAMNG_DIR_TEXTURES)
         self.buildings_dir = Path(config.BEAMNG_DIR_BUILDINGS)
         self.cache_dir = Path(config.CACHE_DIR)
-        self.debug_network_path = self.cache_dir / "debug_network.json"
+        self.debug_network_path = self.cache_dir / DEBUG_NETWORK_JSON
+
+        # Lade items.json als Root-Verzeichnis
+        self.items = {}
+        self.has_building_items = False
+        self.has_horizon_item = False
+        self.items_json_path = self.beamng_dir / Path(config.ITEMS_JSON)
+
+        if self.items_json_path.exists():
+            try:
+                with open(self.items_json_path, "r", encoding="utf-8") as f:
+                    self.items = json.load(f)
+
+                # Prüfe auf Gebäude-Items und Horizon-Item
+                self.has_building_items = any(k.startswith(BUILDING_ITEMS_PREFIX) for k in self.items.keys())
+                self.has_horizon_item = HORIZON_ITEM_NAME in self.items
+            except Exception as e:
+                self.warning(f"Konnte items.json nicht laden: {e}")
 
     def _resolve_relative_path(self, relative_path):
         r"""
@@ -156,10 +223,10 @@ class ExportIntegrityTest:
         print("\n[1b] Teste Terrain Face-Materialien...")
 
         # Suche dynamisch nach terrain_<x>_<y>.dae
-        terrain_daes = list(self.shapes_dir.glob("terrain_*.dae"))
+        terrain_daes = list(self.shapes_dir.glob(TERRAIN_DAE_PATTERN))
 
         if not terrain_daes:
-            self.warning("Keine terrain_*.dae gefunden - überspringe Face-Material-Test")
+            self.warning(f"Keine {TERRAIN_DAE_PATTERN} gefunden - überspringe Face-Material-Test")
             return
 
         terrain_dae = terrain_daes[0]
@@ -248,9 +315,9 @@ class ExportIntegrityTest:
 
                 for material_name, face_count in sorted_materials:
                     # Unterscheide zwischen Tile-Materialien und Road-Materialien
-                    if material_name.startswith("tile_"):
+                    if material_name.startswith(MATERIAL_PREFIX_TERRAIN_TILE):
                         mat_type = "Terrain-Tile"
-                    elif material_name.startswith("italy_"):
+                    elif material_name.startswith(MATERIAL_PREFIX_ROAD):
                         mat_type = "Straße"
                     else:
                         mat_type = "Sonstiges"
@@ -259,8 +326,10 @@ class ExportIntegrityTest:
 
                 # Zusammenfassung
                 total_faces_counted = sum(material_face_count.values())
-                terrain_tile_faces = sum(c for m, c in material_face_count.items() if m.startswith("tile_"))
-                road_faces = sum(c for m, c in material_face_count.items() if m.startswith("italy_"))
+                terrain_tile_faces = sum(
+                    c for m, c in material_face_count.items() if m.startswith(MATERIAL_PREFIX_TERRAIN_TILE)
+                )
+                road_faces = sum(c for m, c in material_face_count.items() if m.startswith(MATERIAL_PREFIX_ROAD))
 
                 print(f"\n  [Zusammenfassung]")
                 print(f"    Total:      {total_faces_counted:6d} Faces")
@@ -275,8 +344,13 @@ class ExportIntegrityTest:
             self.error(f"Fehler beim Face-Material-Test: {e}")
 
     def test_building_daes(self):
-        """Teste buildings/*.dae Integrität."""
+        """Teste buildings/*.dae Integrität (nur wenn Gebäude-Items in items.json vorhanden sind)."""
         print("\n[2] Teste buildings/*.dae...")
+
+        # Überspringe Test, wenn keine Gebäude-Items registriert sind
+        if not self.has_building_items:
+            self.warning("Keine Gebäude-Items in items.json gefunden - überspringe Gebäude-DAE-Test")
+            return
 
         if not self.buildings_dir.exists():
             self.warning(f"Buildings-Verzeichnis nicht gefunden: {self.buildings_dir}")
@@ -302,13 +376,13 @@ class ExportIntegrityTest:
                 geometries = root.findall(".//{http://www.collada.org/2005/11/COLLADASchema}geometry")
                 total_geometries += len(geometries)
 
-                # Prüfe ob lod2_wall_white und lod2_roof_red vorhanden
+                # Prüfe ob LoD2-Materialien vorhanden
                 materials = root.findall(".//{http://www.collada.org/2005/11/COLLADASchema}material")
                 material_ids = [m.get("id") for m in materials if m.get("id")]
                 self.dae_materials.update(material_ids)
 
-                has_wall = "lod2_wall_white" in material_ids
-                has_roof = "lod2_roof_red" in material_ids
+                has_wall = LOD2_WALL_MATERIAL in material_ids
+                has_roof = LOD2_ROOF_MATERIAL in material_ids
 
                 if not has_wall or not has_roof:
                     self.warning(f"{dae_file.name}: Fehlende Materialien (wall={has_wall}, roof={has_roof})")
@@ -324,16 +398,16 @@ class ExportIntegrityTest:
             self.error(f"{errors}/{len(building_daes)} DAEs fehlerhaft")
 
     def test_materials_json(self):
-        """Teste main.materials.json Integrität."""
-        print("\n[3] Teste main.materials.json...")
+        """Teste materials.json Integrität."""
+        print("\n[3] Teste materials.json...")
 
-        materials_json = self.beamng_dir / "main.materials.json"
+        materials_json = self.beamng_dir / MAIN_DIR / MATERIALS_JSON
 
         if not materials_json.exists():
-            self.error(f"main.materials.json nicht gefunden: {materials_json}")
+            self.error(f"materials.json nicht gefunden: {materials_json}")
             return
 
-        self.success(f"main.materials.json gefunden")
+        self.success(f"materials.json gefunden")
 
         try:
             with open(materials_json, "r", encoding="utf-8") as f:
@@ -342,8 +416,8 @@ class ExportIntegrityTest:
             self.success(f"{len(materials)} Materialien definiert")
 
             # Prüfe LoD2-Materialien
-            has_wall = "lod2_wall_white" in materials
-            has_roof = "lod2_roof_red" in materials
+            has_wall = LOD2_WALL_MATERIAL in materials
+            has_roof = LOD2_ROOF_MATERIAL in materials
 
             if has_wall and has_roof:
                 self.success("LoD2-Materialien vorhanden (wall + roof)")
@@ -417,9 +491,9 @@ class ExportIntegrityTest:
                 unused = [m for m in json_material_names if m not in used_materials]
                 unused = [m for m in unused if m not in ("unknown",)]  # allow fallback
                 # Filtere Tile-Materialien heraus (normal für BeamNG Material-System)
-                unused = [m for m in unused if not m.startswith("tile_")]
+                unused = [m for m in unused if not m.startswith(MATERIAL_PREFIX_TERRAIN_TILE)]
                 # Filtere Horizon-Materialien heraus (werden vom Item direkt verwendet, nicht von Geometrien)
-                unused = [m for m in unused if not m.startswith("horizon_")]
+                unused = [m for m in unused if not m.startswith(MATERIAL_PREFIX_HORIZON)]
                 if unused:
                     self.warning(f"{len(unused)} Strassenmaterialien in materials.json ungenutzt (z.B. {unused[:3]})")
 
@@ -427,6 +501,738 @@ class ExportIntegrityTest:
             self.error(f"JSON-Parse-Fehler: {e}")
         except Exception as e:
             self.error(f"Fehler beim Testen: {e}")
+
+    def test_material_chain_integrity(self):
+        """Teste EXAKTE Material-Integrität der gesamten Chain: DAE → materials.json → Output-Verzeichnis."""
+        print("\n[3b] Teste Material-Chain-Integrität (DAE → JSON → Output)...")
+
+        materials_json = self.beamng_dir / MAIN_DIR / MATERIALS_JSON
+
+        if not materials_json.exists():
+            self.error(f"materials.json nicht gefunden: {materials_json}")
+            return
+
+        try:
+            with open(materials_json, "r", encoding="utf-8") as f:
+                materials = json.load(f)
+
+            # === PHASE 1: Sammle alle Material-Referenzen aus DAE-Dateien ===
+            print("\n  [Phase 1] Sammle Material-Referenzen aus DAEs...")
+
+            # Terrain DAE
+            terrain_daes = list(self.shapes_dir.glob(TERRAIN_DAE_PATTERN))
+            dae_material_refs = {}  # material_name -> [dae_files, count]
+
+            for terrain_dae in terrain_daes:
+                try:
+                    tree = ET.parse(terrain_dae)
+                    root = tree.getroot()
+                    ns = {"collada": "http://www.collada.org/2005/11/COLLADASchema"}
+
+                    # Extrahiere Material-Referenzen aus triangles
+                    triangles = root.findall(".//collada:triangles", ns)
+                    polylists = root.findall(".//collada:polylist", ns)
+
+                    for tri in triangles:
+                        mat_ref = tri.get("material")
+                        if mat_ref:
+                            if mat_ref not in dae_material_refs:
+                                dae_material_refs[mat_ref] = {"daes": set(), "count": 0}
+                            dae_material_refs[mat_ref]["daes"].add(terrain_dae.name)
+                            count = int(tri.get("count", 0))
+                            dae_material_refs[mat_ref]["count"] += count
+
+                    for poly in polylists:
+                        mat_ref = poly.get("material")
+                        if mat_ref:
+                            if mat_ref not in dae_material_refs:
+                                dae_material_refs[mat_ref] = {"daes": set(), "count": 0}
+                            dae_material_refs[mat_ref]["daes"].add(terrain_dae.name)
+                            count = int(poly.get("count", 0))
+                            dae_material_refs[mat_ref]["count"] += count
+                except Exception as e:
+                    self.warning(f"Konnte {terrain_dae.name} nicht parsen: {e}")
+                    continue
+
+            # Gebäude DAEs
+            building_daes = list(self.buildings_dir.glob("*.dae"))
+            for building_dae in building_daes:
+                try:
+                    tree = ET.parse(building_dae)
+                    root = tree.getroot()
+                    ns = {"collada": "http://www.collada.org/2005/11/COLLADASchema"}
+
+                    # Extrahiere Material-Referenzen
+                    triangles = root.findall(".//collada:triangles", ns)
+                    polylists = root.findall(".//collada:polylist", ns)
+
+                    for tri in triangles:
+                        mat_ref = tri.get("material")
+                        if mat_ref:
+                            if mat_ref not in dae_material_refs:
+                                dae_material_refs[mat_ref] = {"daes": set(), "count": 0}
+                            dae_material_refs[mat_ref]["daes"].add(building_dae.name)
+                            count = int(tri.get("count", 0))
+                            dae_material_refs[mat_ref]["count"] += count
+
+                    for poly in polylists:
+                        mat_ref = poly.get("material")
+                        if mat_ref:
+                            if mat_ref not in dae_material_refs:
+                                dae_material_refs[mat_ref] = {"daes": set(), "count": 0}
+                            dae_material_refs[mat_ref]["daes"].add(building_dae.name)
+                            count = int(poly.get("count", 0))
+                            dae_material_refs[mat_ref]["count"] += count
+                except Exception as e:
+                    self.warning(f"Konnte {building_dae.name} nicht parsen: {e}")
+                    continue
+
+            if dae_material_refs:
+                self.success(f"{len(dae_material_refs)} einzigartige Material-Referenzen in DAEs gefunden")
+            else:
+                self.warning("Keine Material-Referenzen in DAEs gefunden")
+                return
+
+            # === PHASE 2: Validiere dass alle DAE-Material-Referenzen in JSON existieren ===
+            print("\n  [Phase 2] Validiere DAE-Material-Referenzen in JSON...")
+
+            missing_in_json = []
+            material_counts = {}
+
+            for mat_ref, ref_data in dae_material_refs.items():
+                if mat_ref not in materials:
+                    missing_in_json.append(
+                        {"material": mat_ref, "daes": sorted(ref_data["daes"]), "faces": ref_data["count"]}
+                    )
+                else:
+                    material_counts[mat_ref] = ref_data["count"]
+
+            if missing_in_json:
+                self.error(f"{len(missing_in_json)} Material-Referenzen aus DAE nicht in materials.json:")
+                for missing in missing_in_json[:10]:
+                    self.error(
+                        f"  - '{missing['material']}' ({missing['faces']} Faces in {', '.join(missing['daes'][:2])})"
+                    )
+                if len(missing_in_json) > 10:
+                    self.error(f"  ... und {len(missing_in_json)-10} weitere")
+            else:
+                self.success("✓ Alle DAE-Material-Referenzen existieren in materials.json")
+
+            # === PHASE 3: Prüfe Material-Definitionen ===
+            print("\n  [Phase 3] Validiere Material-Definitionen...")
+
+            invalid_definitions = []
+
+            for mat_name, mat_def in materials.items():
+                # Prüfe nur Materialien, die in DAEs referenziert sind
+                if (
+                    mat_name not in dae_material_refs
+                    and not mat_name.startswith("tile_")
+                    and not mat_name.startswith("horizon_")
+                ):
+                    continue
+
+                checks = {
+                    "name": ("name" in mat_def),
+                    "mapTo": ("mapTo" in mat_def),
+                    "class": (mat_def.get("class") == "Material"),
+                    "Stages": (
+                        "Stages" in mat_def and isinstance(mat_def["Stages"], list) and len(mat_def["Stages"]) > 0
+                    ),
+                }
+
+                missing = [k for k, v in checks.items() if not v]
+                if missing:
+                    invalid_definitions.append({"material": mat_name, "missing": missing})
+
+            if invalid_definitions:
+                self.error(f"{len(invalid_definitions)} Material-Definitionen sind ungültig:")
+                for invalid in invalid_definitions[:5]:
+                    self.error(f"  - '{invalid['material']}': fehlt {invalid['missing']}")
+                if len(invalid_definitions) > 5:
+                    self.error(f"  ... und {len(invalid_definitions)-5} weitere")
+            else:
+                self.success("✓ Alle Material-Definitionen sind valide")
+
+            # === PHASE 4: Prüfe Texture-Referenzen im Output-Verzeichnis ===
+            print("\n  [Phase 4] Validiere Texture-Referenzen im Output-Verzeichnis...")
+
+            missing_textures = []
+            texture_coverage = {}
+
+            for mat_name, mat_def in materials.items():
+                if "Stages" not in mat_def or not mat_def["Stages"]:
+                    continue
+
+                stage = mat_def["Stages"][0]
+
+                # Prüfe colorMap (BaseColorMap/Diffuse)
+                if "colorMap" in stage:
+                    tex_path = stage["colorMap"]
+                    resolved_path = self._resolve_relative_path(tex_path)
+
+                    if not resolved_path.exists():
+                        missing_textures.append(
+                            {
+                                "material": mat_name,
+                                "texture_type": "colorMap",
+                                "path": tex_path,
+                                "resolved": str(resolved_path),
+                            }
+                        )
+                    else:
+                        texture_coverage[f"{mat_name}_colorMap"] = {
+                            "path": str(resolved_path),
+                            "size_kb": resolved_path.stat().st_size / 1024,
+                        }
+
+                # Prüfe normalMap
+                if "normalMap" in stage:
+                    tex_path = stage["normalMap"]
+                    resolved_path = self._resolve_relative_path(tex_path)
+
+                    if not resolved_path.exists():
+                        missing_textures.append(
+                            {
+                                "material": mat_name,
+                                "texture_type": "normalMap",
+                                "path": tex_path,
+                                "resolved": str(resolved_path),
+                            }
+                        )
+                    else:
+                        texture_coverage[f"{mat_name}_normalMap"] = {
+                            "path": str(resolved_path),
+                            "size_kb": resolved_path.stat().st_size / 1024,
+                        }
+
+                # Prüfe metallicMap
+                if "metallicMap" in stage:
+                    tex_path = stage["metallicMap"]
+                    resolved_path = self._resolve_relative_path(tex_path)
+
+                    if not resolved_path.exists():
+                        missing_textures.append(
+                            {
+                                "material": mat_name,
+                                "texture_type": "metallicMap",
+                                "path": tex_path,
+                                "resolved": str(resolved_path),
+                            }
+                        )
+                    else:
+                        texture_coverage[f"{mat_name}_metallicMap"] = {
+                            "path": str(resolved_path),
+                            "size_kb": resolved_path.stat().st_size / 1024,
+                        }
+
+            if missing_textures:
+                self.error(f"{len(missing_textures)} referenzierte Texturen fehlen:")
+                for missing in missing_textures[:5]:
+                    self.error(f"  - Material '{missing['material']}' ({missing['texture_type']}): {missing['path']}")
+                if len(missing_textures) > 5:
+                    self.error(f"  ... und {len(missing_textures)-5} weitere")
+            else:
+                self.success(f"✓ Alle {len(texture_coverage)} Textur-Referenzen existieren im Output-Verzeichnis")
+
+            # === PHASE 5: Statistik und Zusammenfassung ===
+            print("\n  [Phase 5] Material-Chain-Statistik:")
+
+            # Gruppiere Materialien nach Typ
+            tile_materials = {m: c for m, c in material_counts.items() if m.startswith(MATERIAL_PREFIX_TERRAIN_TILE)}
+            terrain_materials = {m: c for m, c in material_counts.items() if m.startswith(MATERIAL_PREFIX_ROAD)}
+            lod2_materials = {m: c for m, c in material_counts.items() if m.startswith(MATERIAL_PREFIX_LOD2)}
+            other_materials = {
+                m: c
+                for m, c in material_counts.items()
+                if m not in tile_materials and m not in terrain_materials and m not in lod2_materials
+            }
+
+            if tile_materials:
+                total_tile_faces = sum(tile_materials.values())
+                print(f"    • Terrain-Tiles: {len(tile_materials)} Materialien, {total_tile_faces:,} Faces")
+
+            if terrain_materials:
+                total_street_faces = sum(terrain_materials.values())
+                print(f"    • Straßen: {len(terrain_materials)} Materialien, {total_street_faces:,} Faces")
+
+            if lod2_materials:
+                total_lod2_faces = sum(lod2_materials.values())
+                print(f"    • Gebäude (LoD2): {len(lod2_materials)} Materialien, {total_lod2_faces:,} Faces")
+
+            if other_materials:
+                total_other_faces = sum(other_materials.values())
+                print(f"    • Sonstige: {len(other_materials)} Materialien, {total_other_faces:,} Faces")
+
+            total_faces = sum(material_counts.values())
+            total_textures = len(texture_coverage)
+            print(
+                f"\n    [SUMMARY] {len(material_counts)} referenzierte Materialien, {total_faces:,} Faces, {total_textures} Texturen"
+            )
+
+            # === FINAL: Bestimme Integrität-Status ===
+            if not missing_in_json and not missing_textures and not invalid_definitions:
+                self.success("✓✓✓ Material-Chain ist VOLLSTÄNDIG INTAKT")
+            elif not missing_in_json and not invalid_definitions:
+                self.warning(f"Material-Chain ist ZUFRIEDENSTELLEND ({len(missing_textures)} Texture-Issues)")
+            else:
+                self.error("Material-Chain hat KRITISCHE FEHLER")
+
+        except json.JSONDecodeError as e:
+            self.error(f"JSON-Parse-Fehler in materials.json: {e}")
+        except Exception as e:
+            self.error(f"Fehler beim Material-Chain-Test: {e}")
+
+    def test_road_materials_debug(self):
+        """Debugge Straßen-/andere-Materialien - analysiere was in DAE verwendet wird vs. materials.json."""
+        print("\n[3c] DEBUG: Material-Rendering-Analyse...")
+
+        materials_json = self.beamng_dir / MAIN_DIR / MATERIALS_JSON
+
+        if not materials_json.exists():
+            self.warning(f"materials.json nicht gefunden: {materials_json}")
+            return
+
+        try:
+            with open(materials_json, "r", encoding="utf-8") as f:
+                materials = json.load(f)
+
+            # === PHASE 1: Sammle Materialien-Kategorien aus DAE ===
+            print("\n  [DAE-Material Kategorisierung]")
+
+            terrain_mats = set(
+                m for m in self.dae_materials | self.triangle_materials if m.startswith(MATERIAL_PREFIX_TERRAIN_TILE)
+            )
+            lod2_mats = set(
+                m for m in self.dae_materials | self.triangle_materials if m.startswith(MATERIAL_PREFIX_LOD2)
+            )
+
+            # Alle übrigen Materialien = Straßen/Sonstige
+            other_mats = (self.dae_materials | self.triangle_materials) - terrain_mats - lod2_mats
+
+            self.success(f"{len(terrain_mats)} Terrain-Tile-Materialien")
+            self.success(f"{len(lod2_mats)} LoD2-Gebäude-Materialien")
+            self.success(f"{len(other_mats)} Sonstige-Materialien (Straßen/andere)")
+
+            if not other_mats:
+                self.warning("Keine Straßen/Sonstigen-Materialien gefunden")
+                return
+
+            # === PHASE 2: Analysiere die "sonstigen" Materialien ===
+            print("\n  [Sonstige-Material Details (z.B. Straßen)]")
+
+            for mat_name in sorted(other_mats)[:10]:  # Zeige erste 10
+                if mat_name not in materials:
+                    self.error(f"Material '{mat_name}' in DAE verwendet, aber NICHT in materials.json!")
+                    continue
+
+                mat_def = materials[mat_name]
+                print(f"\n    Material: {mat_name}")
+                print(f"      mapTo: {mat_def.get('mapTo', 'FEHLT')}")
+                print(f"      class: {mat_def.get('class', 'FEHLT')}")
+
+                # Prüfe Stages
+                stages = mat_def.get("Stages", [])
+                if stages:
+                    stage = stages[0]
+                    print(f"      Stages[0]:")
+
+                    # Prüfe alle Texture-Felder (colorMap/baseColorMap sind austauschbar)
+                    tex_fields = ["colorMap", "baseColorMap", "normalMap", "metallicMap", "roughnessMap"]
+                    has_textures = False
+                    for tex_field in tex_fields:
+                        if tex_field in stage:
+                            tex_path = stage[tex_field]
+                            resolved = self._resolve_relative_path(tex_path)
+                            exists = "✓" if resolved.exists() else "✗"
+                            print(f"        {tex_field}: {exists} {tex_path}")
+                            if resolved.exists():
+                                has_textures = True
+                            if not resolved.exists():
+                                print(f"                 ✗ FEHLT: {resolved}")
+
+                    if not has_textures:
+                        self.error(f"    ⚠️  Material '{mat_name}': KEINE Texturen definiert!")
+                else:
+                    self.error(f"    ⚠️  Material '{mat_name}': Keine Stages definiert!")
+
+            if len(other_mats) > 10:
+                print(f"\n    ... und {len(other_mats)-10} weitere")
+
+            # === PHASE 3: Texture-Pfade-Validierung ===
+            print("\n  [Texture-Pfade Validierung]")
+
+            texture_issues = []
+            valid_textures = 0
+
+            for mat_name in other_mats:
+                if mat_name not in materials:
+                    continue
+
+                mat_def = materials[mat_name]
+                stages = mat_def.get("Stages", [])
+                if not stages:
+                    continue
+
+                stage = stages[0]
+
+                # Prüfe colorMap oder baseColorMap (KRITISCH - wird für Rendering benötigt!)
+                # BeamNG akzeptiert beide Namen für die Oberflächenfarb-Textur
+                color_map = stage.get("colorMap", "") or stage.get("baseColorMap", "")
+                if not color_map:
+                    # colorMap oder baseColorMap ist ERFORDERLICH für sichtbare Materialien
+                    texture_issues.append(
+                        f"{mat_name}: ❌ KRITISCH: colorMap/baseColorMap FEHLT - Straße wird nicht sichtbar!"
+                    )
+                else:
+                    resolved = self._resolve_relative_path(color_map)
+                    if resolved.exists():
+                        valid_textures += 1
+                    else:
+                        # Analyse warum Datei nicht existiert
+                        if color_map.startswith("\\levels\\"):
+                            texture_issues.append(f"{mat_name}: Pfad-Format OK, aber DATEI FEHLT: {resolved}")
+                        else:
+                            texture_issues.append(f"{mat_name}: Ungültiges Pfad-Format: {color_map}")
+
+            if texture_issues:
+                self.error(f"{len(texture_issues)} Texture-Probleme in Straßen/Sonstigen-Materialien:")
+                for issue in texture_issues[:10]:
+                    self.error(f"  - {issue}")
+                if len(texture_issues) > 10:
+                    self.error(f"  ... und {len(texture_issues)-10} weitere")
+
+                # Analyse: Sind ALLE colorMaps fehlend?
+                colormap_missing_count = sum(
+                    1
+                    for issue in texture_issues
+                    if "colorMap FEHLT" in issue or "colorMap" in issue and "FEHLT" in issue
+                )
+                if colormap_missing_count == len(texture_issues):
+                    self.error("\n  ⚠️  ROOT CAUSE GEFUNDEN:")
+                    self.error("      Alle Straßen-Materialien sind OHNE colorMap definiert!")
+                    self.error("      → normalMap und roughnessMap sind vorhanden")
+                    self.error("      → ABER: colorMap (BaseColor) fehlt komplett")
+                    self.error("      → BeamNG kann ohne colorMap keine Oberflächenfarbe rendern")
+                    self.error("      → Daher sehen die Straßen falsch/grau aus")
+                    self.error("\n      LÖSUNG: Alle Straßen-Materialien müssen eine colorMap bekommen!")
+            else:
+                self.success(f"✓ Alle {valid_textures} Straßen-Material-Texturen sind verfügbar")
+
+        except json.JSONDecodeError as e:
+            self.error(f"JSON-Parse-Fehler: {e}")
+        except Exception as e:
+            self.error(f"Fehler beim Material-Debug: {e}")
+
+    def test_dds_metadata_and_pbr_shader(self):
+        """Teste DDS-Metadaten und PBR-Shader-Definitionen für Straßen-Materialien."""
+        print("\n[DDS & PBR] Teste DDS-Metadaten und Shader-Definitionen...")
+
+        materials_json = self.beamng_dir / MAIN_DIR / MATERIALS_JSON
+        if not materials_json.exists():
+            self.error(f"materials.json nicht gefunden: {materials_json}")
+            return
+
+        try:
+            with open(materials_json, "r", encoding="utf-8") as f:
+                materials = json.load(f)
+
+            print(f"\n  [Analysiere {len(materials)} Materialien]")
+
+            dds_issues = []
+            pbr_issues = []
+            valid_dds = []
+            valid_pbr = []
+
+            for mat_name, mat_def in materials.items():
+                # Filtere nur Straßen-Materialien
+                if mat_name.startswith(MATERIAL_PREFIX_TERRAIN_TILE) or mat_name.startswith(MATERIAL_PREFIX_LOD2):
+                    continue
+
+                print(f"\n    Material: {mat_name}")
+
+                # === PRÜFE PBR-SHADER ===
+                shader_type = mat_def.get("shader", "unknown")
+                print(f"      Shader: {shader_type}", end="")
+
+                if shader_type == "PBR":
+                    print(" ✓")
+                    valid_pbr.append(mat_name)
+                else:
+                    print(" ✗ (sollte PBR sein!)")
+                    pbr_issues.append(f"{mat_name}: Shader ist '{shader_type}' (sollte PBR sein)")
+
+                # === PRÜFE DDS-METADATEN ===
+                if "Stages" not in mat_def or not mat_def["Stages"]:
+                    continue
+
+                stage = mat_def["Stages"][0]
+
+                # Prüfe colorMap
+                if "colorMap" in stage:
+                    tex_path = stage["colorMap"]
+                    resolved_path = self._resolve_relative_path(tex_path)
+
+                    if resolved_path.exists() and resolved_path.suffix.lower() == ".dds":
+                        try:
+                            dds_info = self._read_dds_header(resolved_path)
+                            print(f"        colorMap: {resolved_path.name}")
+                            print(f"          Format: {dds_info.get('format', 'unknown')}")
+                            print(f"          Größe: {dds_info.get('width', '?')}x{dds_info.get('height', '?')}")
+                            print(f"          Mipmaps: {dds_info.get('mipmaps', 0)}")
+
+                            # Validiere Format
+                            if dds_info.get("format") in ["DXT1", "DXT3", "DXT5", "BC4", "BC5", "BC6H", "BC7"]:
+                                valid_dds.append(f"{mat_name}_colorMap")
+                                print(f"          ✓ Format OK")
+                            else:
+                                dds_issues.append(
+                                    f"{mat_name}: colorMap hat unerwartetes Format '{dds_info.get('format')}'"
+                                )
+                                print(f"          ⚠️  Unerwartetes Format!")
+
+                        except Exception as e:
+                            dds_issues.append(f"{mat_name}: Fehler beim Lesen von colorMap - {str(e)}")
+                            print(f"          ✗ Fehler: {e}")
+
+                # Prüfe normalMap
+                if "normalMap" in stage:
+                    tex_path = stage["normalMap"]
+                    resolved_path = self._resolve_relative_path(tex_path)
+
+                    if resolved_path.exists() and resolved_path.suffix.lower() == ".dds":
+                        try:
+                            dds_info = self._read_dds_header(resolved_path)
+                            print(f"        normalMap: {resolved_path.name}")
+                            print(f"          Format: {dds_info.get('format', 'unknown')}")
+                            print(f"          Größe: {dds_info.get('width', '?')}x{dds_info.get('height', '?')}")
+                            print(f"          ✓ Format OK")
+                            valid_dds.append(f"{mat_name}_normalMap")
+                        except Exception as e:
+                            dds_issues.append(f"{mat_name}: Fehler beim Lesen von normalMap - {str(e)}")
+                            print(f"          ✗ Fehler: {e}")
+
+            # === ZUSAMMENFASSUNG ===
+            print(f"\n  [Zusammenfassung]")
+            print(f"    ✓ {len(valid_pbr)} Materialien mit PBR-Shader")
+            print(f"    ✓ {len(valid_dds)} DDS-Texturen validiert")
+
+            if pbr_issues:
+                self.error(f"  ✗ {len(pbr_issues)} PBR-Shader-Probleme:")
+                for issue in pbr_issues[:5]:
+                    self.error(f"      - {issue}")
+                if len(pbr_issues) > 5:
+                    self.error(f"      ... und {len(pbr_issues)-5} weitere")
+
+            if dds_issues:
+                self.error(f"  ✗ {len(dds_issues)} DDS-Metadaten-Probleme:")
+                for issue in dds_issues[:5]:
+                    self.error(f"      - {issue}")
+                if len(dds_issues) > 5:
+                    self.error(f"      ... und {len(dds_issues)-5} weitere")
+
+            if not pbr_issues and not dds_issues:
+                self.success(f"  ✓ Alle DDS-Metadaten und PBR-Definitionen sind korrekt!")
+
+        except json.JSONDecodeError as e:
+            self.error(f"JSON-Parse-Fehler: {e}")
+        except Exception as e:
+            self.error(f"Fehler beim DDS/PBR-Test: {e}")
+
+    def _read_dds_header(self, dds_path):
+        """Lese DDS-Header und extrahiere Metadaten."""
+        with open(dds_path, "rb") as f:
+            # DDS-Magic "DDS "
+            magic = f.read(4)
+            if magic != b"DDS ":
+                raise ValueError("Ungültiges DDS-Format (Magic nicht 'DDS ')")
+
+            # DWORD dwSize (immer 124)
+            dword_size = int.from_bytes(f.read(4), "little")
+
+            # Flags
+            f.seek(8)
+            flags = int.from_bytes(f.read(4), "little")
+
+            # Höhe und Breite
+            height = int.from_bytes(f.read(4), "little")
+            width = int.from_bytes(f.read(4), "little")
+
+            # Pitch
+            pitch = int.from_bytes(f.read(4), "little")
+
+            # Depth
+            depth = int.from_bytes(f.read(4), "little")
+
+            # Mipmaps
+            mipmaps = int.from_bytes(f.read(4), "little")
+
+            # Skip reserved bytes
+            f.seek(32 + 4 + 4 + 4 + 4 + 4 + 4 + 4 + 10 * 4)
+
+            # Lese PixelFormat struct
+            pf_size = int.from_bytes(f.read(4), "little")
+            pf_flags = int.from_bytes(f.read(4), "little")
+            fourcc = f.read(4)
+
+            # Bestimme Format aus FourCC
+            format_map = {
+                b"DXT1": "DXT1",
+                b"DXT3": "DXT3",
+                b"DXT5": "DXT5",
+                b"BC4U": "BC4",
+                b"BC4S": "BC4",
+                b"BC5U": "BC5",
+                b"BC5S": "BC5",
+                b"BC6H": "BC6H",
+                b"BC7 ": "BC7",
+            }
+
+            dds_format = format_map.get(fourcc, fourcc.decode("utf-8", errors="ignore").strip())
+
+            return {
+                "width": width,
+                "height": height,
+                "mipmaps": mipmaps,
+                "format": dds_format,
+                "depth": depth,
+            }
+
+    def test_road_material_binding_uv(self):
+        """Teste Material-Binding und UV-Mapping für Straßen-Geometrien in DAE."""
+        print("\n[3d] DEBUG: Straßen-Material-Binding und UV-Mapping...")
+
+        # Suche Terrain-DAEs
+        terrain_daes = list(self.shapes_dir.glob(TERRAIN_DAE_PATTERN))
+
+        if not terrain_daes:
+            self.warning(f"Keine {TERRAIN_DAE_PATTERN} gefunden")
+            return
+
+        print(f"\n  [Analyze {len(terrain_daes)} Terrain-DAEs]")
+
+        for terrain_dae in terrain_daes:
+            try:
+                tree = ET.parse(terrain_dae)
+                root = tree.getroot()
+                ns = {"collada": "http://www.collada.org/2005/11/COLLADASchema"}
+
+                # === PHASE 1: Extrahiere Geometrien und deren Material-Referenzen ===
+                geometries = root.findall(".//collada:geometry", ns)
+
+                road_geometries = []  # Geometrien mit Straßen-Materialien
+
+                for geom in geometries:
+                    geom_name = geom.get("name", "unknown")
+                    geom_id = geom.get("id", "unknown")
+
+                    # Finde Primitive (triangles/polylist) in dieser Geometrie
+                    primitives = geom.findall(".//collada:triangles", ns) + geom.findall(".//collada:polylist", ns)
+
+                    for prim in primitives:
+                        mat_ref = prim.get("material")
+
+                        # Filtere nur Straßen-Materialien (nicht tile_* und nicht lod2_*)
+                        if (
+                            mat_ref
+                            and not mat_ref.startswith(MATERIAL_PREFIX_TERRAIN_TILE)
+                            and not mat_ref.startswith(MATERIAL_PREFIX_LOD2)
+                        ):
+                            # Das ist eine Straße oder sonstiges Material
+                            road_geometries.append(
+                                {
+                                    "geom_name": geom_name,
+                                    "geom_id": geom_id,
+                                    "material": mat_ref,
+                                    "primitive": prim,
+                                    "count": int(prim.get("count", 0)),
+                                }
+                            )
+
+                if not road_geometries:
+                    self.warning(f"  {terrain_dae.name}: Keine Straßen-Geometrien gefunden")
+                    continue
+
+                self.success(f"  {terrain_dae.name}: {len(road_geometries)} Straßen-Geometrien gefunden")
+
+                # === PHASE 2: Prüfe Material-Binding und UV-Mapping ===
+                print(f"\n    [Material-Binding Analyse] {len(road_geometries)} Straßen-Geometrien:")
+
+                binding_issues = []
+                uv_issues = []
+
+                for road_geom in road_geometries[:5]:  # Zeige erste 5
+                    mat_name = road_geom["material"]
+                    geom_name = road_geom["geom_name"]
+
+                    print(f"\n      Geometrie: {geom_name}")
+                    print(f"        Material-Ref: {mat_name}")
+                    print(f"        Faces: {road_geom['count']}")
+
+                    # Prüfe ob Material in materials.json existiert
+                    materials_json = self.beamng_dir / MAIN_DIR / MATERIALS_JSON
+                    if materials_json.exists():
+                        with open(materials_json, "r", encoding="utf-8") as f:
+                            materials = json.load(f)
+
+                        if mat_name in materials:
+                            print(f"        ✓ Material '{mat_name}' in materials.json gefunden")
+                        else:
+                            binding_issues.append(f"{geom_name}: Material '{mat_name}' NICHT in materials.json")
+                            print(f"        ✗ Material '{mat_name}' NICHT in materials.json!")
+
+                    # === Prüfe UV-Mapping in dieser Geometrie ===
+                    prim = road_geom["primitive"]
+
+                    # Suche inputs für diese primitive
+                    inputs = prim.findall(".//collada:input", ns)
+                    input_sources = {}
+
+                    for inp in inputs:
+                        semantic = inp.get("semantic")
+                        source_ref = inp.get("source", "").lstrip("#")
+                        input_sources[semantic] = source_ref
+
+                    has_position = "POSITION" in input_sources
+                    has_normal = "NORMAL" in input_sources
+                    has_texcoord = "TEXCOORD" in input_sources or any("TEXCOORD" in s for s in input_sources.keys())
+
+                    print(f"        Inputs: POSITION={has_position}, NORMAL={has_normal}, TEXCOORD={has_texcoord}")
+
+                    if not has_texcoord:
+                        uv_issues.append(f"{geom_name}: ✗ KEINE Texture-Koordinaten (TEXCOORD) definiert!")
+                        print(f"        ⚠️  WARNUNG: Keine UV-Koordinaten vorhanden!")
+                    else:
+                        # Versuche Texcoord-Daten zu extrahieren
+                        texcoord_source = next(
+                            (s for s in input_sources.values() if "TEXCOORD" in s or "uv" in s.lower()), None
+                        )
+                        if texcoord_source:
+                            print(f"        ✓ Texcoord-Source: {texcoord_source}")
+
+                if len(road_geometries) > 5:
+                    print(f"\n      ... und {len(road_geometries)-5} weitere")
+
+                # === PHASE 3: Zusammenfassung ===
+                print(f"\n    [Binding Issues] {len(binding_issues)}")
+                for issue in binding_issues:
+                    self.error(f"      - {issue}")
+
+                if uv_issues:
+                    self.error(f"    [UV-Mapping Issues] {len(uv_issues)}:")
+                    for issue in uv_issues:
+                        self.error(f"      - {issue}")
+                        self.error("        → Grund: Texturen können nicht korrekt mapped werden!")
+                else:
+                    self.success(f"    ✓ Alle Straßen-Geometrien haben UV-Koordinaten")
+
+                if not binding_issues and not uv_issues:
+                    self.success(f"    ✓ Material-Binding und UV-Mapping OK für {len(road_geometries)} Geometrien")
+
+            except ET.ParseError as e:
+                self.error(f"  {terrain_dae.name}: XML-Parse-Fehler - {e}")
+            except Exception as e:
+                self.error(f"  {terrain_dae.name}: Fehler - {e}")
 
     def test_items_json(self):
         """Teste items.json Integrität."""
@@ -447,7 +1253,7 @@ class ExportIntegrityTest:
             self.success(f"{len(items)} Items definiert")
 
             # Prüfe Terrain-Item (dynamisch: "terrain_<x>_<y>")
-            terrain_items = [k for k in items.keys() if k.startswith("terrain_")]
+            terrain_items = [k for k in items.keys() if k.startswith(TERRAIN_ITEMS_PREFIX)]
             if terrain_items:
                 terrain_item_name = terrain_items[0]
                 terrain_item = items[terrain_item_name]
@@ -457,34 +1263,59 @@ class ExportIntegrityTest:
                 if terrain_item.get("collisionType") != "Visible Mesh Final":
                     self.warning(f"Terrain-Item {terrain_item_name}: collisionType != Visible Mesh Final")
             else:
-                self.warning("Kein terrain_<x>_<y> Item gefunden")
+                self.warning(f"Kein {TERRAIN_ITEMS_PREFIX}<x>_<y> Item gefunden")
 
             # Zähle Gebäude-Items
-            building_items = [k for k in items.keys() if k.startswith("buildings_tile_")]
+            building_items = [k for k in items.keys() if k.startswith(BUILDING_ITEMS_PREFIX)]
             if building_items:
                 self.success(f"{len(building_items)} Gebäude-Tile-Items")
             else:
                 self.warning("Keine Gebäude-Items gefunden")
 
             # Prüfe Item-Struktur und Shape-Referenzen
+            # Nur echte Items testen: Terrain-Items, Gebäude-Items, Horizon-Item
+            # Ignoriere Meta-Felder wie "name", "class", "__metadata" etc. (Felder, die nicht mit _ starten und nur Kleinbuchstaben sind)
             invalid_items = []
             missing_shapes = []
 
+            # Sammle echte Item-Namen
+            real_item_names = set()
+            real_item_names.update(terrain_items)
+            real_item_names.update(building_items)
+            if HORIZON_ITEM_NAME in items:
+                real_item_names.add(HORIZON_ITEM_NAME)
+
+            # Teste nur echte Items
             for item_name, item_data in items.items():
+                # Überspringe Meta-Felder (Felder ohne Großbuchstaben am Anfang oder spezielle Präfixe)
+                if not isinstance(item_data, dict):
+                    continue
+
+                # Nur Items mit relevanten Namen testen
+                if item_name not in real_item_names:
+                    # Überspringe auch Items mit Kleinbuchstaben am Anfang (Meta-Felder)
+                    if item_name[0].islower():
+                        continue
+
+                # Prüfe erforderliche Felder für echte Items
                 if "__name" not in item_data:
                     invalid_items.append(f"{item_name}: fehlt '__name'")
                 if "class" not in item_data:
                     invalid_items.append(f"{item_name}: fehlt 'class'")
-                if "shapeName" not in item_data:
-                    invalid_items.append(f"{item_name}: fehlt 'shapeName'")
-                else:
-                    # Prüfe ob Shape-Datei existiert (mit relativen Pfaden)
+
+                # shapeName ist optional für manche Items (z.B. Items ohne Geometrie)
+                # aber wenn vorhanden, dann validieren
+                if "shapeName" in item_data:
                     shape_name = item_data["shapeName"]
                     # Konvertiere relativen Pfad zu absolutem Windows-Pfad
                     shape_file = self._resolve_relative_path(shape_name)
 
                     if not shape_file.exists():
                         missing_shapes.append(f"{item_name} → {shape_name} ({shape_file})")
+                elif item_name in real_item_names and item_name != HORIZON_ITEM_NAME:
+                    # Gebäude und Terrain Items sollten shapeName haben
+                    if item_name.startswith(TERRAIN_ITEMS_PREFIX) or item_name.startswith(BUILDING_ITEMS_PREFIX):
+                        invalid_items.append(f"{item_name}: fehlt 'shapeName'")
 
             if invalid_items:
                 for err in invalid_items[:5]:
@@ -516,7 +1347,7 @@ class ExportIntegrityTest:
             self.warning(f"Textures-Verzeichnis nicht gefunden: {self.textures_dir}")
             return
 
-        textures = list(self.textures_dir.glob("tile_*.dds"))
+        textures = list(self.textures_dir.glob(f"{TEXTURE_PREFIX_TILE}*.dds"))
 
         if len(textures) == 0:
             self.warning("Keine Tile-Texturen gefunden")
@@ -532,7 +1363,7 @@ class ExportIntegrityTest:
             size = tex.stat().st_size
             if size == 0:
                 empty_textures.append(tex.name)
-            elif size > 50 * 1024 * 1024:  # > 50 MB
+            elif size > TEXTURE_MAX_SIZE_MB * 1024 * 1024:
                 large_textures.append(f"{tex.name} ({size/1024/1024:.1f}MB)")
 
         if empty_textures:
@@ -569,7 +1400,7 @@ class ExportIntegrityTest:
             self.warning("Textures-Verzeichnis nicht gefunden, überspringe Mapping-Test")
             return
 
-        texture_files = list(self.textures_dir.glob("tile_*.dds"))
+        texture_files = list(self.textures_dir.glob(f"{TEXTURE_PREFIX_TILE}*.dds"))
         texture_keys = set(f.stem for f in texture_files)
 
         if not texture_keys:
@@ -579,10 +1410,10 @@ class ExportIntegrityTest:
         self.success(f"{len(texture_keys)} Texturdateien vorhanden")
 
         # Teste alle Terrain-DAE Dateien
-        terrain_daes = list(self.shapes_dir.glob("terrain_*.dae"))
+        terrain_daes = list(self.shapes_dir.glob(TERRAIN_DAE_PATTERN))
 
         if not terrain_daes:
-            self.warning("Keine terrain_*.dae gefunden")
+            self.warning(f"Keine {TERRAIN_DAE_PATTERN} gefunden")
             return
 
         total_geometries = 0
@@ -603,14 +1434,14 @@ class ExportIntegrityTest:
                     total_geometries += 1
 
                     # Konvertiere Geometry-Name zu Texture-Key
-                    if geom_name.startswith("tile_"):
+                    if geom_name.startswith(TEXTURE_PREFIX_TILE):
                         parts = geom_name.split("_")
                         if len(parts) == 3:  # "tile_X_Y"
                             try:
                                 idx_x = int(parts[1])
                                 idx_y = int(parts[2])
                                 coords = self._index_to_coords(idx_x, idx_y)
-                                texture_key = f"tile_{coords[0]}_{coords[1]}"
+                                texture_key = f"{TEXTURE_PREFIX_TILE}{coords[0]}_{coords[1]}"
 
                                 if texture_key not in texture_keys:
                                     unmapped_geometries.append((dae_file.name, geom_name, texture_key))
@@ -757,7 +1588,11 @@ class ExportIntegrityTest:
                     invalid_colors = []
                     for color_name, color_def in grid_colors.items():
                         # Debug-Layer haben andere Struktur
-                        if color_name in ["junction", "centerline", "boundary"]:
+                        if color_name in [
+                            MATERIAL_PREFIX_JUNCTION,
+                            MATERIAL_PREFIX_CENTERLINE,
+                            MATERIAL_PREFIX_BOUNDARY,
+                        ]:
                             required_fields = ["color", "opacity"]
                         else:
                             # Mesh-Layer
@@ -927,7 +1762,7 @@ class ExportIntegrityTest:
         from tools.dae_loader import load_dae_tile
 
         # === LADE TERRAIN-DAE ===
-        terrain_dae = self.shapes_dir / "terrain.dae"
+        terrain_dae = self.shapes_dir / TERRAIN_HORIZON_DAE.replace("_horizon", "")
         terrain_z_values = []
 
         if terrain_dae.exists():
@@ -1066,7 +1901,7 @@ class ExportIntegrityTest:
                 building_min = min(building_z_values)
                 diff = building_min - terrain_min
 
-                if diff >= -5.0:  # 5m Toleranz für Fundamente
+                if diff >= -BUILDING_Z_TOLERANCE_M:  # Toleranz für Fundamente
                     self.success(f"Gebäude-Basishöhe relativ zu Terrain: {diff:.2f}m")
                 else:
                     self.error(f"Gebäude zu tief unter Terrain: {diff:.2f}m")
@@ -1078,8 +1913,8 @@ class ExportIntegrityTest:
 
                 # Erlauben Sie große Varianz (unterschiedliche Terrainerhöhungen sind normal)
                 # Suche nur nach extremen Ausreißern (z.B. 10σ)
-                outlier_threshold_high = mean + 10 * std
-                outlier_threshold_low = mean - 10 * std
+                outlier_threshold_high = mean + Z_OUTLIER_SIGMA * std
+                outlier_threshold_low = mean - Z_OUTLIER_SIGMA * std
 
                 outliers_high = sum(1 for z in all_z_values if z > outlier_threshold_high)
                 outliers_low = sum(1 for z in all_z_values if z < outlier_threshold_low)
@@ -1087,21 +1922,26 @@ class ExportIntegrityTest:
                 if outliers_high + outliers_low == 0:
                     self.success(f"Keine extremen Z-Koordinaten-Ausreißer gefunden")
                 else:
-                    self.warning(f"{outliers_high + outliers_low} extreme Ausreisser (>M±10s) gefunden")
+                    self.warning(f"{outliers_high + outliers_low} extreme Ausreisser (>M±{Z_OUTLIER_SIGMA}s) gefunden")
         else:
             self.warning("Keine Z-Koordinaten zum Vergleich vorhanden")
 
     def test_horizon_dae(self):
-        """Teste terrain_horizon.dae Integrität."""
+        """Teste terrain_horizon.dae Integrität (nur wenn Horizon-Item in items.json vorhanden ist)."""
         print("\n[Horizon] Teste terrain_horizon.dae...")
 
-        horizon_dae = self.shapes_dir / "terrain_horizon.dae"
-
-        if not horizon_dae.exists():
-            self.warning("terrain_horizon.dae nicht gefunden - Horizon-Layer nicht generiert")
+        # Überspringe Test, wenn kein Horizon-Item registriert ist
+        if not self.has_horizon_item:
+            self.warning("Kein Horizon-Item in items.json gefunden - überspringe Horizon-DAE-Test")
             return
 
-        self.success(f"terrain_horizon.dae gefunden")
+        horizon_dae = self.shapes_dir / TERRAIN_HORIZON_DAE
+
+        if not horizon_dae.exists():
+            self.warning(f"{TERRAIN_HORIZON_DAE} nicht gefunden - Horizon-Layer nicht generiert")
+            return
+
+        self.success(f"{TERRAIN_HORIZON_DAE} gefunden")
 
         # Parse XML
         try:
@@ -1168,13 +2008,18 @@ class ExportIntegrityTest:
             self.error(f"Fehler beim Parsen horizon DAE: {e}")
 
     def test_horizon_materials(self):
-        """Teste Horizon-Material in materials.json."""
+        """Teste Horizon-Material in materials.json (nur wenn Horizon-Item in items.json vorhanden ist)."""
         print("\n[Horizon] Teste Horizon-Material...")
 
-        materials_path = self.beamng_dir / "main.materials.json"
+        # Überspringe Test, wenn kein Horizon-Item registriert ist
+        if not self.has_horizon_item:
+            self.warning("Kein Horizon-Item in items.json gefunden - überspringe Horizon-Material-Test")
+            return
+
+        materials_path = self.beamng_dir / MAIN_DIR / MATERIALS_JSON
 
         if not materials_path.exists():
-            self.warning("main.materials.json nicht gefunden")
+            self.warning("materials.json nicht gefunden")
             return
 
         try:
@@ -1182,12 +2027,12 @@ class ExportIntegrityTest:
                 materials = json.load(f)
 
             # Prüfe horizon_terrain Material
-            if "horizon_terrain" not in materials:
-                self.warning("horizon_terrain Material nicht in materials.json")
+            if HORIZON_MATERIAL not in materials:
+                self.warning(f"{HORIZON_MATERIAL} Material nicht in materials.json")
                 return
 
-            horizon_mat = materials["horizon_terrain"]
-            self.success("horizon_terrain Material gefunden")
+            horizon_mat = materials[HORIZON_MATERIAL]
+            self.success(f"{HORIZON_MATERIAL} Material gefunden")
 
             # Prüfe erforderliche Felder (mit Ausnahme diffuseMap für Phase 5)
             required_fields = ["name", "mapTo", "version"]
@@ -1216,30 +2061,26 @@ class ExportIntegrityTest:
             self.error(f"Fehler beim Parsen materials.json: {e}")
 
     def test_horizon_items(self):
-        """Teste Horizon-Item in items.json."""
+        """Teste Horizon-Item in items.json (nur wenn vorhanden)."""
         print("\n[Horizon] Teste Horizon-Item...")
 
-        items_path = self.beamng_dir / Path(config.ITEMS_JSON)
-
-        if not items_path.exists():
-            self.warning("items.json nicht gefunden")
+        # Überspringe Test, wenn kein Horizon-Item registriert ist
+        if not self.has_horizon_item:
+            self.warning("Kein Horizon-Item in items.json gefunden - überspringe Horizon-Item-Test")
             return
 
         try:
-            with open(items_path, "r") as f:
-                items = json.load(f)
-
-            # Prüfe Horizon Item
-            if "Horizon" not in items:
-                self.warning("Horizon Item nicht in items.json")
+            items = self.items  # Prüfe Horizon Item
+            if HORIZON_ITEM_NAME not in items:
+                self.warning(f"{HORIZON_ITEM_NAME} Item nicht in items.json")
                 return
 
-            horizon_item = items["Horizon"]
-            self.success("Horizon Item gefunden")
+            horizon_item = items[HORIZON_ITEM_NAME]
+            self.success(f"{HORIZON_ITEM_NAME} Item gefunden")
 
             # Prüfe erforderliche Felder
             required_fields = {
-                "__name": "Horizon",
+                "__name": HORIZON_ITEM_NAME,
                 "className": "TSStatic",
                 "datablock": "DefaultStaticShape",
             }
@@ -1277,7 +2118,7 @@ class ExportIntegrityTest:
 
             # Prüfe shapeName
             shape_name = horizon_item.get("shapeName", "")
-            if "terrain_horizon.dae" in shape_name or "horizon" in shape_name.lower():
+            if TERRAIN_HORIZON_DAE in shape_name or "horizon" in shape_name.lower():
                 # Konvertiere relativen Pfad zu absolutem Windows-Pfad
                 horizon_dae = self._resolve_relative_path(shape_name)
                 if horizon_dae.exists():
@@ -1285,7 +2126,7 @@ class ExportIntegrityTest:
                 else:
                     self.error(f"  - shapeName referenziert nicht-existente DAE: {shape_name} ({horizon_dae})")
             else:
-                self.warning(f"  - shapeName: {shape_name} (erwartet: terrain_horizon.dae)")
+                self.warning(f"  - shapeName: {shape_name} (erwartet: {TERRAIN_HORIZON_DAE})")
 
             # Prüfe meshCulling und originSort
             if horizon_item.get("meshCulling") == 0:
@@ -1297,10 +2138,15 @@ class ExportIntegrityTest:
             self.error(f"Fehler beim Parsen items.json: {e}")
 
     def test_horizon_uv_mapping(self):
-        """Teste UV-Mapping Plausibilität in horizon DAE."""
+        """Teste UV-Mapping Plausibilität in horizon DAE (nur wenn Horizon-Item vorhanden ist)."""
         print("\n[Horizon] Teste UV-Mapping Plausibilität...")
 
-        horizon_dae = self.shapes_dir / "terrain_horizon.dae"
+        # Überspringe Test, wenn kein Horizon-Item registriert ist
+        if not self.has_horizon_item:
+            self.warning("Kein Horizon-Item in items.json gefunden - überspringe Horizon-UV-Test")
+            return
+
+        horizon_dae = self.shapes_dir / TERRAIN_HORIZON_DAE
 
         if not horizon_dae.exists():
             self.warning("terrain_horizon.dae nicht gefunden - überspringe UV-Test")
@@ -1334,7 +2180,7 @@ class ExportIntegrityTest:
 
             # Prüfe ob UVs im erwarteten Bereich sind (mit Offset/Skalierung)
             # Normalerweise sollten sie zwischen -0.1 und 1.1 sein (mit kleinen Offsets)
-            if uv_min >= -0.5 and uv_max <= 1.5:
+            if uv_min >= UV_RANGE_MIN and uv_max <= UV_RANGE_MAX:
                 self.success(f"UV-Werte im erwarteten Bereich [{uv_min:.4f}..{uv_max:.4f}]")
             else:
                 self.warning(f"UV-Werte außerhalb erwarteter Range: [{uv_min:.4f}..{uv_max:.4f}]")
@@ -1350,13 +2196,18 @@ class ExportIntegrityTest:
             self.error(f"Fehler beim UV-Analyse in horizon DAE: {e}")
 
     def test_horizon_coordinates(self):
-        """Teste Koordinaten-Plausibilität von Horizon-Mesh."""
+        """Teste Koordinaten-Plausibilität von Horizon-Mesh (nur wenn Horizon-Item vorhanden ist)."""
         print("\n[Horizon] Teste Koordinaten-Plausibilität...")
 
-        horizon_dae = self.shapes_dir / "terrain_horizon.dae"
+        # Überspringe Test, wenn kein Horizon-Item registriert ist
+        if not self.has_horizon_item:
+            self.warning("Kein Horizon-Item in items.json gefunden - überspringe Koordinaten-Test")
+            return
+
+        horizon_dae = self.shapes_dir / TERRAIN_HORIZON_DAE
 
         if not horizon_dae.exists():
-            self.warning("terrain_horizon.dae nicht gefunden - überspringe Koordinaten-Test")
+            self.warning(f"{TERRAIN_HORIZON_DAE} nicht gefunden - überspringe Koordinaten-Test")
             return
 
         try:
@@ -1425,6 +2276,10 @@ class ExportIntegrityTest:
         self.test_terrain_face_materials()
         self.test_building_daes()
         self.test_materials_json()
+        self.test_material_chain_integrity()
+        self.test_road_materials_debug()  # DEBUG: Straßen-Materialien prüfen
+        self.test_dds_metadata_and_pbr_shader()  # DEBUG: DDS & PBR-Shader prüfen
+        self.test_road_material_binding_uv()  # DEBUG: Material-Binding und UV-Mapping prüfen
         self.test_items_json()
         self.test_textures()
         self.test_texture_mapping()
