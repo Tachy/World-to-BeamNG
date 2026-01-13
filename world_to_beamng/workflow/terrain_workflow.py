@@ -266,24 +266,20 @@ class TerrainWorkflow:
         # 10a. Road-Face Cleanup: Clippe Road-Faces an Grid-Grenzen (messerscharf)
         from ..mesh.road_cleanup import clip_road_faces_at_bounds
 
-        # Entpacke road_mesh Tupel
+        # Entpacke road_mesh Tupel (Slopes sind deaktiviert: config.GENERATE_SLOPES=False)
         all_road_faces = road_mesh[0]
-        all_slope_faces = road_mesh[2]
 
         # Clippe Road-Faces
         clipped_road_faces = clip_road_faces_at_bounds(all_road_faces, vertex_manager, grid_bounds_local)
-        clipped_slope_faces = clip_road_faces_at_bounds(all_slope_faces, vertex_manager, grid_bounds_local)
 
         # Packe Tupel neu zusammen (mit geclippten Faces)
         road_mesh = (
             clipped_road_faces,
             road_mesh[1],  # all_road_face_to_idx
-            clipped_slope_faces,
-            road_mesh[3],  # road_slope_polygons_2d
-            road_mesh[4],  # original_to_mesh_idx
-            road_mesh[5],  # all_road_polygons_2d
-            road_mesh[6],  # all_slope_polygons_2d
-            road_mesh[7],  # junction_fans (NEU)
+            road_mesh[2],  # road_slope_polygons_2d (alt Index 3)
+            road_mesh[3],  # original_to_mesh_idx (alt Index 4)
+            road_mesh[4],  # all_road_polygons_2d (alt Index 5)
+            road_mesh[5],  # junction_fans (alt Index 7)
         )
 
         # 11. Terrain Mesh (mit Builder)
@@ -338,7 +334,7 @@ class TerrainWorkflow:
         # Entpacke road_mesh 7-Tupel
         all_road_faces = road_mesh_tuple[0]
         road_face_to_idx = road_mesh_tuple[1]  # Mapping Face-Index -> Road-ID
-        all_slope_faces = road_mesh_tuple[2]
+        # Slopes sind deaktiviert (config.GENERATE_SLOPES=False)
 
         # Entpacke terrain_mesh
         terrain_faces = terrain_mesh["faces"]
@@ -444,11 +440,6 @@ class TerrainWorkflow:
             unique_materials[mat_name] = props
             all_faces.append(face)
             materials_per_face.append(mat_name)
-
-        # Slope Faces
-        for face in all_slope_faces:
-            all_faces.append(face)
-            materials_per_face.append(default_mat)  # Slopes nutzen Default-Material
 
         # Terrain Faces
         for face in terrain_faces:

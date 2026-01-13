@@ -129,6 +129,7 @@ class OSMMapper:
             "mapTo": mat_name,
             "class": "Material",
             "version": 2,
+            "shader": "PBR",  # ← WICHTIG: PBR-Shader für Textur-Rendering!
             "Stages": [stages_config],
             "materialTag0": "beamng",
             "materialTag1": "custom",  # Custom-Materialien mit BeamNG Standard-Texturen

@@ -962,7 +962,6 @@ def generate_road_mesh_strips(road_polygons, height_points, height_elevations, v
 
     all_road_faces = []
     all_road_face_to_idx = []
-    all_slope_faces = []
     road_slope_polygons_2d = []
 
     # Mapping: original road_polygons index -> road_slope_polygons_2d index
@@ -1131,34 +1130,14 @@ def generate_road_mesh_strips(road_polygons, height_points, height_elevations, v
             right1 = road_vertex_indices_right[i]
             right2 = road_vertex_indices_right[i + 1]
 
-            # KORRIGIERTE Triangulation mit CCW Winding-Order (gegen Uhrzeigersinn)
-            # Diese Reihenfolge erzeugt positive Z-Normals
-            all_road_faces.append([left1, right2, right1])
+            # Quad: left1-right1-right2-left2 → zwei Dreiecke
+            # Winding-Order wird automatisch in Mesh.add_face() korrigiert
+            all_road_faces.append([left1, right1, right2])
             all_road_face_to_idx.append(road_id)
-            all_road_faces.append([left1, left2, right2])
+            all_road_faces.append([left1, right2, left2])
             all_road_face_to_idx.append(road_id)
 
-        # Boeschungs-Faces nur erzeugen, wenn aktiviert
-        if config.GENERATE_SLOPES:
-            slope_road_left_indices = road_vertex_indices_left
-            slope_road_right_indices = road_vertex_indices_right
-
-            for i in range(n - 1):
-                road_left1 = slope_road_left_indices[i]
-                road_left2 = slope_road_left_indices[i + 1]
-                slope_left1 = slope_left_outer_indices[i]
-                slope_left2 = slope_left_outer_indices[i + 1]
-
-                all_slope_faces.append([road_left1, slope_left1, slope_left2])
-                all_slope_faces.append([road_left1, slope_left2, road_left2])
-
-                road_right1 = slope_road_right_indices[i]
-                road_right2 = slope_road_right_indices[i + 1]
-                slope_right1 = slope_right_outer_indices[i]
-                slope_right2 = slope_right_outer_indices[i + 1]
-
-                all_slope_faces.append([road_right1, slope_right2, slope_right1])
-                all_slope_faces.append([road_right1, road_right2, slope_right2])
+        # Böschungen sind deaktiviert (config.GENERATE_SLOPES=False)
 
         # 2D-Polygone + Mapping fuer Snapping/Klassifizierung
         poly_data = {
@@ -1268,10 +1247,8 @@ def generate_road_mesh_strips(road_polygons, height_points, height_elevations, v
     return (
         all_road_faces,
         all_road_face_to_idx,
-        all_slope_faces,
         road_slope_polygons_2d,
         original_to_mesh_idx,
-        all_road_polygons_2d,  # ← NEU
-        all_slope_polygons_2d,  # ← NEU
-        junction_fans,  # ← NEU: Für Material-Selection bei Junctions
+        all_road_polygons_2d,
+        junction_fans,  # Für Material-Selection bei Junctions
     )

@@ -2265,6 +2265,14 @@ class ExportIntegrityTest:
         except ET.ParseError as e:
             self.error(f"Fehler beim Parsen Koordinaten in horizon DAE: {e}")
 
+    # test_all_face_winding_order() wurde entfernt:
+    # Winding-Order wird nun zentral in Mesh.add_face() garantiert (optimiert, 14x schneller)
+    # Siehe debug/test_performance_winding_order.py für Performance-Vergleich
+
+    # test_all_face_winding_order() wurde entfernt:
+    # Winding-Order wird nun zentral in Mesh.add_face() garantiert (optimiert, 14x schneller)
+    # Siehe debug/test_performance_winding_order.py für Performance-Vergleich
+
     def run_all_tests(self):
         """Führe alle Tests aus."""
         print("=" * 60)
@@ -2280,6 +2288,7 @@ class ExportIntegrityTest:
         self.test_road_materials_debug()  # DEBUG: Straßen-Materialien prüfen
         self.test_dds_metadata_and_pbr_shader()  # DEBUG: DDS & PBR-Shader prüfen
         self.test_road_material_binding_uv()  # DEBUG: Material-Binding und UV-Mapping prüfen
+        # Winding-Order wird nun zentral in Mesh.add_face() garantiert (optimiert, 14x schneller)
         self.test_items_json()
         self.test_textures()
         self.test_texture_mapping()
