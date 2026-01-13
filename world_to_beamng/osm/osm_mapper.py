@@ -131,6 +131,6 @@ class OSMMapper:
             "version": 2,
             "shader": "PBR",  # ← WICHTIG: PBR-Shader für Textur-Rendering!
             "Stages": [stages_config],
-            "materialTag0": "beamng",
+            "materialTag0": "RoadAndPath",  # ← KRITISCH: BeamNG erkennt nur "RoadAndPath" als Straßen-Material!
             "materialTag1": "custom",  # Custom-Materialien mit BeamNG Standard-Texturen
         }

@@ -118,9 +118,17 @@ def export_merged_dae(
                 explicit_uvs = uv_array
 
         # Gruppiere Faces pro Material
+        # WICHTIG: "terrain" und "unknown" Materialien werden dem Tile-Material zugewiesen!
+        tile_material_name = f"tile_{tile_x}_{tile_y}"
         faces_by_material = {}
         for idx, face in enumerate(faces):
             mat_name = materials_per_face[idx] if idx < len(materials_per_face) else "unknown"
+            
+            # Stitch-Faces und ungeclippte Terrain-Faces haben material="terrain" oder "unknown"
+            # → Weise sie dem Tile-Material zu (z.B. "tile_-1000_-1000")
+            if mat_name in ("terrain", "unknown"):
+                mat_name = tile_material_name
+            
             faces_by_material.setdefault(mat_name, []).append(face)
 
         # WICHTIG: UV-Koordinaten müssen die Tile-Bounds reflektieren, nicht Vertex-Bounds!

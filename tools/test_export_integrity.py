@@ -116,32 +116,41 @@ class ExportIntegrityTest:
         r"""
         Konvertiert einen relativen BeamNG-Pfad zu absolutem Windows-Pfad.
 
+        WICHTIG: BEAMNG_DIR ist bereits das Level-Verzeichnis 
+        (z.B. C:\...\levels\world_to_beamng\)
+
+        Unterstützt Formate:
+        - 'levels/world_to_beamng/art/shapes/textures/file.dds' → art/shapes/textures/file.dds
+        - 'art/shapes/textures/file.dds' → art/shapes/textures/file.dds
+        - '\art\shapes\textures\file.dds' → art/shapes/textures/file.dds
+
         Args:
-            relative_path: Pfad im Format '\levels\World_to_BeamNG\art\shapes\textures\file.dds'
+            relative_path: Pfad mit oder ohne 'levels/world_to_beamng/' Präfix
 
         Returns:
             Absoluter Path-Objekt
         """
-        if relative_path.startswith("\\levels\\"):
-            # Entferne Präfix und konvertiere zu Windows-Pfad
-            level_path = relative_path.replace("\\levels\\", "").lstrip("\\")
-            # Extrahiere Level-Namen (z.B. "World_to_BeamNG")
-            level_name = level_path.split("\\")[0]
-            # Restlicher Pfad
-            rest_path = "\\".join(level_path.split("\\")[1:])
-            # Kombiniere mit BEAMNG_DIR
-            full_path = self.beamng_dir / rest_path
-            return full_path
-        elif relative_path.startswith("/levels/"):
-            # Unix-Format
-            level_path = relative_path.replace("/levels/", "").lstrip("/")
-            level_name = level_path.split("/")[0]
-            rest_path = "/".join(level_path.split("/")[1:])
-            full_path = self.beamng_dir / rest_path.replace("/", "\\")
-            return full_path
-        else:
-            # Direkt im BEAMNG_DIR suchen
-            return self.beamng_dir / relative_path
+        # Normalisiere Forward-Slashes zu Backslashes
+        normalized_path = relative_path.replace("/", "\\")
+        
+        # Entferne evtl. führenden Backslash
+        normalized_path = normalized_path.lstrip("\\")
+        
+        # Falls Pfad mit 'levels\world_to_beamng\' beginnt, entferne diesen Präfix
+        # (da BEAMNG_DIR bereits auf world_to_beamng zeigt)
+        if normalized_path.startswith("levels\\world_to_beamng\\"):
+            normalized_path = normalized_path.replace("levels\\world_to_beamng\\", "", 1)
+        elif normalized_path.startswith("levels\\"):
+            # Falls anderes Level-Verzeichnis: extrahiere den Level-Namen und nutze nur Rest
+            parts = normalized_path.split("\\", 2)
+            if len(parts) >= 3:
+                normalized_path = parts[2]
+            else:
+                normalized_path = normalized_path.replace("levels\\", "", 1)
+        
+        # Kombiniere mit beamng_dir (das ist bereits levels/world_to_beamng)
+        full_path = Path(self.beamng_dir) / normalized_path
+        return full_path
 
     def error(self, msg):
         """Registriere kritischen Fehler."""
@@ -447,8 +456,8 @@ class ExportIntegrityTest:
             for mat_name, mat_data in materials.items():
                 if "Stages" in mat_data and mat_data["Stages"]:
                     stage = mat_data["Stages"][0]
-                    if "colorMap" in stage:
-                        texture_refs.append(stage["colorMap"])
+                    if "baseColorMap" in stage:
+                        texture_refs.append(stage["baseColorMap"])
 
             if texture_refs:
                 self.success(f"{len(texture_refs)} Textur-Referenzen gefunden")
@@ -666,22 +675,22 @@ class ExportIntegrityTest:
 
                 stage = mat_def["Stages"][0]
 
-                # Prüfe colorMap (BaseColorMap/Diffuse)
-                if "colorMap" in stage:
-                    tex_path = stage["colorMap"]
+                # Prüfe baseColorMap (BaseColorMap/Diffuse)
+                if "baseColorMap" in stage:
+                    tex_path = stage["baseColorMap"]
                     resolved_path = self._resolve_relative_path(tex_path)
 
                     if not resolved_path.exists():
                         missing_textures.append(
                             {
                                 "material": mat_name,
-                                "texture_type": "colorMap",
+                                "texture_type": "baseColorMap",
                                 "path": tex_path,
                                 "resolved": str(resolved_path),
                             }
                         )
                     else:
-                        texture_coverage[f"{mat_name}_colorMap"] = {
+                        texture_coverage[f"{mat_name}_baseColorMap"] = {
                             "path": str(resolved_path),
                             "size_kb": resolved_path.stat().st_size / 1024,
                         }
@@ -706,22 +715,42 @@ class ExportIntegrityTest:
                             "size_kb": resolved_path.stat().st_size / 1024,
                         }
 
-                # Prüfe metallicMap
-                if "metallicMap" in stage:
-                    tex_path = stage["metallicMap"]
+                # Prüfe roughnessMap
+                if "roughnessMap" in stage:
+                    tex_path = stage["roughnessMap"]
                     resolved_path = self._resolve_relative_path(tex_path)
 
                     if not resolved_path.exists():
                         missing_textures.append(
                             {
                                 "material": mat_name,
-                                "texture_type": "metallicMap",
+                                "texture_type": "roughnessMap",
                                 "path": tex_path,
                                 "resolved": str(resolved_path),
                             }
                         )
                     else:
-                        texture_coverage[f"{mat_name}_metallicMap"] = {
+                        texture_coverage[f"{mat_name}_roughnessMap"] = {
+                            "path": str(resolved_path),
+                            "size_kb": resolved_path.stat().st_size / 1024,
+                        }
+
+                # Prüfe ambientOcclusionMap
+                if "ambientOcclusionMap" in stage:
+                    tex_path = stage["ambientOcclusionMap"]
+                    resolved_path = self._resolve_relative_path(tex_path)
+
+                    if not resolved_path.exists():
+                        missing_textures.append(
+                            {
+                                "material": mat_name,
+                                "texture_type": "ambientOcclusionMap",
+                                "path": tex_path,
+                                "resolved": str(resolved_path),
+                            }
+                        )
+                    else:
+                        texture_coverage[f"{mat_name}_ambientOcclusionMap"] = {
                             "path": str(resolved_path),
                             "size_kb": resolved_path.stat().st_size / 1024,
                         }
@@ -889,8 +918,10 @@ class ExportIntegrityTest:
                     if resolved.exists():
                         valid_textures += 1
                     else:
-                        # Analyse warum Datei nicht existiert
-                        if color_map.startswith("\\levels\\"):
+                        # Prüfe: Ist es ein gültiges Pfad-Format (beginnt mit /levels/ oder \levels/ oder levels/)?
+                        if color_map.startswith(("\\levels\\", "/levels/", "levels/")):
+                            # Valider Pfad-Format - aber Datei existiert nicht
+                            # _resolve_relative_path sollte die Pfadauflösung korrekt handhaben
                             texture_issues.append(f"{mat_name}: Pfad-Format OK, aber DATEI FEHLT: {resolved}")
                         else:
                             texture_issues.append(f"{mat_name}: Ungültiges Pfad-Format: {color_map}")
