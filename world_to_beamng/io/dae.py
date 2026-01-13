@@ -15,17 +15,19 @@ def export_merged_dae(
     tiles_dict,
     output_path,
     tile_size=400,
+    mesh_obj=None,
 ):
     """
     Exportiert alle Tiles als EINE .dae (Collada 1.4.1) mit mehreren Geometrien.
 
-    REFACTORED: Verwendet jetzt DAEExporter.
+    REFACTORED: Verwendet jetzt DAEExporter und liest UVs direkt aus Mesh.face_uvs.
 
     Args:
         tiles_dict: Dictionary von tile_slicer.slice_mesh_into_tiles()
                     Format: {(tile_x, tile_y): {"vertices": [...], "faces": [...], "materials": [...]}}
         output_path: Ziel-Dateipfad (wird als Vorlage verwendet, echte Datei nutzt Koordinaten)
         tile_size: Tile-Größe in Metern (zur Koordinaten-Umrechnung)
+        mesh_obj: Optional: Mesh-Objekt mit face_uvs für UV-Koordinaten
 
     Returns:
         Tatsächlicher DAE-Dateiname mit Koordinaten-Index
@@ -38,10 +40,83 @@ def export_merged_dae(
         vertices = np.array(tile_data["vertices"])
         faces = tile_data["faces"]
         materials_per_face = tile_data.get("materials", [])
+        tile_normals = tile_data.get("normals")
+        original_face_indices = tile_data.get("original_face_indices", [])
+        vertex_mapping = tile_data.get("vertex_mapping", {})  # orig_vertex_idx → tile_local_idx
 
         if len(faces) == 0:
             continue
 
+        # Extrahiere UVs aus mesh_obj.face_uvs falls vorhanden
+        # Erstelle per-Vertex UV-Array basierend auf den Faces
+        explicit_uvs = None
+        
+        # Hole vertex_mapping
+        vertex_mapping = tile_data.get("vertex_mapping", {})  # orig_vertex_idx → tile_local_idx
+        
+        if mesh_obj is not None and hasattr(mesh_obj, 'face_uvs') and len(mesh_obj.face_uvs) > 0:
+            num_vertices = len(vertices)
+            uv_array = np.zeros((num_vertices, 2), dtype=np.float32)
+            uv_assigned = np.zeros(num_vertices, dtype=bool)
+            
+            # Strategie: mesh_obj.face_uvs hat Road-Face-UVs mit Keys 0, 1, 2, ...
+            # (der 0-ten Road-Face Indices, nicht Mesh-Indices!)
+            # Aber wie mappen wir zu original_face_indices?
+            #
+            # LÖSUNG: Die original_face_indices enthalten SOWOHL Terrain-Faces ALS AUCH Road-Faces
+            # Die ERSTEN N Terrain-Faces, dann die Road-Faces!
+            # 
+            # Die road_face_indices speichert die FINALEN Mesh-Indices der ungeclippten Roads
+            # Das ist NICHT hilfreich.
+            #
+            # Neu-Strategie: Nutze tile_data["road_uvs"] falls vorhanden!
+            
+            road_uvs_list = tile_data.get("road_uvs", [])
+            
+            if road_uvs_list:
+                # road_uvs_list ist parallel zu road_face_indices
+                for face_local_idx, orig_face_idx in enumerate(tile_data.get("road_face_indices", [])):
+                    if face_local_idx < len(road_uvs_list):
+                        face_uv_dict = road_uvs_list[face_local_idx]
+                        
+                        # Mappe Original-Vertex-Indizes zu tile-local und speichere UVs
+                        for orig_vertex_idx, uv in face_uv_dict.items():
+                            if orig_vertex_idx in vertex_mapping:
+                                tile_local_idx = vertex_mapping[orig_vertex_idx]
+                                uv_array[tile_local_idx] = uv
+                                uv_assigned[tile_local_idx] = True
+            
+            assigned_count = np.sum(uv_assigned)
+            if assigned_count > 0:
+                # Road-UVs wurden zugewiesen, ABER: Terrain-Vertices brauchen noch UVs!
+                # Fülle fehlende UVs mit Terrain-Fallback
+                tile_bounds = tile_data.get("bounds", None)
+                if tile_bounds:
+                    x_min, x_max, y_min, y_max = tile_bounds
+                    for i, vertex in enumerate(vertices):
+                        if not uv_assigned[i]:  # Nur für Vertices OHNE Road-UVs
+                            x, y, z = vertex
+                            u = (x - x_min) / (x_max - x_min) if x_max > x_min else 0.0
+                            v = (y - y_min) / (y_max - y_min) if y_max > y_min else 0.0
+                            uv_array[i] = [u, v]
+                
+                explicit_uvs = uv_array
+        
+        # Falls KEINE Road-UVs vorhanden: Nutze tile_bounds für ALLE Vertices (reiner Terrain-Fall)
+        if explicit_uvs is None:
+            tile_bounds = tile_data.get("bounds", None)
+            if tile_bounds:
+                x_min, x_max, y_min, y_max = tile_bounds
+                # Für Terrain: einfache Projektion basierend auf tile_bounds
+                num_vertices = len(vertices)
+                uv_array = np.zeros((num_vertices, 2), dtype=np.float32)
+                for i, vertex in enumerate(vertices):
+                    x, y, z = vertex
+                    u = (x - x_min) / (x_max - x_min) if x_max > x_min else 0.0
+                    v = (y - y_min) / (y_max - y_min) if y_max > y_min else 0.0
+                    uv_array[i] = [u, v]
+                explicit_uvs = uv_array
+        
         # Gruppiere Faces pro Material
         faces_by_material = {}
         for idx, face in enumerate(faces):
@@ -66,9 +141,11 @@ def export_merged_dae(
                 "id": f"tile_{tile_x}_{tile_y}",
                 "vertices": vertices,
                 "faces": faces_by_material,
+                "normals": tile_normals,
+                "uvs": explicit_uvs,  # Explizite UVs aus mesh_obj.face_uvs (falls vorhanden)
                 "uv_offset": (0.0, 0.0),
                 "uv_scale": (1.0, 1.0),
-                "tile_bounds": (x_min, x_max, y_min, y_max),  # Für korrekte UV-Berechnung
+                "tile_bounds": (x_min, x_max, y_min, y_max),  # Für korrekte UV-Berechnung mit echten Bounds
             }
         )
 

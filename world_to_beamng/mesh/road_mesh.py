@@ -16,6 +16,39 @@ from .. import config
 from ..config import OSM_MAPPER
 
 
+def compute_road_uv_coords(centerline_coords, tiling_distance=10.0):
+    """
+    Berechne UV-Koordinaten für eine Straße entlang des Centerline-Strips.
+    
+    U = Distance entlang Centerline (repetierend alle tiling_distance Meter)
+    V = Querposition (0 = links, 1 = rechts)
+    
+    Args:
+        centerline_coords: (N, 3) Array mit Centerline-Punkten (x, y, z)
+        tiling_distance: Meter zwischen U-Wiederholung (z.B. 10m für Straßenmuster)
+    
+    Returns:
+        List[float]: Kumulative Distanzen normalisiert auf [0, tiling_count]
+                    Jede Position hat 1 Distanz-Wert (für Links und Rechts UV)
+    """
+    if len(centerline_coords) < 2:
+        return [0.0] * len(centerline_coords)
+    
+    # Berechne kumulative Länge entlang des Centerline
+    coords_2d = np.asarray(centerline_coords[:, :2], dtype=np.float64)
+    diffs = np.diff(coords_2d, axis=0)  # Kanten zwischen Punkten
+    segment_lengths = np.linalg.norm(diffs, axis=1)
+    
+    # Kumulative Länge (startend bei 0)
+    cumulative_length = np.concatenate([[0.0], np.cumsum(segment_lengths)])
+    
+    # Normalisiere auf Tiling-Entfernung
+    # U wiederhole alle tiling_distance Meter
+    u_coords = (cumulative_length / tiling_distance) % 1.0
+    
+    return u_coords.tolist()
+
+
 def get_angle_between_vectors(v1, v2):
     """
     Berechnet den geometrischen Winkel zwischen zwei 2D-Vektoren (0-90°).
@@ -962,6 +995,7 @@ def generate_road_mesh_strips(road_polygons, height_points, height_elevations, v
 
     all_road_faces = []
     all_road_face_to_idx = []
+    all_road_face_uvs = []  # Parallel zu all_road_faces: {v0: (u,v), v1: (u,v), v2: (u,v)}
     road_slope_polygons_2d = []
 
     # Mapping: original road_polygons index -> road_slope_polygons_2d index
@@ -1080,7 +1114,13 @@ def generate_road_mesh_strips(road_polygons, height_points, height_elevations, v
     junction_fans = {}
     if junction_centers:
         junction_fans = {
-            idx: {"center_idx": None, "rim": [], "connected_road_ids": []} for idx in range(len(junction_centers))
+            idx: {
+                "center_idx": None,
+                "rim": [],  # list of dicts {left_idx, right_idx, tangent}
+                "connected_road_ids": [],
+                "vertex_tangent": {},  # vertex_idx -> tangent vec (3,)
+            }
+            for idx in range(len(junction_centers))
         }
 
     # === Faces und Polygone aufbauen mit globalen Indices ===
@@ -1103,7 +1143,10 @@ def generate_road_mesh_strips(road_polygons, height_points, height_elevations, v
         end_jid = road_meta.get("junction_end_id")
         road_id = road_meta["road_id"]  # Vor _add_rim definieren, damit es in der Closure verfügbar ist
 
-        def _add_rim(jid, left_idx, right_idx):
+        # Centerline als Array (für Tangenten und UV-Berechnung)
+        road_centerline = np.array(road_meta["trimmed_centerline"])
+
+        def _add_rim(jid, left_idx, right_idx, tangent_vec):
             if junction_fans is None or jid is None:
                 return
             data = junction_fans.get(jid)
@@ -1113,15 +1156,39 @@ def generate_road_mesh_strips(road_polygons, height_points, height_elevations, v
                 if 0 <= jid < len(junction_centers):
                     cx, cy, cz = junction_centers[jid]
                     data["center_idx"] = vertex_manager.add_vertex(cx, cy, cz)
-            data["rim"].append((left_idx, right_idx))
+            data["rim"].append({"left_idx": left_idx, "right_idx": right_idx, "tangent": tangent_vec})
             # Speichere auch die angrenzende Straßen-ID für Material-Selection
             if "connected_road_ids" not in data:
                 data["connected_road_ids"] = []
             data["connected_road_ids"].append(road_id)
 
+            # Speichere Tangente pro Vertex für spätere UV-Ableitung
+            if tangent_vec is not None:
+                data.setdefault("vertex_tangent", {})[left_idx] = tangent_vec
+                data.setdefault("vertex_tangent", {})[right_idx] = tangent_vec
+
         # Sammle Endkanten für Junction-Hub-Fans
-        _add_rim(start_jid, road_vertex_indices_left[0], road_vertex_indices_right[0])
-        _add_rim(end_jid, road_vertex_indices_left[-1], road_vertex_indices_right[-1])
+        # Tangenten an Road-Anfang/Ende (Centerline)
+        start_tangent = None
+        end_tangent = None
+        if road_centerline.shape[0] >= 2:
+            start_vec = road_centerline[1] - road_centerline[0]
+            sv_norm = np.linalg.norm(start_vec)
+            if sv_norm > 1e-6:
+                start_tangent = (start_vec / sv_norm).tolist()
+        if road_centerline.shape[0] >= 2:
+            end_vec = road_centerline[-1] - road_centerline[-2]
+            ev_norm = np.linalg.norm(end_vec)
+            if ev_norm > 1e-6:
+                end_tangent = (end_vec / ev_norm).tolist()
+
+        _add_rim(start_jid, road_vertex_indices_left[0], road_vertex_indices_right[0], start_tangent)
+        _add_rim(end_jid, road_vertex_indices_left[-1], road_vertex_indices_right[-1], end_tangent)
+
+        # Berechne UV-Koordinaten für diesen Road-Strip
+        # U = Distance entlang Centerline, V = Querposition (0=links, 1=rechts)
+        road_centerline = np.array(road_meta["trimmed_centerline"])
+        u_coords = compute_road_uv_coords(road_centerline, tiling_distance=10.0)
 
         # Strassen-Faces
         for i in range(n - 1):
@@ -1130,12 +1197,28 @@ def generate_road_mesh_strips(road_polygons, height_points, height_elevations, v
             right1 = road_vertex_indices_right[i]
             right2 = road_vertex_indices_right[i + 1]
 
+            # UV-Koordinaten für dieses Quad
+            # left = (u, 0), right = (u, 1)
+            u_curr = u_coords[i]
+            u_next = u_coords[i + 1]
+            
+            uv_left1 = (u_curr, 0.0)
+            uv_left2 = (u_next, 0.0)
+            uv_right1 = (u_curr, 1.0)
+            uv_right2 = (u_next, 1.0)
+
             # Quad: left1-right1-right2-left2 → zwei Dreiecke
             # Winding-Order wird automatisch in Mesh.add_face() korrigiert
+            
+            # Dreieck 1: left1-right1-right2
             all_road_faces.append([left1, right1, right2])
             all_road_face_to_idx.append(road_id)
+            all_road_face_uvs.append({left1: uv_left1, right1: uv_right1, right2: uv_right2})
+            
+            # Dreieck 2: left1-right2-left2
             all_road_faces.append([left1, right2, left2])
             all_road_face_to_idx.append(road_id)
+            all_road_face_uvs.append({left1: uv_left1, right2: uv_right2, left2: uv_left2})
 
         # Böschungen sind deaktiviert (config.GENERATE_SLOPES=False)
 
@@ -1179,10 +1262,17 @@ def generate_road_mesh_strips(road_polygons, height_points, height_elevations, v
 
             center_xy = vertex_manager.vertices[center_idx][:2]
             boundary_points = []
-            for left_idx, right_idx in rim:
+            vertex_tangent = data.get("vertex_tangent", {})
+            for rim_entry in rim:
+                if isinstance(rim_entry, dict):
+                    left_idx = rim_entry.get("left_idx")
+                    right_idx = rim_entry.get("right_idx")
+                else:
+                    left_idx, right_idx = rim_entry
                 for vid in (left_idx, right_idx):
                     vx, vy = vertex_manager.vertices[vid][:2]
-                    boundary_points.append((atan2(vy - center_xy[1], vx - center_xy[0]), vid))
+                    ang = atan2(vy - center_xy[1], vx - center_xy[0])
+                    boundary_points.append((ang, vid))
 
             boundary_points.sort(key=lambda x: x[0])
             # OPTIMIZATION: Für 2er-Junctions mit nur 2 Vertices auch Dreieck erzeugen
@@ -1197,9 +1287,58 @@ def generate_road_mesh_strips(road_polygons, height_points, height_elevations, v
             for i in range(len(boundary_points)):
                 a = boundary_points[i][1]
                 b = boundary_points[(i + 1) % len(boundary_points)][1]
+
+                # UV-Achsen aus Tangenten ableiten (Option 1: entlang Road-Tangent)
+                t_a = np.array(vertex_tangent.get(a), dtype=float) if a in vertex_tangent else None
+                t_b = np.array(vertex_tangent.get(b), dtype=float) if b in vertex_tangent else None
+
+                # Mittel-Tangent bestimmen
+                if t_a is not None and t_b is not None:
+                    t_axis = t_a + t_b
+                elif t_a is not None:
+                    t_axis = t_a
+                elif t_b is not None:
+                    t_axis = t_b
+                else:
+                    # Fallback: radial Richtung zu a
+                    pa = vertex_manager.vertices[a]
+                    pc = vertex_manager.vertices[center_idx]
+                    t_axis = np.array(pa - pc, dtype=float)
+
+                t_norm = np.linalg.norm(t_axis)
+                if t_norm > 1e-12:
+                    u_axis = t_axis / t_norm
+                else:
+                    u_axis = np.array([1.0, 0.0, 0.0])
+
+                # V-Achse als 2D-Perp im XY-Plane
+                v_axis = np.array([-u_axis[1], u_axis[0], 0.0])
+                v_norm = np.linalg.norm(v_axis)
+                if v_norm > 1e-12:
+                    v_axis /= v_norm
+                else:
+                    v_axis = np.array([0.0, 1.0, 0.0])
+
+                # Punkte
+                pa = vertex_manager.vertices[a]
+                pb = vertex_manager.vertices[b]
+                pc = vertex_manager.vertices[center_idx]
+
+                # Projektion auf Achsen, skaliert wie Straßen (10m Tiling)
+                scale = 10.0
+                def proj_uv(p):
+                    d = p - pc
+                    u = np.dot(d, u_axis) / scale
+                    v = np.dot(d, v_axis) / scale
+                    return (u, v)
+
+                uv_a = proj_uv(pa)
+                uv_b = proj_uv(pb)
+                uv_c = proj_uv(pc)
+
                 all_road_faces.append([a, b, center_idx])
-                # Speichere Junction-ID als negative Zahl: -(j_id + 1) damit -1 nicht used wird
                 all_road_face_to_idx.append(-(j_id + 1))
+                all_road_face_uvs.append({a: uv_a, b: uv_b, center_idx: uv_c})
 
     print(f"  [OK] {len(all_road_faces)} Strassen-Faces")
     if config.GENERATE_SLOPES:
@@ -1230,7 +1369,9 @@ def generate_road_mesh_strips(road_polygons, height_points, height_elevations, v
 
             # Sortiere Rim-Punkte nach Winkel um Center
             boundary_points = []
-            for left_idx, right_idx in rim:
+            for rim_entry in rim:
+                left_idx = rim_entry.get("left_idx") if isinstance(rim_entry, dict) else rim_entry[0]
+                right_idx = rim_entry.get("right_idx") if isinstance(rim_entry, dict) else rim_entry[1]
                 for vid in (left_idx, right_idx):
                     vx, vy = vertex_manager.vertices[vid][:2]
                     boundary_points.append((atan2(vy - center_xy[1], vx - center_xy[0]), [vx, vy]))
@@ -1247,6 +1388,7 @@ def generate_road_mesh_strips(road_polygons, height_points, height_elevations, v
     return (
         all_road_faces,
         all_road_face_to_idx,
+        all_road_face_uvs,  # UV-Koordinaten für jedes Road-Face
         road_slope_polygons_2d,
         original_to_mesh_idx,
         all_road_polygons_2d,

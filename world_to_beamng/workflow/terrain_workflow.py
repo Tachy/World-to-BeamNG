@@ -268,18 +268,20 @@ class TerrainWorkflow:
 
         # Entpacke road_mesh Tupel (Slopes sind deaktiviert: config.GENERATE_SLOPES=False)
         all_road_faces = road_mesh[0]
+        all_road_face_uvs = road_mesh[2]  # UV-Koordinaten (neuer Index 2!)
 
-        # Clippe Road-Faces
+        # Clippe Road-Faces (TODO: auch UVs müssen gekl ippt werden!)
         clipped_road_faces = clip_road_faces_at_bounds(all_road_faces, vertex_manager, grid_bounds_local)
 
         # Packe Tupel neu zusammen (mit geclippten Faces)
         road_mesh = (
             clipped_road_faces,
             road_mesh[1],  # all_road_face_to_idx
-            road_mesh[2],  # road_slope_polygons_2d (alt Index 3)
-            road_mesh[3],  # original_to_mesh_idx (alt Index 4)
-            road_mesh[4],  # all_road_polygons_2d (alt Index 5)
-            road_mesh[5],  # junction_fans (alt Index 7)
+            all_road_face_uvs,  # all_road_face_uvs (Index 2)
+            road_mesh[3],  # road_slope_polygons_2d (alt Index 3)
+            road_mesh[4],  # original_to_mesh_idx (alt Index 4)
+            road_mesh[5],  # all_road_polygons_2d (alt Index 5)
+            road_mesh[6],  # junction_fans (alt Index 7 → jetzt 6!)
         )
 
         # 11. Terrain Mesh (mit Builder)
@@ -308,6 +310,7 @@ class TerrainWorkflow:
             "buildings_data": buildings_data,  # Übergebe Gebäude-Daten
             "height_points": local_points,  # Für Spawn-Punkt-Berechnung
             "height_elevations": elevations,  # Für Spawn-Punkt-Berechnung
+            "road_face_uvs": all_road_face_uvs,  # Für UV-Zuordnung in tile_slicer
         }
 
     def export_tile(self, tile_x: int, tile_y: int, mesh_data: Dict) -> str:
@@ -334,10 +337,13 @@ class TerrainWorkflow:
         # Entpacke road_mesh 7-Tupel
         all_road_faces = road_mesh_tuple[0]
         road_face_to_idx = road_mesh_tuple[1]  # Mapping Face-Index -> Road-ID
+        # all_road_face_uvs = road_mesh_tuple[2]  # UVs sind jetzt zentral im Mesh.face_uvs!
         # Slopes sind deaktiviert (config.GENERATE_SLOPES=False)
 
         # Entpacke terrain_mesh
         terrain_faces = terrain_mesh["faces"]
+        mesh_obj = terrain_mesh.get("mesh_obj")  # NEU: Hole Mesh-Objekt mit face_uvs
+        vertex_normals = terrain_mesh.get("vertex_normals")
 
         # === Material-Mapping via OSM_MAPPER (wie im alten multitile.py) ===
         from ..config import OSM_MAPPER
@@ -378,45 +384,45 @@ class TerrainWorkflow:
             """
             junction_data = junction_fans.get(junction_id, {})
             connected_road_ids = junction_data.get("connected_road_ids", [])
-            
+
             if not connected_road_ids:
                 # Keine angrenzenden Straßen: nutze Default
                 return default_mat, default_props
-            
+
             # Sammle alle Materialien der angrenzenden Straßen
             material_counts = {}  # {material_name: count}
-            material_props = {}    # {material_name: properties}
-            
+            material_props = {}  # {material_name: properties}
+
             for road_id in connected_road_ids:
                 if road_id in road_material_map:
                     mat_name, props = road_material_map[road_id]
                     material_counts[mat_name] = material_counts.get(mat_name, 0) + 1
                     material_props[mat_name] = props
-            
+
             if not material_counts:
                 # Keine Materialien gefunden: nutze Default
                 return default_mat, default_props
-            
+
             # Finde das häufigste Material
             max_count = max(material_counts.values())
             candidates = [mat for mat, count in material_counts.items() if count == max_count]
-            
+
             if len(candidates) == 1:
                 # Eindeutiger Gewinner
                 mat_name = candidates[0]
                 return mat_name, material_props[mat_name]
-            
+
             # Bei Gleichstand: nutze das Material mit höherer Priorität
             # Priorität ist in der Properties gespeichert
             best_mat = candidates[0]
             best_priority = material_props[best_mat].get("priority", 0)
-            
+
             for mat in candidates[1:]:
                 mat_priority = material_props[mat].get("priority", 0)
                 if mat_priority > best_priority:
                     best_mat = mat
                     best_priority = mat_priority
-            
+
             return best_mat, material_props[best_mat]
 
         # Kombiniere alle Faces mit Materials
@@ -426,7 +432,7 @@ class TerrainWorkflow:
         # Road Faces (mit OSM-Mapper Materials)
         for idx, face in enumerate(all_road_faces):
             r_id = road_face_to_idx[idx] if idx < len(road_face_to_idx) else None
-            
+
             # Prüfe ob es eine Junction-ID ist (negative Zahlen)
             if r_id is not None and r_id < 0:
                 # Junction-ID: -(junction_id + 1)
@@ -449,12 +455,15 @@ class TerrainWorkflow:
         # Hole alle Vertices vom VertexManager
         all_vertices = np.array(vertex_manager.get_array())
 
-        # Slice in Tiles
+        # Slice in Tiles (übergebe auch Road-UVs!)
+        road_uvs_list = mesh_data.get("road_face_uvs", [])
         tiles_dict = slice_mesh_into_tiles(
             vertices=all_vertices,
             faces=all_faces,
             materials_per_face=materials_per_face,
             tile_size=config.TILE_SIZE,
+            vertex_normals=vertex_normals,
+            road_uvs_list=road_uvs_list,  # Übergebe Road-UVs
         )
 
         # Export als DAE
@@ -465,6 +474,7 @@ class TerrainWorkflow:
             tiles_dict=tiles_dict,
             output_path=dae_output_path,
             tile_size=config.TILE_SIZE,
+            mesh_obj=mesh_obj,  # Übergebe Mesh für direkte UV-Zugriff
         )
 
         # Generiere und füge Materials hinzu

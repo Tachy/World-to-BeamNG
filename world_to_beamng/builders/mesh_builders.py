@@ -35,6 +35,7 @@ class TerrainMeshBuilder:
         self._enable_stitching = False
         self._road_faces = None  # NEU: Road-Faces mit Material
         self._road_face_to_idx = None  # NEU: Face->Road-ID Mapping
+        self._road_face_uvs = None  # NEU: UV-Koordinaten für Road-Faces
 
     def with_grid(self, grid: np.ndarray) -> "TerrainMeshBuilder":
         """
@@ -96,7 +97,7 @@ class TerrainMeshBuilder:
         Füge Road-Mesh hinzu (für Material-Mapping).
 
         Args:
-            road_mesh_tuple: (road_faces, road_face_to_idx, ...) von RoadMeshBuilder
+            road_mesh_tuple: (road_faces, road_face_to_idx, road_face_uvs, ...) von RoadMeshBuilder
             road_polygons_2d: road_slope_polygons_2d für OSM-Mapping
 
         Returns:
@@ -105,6 +106,7 @@ class TerrainMeshBuilder:
         if road_mesh_tuple:
             self._road_faces = road_mesh_tuple[0]  # road_faces
             self._road_face_to_idx = road_mesh_tuple[1]  # road_face_to_idx
+            self._road_face_uvs = road_mesh_tuple[2]  # road_face_uvs (Index 2!)
         self._road_data = road_polygons_2d  # Für OSM-Tag-Lookup
         return self
 
@@ -168,11 +170,15 @@ class TerrainMeshBuilder:
                         mat_name = props.get("internal_name", "road_default")
                         road_material_map[r_id] = mat_name
 
-                # Füge Road-Faces mit Material hinzu
+                # Füge Road-Faces mit Material UND UV-Koordinaten hinzu
                 for idx, face in enumerate(self._road_faces):
                     r_id = self._road_face_to_idx[idx] if idx < len(self._road_face_to_idx) else None
                     mat_name = road_material_map.get(r_id, "road_default")
-                    mesh_obj.add_face(face[0], face[1], face[2], material=mat_name)
+                    # Hole UV-Koordinaten, falls vorhanden
+                    uv_coords = None
+                    if self._road_face_uvs and idx < len(self._road_face_uvs):
+                        uv_coords = self._road_face_uvs[idx]
+                    mesh_obj.add_face(face[0], face[1], face[2], material=mat_name, uv_coords=uv_coords)
 
             stitch_all_gaps(
                 road_data_for_classification=self._road_data,
@@ -184,10 +190,40 @@ class TerrainMeshBuilder:
 
             # Update terrain_faces mit neuen Faces
             terrain_faces = mesh_obj.faces
+            
+            # Berechne fehlende UV-Koordinaten für alle Faces (Terrain + Stitched)
+            # Roads haben bereits explizite UVs vom road_mesh
+            mesh_obj.compute_missing_uvs(material_whitelist={"terrain"})
+
+            # Berechne geglättete Normalen (gesamtes Mesh, inkl. Roads)
+            mesh_obj.compute_smooth_normals()
+            vertex_normals = mesh_obj.vertex_normals
+        else:
+            # Kein Stitching → terrain_faces liegt als Liste vor, berechne Normals direkt
+            vertices_array = np.asarray(self._vertex_manager.get_array(), dtype=np.float32)
+            normals = np.zeros_like(vertices_array, dtype=np.float32)
+            for v0, v1, v2 in terrain_faces:
+                p0 = vertices_array[v0]
+                p1 = vertices_array[v1]
+                p2 = vertices_array[v2]
+                fn = np.cross(p1 - p0, p2 - p0)
+                nlen = np.linalg.norm(fn)
+                if nlen <= 1e-12:
+                    continue
+                fn /= nlen
+                normals[v0] += fn
+                normals[v1] += fn
+                normals[v2] += fn
+            lengths = np.linalg.norm(normals, axis=1)
+            mask = lengths > 1e-12
+            normals[mask] /= lengths[mask][:, np.newaxis]
+            vertex_normals = normals
 
         return {
             "faces": terrain_faces,
             "vertex_indices": terrain_vertex_indices,
+            "mesh_obj": mesh_obj if self._enable_stitching and self._road_data is not None else None,
+            "vertex_normals": vertex_normals,
         }
 
 

@@ -11,7 +11,7 @@ import numpy as np
 from collections import defaultdict
 
 
-def slice_mesh_into_tiles(vertices, faces, materials_per_face, tile_size=400, grid_bounds=None):
+def slice_mesh_into_tiles(vertices, faces, materials_per_face, tile_size=400, grid_bounds=None, vertex_normals=None, road_uvs_list=None):
     """
     Clippt Mesh in 400×400m Tiles mit Sutherland-Hodgman.
 
@@ -33,6 +33,9 @@ def slice_mesh_into_tiles(vertices, faces, materials_per_face, tile_size=400, gr
             "materials": liste (pro geclipptem Face),
             "bounds": (x_min, x_max, y_min, y_max)
         }}
+        
+    HINWEIS: UV-Koordinaten werden nicht mehr hier verwaltet!
+    Sie sind zentral im Mesh-Objekt gespeichert (Mesh.face_uvs).
     """
 
     # Automatische Bounds aus Vertices wenn nicht gegeben
@@ -126,6 +129,7 @@ def slice_mesh_into_tiles(vertices, faces, materials_per_face, tile_size=400, gr
 
     # Konvertiere zu Output-Format
     result = {}
+    has_normals = vertex_normals is not None
 
     for (tile_x, tile_y), tile_info in tiles_data.items():
         # Verwende Dict für schnelleres Lookup
@@ -135,6 +139,10 @@ def slice_mesh_into_tiles(vertices, faces, materials_per_face, tile_size=400, gr
         tile_vertices_list = []
         tile_faces_list = []
         tile_materials_list = []
+        tile_normals_list = [] if has_normals else None
+        tile_original_face_indices = []
+        tile_road_face_indices = []  # Track: original_face_idx der ungeclippten Roads
+        tile_road_uvs = []  # UVs der ungeclippten Roads (parallel zu tile_road_face_indices)
 
         for idx, (face_idx, poly_or_none) in enumerate(tile_info["face_indices"]):
             material = tile_info["materials"][idx]
@@ -148,14 +156,20 @@ def slice_mesh_into_tiles(vertices, faces, materials_per_face, tile_size=400, gr
                 local_indices = []
                 for v_idx in [v0, v1, v2]:
                     if v_idx not in tile_vertex_mapping:
-                        # Neues Vertex - verwende Index statt Tuple!
                         tile_vertex_mapping[v_idx] = len(tile_vertices_list)
                         tile_vertices_list.append(list(vertices[v_idx]))
+                        if has_normals:
+                            tile_normals_list.append(list(vertex_normals[v_idx]))
 
                     local_indices.append(tile_vertex_mapping[v_idx])
 
                 tile_faces_list.append(local_indices)
                 tile_materials_list.append(material)
+                tile_original_face_indices.append(face_idx)
+                tile_road_face_indices.append(face_idx)
+                # Speichere auch die entsprechenden UVs (wenn vorhanden)
+                if road_uvs_list and face_idx < len(road_uvs_list):
+                    tile_road_uvs.append(road_uvs_list[face_idx])
                 continue
 
             # ===== FALL 2: Geclipptes Polygon (Road) =====
@@ -197,6 +211,17 @@ def slice_mesh_into_tiles(vertices, faces, materials_per_face, tile_size=400, gr
             # Kombiniere zu 3D Punkten
             face_vertices_3d = np.column_stack([coords_xy, z])
 
+            # Approximative Normal für neue Vertices (Mittel der Original-Vertex-Normalen)
+            avg_normal = None
+            if has_normals:
+                n0 = vertex_normals[v0_idx]
+                n1 = vertex_normals[v1_idx]
+                n2 = vertex_normals[v2_idx]
+                avg = n0 + n1 + n2
+                norm = np.linalg.norm(avg)
+                if norm > 1e-12:
+                    avg_normal = (avg / norm).tolist()
+
             # Dedupliziere Vertices im Tile
             face_indices_for_tile = []
             for point_3d in face_vertices_3d:
@@ -204,6 +229,8 @@ def slice_mesh_into_tiles(vertices, faces, materials_per_face, tile_size=400, gr
                 if point_3d_tuple not in tile_vertices_set:
                     tile_vertices_set[point_3d_tuple] = len(tile_vertices_list)
                     tile_vertices_list.append(list(point_3d))
+                    if has_normals:
+                        tile_normals_list.append(avg_normal if avg_normal is not None else [0.0, 0.0, 1.0])
                 face_indices_for_tile.append(tile_vertices_set[point_3d_tuple])
 
             # Trianguliere geclipptes Polygon (einfache Fan-Triangulation)
@@ -217,6 +244,7 @@ def slice_mesh_into_tiles(vertices, faces, materials_per_face, tile_size=400, gr
                         ]
                     )
                     tile_materials_list.append(material)
+                    tile_original_face_indices.append(face_idx)
 
         # Speichere Tile-Daten
         if tile_vertices_list:
@@ -224,6 +252,11 @@ def slice_mesh_into_tiles(vertices, faces, materials_per_face, tile_size=400, gr
                 "vertices": np.array(tile_vertices_list, dtype=np.float32),
                 "faces": tile_faces_list,
                 "materials": tile_materials_list,
+                "normals": np.array(tile_normals_list, dtype=np.float32) if has_normals else None,
+                "original_face_indices": tile_original_face_indices,
+                "vertex_mapping": tile_vertex_mapping,  # Mapping: orig_vertex_idx → tile_local_idx
+                "road_face_indices": tile_road_face_indices,
+                "road_uvs": tile_road_uvs,  # UVs der ungeclippten Roads
                 "bounds": (
                     tile_x * tile_size,
                     (tile_x + 1) * tile_size,
@@ -262,12 +295,3 @@ def get_tile_grid_info(vertices, tile_size=400):
     tile_x_max = int(np.ceil(x_max / tile_size))
     tile_y_min = int(np.floor(y_min / tile_size))
     tile_y_max = int(np.ceil(y_max / tile_size))
-
-    return {
-        "tile_size": tile_size,
-        "bounds": bounds,
-        "tile_range_x": (tile_x_min, tile_x_max),
-        "tile_range_y": (tile_y_min, tile_y_max),
-        "num_tiles_x": tile_x_max - tile_x_min,
-        "num_tiles_y": tile_y_max - tile_y_min,
-    }

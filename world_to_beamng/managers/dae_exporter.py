@@ -367,6 +367,10 @@ class DAEExporter:
     ) -> None:
         """
         Schreibe <triangles> Block mit optionalen Normals und UVs.
+        
+        WICHTIG: Terrain-Tiles vs. Road-Materialien nutzen unterschiedliche TEXCOORD-Semantics:
+        - Terrain Tiles (tile_*): semantic="TEXCOORD" (Original-Mapping)
+        - Road Materials: semantic="TEXCOORD0" (für PBR-Shader-Support)
 
         Args:
             f: File handle
@@ -385,7 +389,14 @@ class DAEExporter:
             offset += 1
 
         if uv_id:
-            f.write(f'          <input semantic="TEXCOORD" source="#{uv_id}" offset="{offset}" set="0"/>\n')
+            # Terrain-Tiles nutzen TEXCOORD (ursprüngliches System)
+            # Road-Materialien nutzen TEXCOORD0 (für PBR-Shader)
+            if material_name.startswith("tile_"):
+                # Terrain-Tile: altes TEXCOORD-System
+                f.write(f'          <input semantic="TEXCOORD" source="#{uv_id}" offset="{offset}" set="0"/>\n')
+            else:
+                # Road/andere Materialien: TEXCOORD0 für PBR-Shader-Support
+                f.write(f'          <input semantic="TEXCOORD0" source="#{uv_id}" offset="{offset}" set="0"/>\n')
             offset += 1
 
         f.write("          <p>")
@@ -393,6 +404,7 @@ class DAEExporter:
         # Alle Indizes in einer Zeile
         if normal_id and uv_id:
             # Mit Normals + UV: v0 n0 uv0 v1 n1 uv1 v2 n2 uv2
+            # Alle Indizes sind identisch, da 1:1 Mapping
             indices_str = " ".join(
                 f"{face[0]} {face[0]} {face[0]} {face[1]} {face[1]} {face[1]} {face[2]} {face[2]} {face[2]}"
                 for face in faces
@@ -598,25 +610,32 @@ class DAEExporter:
 
                 # Normals Source (NEW: Smooth Normals für BeamNG)
                 normal_src_id = f"{mesh_id}_normals"
-                if isinstance(faces, dict):
-                    # Kombiniere alle Faces aus allen Materialen für Normal-Berechnung
-                    all_faces = []
-                    for mat_faces in faces.values():
-                        all_faces.extend(mat_faces)
-                    smooth_normals = self._compute_smooth_normals(vertices, all_faces)
+                provided_normals = mesh_data.get("normals")
+                if provided_normals is not None:
+                    smooth_normals = provided_normals
                 else:
-                    smooth_normals = self._compute_smooth_normals(vertices, faces)
+                    if isinstance(faces, dict):
+                        # Kombiniere alle Faces aus allen Materialen für Normal-Berechnung
+                        all_faces = []
+                        for mat_faces in faces.values():
+                            all_faces.extend(mat_faces)
+                        smooth_normals = self._compute_smooth_normals(vertices, all_faces)
+                    else:
+                        smooth_normals = self._compute_smooth_normals(vertices, faces)
                 self._write_normals_source(f, normal_src_id, smooth_normals)
 
                 # UV Source (optional)
                 if with_uv:
                     uv_src_id = f"{mesh_id}_uvs"
-                    # Prüfe ob explizite UVs im mesh_data vorhanden sind
-                    if "uvs" in mesh_data:
+                    # Prüfe zuerst ob explizite UVs im mesh_data vorhanden sind
+                    # Diese stammen aus Mesh.face_uvs und sind bereits richtig berechnet
+                    if "uvs" in mesh_data and mesh_data["uvs"] is not None:
                         uv_coords = mesh_data["uvs"]
                     else:
-                        # Fallback: berechne UVs automatisch
+                        # Fallback: berechne UVs automatisch (nur wenn nicht vorhanden)
                         tile_bounds = mesh_data.get("tile_bounds", None)
+                        uv_offset = mesh_data.get("uv_offset", (0.0, 0.0))
+                        uv_scale = mesh_data.get("uv_scale", (1.0, 1.0))
                         uv_coords = self._compute_uv_normalized(vertices, uv_offset, uv_scale, tile_bounds)
                     self._write_uv_source(f, uv_src_id, uv_coords)
                 else:
