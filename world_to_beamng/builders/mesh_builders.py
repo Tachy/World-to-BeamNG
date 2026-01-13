@@ -190,7 +190,7 @@ class TerrainMeshBuilder:
 
             # Update terrain_faces mit neuen Faces
             terrain_faces = mesh_obj.faces
-            
+
             # Berechne fehlende UV-Koordinaten für alle Faces (Terrain + Stitched)
             # Roads haben bereits explizite UVs vom road_mesh
             mesh_obj.compute_missing_uvs(material_whitelist={"terrain"})

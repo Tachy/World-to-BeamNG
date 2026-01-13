@@ -367,7 +367,7 @@ class DAEExporter:
     ) -> None:
         """
         Schreibe <triangles> Block mit optionalen Normals und UVs.
-        
+
         WICHTIG: Terrain-Tiles vs. Road-Materialien nutzen unterschiedliche TEXCOORD-Semantics:
         - Terrain Tiles (tile_*): semantic="TEXCOORD" (Original-Mapping)
         - Road Materials: semantic="TEXCOORD0" (für PBR-Shader-Support)

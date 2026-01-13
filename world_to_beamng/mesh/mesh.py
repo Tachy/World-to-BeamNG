@@ -48,7 +48,7 @@ class Mesh:
 
         OPTIMIERUNG: Verwendet nur Cross-Product Z-Komponente (keine Normalisierung nötig).
         Dadurch ~2-3x schneller als vollständige Normal-Berechnung.
-        
+
         UV-MAPPING: Optional können UV-Koordinaten pro Vertex angegeben werden.
         Format: {v0: (u,v), v1: (u,v), v2: (u,v)}
         """
@@ -78,7 +78,7 @@ class Mesh:
 
         # Speichere Properties
         self.face_props[face_idx] = {"material": material, **props}
-        
+
         # Speichere UV-Koordinaten (oder None, falls nicht vorhanden)
         self.face_uvs[face_idx] = uv_coords
 
@@ -236,23 +236,23 @@ class Mesh:
     def compute_missing_uvs(self, tile_bounds=None, material_whitelist=None):
         """
         Berechne UV-Koordinaten für alle Faces die keine haben.
-        
+
         Nutzt planar XY-Projektion normalisiert auf Tile-Bounds oder Mesh-Bounds.
-        
+
         Args:
             tile_bounds: Optional (x_min, x_max, y_min, y_max) - Wenn gesetzt, normalisiere auf diese Bounds
                         (wichtig für Multi-Tile UV-Konsistenz)
             material_whitelist: Optional Set von Material-Namen - nur diese Faces UVs berechnen
-        
+
         Returns:
             Anzahl der berechneten UVs
         """
         vertices = self.vertex_manager.get_array()
         if vertices is None or len(vertices) == 0:
             return 0
-        
+
         vertices_array = np.asarray(vertices)
-        
+
         # Bestimme Bounds
         if tile_bounds is not None:
             x_min, x_max, y_min, y_max = tile_bounds
@@ -261,11 +261,11 @@ class Mesh:
             x_max = vertices_array[:, 0].max()
             y_min = vertices_array[:, 1].min()
             y_max = vertices_array[:, 1].max()
-        
+
         # Normalisierungsfaktoren
         x_range = x_max - x_min if x_max > x_min else 1.0
         y_range = y_max - y_min if y_max > y_min else 1.0
-        
+
         # Sammle zu berechnende Faces vorab (Filter nach fehlenden UVs & Material)
         target_indices = []
         if material_whitelist is None:
@@ -317,7 +317,7 @@ class Mesh:
     def compute_smooth_normals(self):
         """
         Berechne geglättete Vertex-Normalen aus allen Faces (durch Mittelung der Face-Normalen).
-        
+
         OPTIMIERT: Vollständig vektorisiert mit numpy.add.at für schnelle Akkumulation.
         ~100x schneller als Loop-Version für große Meshes.
 
@@ -335,35 +335,35 @@ class Mesh:
 
         # Konvertiere Faces zu numpy array
         faces_arr = np.array(self.faces, dtype=np.int32)
-        
+
         # Hole alle Vertex-Indizes
         v0_idx = faces_arr[:, 0]
         v1_idx = faces_arr[:, 1]
         v2_idx = faces_arr[:, 2]
-        
+
         # Hole alle Vertices auf einmal (vektorisiert)
         p0 = vertices_array[v0_idx]
         p1 = vertices_array[v1_idx]
         p2 = vertices_array[v2_idx]
-        
+
         # Berechne alle Face-Normalen auf einmal (vektorisiert)
         edge1 = p1 - p0
         edge2 = p2 - p0
         face_normals = np.cross(edge1, edge2)
-        
+
         # Normalisiere Face-Normalen (vektorisiert)
         face_norms = np.linalg.norm(face_normals, axis=1, keepdims=True)
-        
+
         # Filter degenerierte Faces (Norm ~ 0)
         valid_mask = face_norms.squeeze() > 1e-12
         face_normals[valid_mask] /= face_norms[valid_mask]
-        
+
         # Akkumuliere Face-Normalen zu Vertices (vektorisiert mit add.at)
         # Dies ist ~100x schneller als Python-Loop
         np.add.at(normals, v0_idx, face_normals)
         np.add.at(normals, v1_idx, face_normals)
         np.add.at(normals, v2_idx, face_normals)
-        
+
         # Normalisiere alle Vertex-Normalen (vektorisiert)
         vertex_norms = np.linalg.norm(normals, axis=1, keepdims=True)
         nonzero_mask = vertex_norms.squeeze() > 1e-12

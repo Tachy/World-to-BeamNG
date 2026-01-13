@@ -11,7 +11,9 @@ import numpy as np
 from collections import defaultdict
 
 
-def slice_mesh_into_tiles(vertices, faces, materials_per_face, tile_size=400, grid_bounds=None, vertex_normals=None, road_uvs_list=None):
+def slice_mesh_into_tiles(
+    vertices, faces, materials_per_face, tile_size=400, grid_bounds=None, vertex_normals=None, road_uvs_list=None
+):
     """
     Clippt Mesh in 400×400m Tiles mit Sutherland-Hodgman.
 
@@ -33,7 +35,7 @@ def slice_mesh_into_tiles(vertices, faces, materials_per_face, tile_size=400, gr
             "materials": liste (pro geclipptem Face),
             "bounds": (x_min, x_max, y_min, y_max)
         }}
-        
+
     HINWEIS: UV-Koordinaten werden nicht mehr hier verwaltet!
     Sie sind zentral im Mesh-Objekt gespeichert (Mesh.face_uvs).
     """

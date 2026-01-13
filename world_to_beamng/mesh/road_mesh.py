@@ -19,33 +19,33 @@ from ..config import OSM_MAPPER
 def compute_road_uv_coords(centerline_coords, tiling_distance=10.0):
     """
     Berechne UV-Koordinaten für eine Straße entlang des Centerline-Strips.
-    
+
     U = Distance entlang Centerline (repetierend alle tiling_distance Meter)
     V = Querposition (0 = links, 1 = rechts)
-    
+
     Args:
         centerline_coords: (N, 3) Array mit Centerline-Punkten (x, y, z)
         tiling_distance: Meter zwischen U-Wiederholung (z.B. 10m für Straßenmuster)
-    
+
     Returns:
         List[float]: Kumulative Distanzen normalisiert auf [0, tiling_count]
                     Jede Position hat 1 Distanz-Wert (für Links und Rechts UV)
     """
     if len(centerline_coords) < 2:
         return [0.0] * len(centerline_coords)
-    
+
     # Berechne kumulative Länge entlang des Centerline
     coords_2d = np.asarray(centerline_coords[:, :2], dtype=np.float64)
     diffs = np.diff(coords_2d, axis=0)  # Kanten zwischen Punkten
     segment_lengths = np.linalg.norm(diffs, axis=1)
-    
+
     # Kumulative Länge (startend bei 0)
     cumulative_length = np.concatenate([[0.0], np.cumsum(segment_lengths)])
-    
+
     # Normalisiere auf Tiling-Entfernung
     # U wiederhole alle tiling_distance Meter
     u_coords = (cumulative_length / tiling_distance) % 1.0
-    
+
     return u_coords.tolist()
 
 
@@ -1201,7 +1201,7 @@ def generate_road_mesh_strips(road_polygons, height_points, height_elevations, v
             # left = (u, 0), right = (u, 1)
             u_curr = u_coords[i]
             u_next = u_coords[i + 1]
-            
+
             uv_left1 = (u_curr, 0.0)
             uv_left2 = (u_next, 0.0)
             uv_right1 = (u_curr, 1.0)
@@ -1209,12 +1209,12 @@ def generate_road_mesh_strips(road_polygons, height_points, height_elevations, v
 
             # Quad: left1-right1-right2-left2 → zwei Dreiecke
             # Winding-Order wird automatisch in Mesh.add_face() korrigiert
-            
+
             # Dreieck 1: left1-right1-right2
             all_road_faces.append([left1, right1, right2])
             all_road_face_to_idx.append(road_id)
             all_road_face_uvs.append({left1: uv_left1, right1: uv_right1, right2: uv_right2})
-            
+
             # Dreieck 2: left1-right2-left2
             all_road_faces.append([left1, right2, left2])
             all_road_face_to_idx.append(road_id)
@@ -1326,6 +1326,7 @@ def generate_road_mesh_strips(road_polygons, height_points, height_elevations, v
 
                 # Projektion auf Achsen, skaliert wie Straßen (10m Tiling)
                 scale = 10.0
+
                 def proj_uv(p):
                     d = p - pc
                     u = np.dot(d, u_axis) / scale
