@@ -352,33 +352,83 @@ class Mesh:
         removed_count = len(old_faces) - len(self.faces)
         return removed_count
 
-    def compute_terrain_uvs_batch(self, material_filter=None):
+    def preserve_road_uvs(self):
         """
-        Berechnet UVs für alle Faces mit bestimmtem Material (vektorisiert - sehr schnell!).
+        Speichere Road-UV-Daten BEVOR Terrain-UVs berechnet werden.
+        
+        Roads haben bereits UV-Koordinaten aus road_mesh.py, die müssen bewahrt werden.
+        Dieses System speichert die tatsächlichen UV-Koordinaten pro Road-Face,
+        damit sie später in tile_slicer korrekt remapped werden können.
+        
+        Returns:
+            dict: {face_idx: [(u0,v0), (u1,v1), (u2,v2)]} für alle Road-Faces
+        """
+        road_uv_data = {}
+        road_faces_with_mat = 0
+        road_faces_in_uv_indices = 0
+        
+        for face_idx, props in self.face_props.items():
+            mat = props.get("material", "")
+            # Prüfe ob Material mit "road" anfängt oder enthält
+            if mat and ("road" in mat.lower() or "asphalt" in mat.lower() or "gravel" in mat.lower() or "dirt" in mat.lower()):
+                road_faces_with_mat += 1
+                # Hole die tatsächlichen UV-Koordinaten für dieses Face
+                if face_idx in self.uv_indices:
+                    road_faces_in_uv_indices += 1
+                    uv_indices = self.uv_indices[face_idx]
+                    uv_coords = []
+                    for uv_idx in uv_indices:
+                        if uv_idx < len(self.uvs):
+                            uv_coords.append(self.uvs[uv_idx])
+                        else:
+                            uv_coords.append((0.0, 0.0))  # Fallback
+                    
+                    if len(uv_coords) == 3:
+                        road_uv_data[face_idx] = uv_coords
+        
+        print(f"  [DEBUG] Road-Material-Faces: {road_faces_with_mat}")
+        print(f"  [DEBUG] Road-Faces IN uv_indices: {road_faces_in_uv_indices}")
+        print(f"  [INFO] {len(road_uv_data)} Road-Faces mit existierenden UVs identifiziert")
+        return road_uv_data
+
+    def compute_terrain_uvs_batch(self, material_filter=None, preserve_road_uv_data=None):
+        """
+        Berechnet UVs nur für Faces ohne existierende UVs mit bestimmtem Material (vektorisiert).
 
         Verwendet Vertex-XY-Positionen normalisiert auf Terrain-Bounds für 1:1 UV-Mapping.
-        Deutlich schneller als Face-by-Face Berechnung (10-50x).
+        Respektiert bereits vorhandene UVs (z.B. von Roads) - überschreibt sie NICHT!
 
         Args:
             material_filter: Liste von Materials (z.B. ["terrain"]) oder None für alle
+            preserve_road_uv_data: dict von preserve_road_uvs() - speichert Road-UV-Daten
 
         Returns:
-            Anzahl Faces mit UVs versehen
+            Anzahl Faces mit neuen UVs versehen
         """
         if len(self.faces) == 0:
             return 0
 
         # Filtere Faces nach Material
+        # WICHTIG: Überspringe Faces die bereits UV-Indizes haben!
         face_indices = []
         for face_idx, props in self.face_props.items():
             mat = props.get("material")
             if material_filter is None or mat in material_filter:
-                face_indices.append(face_idx)
+                # Nur Faces ohne existierende UVs bearbeiten!
+                # (oder auch wenn sie spezielle Road-UVs haben - diese müssen bewahrt werden)
+                if preserve_road_uv_data and face_idx in preserve_road_uv_data:
+                    # Road-Face mit speziellen UVs - überspringen
+                    continue
+                if face_idx not in self.uv_indices:
+                    face_indices.append(face_idx)
+
+                if face_idx not in self.uv_indices:
+                    face_indices.append(face_idx)
 
         if not face_indices:
             return 0
 
-        print(f"    Berechne UVs für {len(face_indices)} Faces (batch-optimiert)...")
+        print(f"    Berechne UVs für {len(face_indices)} Faces ohne existierende UVs (batch-optimiert)...")
 
         # Hole alle Vertex-Positionen
         verts = np.asarray(self.vertex_manager.get_array(), dtype=np.float32)

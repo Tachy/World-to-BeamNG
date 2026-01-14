@@ -206,8 +206,15 @@ def load_dae_tile(filepath):
             final_vertices = np.array(tile_vertices_expanded, dtype=np.float32)
             final_uvs = np.array(tile_uvs_expanded, dtype=np.float32) if len(tile_uvs_expanded) > 0 else np.array([])
 
+            # Erstelle lokale Faces (Indizes relativ zu diesem Tile, 0-basiert)
+            tile_faces_local = []
+            for face_global in tile_faces:
+                face_local = [idx - vertex_offset for idx in face_global]
+                tile_faces_local.append(face_local)
+
             tiles_info[tile_name] = {
                 "faces": tile_faces,  # Globale Indizes
+                "faces_local": tile_faces_local,  # Lokale Indizes (für Viewer)
                 "vertices": final_vertices,  # Expandierte Vertices
                 "uvs": final_uvs,  # Entsprechende UVs (1:1 zu Vertices)
             }

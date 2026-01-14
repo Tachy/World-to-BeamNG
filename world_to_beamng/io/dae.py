@@ -45,35 +45,19 @@ def export_merged_dae(
         if len(faces) == 0:
             continue
 
-        # Nutze UV-Indizes direkt aus tile_data (kein Konversion mehr nötig!)
+        # Nutze UV-Indizes direkt aus tile_data (KEINE FALLBACKS!)
         face_uv_indices = tile_data.get("uv_indices", {})
         global_uvs = tile_data.get("global_uvs", [])
 
         # Konvertiere zu numpy
         explicit_uvs = np.array(global_uvs, dtype=np.float32) if global_uvs else None
 
-        # Für Faces ohne UV-Indizes: 1:1 Mapping (Terrain-Fallback)
-        for face_idx, face in enumerate(faces):
-            if face_idx not in face_uv_indices:
-                face_uv_indices[face_idx] = list(face)  # uv_idx == v_idx
-
-        # Füge fallback UVs für Vertices hinzu, die noch keine UVs haben (1:1 Projektion)
-        # Das ist wichtig für Terrain-Faces, die keine expliziten UVs bekommen haben
-        tile_bounds = tile_data.get("bounds", None)
-        if tile_bounds and explicit_uvs is not None:
-            x_min, x_max, y_min, y_max = tile_bounds
-            x_range = x_max - x_min if x_max > x_min else 1.0
-            y_range = y_max - y_min if y_max > y_min else 1.0
-
-            # Füge UVs für alle Vertices hinzu, die in face_uv_indices als 1:1 Mapping referenziert werden
-            for v_idx in range(len(vertices)):
-                if v_idx >= len(explicit_uvs):
-                    # Berechne UV aus Vertex-Position
-                    x, y, z = vertices[v_idx]
-                    u = (x - x_min) / x_range
-                    v = (y - y_min) / y_range
-                    # Erweitere explicit_uvs
-                    explicit_uvs = np.vstack([explicit_uvs, np.array([[u, v]], dtype=np.float32)])
+        # Validierung: Alle Faces MÜSSEN UV-Indizes haben
+        if len(face_uv_indices) != len(faces):
+            raise ValueError(
+                f"Tile ({tile_x}, {tile_y}): {len(faces)} Faces aber nur {len(face_uv_indices)} UV-Index-Sets! "
+                f"UV-Berechnung im tile_slicer hat nicht alle Faces abgedeckt."
+            )
 
         materials_per_face = tile_data.get("materials", [])
 

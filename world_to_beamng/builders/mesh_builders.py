@@ -107,6 +107,10 @@ class TerrainMeshBuilder:
             self._road_faces = road_mesh_tuple[0]  # road_faces
             self._road_face_to_idx = road_mesh_tuple[1]  # road_face_to_idx
             self._road_face_uvs = road_mesh_tuple[2]  # road_face_uvs (Index 2!)
+            print(f"  [DEBUG] road_mesh_tuple:")
+            print(f"    _road_faces: {len(self._road_faces)}")
+            print(f"    _road_face_to_idx: {len(self._road_face_to_idx)}")
+            print(f"    _road_face_uvs: {len(self._road_face_uvs) if self._road_face_uvs else 0}")
         self._road_data = road_polygons_2d  # Für OSM-Tag-Lookup
         return self
 
@@ -175,9 +179,10 @@ class TerrainMeshBuilder:
                     r_id = self._road_face_to_idx[idx] if idx < len(self._road_face_to_idx) else None
                     mat_name = road_material_map.get(r_id, "road_default")
                     # Hole UV-Koordinaten, falls vorhanden
+                    # WICHTIG: UVs sind nach r_id (Polygon-ID aus road_mesh.py) indexiert, nicht nach Face-Index!
                     uv_coords = None
-                    if self._road_face_uvs and idx < len(self._road_face_uvs):
-                        uv_coords = self._road_face_uvs[idx]
+                    if self._road_face_uvs and r_id is not None and r_id < len(self._road_face_uvs):
+                        uv_coords = self._road_face_uvs[r_id]
                     mesh_obj.add_face(face[0], face[1], face[2], material=mat_name, uv_coords=uv_coords)
 
             stitch_all_gaps(
@@ -191,13 +196,21 @@ class TerrainMeshBuilder:
             # Update terrain_faces mit neuen Faces
             terrain_faces = mesh_obj.faces
 
-            # UV-Batch-Berechnung für ALLE Terrain+Stitch-Faces (vektorisiert - sehr schnell!)
-            print("  Berechne UVs für Terrain+Stitch-Faces (Batch)...")
-            mesh_obj.compute_terrain_uvs_batch(material_filter=["terrain"])
+            # ZENTRALE UV-VERWALTUNG:
+            # 1. Speichere Road-UV-Daten BEVOR Terrain-UVs berechnet werden
+            print("  Speichere Road-UV-Daten...")
+            road_uv_data = mesh_obj.preserve_road_uvs()
+            
+            # 2. Berechne Terrain-UVs (respektiert Road-UVs)
+            # UVs werden NACH dem Slicing PRO TILE berechnet (siehe tile_slicer.py)
+            # Hier speichern wir nur die Road-Daten für später.
 
             # Berechne geglättete Normalen (gesamtes Mesh, inkl. Roads)
             mesh_obj.compute_smooth_normals()
             vertex_normals = mesh_obj.vertex_normals
+            
+            # Speichere road_uv_data im Mesh-Objekt für tile_slicer
+            mesh_obj.road_uv_data = road_uv_data
         else:
             # Kein Stitching → terrain_faces liegt als Liste vor, berechne Normals direkt
             vertices_array = np.asarray(self._vertex_manager.get_array(), dtype=np.float32)
