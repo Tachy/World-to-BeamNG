@@ -127,10 +127,10 @@ def load_dae_tile(filepath):
                         face_global = [
                             indices[i] + vertex_offset,
                             indices[i + stride] + vertex_offset,
-                            indices[i + 2*stride] + vertex_offset,
+                            indices[i + 2 * stride] + vertex_offset,
                         ]
                         # Lokale Indizes für Tile (nur Vertex-Indices, ohne Normals/UVs)
-                        face_local = [indices[i], indices[i + stride], indices[i + 2*stride]]
+                        face_local = [indices[i], indices[i + stride], indices[i + 2 * stride]]
 
                         tile_faces.append(face_global)
                         tile_faces_local.append(face_local)
@@ -171,7 +171,7 @@ def load_dae_tile(filepath):
     valid_faces = []
     valid_materials = []
     degenerate_count = 0
-    
+
     for face, mat in zip(all_faces, all_materials):
         # Prüfe ob alle 3 Vertex-Indizes unterschiedlich sind
         if len(set(face)) == 3:
@@ -179,11 +179,13 @@ def load_dae_tile(filepath):
             valid_materials.append(mat)
         else:
             degenerate_count += 1
-    
+
     if degenerate_count > 0:
-        print(f"  [!] WARNUNG: {degenerate_count} degenerierte Faces gefiltert ({100*degenerate_count/len(all_faces):.1f}%)")
+        print(
+            f"  [!] WARNUNG: {degenerate_count} degenerierte Faces gefiltert ({100*degenerate_count/len(all_faces):.1f}%)"
+        )
         print(f"      Verbleibende valide Faces: {len(valid_faces)}")
-    
+
     all_faces = valid_faces
     all_materials = valid_materials
 

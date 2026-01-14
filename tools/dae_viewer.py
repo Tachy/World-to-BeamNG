@@ -81,12 +81,12 @@ class DAETileViewer:
     def __init__(self):
         # Lade Items und Materialien aus JSON
         items_path = os.path.join(config.BEAMNG_DIR, config.ITEMS_JSON)
-        
+
         # Suche materials.json in config.BEAMNG_DIR/main/
         materials_path = os.path.join(config.BEAMNG_DIR, "main", "materials.json")
 
         print(f"Lade Items aus: {items_path}")
-        
+
         # Versuche items.json zu laden (kann fehlschlagen, wenn nicht in BeamNG Format)
         self.items = {}
         try:
@@ -95,11 +95,11 @@ class DAETileViewer:
                 # items.json könnte verschiedene Strukturen haben - prüfe verschiedene Patterns
                 if isinstance(items_data, dict):
                     # Pattern 1: Direct dict mit shapeName
-                    if any(isinstance(v, dict) and 'shapeName' in v for v in items_data.values()):
+                    if any(isinstance(v, dict) and "shapeName" in v for v in items_data.values()):
                         self.items = items_data
                     # Pattern 2: Nested 'Instances'
-                    elif 'Instances' in items_data and isinstance(items_data['Instances'], dict):
-                        self.items = items_data['Instances']
+                    elif "Instances" in items_data and isinstance(items_data["Instances"], dict):
+                        self.items = items_data["Instances"]
         except Exception as e:
             print(f"  [!] items.json konnte nicht geladen werden: {e}")
             print(f"  [i] Suche stattdessen direkt nach DAE-Dateien im Niveau...")
@@ -123,7 +123,7 @@ class DAETileViewer:
 
         # Extrahiere alle DAE-Dateien aus Items oder suche direkt
         self.dae_files = []
-        
+
         # Method 1: Aus items.json
         if self.items:
             for item_name, item_data in self.items.items():
@@ -135,7 +135,7 @@ class DAETileViewer:
                             self.dae_files.append((item_name, dae_path))
                         else:
                             print(f"  [!] DAE nicht gefunden: {shape_name}")
-        
+
         # Method 2: Direkt im Verzeichnis suchen (Fallback oder Ergänzung)
         if not self.dae_files:
             print(f"  [i] Suche nach DAE-Dateien im Level-Verzeichnis...")
@@ -199,7 +199,7 @@ class DAETileViewer:
             print(f"  -> {len(self.textures)} Tile-Texturen geladen")
         if self.material_textures:
             print(f"  -> {len(self.material_textures)} Material-Texturen geladen")
-        
+
         # Debug: Zeige verfügbare Texturen und Material-Zuordnungen
         self._print_texture_debug_info()
 
@@ -377,7 +377,7 @@ class DAETileViewer:
         """Drucke Debug-Informationen über verfügbare Texturen und Material-Zuordnungen."""
         print("\n[TEXTURE DEBUG INFO]")
         print("=" * 80)
-        
+
         # Tile-Texturen
         if self.textures:
             print(f"\n[Tile-Texturen] {len(self.textures)} verfügbar:")
@@ -387,7 +387,7 @@ class DAETileViewer:
                 print(f"  ... und {len(self.textures) - 10} weitere")
         else:
             print("\n[Tile-Texturen] KEINE gefunden (textures/ Verzeichnis leer?)")
-        
+
         # Material-Texturen
         if self.material_textures:
             print(f"\n[Material-Texturen] {len(self.material_textures)} gefunden:")
@@ -395,21 +395,23 @@ class DAETileViewer:
                 print(f"  • {mat_name}")
         else:
             print("\n[Material-Texturen] KEINE gefunden (main.materials.json hat keine Texturen?)")
-        
+
         # Material-Struktur
         if self.materials:
             print(f"\n[Materials JSON] {len(self.materials)} Materialien definiert:")
             roads = [m for m in self.materials.keys() if "road" in m.lower()]
-            buildings = [m for m in self.materials.keys() if "build" in m.lower() or "wall" in m.lower() or "roof" in m.lower()]
+            buildings = [
+                m for m in self.materials.keys() if "build" in m.lower() or "wall" in m.lower() or "roof" in m.lower()
+            ]
             other = [m for m in self.materials.keys() if m not in roads and m not in buildings]
-            
+
             if roads:
                 print(f"  Roads ({len(roads)}): {', '.join(roads[:3])}")
             if buildings:
                 print(f"  Buildings ({len(buildings)}): {', '.join(buildings[:3])}")
             if other:
                 print(f"  Sonstige ({len(other)}): {', '.join(other[:3])}")
-        
+
         print("=" * 80 + "\n")
 
     def update_view(self):
@@ -418,7 +420,7 @@ class DAETileViewer:
         camera_pos = None
         camera_focal = None
         camera_up = None
-        
+
         # Nur speichern wenn NICHT der erste Aufruf (update_view von __init__)
         if not self._first_update_view:
             try:
@@ -470,10 +472,10 @@ class DAETileViewer:
                 self.plotter.view_isometric()
                 self.plotter.reset_camera_clipping_range()
                 self.plotter.render()
-                
+
                 print(f"  [i] Kamera mit view_isometric() positioniert")
                 print(f"      Position: {self.plotter.camera.position}")
-                
+
                 # Versuche gespeicherte Kamera zu laden (überschreibt view_isometric)
                 saved_camera = self._load_camera_state()
                 if saved_camera:
@@ -491,7 +493,7 @@ class DAETileViewer:
                             print(f"      Position: {pos}")
                     except Exception as e:
                         print(f"  [!] Fehler beim Laden der gespeicherten Kamera: {e}")
-                
+
             except Exception as e:
                 print(f"  [!] Fehler beim Initialisieren der Kamera: {e}")
         else:
@@ -505,7 +507,7 @@ class DAETileViewer:
                 self.plotter.render()
             except Exception as e:
                 print(f"  [!] Fehler beim Wiederherstellen der Kamera: {e}")
-        
+
         self._update_camera_status()
 
         # Füge Debug-Actors wieder zum Plotter hinzu (falls sie existierten)
@@ -674,7 +676,7 @@ class DAETileViewer:
                     )
                     self.terrain_actors.append(actor)
                     actor.SetVisibility(self.show_terrain)
-            
+
             # Debug-Output
             if terrain_texture_log:
                 print(f"\n[{item_name}] Terrain-Textur-Zuordnung:")
@@ -701,11 +703,11 @@ class DAETileViewer:
                 )
                 self.terrain_actors.append(actor)
                 actor.SetVisibility(self.show_terrain)
-        
+
         # Rendere Roads pro Material (immer, egal ob Texture oder Grid)
         if road_faces_by_material and tiles_info:
             road_opacity = self.grid_colors.get("road", {}).get("face_opacity", 0.5)
-            
+
             # Extrahiere UVs aus tiles_info (für alle Vertices)
             global_uvs = self._extract_global_uvs(tiles_info, len(vertices))
 
@@ -756,7 +758,9 @@ class DAETileViewer:
                             actor.SetVisibility(self.show_roads)
                     else:
                         # Fallback: Farbe
-                        print(f"  [○ Road] {road_material}: Textur nicht gefunden. Farbe-Fallback ({len(road_faces)} faces).")
+                        print(
+                            f"  [○ Road] {road_material}: Textur nicht gefunden. Farbe-Fallback ({len(road_faces)} faces)."
+                        )
                         actor = self.plotter.add_mesh(
                             road_mesh,
                             color=face_colors["road"],
@@ -824,7 +828,9 @@ class DAETileViewer:
                             )
                             self.building_actors.append(actor)
                             actor.SetVisibility(self.show_buildings)
-                            print(f"  [✓ Walls] Textur angewendet: {wall_material} (UVs: {'ja' if has_uvs else 'nein'})")
+                            print(
+                                f"  [✓ Walls] Textur angewendet: {wall_material} (UVs: {'ja' if has_uvs else 'nein'})"
+                            )
                         except Exception as e:
                             print(f"  [! Walls] Textur-Fehler: {e}. Fallback zu Farbe.")
                             actor = self.plotter.add_mesh(
@@ -905,7 +911,9 @@ class DAETileViewer:
                             )
                             self.building_actors.append(actor)
                             actor.SetVisibility(self.show_buildings)
-                            print(f"  [✓ Roofs] Textur angewendet: {roof_material} (UVs: {'ja' if has_uvs else 'nein'})")
+                            print(
+                                f"  [✓ Roofs] Textur angewendet: {roof_material} (UVs: {'ja' if has_uvs else 'nein'})"
+                            )
                         except Exception as e:
                             print(f"  [! Roofs] Textur-Fehler: {e}. Fallback zu Farbe.")
                             actor = self.plotter.add_mesh(
@@ -1014,27 +1022,27 @@ class DAETileViewer:
     def _extract_global_uvs(self, tiles_info, num_vertices):
         """
         Extrahiere globale UV-Koordinaten aus tiles_info.
-        
+
         Das DAE hat Vertices und UVs pro Tile gespeichert. Diese Funktion
         kombiniert die UVs aller Tiles zu einem globalen UV-Array.
-        
+
         Args:
             tiles_info: Dict mit Tile-Informationen
             num_vertices: Anzahl der globalen Vertices
-            
+
         Returns:
             NumPy Array (num_vertices, 2) mit UV-Koordinaten oder None
         """
         if not tiles_info:
             return None
-        
+
         # Sammle UVs von allen Tiles
         all_uvs = []
         for tile_name, tile_data in sorted(tiles_info.items()):
             uvs = tile_data.get("uvs", np.array([]))
             if len(uvs) > 0:
                 all_uvs.append(uvs)
-        
+
         # Kombiniere alle Tile-UVs
         if all_uvs:
             combined_uvs = np.vstack(all_uvs)
@@ -1043,7 +1051,7 @@ class DAETileViewer:
             else:
                 print(f"  [!] UV-Array Größe stimmt nicht: {len(combined_uvs)} UVs vs {num_vertices} Vertices")
                 return None
-        
+
         return None
 
     def _create_mesh_with_uvs(self, vertices, faces, uvs):
@@ -1841,7 +1849,7 @@ class DAETileViewer:
                     shape_name = item_data
                 else:
                     continue
-                    
+
                 if shape_name and shape_name.endswith(".dae"):
                     dae_path = _resolve_beamng_path(shape_name)
                     if dae_path and os.path.exists(dae_path):

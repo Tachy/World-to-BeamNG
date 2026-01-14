@@ -347,16 +347,10 @@ class DAEExporter:
         # UV-Index = Vertex-Index (per-vertex UVs)
         if uv_id:
             # Mit Normals + UV: v0 n0 uv0 v1 n1 uv1 v2 n2 uv2
-            indices_str = " ".join(
-                f"{v0} {v0} {v0} {v1} {v1} {v1} {v2} {v2} {v2}"
-                for v0, v1, v2 in all_faces
-            )
+            indices_str = " ".join(f"{v0} {v0} {v0} {v1} {v1} {v1} {v2} {v2} {v2}" for v0, v1, v2 in all_faces)
         else:
             # Nur Normals: v0 n0 v1 n1 v2 n2
-            indices_str = " ".join(
-                f"{v0} {v0} {v1} {v1} {v2} {v2}"
-                for v0, v1, v2 in all_faces
-            )
+            indices_str = " ".join(f"{v0} {v0} {v1} {v1} {v2} {v2}" for v0, v1, v2 in all_faces)
 
         f.write(f"\n{indices_str}")
         f.write("\n          </p>\n")

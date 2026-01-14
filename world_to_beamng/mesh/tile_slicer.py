@@ -172,7 +172,7 @@ def slice_mesh_into_tiles(
                 tile_faces_list.append(local_indices)
                 tile_materials_list.append(material)
                 tile_original_face_indices.append(face_idx)
-                
+
                 # Kopiere UVs für dieses Face (falls vorhanden)
                 if face_uvs_dict and face_idx in face_uvs_dict:
                     tile_face_uvs[new_face_idx] = face_uvs_dict[face_idx]
@@ -252,7 +252,7 @@ def slice_mesh_into_tiles(
                     )
                     tile_materials_list.append(material)
                     tile_original_face_indices.append(face_idx)
-                    
+
                     # Kopiere UVs vom Original-Face (für geclippte Faces)
                     if face_uvs_dict and face_idx in face_uvs_dict:
                         tile_face_uvs[new_face_idx] = face_uvs_dict[face_idx]

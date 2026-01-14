@@ -57,7 +57,7 @@ def export_merged_dae(
         # Hole UVs aus tile_data (diese sind bereits pro Face spezifiziert)
         tile_face_uvs = tile_data.get("face_uvs", {})  # {face_idx: {vertex_idx: (u, v)}}
         materials_per_face = tile_data.get("materials", [])
-        
+
         # === TERRAIN-UV FIX: Berechne ALLE Terrain-Face UVs direkt aus Vertex-XY ===
         # Problem: Terrain-UVs wurden auf globale Mesh-Bounds normalisiert
         # Lösung: Nutze tile_bounds statt globale Bounds
@@ -66,14 +66,14 @@ def export_merged_dae(
             x_min, x_max, y_min, y_max = tile_bounds
             x_range = x_max - x_min if x_max > x_min else 1.0
             y_range = y_max - y_min if y_max > y_min else 1.0
-            
+
             # Berechne neue UVs für ALLE Faces basierend auf Tile-Bounds
             new_face_uvs = {}
             tile_faces = tile_data.get("faces", [])
-            
+
             for face_idx, face in enumerate(tile_faces):
                 material = materials_per_face[face_idx] if face_idx < len(materials_per_face) else "unknown"
-                
+
                 # Nur Terrain-Faces re-normalisieren (nicht "road*")
                 if "road" not in material.lower():
                     uv_dict = {}
@@ -83,14 +83,14 @@ def export_merged_dae(
                             u = (x - x_min) / x_range
                             v = (y - y_min) / y_range
                             uv_dict[v_idx] = (float(u), float(v))
-                    
+
                     if len(uv_dict) == len(face):
                         new_face_uvs[face_idx] = uv_dict
-            
+
             # Ersetze Terrain-UVs
             if new_face_uvs:
                 tile_face_uvs = new_face_uvs
-        
+
         # Erstelle globale UV-Array aus den Face-spezifischen UVs
         explicit_uvs = None
         if tile_face_uvs:
