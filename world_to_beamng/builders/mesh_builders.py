@@ -33,7 +33,9 @@ class TerrainMeshBuilder:
         self._road_data = None
         self._junctions = None
         self._enable_stitching = False
-        self._road_mesh_data = None  # Strukturierte Road-Daten: [{'vertices': [...], 'road_id': ..., 'uvs': {...}}, ...]
+        self._road_mesh_data = (
+            None  # Strukturierte Road-Daten: [{'vertices': [...], 'road_id': ..., 'uvs': {...}}, ...]
+        )
 
     def with_grid(self, grid: np.ndarray) -> "TerrainMeshBuilder":
         """
@@ -169,10 +171,10 @@ class TerrainMeshBuilder:
 
                 # Füge Road-Faces mit Material UND UV-Koordinaten hinzu
                 for road_face_data in self._road_mesh_data:
-                    v0, v1, v2 = road_face_data['vertices']
-                    road_id = road_face_data['road_id']
-                    uv_coords = road_face_data['uvs']  # {v0: (u,v), v1: (u,v), v2: (u,v)}
-                    
+                    v0, v1, v2 = road_face_data["vertices"]
+                    road_id = road_face_data["road_id"]
+                    uv_coords = road_face_data["uvs"]  # {v0: (u,v), v1: (u,v), v2: (u,v)}
+
                     mat_name = road_material_map.get(road_id, "road_default")
                     mesh_obj.add_face(v0, v1, v2, material=mat_name, uv_coords=uv_coords)
 

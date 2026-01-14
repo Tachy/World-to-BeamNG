@@ -1213,18 +1213,22 @@ def generate_road_mesh_strips(road_polygons, height_points, height_elevations, v
             # Winding-Order wird automatisch in Mesh.add_face() korrigiert
 
             # Dreieck 1: left1-right1-right2
-            road_mesh_data.append({
-                'vertices': [left1, right1, right2],
-                'road_id': road_id,
-                'uvs': {left1: uv_left1, right1: uv_right1, right2: uv_right2}
-            })
+            road_mesh_data.append(
+                {
+                    "vertices": [left1, right1, right2],
+                    "road_id": road_id,
+                    "uvs": {left1: uv_left1, right1: uv_right1, right2: uv_right2},
+                }
+            )
 
             # Dreieck 2: left1-right2-left2
-            road_mesh_data.append({
-                'vertices': [left1, right2, left2],
-                'road_id': road_id,
-                'uvs': {left1: uv_left1, right2: uv_right2, left2: uv_left2}
-            })
+            road_mesh_data.append(
+                {
+                    "vertices": [left1, right2, left2],
+                    "road_id": road_id,
+                    "uvs": {left1: uv_left1, right2: uv_right2, left2: uv_left2},
+                }
+            )
 
         # Böschungen sind deaktiviert (config.GENERATE_SLOPES=False)
 
@@ -1332,6 +1336,7 @@ def generate_road_mesh_strips(road_polygons, height_points, height_elevations, v
 
                 # Projektion auf Achsen, skaliert wie Straßen (10m Tiling)
                 scale = 10.0
+
                 def proj_uv(p):
                     d = p - pc
                     u = np.dot(d, u_axis) / scale
@@ -1342,11 +1347,13 @@ def generate_road_mesh_strips(road_polygons, height_points, height_elevations, v
                 uv_b = proj_uv(pb)
                 uv_c = proj_uv(pc)
 
-                road_mesh_data.append({
-                    'vertices': [a, b, center_idx],
-                    'road_id': -(j_id + 1),
-                    'uvs': {a: uv_a, b: uv_b, center_idx: uv_c}
-                })
+                road_mesh_data.append(
+                    {
+                        "vertices": [a, b, center_idx],
+                        "road_id": -(j_id + 1),
+                        "uvs": {a: uv_a, b: uv_b, center_idx: uv_c},
+                    }
+                )
 
     print(f"  [OK] {len(road_mesh_data)} Strassen-Faces")
     if config.GENERATE_SLOPES:

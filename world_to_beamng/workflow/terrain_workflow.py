@@ -333,10 +333,10 @@ class TerrainWorkflow:
         # Entpacke strukturierte Road-Daten
         # Format: [{'vertices': [v0,v1,v2], 'road_id': id, 'uvs': {...}}, ...]
         road_mesh_data = road_mesh_tuple[0]
-        
+
         # Konvertiere zurück in die beiden Arrays für diese Funktion (zur Kompatibilität)
-        all_road_faces = [rd['vertices'] for rd in road_mesh_data]
-        road_face_to_idx = [rd['road_id'] for rd in road_mesh_data]
+        all_road_faces = [rd["vertices"] for rd in road_mesh_data]
+        road_face_to_idx = [rd["road_id"] for rd in road_mesh_data]
 
         # Entpacke terrain_mesh
         terrain_faces = terrain_mesh["faces"]

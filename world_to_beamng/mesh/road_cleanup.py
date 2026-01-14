@@ -31,7 +31,7 @@ def clip_road_mesh_data(road_mesh_data, vertex_manager, grid_bounds_local):
 
     # Phase 1: Sortiere Faces in "komplett drin", "komplett draußen", "teilweise"
     for face_data in road_mesh_data:
-        v0_idx, v1_idx, v2_idx = face_data['vertices']
+        v0_idx, v1_idx, v2_idx = face_data["vertices"]
 
         v0 = vertex_manager.vertices[v0_idx]
         v1 = vertex_manager.vertices[v1_idx]
@@ -100,20 +100,22 @@ def clip_road_mesh_data(road_mesh_data, vertex_manager, grid_bounds_local):
 
                 # Füge neue Face-Daten mit geclippten Vertices und UVs aus Original hinzu
                 # UVs werden interpoliert wie Z-Werte
-                road_id = face_data['road_id']
-                orig_uvs = face_data['uvs']
-                
+                road_id = face_data["road_id"]
+                orig_uvs = face_data["uvs"]
+
                 # Interpoliere UVs basierend auf baryzentrische Koordinaten
                 # (vereinfacht: nutze UV vom ursprünglichen Vertex am nächsten)
-                data_to_keep.append({
-                    'vertices': [idx0, idx1, idx2],
-                    'road_id': road_id,
-                    'uvs': {
-                        idx0: orig_uvs.get(v0_idx, (0.0, 0.0)),
-                        idx1: orig_uvs.get(v1_idx, (0.0, 0.0)),
-                        idx2: orig_uvs.get(v2_idx, (0.0, 0.0))
+                data_to_keep.append(
+                    {
+                        "vertices": [idx0, idx1, idx2],
+                        "road_id": road_id,
+                        "uvs": {
+                            idx0: orig_uvs.get(v0_idx, (0.0, 0.0)),
+                            idx1: orig_uvs.get(v1_idx, (0.0, 0.0)),
+                            idx2: orig_uvs.get(v2_idx, (0.0, 0.0)),
+                        },
                     }
-                })
+                )
                 clipped_count += 1
 
     print(f"  [Road-Cleanup] {clipped_count} neue Dreiecke nach Clipping, {len(data_to_keep)} total")
