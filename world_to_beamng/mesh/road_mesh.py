@@ -58,25 +58,62 @@ def smooth_junction_centers_z(junction_fans, vertex_manager):
         if len(rim_indices) < 2:
             continue
 
-        # Hole Z-Werte
-        rim_z_values = np.array([vertex_manager.vertices[vid][2] for vid in rim_indices])
+        # Sammle Rim-Vertices mit ihren 3D-Positionen (sortiert nach Winkel um Center)
+        center_pos = vertex_manager.vertices[center_idx]
+        center_xy = center_pos[:2]
 
-        # Chaikin-Glättung (1 Iteration) auf Z-Werte, zirkulär
-        smoothed_z = rim_z_values.copy()
-        for i in range(len(smoothed_z)):
-            prev_idx = (i - 1) % len(smoothed_z)
-            next_idx = (i + 1) % len(smoothed_z)
-            # Neuer Z-Wert: 50% aktuell + 25% links + 25% rechts
-            smoothed_z[i] = 0.5 * rim_z_values[i] + 0.25 * rim_z_values[prev_idx] + 0.25 * rim_z_values[next_idx]
+        rim_data = []  # (angle, vertex_idx)
+        for vid in rim_indices:
+            pos = vertex_manager.vertices[vid]
+            angle = atan2(pos[1] - center_xy[1], pos[0] - center_xy[0])
+            rim_data.append((angle, vid))
 
-        # Schreibe geglättete Z-Werte zurück
-        for vid, z in zip(rim_indices, smoothed_z):
-            vertex_manager.vertices[vid, 2] = z
+        # Sortiere nach Winkel (zirkulär)
+        rim_data.sort(key=lambda x: x[0])
+
+        # Durchlaufe alle aufeinanderfolgenden Paare (zirkulär)
+        max_slope_deg = 20.0
+        max_slope_rad = np.radians(max_slope_deg)
+
+        for i in range(len(rim_data)):
+            curr_angle, curr_vid = rim_data[i]
+            next_angle, next_vid = rim_data[(i + 1) % len(rim_data)]
+
+            curr_pos = vertex_manager.vertices[curr_vid]
+            next_pos = vertex_manager.vertices[next_vid]
+
+            # Berechne Distanz XY zwischen den Punkten
+            dx = next_pos[0] - curr_pos[0]
+            dy = next_pos[1] - curr_pos[1]
+            xy_dist = np.sqrt(dx * dx + dy * dy)
+
+            if xy_dist < 1e-6:
+                continue
+
+            dz = next_pos[2] - curr_pos[2]
+
+            # Berechne Steigung (Winkel)
+            slope_rad = np.arctan(dz / xy_dist)
+            slope_deg = np.degrees(slope_rad)
+
+            # Wenn Steigung zu steil: begrenzen
+            if abs(slope_deg) > max_slope_deg:
+                # Zielsteigung (Vorzeichen beibehalten)
+                target_slope_rad = max_slope_rad if slope_deg > 0 else -max_slope_rad
+                target_dz = xy_dist * np.tan(target_slope_rad)
+
+                # Verteile die Höhendifferenz: einen hoch, einen runter
+                mid_z = (curr_pos[2] + next_pos[2]) / 2.0
+                new_curr_z = mid_z - target_dz / 2.0
+                new_next_z = mid_z + target_dz / 2.0
+
+                vertex_manager.vertices[curr_vid, 2] = new_curr_z
+                vertex_manager.vertices[next_vid, 2] = new_next_z
 
         smoothed_count += 1
 
     if smoothed_count > 0:
-        print(f"    -> {smoothed_count} Junction-Rim-Vertex-Ringe Z-geglättet")
+        print(f"    -> {smoothed_count} Junctions bearbeitet (max Steigung {max_slope_deg}°)")
 
 
 def compute_road_uv_coords(centerline_coords, tiling_distance=10.0):
