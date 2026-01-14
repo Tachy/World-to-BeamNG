@@ -433,10 +433,10 @@ class TerrainWorkflow:
         for face_idx, face in enumerate(terrain_faces):
             all_faces.append(face)
             # Hole Material aus mesh_obj.face_props
-            if mesh_obj and hasattr(mesh_obj, 'face_props') and face_idx in mesh_obj.face_props:
+            if mesh_obj and hasattr(mesh_obj, "face_props") and face_idx in mesh_obj.face_props:
                 mat_name = mesh_obj.face_props[face_idx].get("material", "terrain")
                 materials_per_face.append(mat_name)
-                
+
                 # Füge zu unique_materials hinzu falls Road-Material
                 if mat_name != "terrain":
                     # Suche Properties in road_material_map
@@ -510,7 +510,7 @@ class TerrainWorkflow:
         print(f"  Erstelle {len(dae_files)} TSStatic-Items...")
         for dae_filename in dae_files:
             item_name = os.path.splitext(dae_filename)[0]  # z.B. "tile_-1000_-1000"
-            
+
             # Erstelle TSStatic-Item
             terrain_item = {
                 "__name": item_name,
@@ -521,7 +521,7 @@ class TerrainWorkflow:
                 "renderMode": "default",
                 "dynamic": False,
             }
-            
+
             self.items.items[item_name] = terrain_item
 
         print(f"  [OK] {len(dae_files)} Tile-DAEs exportiert")

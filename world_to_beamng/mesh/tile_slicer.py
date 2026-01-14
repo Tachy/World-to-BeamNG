@@ -319,17 +319,22 @@ def slice_mesh_into_tiles(
                 original_face_idx = (
                     tile_original_face_indices[face_idx] if face_idx < len(tile_original_face_indices) else None
                 )
-                
+
                 # Hole Material für Debug
                 mat = tile_materials_list[face_idx] if face_idx < len(tile_materials_list) else "unknown"
                 is_road_material = mat != "terrain" and not mat.startswith("tile_")
 
                 # EINFACH: Prüfe ob mesh_obj UVs für diesen Face-Index hat!
-                if mesh_obj and hasattr(mesh_obj, 'uv_indices') and original_face_idx is not None and original_face_idx in mesh_obj.uv_indices:
+                if (
+                    mesh_obj
+                    and hasattr(mesh_obj, "uv_indices")
+                    and original_face_idx is not None
+                    and original_face_idx in mesh_obj.uv_indices
+                ):
                     # Face hat bereits UVs (z.B. Road-UVs) - verwende sie!
                     road_uvs_found += 1
                     original_uv_indices = mesh_obj.uv_indices[original_face_idx]  # [uv_idx0, uv_idx1, uv_idx2]
-                    
+
                     # Hole die tatsächlichen UV-Koordinaten aus mesh_obj.uvs
                     tile_uv_indices_new = []
                     for orig_uv_idx in original_uv_indices:
@@ -348,7 +353,7 @@ def slice_mesh_into_tiles(
                                 uv_lookup[uv_key] = len(tile_uvs)
                                 tile_uvs.append((0.0, 0.0))
                             tile_uv_indices_new.append(uv_lookup[uv_key])
-                    
+
                     tile_uv_indices_computed[face_idx] = tile_uv_indices_new
                 else:
                     # Terrain-Face ODER Face ohne UVs - nutze berechnete UVs aus Tile-Grenzen
@@ -359,9 +364,9 @@ def slice_mesh_into_tiles(
                         vertex_to_uv_idx[v1],
                         vertex_to_uv_idx[v2],
                     ]
-            
+
             print(f"    Road-UVs gefunden: {road_uvs_found}, Road-Material aber keine UVs: {road_materials_but_no_uvs}")
-            
+
             result[(tile_x, tile_y)] = {
                 "vertices": tile_vertices_array,
                 "faces": tile_faces_list,

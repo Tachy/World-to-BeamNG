@@ -413,10 +413,10 @@ class Mesh:
         # - Terrain-Faces: material == "terrain"
         # Es ist UNMÖGLICH dass eine Road-Face mit Terrain-UVs überschrieben wird!
         face_indices = []
-        
+
         for face_idx, props in self.face_props.items():
             mat = props.get("material", "")
-            
+
             # Prüfe Material-Filter
             if material_filter is None or mat in material_filter:
                 # Nur Faces OHNE existierende UVs bearbeiten

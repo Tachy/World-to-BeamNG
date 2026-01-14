@@ -38,7 +38,7 @@ def export_separate_tile_daes(
     from .. import config
 
     os.makedirs(output_dir, exist_ok=True)
-    
+
     exported_files = []
     material_manager = MaterialManager(beamng_dir="")
 
@@ -99,7 +99,7 @@ def export_separate_tile_daes(
 
         # Erstelle Material-Definitionen
         all_material_names = set(faces_by_material.keys())
-        
+
         for mat_name in all_material_names:
             if mat_name.startswith("tile_"):
                 # Terrain-Material
@@ -116,18 +116,18 @@ def export_separate_tile_daes(
                             road_props = props
                             found = True
                             break
-                    
+
                     if not found:
                         for surface_type, props in config.OSM_MAPPER.config.get("surface_overrides", {}).items():
                             if props.get("internal_name") == mat_name:
                                 road_props = props
                                 found = True
                                 break
-                    
+
                     if not found:
                         print(f"  ⚠ Material {mat_name} nicht in OSM_MAPPER gefunden")
                         continue
-                
+
                 material_manager.add_road_material(mat_name, road_props)
 
         # Extrahiere Textur-Pfade
@@ -156,12 +156,14 @@ def export_separate_tile_daes(
             output_path=dae_path,
             meshes=[mesh_data],  # NUR DIESES EINE Tile!
             with_uv=True,
-            material_textures=material_textures
+            material_textures=material_textures,
         )
 
         total_faces = sum(len(f) for f in faces_by_material.values())
-        print(f"    [OK] {dae_filename}: {len(vertices)} Vertices, {total_faces} Faces, {len(faces_by_material)} Materialien")
-        
+        print(
+            f"    [OK] {dae_filename}: {len(vertices)} Vertices, {total_faces} Faces, {len(faces_by_material)} Materialien"
+        )
+
         exported_files.append(dae_filename)
 
     return exported_files
@@ -175,7 +177,7 @@ def export_merged_dae(
 ):
     """
     DEPRECATED: Exportiert alle Tiles als EINE .dae (Collada 1.4.1) mit mehreren Geometrien.
-    
+
     PROBLEM: Führt zu überlappenden Geometrien → Z-Fighting!
     LÖSUNG: Nutze export_separate_tile_daes() stattdessen!
 
