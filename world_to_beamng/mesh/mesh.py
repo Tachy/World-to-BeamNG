@@ -23,7 +23,12 @@ class Mesh:
         self.vertex_manager = vertex_manager
         self.faces = []  # Liste von [v0, v1, v2]
         self.face_props = {}  # face_idx -> {material, surface, friction, ...}
-        self.face_uvs = {}  # face_idx -> {v0: (u0, v0), v1: (u1, v1), v2: (u2, v2)} or None
+
+        # Indexed UV-System (wie Vertices)
+        self.uvs = []  # Globale UV-Liste: [(u0, v0), (u1, v1), ...]
+        self.uv_indices = {}  # face_idx -> [uv_idx0, uv_idx1, uv_idx2]
+        self._uv_lookup = {}  # Deduplication: (u, v) -> uv_idx
+
         self.vertex_normals = None  # Wird von compute_smooth_normals gesetzt
 
         # Statistiken
@@ -42,50 +47,83 @@ class Mesh:
         Returns:
             face_idx: Index des neuen Faces
 
-        HINWEIS: Die Winding-Order wird automatisch korrigiert, damit die Face-Normale
-        nach oben zeigt (Z > 0). Dies ist zentral an einer Stelle implementiert und
-        garantiert die Sichtbarkeit in BeamNG für alle Geometrie-Typen.
-
-        OPTIMIERUNG: Verwendet nur Cross-Product Z-Komponente (keine Normalisierung nötig).
-        Dadurch ~2-3x schneller als vollständige Normal-Berechnung.
-
-        UV-MAPPING: Optional können UV-Koordinaten pro Vertex angegeben werden.
-        Format: {v0: (u,v), v1: (u,v), v2: (u,v)}
+        OPTIMIERUNG: Cross-Product Z-Komponente nur, keine volle Normal-Berechnung.
+        UV-System: Indexed UVs mit Deduplication für minimalen Memory-Footprint.
         """
-        # Hole Vertex-Positionen direkt (schnell, da bereits numpy-Arrays)
-        vertices = self.vertex_manager.vertices
+        # Hole Vertex-Positionen (Cache-freundlich: 3 aufeinanderfolgende Array-Zugriffe)
+        verts = self.vertex_manager.vertices
+        v0_pos, v1_pos, v2_pos = verts[v0], verts[v1], verts[v2]
 
-        # Berechne Cross Product Z-Komponente direkt (ohne volle Normal-Berechnung)
-        # cross(edge1, edge2)[2] = (v1.x - v0.x) * (v2.y - v0.y) - (v1.y - v0.y) * (v2.x - v0.x)
-        v0_pos = vertices[v0]
-        v1_pos = vertices[v1]
-        v2_pos = vertices[v2]
-
-        # Cross Product Z-Komponente (2D determinante)
+        # Cross Product Z-Komponente (2D Determinante) - inline für Speed
         cross_z = (v1_pos[0] - v0_pos[0]) * (v2_pos[1] - v0_pos[1]) - (v1_pos[1] - v0_pos[1]) * (v2_pos[0] - v0_pos[0])
 
-        # Wenn Z <= 0, zeigt Normal nach unten → Vertausche v1 und v2
-        # HINWEIS: Dies funktioniert auch wenn nur Z-Komponente negativ ist (schräge Flächen)
+        # Winding-Order Korrektur (wenn Z <= 0 → Normal zeigt nach unten)
         if cross_z <= 0:
-            v1, v2 = v2, v1  # Tausche für CCW Ordnung
-            # Wenn UVs vorhanden, auch vertauschen
-            if uv_coords is not None:
-                uv_coords = {v0: uv_coords.get(v0), v1: uv_coords.get(v2), v2: uv_coords.get(v1)}
+            v1, v2 = v2, v1
+            # UV-Swap wenn vorhanden (optimiert: nur wenn nötig)
+            if uv_coords:
+                # Direkt swap statt neue Dict-Creation
+                temp = uv_coords.get(v1)
+                uv_coords[v1] = uv_coords.get(v2)
+                uv_coords[v2] = temp
 
-        # Speichere Face mit korrigierter Ordnung
+        # Speichere Face
         face_idx = len(self.faces)
         self.faces.append([v0, v1, v2])
-
-        # Speichere Properties
         self.face_props[face_idx] = {"material": material, **props}
 
-        # Speichere UV-Koordinaten (oder None, falls nicht vorhanden)
-        self.face_uvs[face_idx] = uv_coords
+        # UV-System: Indexed UVs (optimiert)
+        if uv_coords:
+            try:
+                uv_idx0 = self.add_uv(*uv_coords[v0])
+                uv_idx1 = self.add_uv(*uv_coords[v1])
+                uv_idx2 = self.add_uv(*uv_coords[v2])
+                self.uv_indices[face_idx] = [uv_idx0, uv_idx1, uv_idx2]
+            except (KeyError, TypeError):
+                pass  # Kein UV wenn unvollständig
 
-        # Update Stats
+        # Update Stats (inline increment)
         self.material_counts[material] += 1
 
         return face_idx
+
+    def add_uv(self, u, v, deduplicate=True):
+        """
+        Füge UV-Koordinaten zum globalen UV-Pool hinzu.
+
+        Args:
+            u, v: UV-Koordinaten
+            deduplicate: Bei True werden identische UVs dedupliziert (Standard)
+
+        Returns:
+            uv_idx: Index der UV-Koordinate
+        """
+        if deduplicate:
+            # Runde EINMAL (nicht zweimal wie vorher)
+            uv_rounded = (round(u, 6), round(v, 6))
+            existing_idx = self._uv_lookup.get(uv_rounded)
+            if existing_idx is not None:
+                return existing_idx
+            # Neu: Speichere gerundete Werte direkt
+            uv_idx = len(self.uvs)
+            self.uvs.append(uv_rounded)
+            self._uv_lookup[uv_rounded] = uv_idx
+            return uv_idx
+        else:
+            # Ohne Dedup: direkt append
+            uv_idx = len(self.uvs)
+            self.uvs.append((u, v))
+            return uv_idx
+
+    def set_face_uv_indices(self, face_idx, uv_idx0, uv_idx1, uv_idx2):
+        """
+        Setze UV-Indizes für ein Face.
+
+        Args:
+            face_idx: Face-Index
+            uv_idx0, uv_idx1, uv_idx2: Indizes in self.uvs
+        """
+        self.uv_indices[face_idx] = [uv_idx0, uv_idx1, uv_idx2]
 
     def add_faces(self, faces_list, material="terrain", uv_list=None, **props):
         """
@@ -139,7 +177,7 @@ class Mesh:
         # Neue Listen ohne die zu löschenden Faces
         new_faces = []
         new_face_props = {}
-        new_face_uvs = {}
+        new_uv_indices = {}
         old_to_new_idx = {}  # Mapping: alter Index -> neuer Index
 
         new_idx = 0
@@ -147,14 +185,14 @@ class Mesh:
             if old_idx not in face_indices_set:
                 new_faces.append(face)
                 new_face_props[new_idx] = self.face_props.get(old_idx, {})
-                new_face_uvs[new_idx] = self.face_uvs.get(old_idx, None)
+                new_uv_indices[new_idx] = self.uv_indices.get(old_idx, None)
                 old_to_new_idx[old_idx] = new_idx
                 new_idx += 1
 
         # Ersetze alte Daten
         self.faces = new_faces
         self.face_props = new_face_props
-        self.face_uvs = new_face_uvs
+        self.uv_indices = new_uv_indices
 
         # Update Material-Counts
         self.material_counts.clear()
@@ -232,87 +270,6 @@ class Mesh:
             "total_vertices": self.vertex_manager.get_count(),
             "material_counts": dict(self.material_counts),
         }
-
-    def compute_missing_uvs(self, tile_bounds=None, material_whitelist=None):
-        """
-        Berechne UV-Koordinaten für alle Faces die keine haben.
-
-        Nutzt planar XY-Projektion normalisiert auf Tile-Bounds oder Mesh-Bounds.
-
-        Args:
-            tile_bounds: Optional (x_min, x_max, y_min, y_max) - Wenn gesetzt, normalisiere auf diese Bounds
-                        (wichtig für Multi-Tile UV-Konsistenz)
-            material_whitelist: Optional Set von Material-Namen - nur diese Faces UVs berechnen
-
-        Returns:
-            Anzahl der berechneten UVs
-        """
-        vertices = self.vertex_manager.get_array()
-        if vertices is None or len(vertices) == 0:
-            return 0
-
-        vertices_array = np.asarray(vertices)
-
-        # Bestimme Bounds
-        if tile_bounds is not None:
-            x_min, x_max, y_min, y_max = tile_bounds
-        else:
-            x_min = vertices_array[:, 0].min()
-            x_max = vertices_array[:, 0].max()
-            y_min = vertices_array[:, 1].min()
-            y_max = vertices_array[:, 1].max()
-
-        # Normalisierungsfaktoren
-        x_range = x_max - x_min if x_max > x_min else 1.0
-        y_range = y_max - y_min if y_max > y_min else 1.0
-
-        # Sammle zu berechnende Faces vorab (Filter nach fehlenden UVs & Material)
-        target_indices = []
-        if material_whitelist is None:
-            for fi in range(len(self.faces)):
-                if self.face_uvs.get(fi) is None:
-                    target_indices.append(fi)
-        else:
-            allowed = material_whitelist
-            for fi in range(len(self.faces)):
-                if self.face_uvs.get(fi) is None:
-                    mat = self.face_props.get(fi, {}).get("material")
-                    if mat in allowed:
-                        target_indices.append(fi)
-
-        if not target_indices:
-            return 0
-
-        faces_arr = np.asarray(self.faces, dtype=np.int32)
-        idx_arr = np.array(target_indices, dtype=np.int32)
-        face_vertices = faces_arr[idx_arr]
-
-        # Hole alle Punkte der Ziel-Faces in einem Rutsch
-        v0_idx = face_vertices[:, 0]
-        v1_idx = face_vertices[:, 1]
-        v2_idx = face_vertices[:, 2]
-
-        p0 = vertices_array[v0_idx]
-        p1 = vertices_array[v1_idx]
-        p2 = vertices_array[v2_idx]
-
-        # Normalisierte UVs (0..1)
-        u0 = (p0[:, 0] - x_min) / x_range
-        v0_uv = (p0[:, 1] - y_min) / y_range
-        u1 = (p1[:, 0] - x_min) / x_range
-        v1_uv = (p1[:, 1] - y_min) / y_range
-        u2 = (p2[:, 0] - x_min) / x_range
-        v2_uv = (p2[:, 1] - y_min) / y_range
-
-        # Zurückschreiben in face_uvs
-        for k, fi in enumerate(idx_arr.tolist()):
-            self.face_uvs[fi] = {
-                int(v0_idx[k]): (float(u0[k]), float(v0_uv[k])),
-                int(v1_idx[k]): (float(u1[k]), float(v1_uv[k])),
-                int(v2_idx[k]): (float(u2[k]), float(v2_uv[k])),
-            }
-
-        return len(idx_arr)
 
     def compute_smooth_normals(self):
         """
@@ -394,3 +351,80 @@ class Mesh:
 
         removed_count = len(old_faces) - len(self.faces)
         return removed_count
+
+    def compute_terrain_uvs_batch(self, material_filter=None):
+        """
+        Berechnet UVs für alle Faces mit bestimmtem Material (vektorisiert - sehr schnell!).
+        
+        Verwendet Vertex-XY-Positionen normalisiert auf Terrain-Bounds für 1:1 UV-Mapping.
+        Deutlich schneller als Face-by-Face Berechnung (10-50x).
+        
+        Args:
+            material_filter: Liste von Materials (z.B. ["terrain"]) oder None für alle
+        
+        Returns:
+            Anzahl Faces mit UVs versehen
+        """
+        if len(self.faces) == 0:
+            return 0
+        
+        # Filtere Faces nach Material
+        face_indices = []
+        for face_idx, props in self.face_props.items():
+            mat = props.get("material")
+            if material_filter is None or mat in material_filter:
+                face_indices.append(face_idx)
+        
+        if not face_indices:
+            return 0
+        
+        print(f"    Berechne UVs für {len(face_indices)} Faces (batch-optimiert)...")
+        
+        # Hole alle Vertex-Positionen
+        verts = np.asarray(self.vertex_manager.get_array(), dtype=np.float32)
+        
+        # Sammle alle relevanten Vertex-Indizes
+        relevant_vert_indices = set()
+        for face_idx in face_indices:
+            relevant_vert_indices.update(self.faces[face_idx])
+        
+        # Berechne Bounds aus Vertex-XY-Positionen (vektorisiert)
+        relevant_verts_xy = verts[list(relevant_vert_indices)][:, :2]
+        x_min, y_min = relevant_verts_xy.min(axis=0)
+        x_max, y_max = relevant_verts_xy.max(axis=0)
+        
+        x_range = float(x_max - x_min) if x_max > x_min else 1.0
+        y_range = float(y_max - y_min) if y_max > y_min else 1.0
+        
+        # Berechne UVs für ALLE Vertices auf einmal (vektorisiert)
+        all_uvs_x = (verts[:, 0] - x_min) / x_range
+        all_uvs_y = (verts[:, 1] - y_min) / y_range
+        
+        # === BATCH-OPTIMIERUNG: Alle UVs pre-compute + deduplicate ===
+        # Runde alle UVs zu float16 für Deduplication
+        all_uvs_x_f16 = np.float16(all_uvs_x)
+        all_uvs_y_f16 = np.float16(all_uvs_y)
+        
+        # Erstelle Lookup-Table: (u,v) → uv_idx (nur für relevante Vertices)
+        uv_lookup_batch = {}  # (u_f16, v_f16) → uv_idx
+        uv_mapping = {}  # vert_idx → uv_idx
+        
+        for vert_idx in relevant_vert_indices:
+            u = all_uvs_x_f16[vert_idx]
+            v = all_uvs_y_f16[vert_idx]
+            uv_key = (u, v)
+            
+            # Nutze bestehende UV wenn vorhanden, sonst erstelle neue
+            if uv_key not in uv_lookup_batch:
+                uv_lookup_batch[uv_key] = len(self.uvs)
+                self.uvs.append((float(u), float(v)))
+            
+            uv_mapping[vert_idx] = uv_lookup_batch[uv_key]
+        
+        # Setze uv_indices für alle Faces (schnell - nur Array-Lookup!)
+        for face_idx in face_indices:
+            v0, v1, v2 = self.faces[face_idx]
+            self.uv_indices[face_idx] = [uv_mapping[v0], uv_mapping[v1], uv_mapping[v2]]
+        
+        print(f"    [OK] {len(face_indices)} Faces mit UVs versehen ({len(self.uvs)} unique UVs)")
+        return len(face_indices)

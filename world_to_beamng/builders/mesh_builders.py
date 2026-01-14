@@ -152,8 +152,8 @@ class TerrainMeshBuilder:
             from ..mesh.mesh import Mesh
 
             mesh_obj = Mesh(self._vertex_manager)
-            # WICHTIG: Füge Terrain-Faces MIT Material hinzu (nicht direkt zuweisen!)
-            for face in terrain_faces:
+            # Füge Terrain-Faces MIT Material hinzu (UVs werden später via compute_terrain_uvs_batch() berechnet)
+            for face_idx, face in enumerate(terrain_faces):
                 mesh_obj.add_face(face[0], face[1], face[2], material="terrain")
 
             # NEU: Füge Road-Faces MIT OSM-mapped Material hinzu
@@ -191,10 +191,9 @@ class TerrainMeshBuilder:
             # Update terrain_faces mit neuen Faces
             terrain_faces = mesh_obj.faces
 
-            # Berechne fehlende UV-Koordinaten für alle Faces (Terrain + Stitched)
-            # Roads haben bereits explizite UVs vom road_mesh
-            # Terrain-UVs werden später pro Tile neu berechnet in export_merged_dae()
-            mesh_obj.compute_missing_uvs(material_whitelist={"terrain"})
+            # UV-Batch-Berechnung für ALLE Terrain+Stitch-Faces (vektorisiert - sehr schnell!)
+            print("  Berechne UVs für Terrain+Stitch-Faces (Batch)...")
+            mesh_obj.compute_terrain_uvs_batch(material_filter=["terrain"])
 
             # Berechne geglättete Normalen (gesamtes Mesh, inkl. Roads)
             mesh_obj.compute_smooth_normals()

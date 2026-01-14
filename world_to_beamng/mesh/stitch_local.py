@@ -553,6 +553,9 @@ def _triangulate_polygons(polygons, verts, mesh, debug=False):
 
     Returns:
         Liste der neu erzeugten Face-Indices
+        
+    HINWEIS: UVs werden NICHT hier berechnet (zu langsam pro Face!),
+    sondern am Ende per mesh.compute_terrain_uvs_batch() für alle Terrain+Stitch-Faces.
     """
     if not polygons:
         return []
@@ -587,6 +590,8 @@ def _triangulate_polygons(polygons, verts, mesh, debug=False):
                 v1_global = polygon_vertices[v1_local]
                 v2_global = polygon_vertices[v2_local]
 
+                # KEINE UV-Berechnung hier (Performance!)
+                # UVs werden später per mesh.compute_terrain_uvs_batch() gesetzt
                 face_idx = mesh.add_face(v0_global, v1_global, v2_global, material="terrain")
                 new_faces.append(face_idx)
 
@@ -742,3 +747,7 @@ def _export_component_lines_to_debug(components_edges, verts, centerline_point, 
             label=label,
             line_width=3.0,
         )
+
+
+# UV-Berechnung wurde komplett entfernt - erfolgt jetzt per mesh.compute_terrain_uvs_batch()
+# am Ende der Mesh-Erstellung für maximale Performance (vektorisiert über alle Faces).

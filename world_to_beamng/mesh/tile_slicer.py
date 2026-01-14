@@ -12,7 +12,7 @@ from collections import defaultdict
 
 
 def slice_mesh_into_tiles(
-    vertices, faces, materials_per_face, tile_size=400, grid_bounds=None, vertex_normals=None, face_uvs_dict=None
+    vertices, faces, materials_per_face, tile_size=400, grid_bounds=None, vertex_normals=None, mesh_obj=None
 ):
     """
     Clippt Mesh in 400×400m Tiles mit Sutherland-Hodgman.
@@ -27,7 +27,7 @@ def slice_mesh_into_tiles(
                             z.B. ["terrain", "road", "terrain", ...]
         tile_size: Größe pro Tile in Metern (default: 400)
         grid_bounds: (x_min, x_max, y_min, y_max) oder None für Auto
-        face_uvs_dict: Optional Dict {face_idx: {vertex_idx: (u, v)}} mit UV-Koordinaten
+        mesh_obj: Optional Mesh-Objekt mit uv_indices + uvs (indexed UV-System)
 
     Returns:
         Dict: {(tile_x, tile_y): {
@@ -35,12 +35,13 @@ def slice_mesh_into_tiles(
             "faces": liste,
             "materials": liste (pro geclipptem Face),
             "bounds": (x_min, x_max, y_min, y_max),
-            "face_uvs": Dict {face_idx: {vertex_idx: (u, v)}} (kopiert von input für dieses Tile)
+            "uv_indices": Dict {face_idx: [uv_idx0, uv_idx1, uv_idx2]},
+            "global_uvs": Liste [(u0,v0), (u1,v1), ...]
         }}
 
-    DESIGN: UV-Koordinaten fließen unverändert durch!
-    Input: face_uvs_dict (zentral aus Mesh.face_uvs)
-    Output: tile_data["face_uvs"] (pro Tile)
+    DESIGN: UV-Koordinaten nutzen Indexed-System (wie Vertices)!
+    Input: mesh_obj.uv_indices + mesh_obj.uvs
+    Output: tile_data["uv_indices"] + tile_data["global_uvs"] (pro Tile)
 
     """
 
@@ -147,7 +148,7 @@ def slice_mesh_into_tiles(
         tile_materials_list = []
         tile_normals_list = [] if has_normals else None
         tile_original_face_indices = []
-        tile_face_uvs = {}  # {new_face_idx: {vertex_idx: (u, v)}} - UVs für dieses Tile
+        tile_uv_indices = {}  # {new_face_idx: [uv_idx0, uv_idx1, uv_idx2]} - UV-Indizes für dieses Tile
 
         for idx, (face_idx, poly_or_none) in enumerate(tile_info["face_indices"]):
             material = tile_info["materials"][idx]
@@ -173,9 +174,9 @@ def slice_mesh_into_tiles(
                 tile_materials_list.append(material)
                 tile_original_face_indices.append(face_idx)
 
-                # Kopiere UVs für dieses Face (falls vorhanden)
-                if face_uvs_dict and face_idx in face_uvs_dict:
-                    tile_face_uvs[new_face_idx] = face_uvs_dict[face_idx]
+                # Kopiere UV-Indizes für dieses Face (falls vorhanden)
+                if mesh_obj and face_idx in mesh_obj.uv_indices:
+                    tile_uv_indices[new_face_idx] = mesh_obj.uv_indices[face_idx]
                 continue
 
             # ===== FALL 2: Geclipptes Polygon (Road) =====
@@ -253,9 +254,9 @@ def slice_mesh_into_tiles(
                     tile_materials_list.append(material)
                     tile_original_face_indices.append(face_idx)
 
-                    # Kopiere UVs vom Original-Face (für geclippte Faces)
-                    if face_uvs_dict and face_idx in face_uvs_dict:
-                        tile_face_uvs[new_face_idx] = face_uvs_dict[face_idx]
+                    # Kopiere UV-Indizes vom Original-Face (falls vorhanden)
+                    if mesh_obj and face_idx in mesh_obj.uv_indices:
+                        tile_uv_indices[new_face_idx] = mesh_obj.uv_indices[face_idx]
 
         # Speichere Tile-Daten
         if tile_vertices_list:
@@ -266,7 +267,8 @@ def slice_mesh_into_tiles(
                 "normals": np.array(tile_normals_list, dtype=np.float32) if has_normals else None,
                 "original_face_indices": tile_original_face_indices,
                 "vertex_mapping": tile_vertex_mapping,  # Mapping: orig_vertex_idx → tile_local_idx
-                "face_uvs": tile_face_uvs,  # {new_face_idx: {vertex_idx: (u, v)}} - UVs für dieses Tile
+                "uv_indices": tile_uv_indices,  # {new_face_idx: [uv_idx0, uv_idx1, uv_idx2]} - indexed UV system
+                "global_uvs": mesh_obj.uvs if mesh_obj else [],  # Global UV pool für dieses Tile
                 "bounds": (
                     tile_x * tile_size,
                     (tile_x + 1) * tile_size,

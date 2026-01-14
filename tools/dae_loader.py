@@ -86,8 +86,13 @@ def load_dae_tile(filepath):
                 tile_uvs = data.reshape(-1, 2)
 
         # Extrahiere Faces für dieses Tile
+        # WICHTIG: DAE hat indexed UVs - ein Vertex kann mehrere verschiedene UVs haben!
+        # Lösung: Dupliziere Vertices für jeden unique (vertex_idx, uv_idx) Pair
+        
         tile_faces = []
-        tile_faces_local = []  # Mit lokalen Indizes für UV-Mapping
+        tile_vertices_expanded = []  # Expandierte Vertices (dupliziert)
+        tile_uvs_expanded = []  # Entsprechende UVs
+        vertex_uv_to_new_idx = {}  # (vertex_idx, uv_idx) → new_vertex_idx
 
         for triangles in mesh.findall("collada:triangles", ns):
             material_name = triangles.get("material", "unknown")
@@ -105,63 +110,109 @@ def load_dae_tile(filepath):
             # Schnelleres Parsing mit np.fromstring()
             indices = np.fromstring(p.text.strip(), sep=" ", dtype=np.int32)
 
-            # Prüfe ob UV-Koordinaten UND Normals vorhanden sind
+            # Finde Input-Offsets dynamisch
             inputs = triangles.findall("collada:input", ns)
-            has_normals = any(inp.get("semantic") == "NORMAL" for inp in inputs)
-            has_uvs = any(inp.get("semantic") == "TEXCOORD" for inp in inputs)
+            input_offsets = {}
+            for inp in inputs:
+                semantic = inp.get("semantic")
+                offset = int(inp.get("offset", "0"))
+                input_offsets[semantic] = offset
 
-            # Stride-Berechnung: VERTEX=1, NORMAL=1, UV=1
-            stride = 1  # Minimum: nur VERTEX
-            if has_normals:
-                stride += 1
-            if has_uvs:
-                stride += 1
+            # Stride = Anzahl Inputs
+            stride = len(inputs)
+
+            # WICHTIG: UVs müssen mit korrekten UV-Indizes aus <p> gelesen werden!
+            has_uvs = "TEXCOORD" in input_offsets
 
             if stride > 1:
-                # Indices format: v0 n0 uv0 v1 n1 uv1 v2 n2 uv2 ... (bei stride=3)
-                # oder: v0 n0 v1 n1 v2 n2 ... (bei stride=2, nur Normals)
-                # oder: v0 uv0 v1 uv1 v2 uv2 ... (bei stride=2, nur UVs)
+                # Indices format: [offset0_data, offset1_data, offset2_data, ...] * vertices
+                # z.B. bei stride=3: v0 n0 uv0 v1 n1 uv1 v2 n2 uv2 ...
+                
+                vertex_offset_in_stride = input_offsets.get("VERTEX", 0)
+                uv_offset_in_stride = input_offsets.get("TEXCOORD", 2)
+
                 for i in range(0, len(indices), 3 * stride):  # stride indices pro vertex * 3 vertices
                     if i + (3 * stride - 1) < len(indices):
-                        # Globale Indizes für merged mesh
-                        face_global = [
-                            indices[i] + vertex_offset,
-                            indices[i + stride] + vertex_offset,
-                            indices[i + 2 * stride] + vertex_offset,
-                        ]
-                        # Lokale Indizes für Tile (nur Vertex-Indices, ohne Normals/UVs)
-                        face_local = [indices[i], indices[i + stride], indices[i + 2 * stride]]
-
+                        face = []
+                        
+                        # Für jeden der 3 Vertices im Face
+                        for v_local in range(3):
+                            v_idx = indices[i + v_local * stride + vertex_offset_in_stride]
+                            
+                            # Bestimme UV-Index (wenn vorhanden)
+                            if has_uvs and len(tile_uvs) > 0:
+                                uv_idx = indices[i + v_local * stride + uv_offset_in_stride]
+                                pair_key = (v_idx, uv_idx)
+                                
+                                # Prüfe ob diese Kombination schon existiert
+                                if pair_key not in vertex_uv_to_new_idx:
+                                    # Neuer expandierter Vertex
+                                    new_idx = len(tile_vertices_expanded)
+                                    vertex_uv_to_new_idx[pair_key] = new_idx
+                                    
+                                    # Füge Vertex und UV hinzu
+                                    if v_idx < len(tile_vertices) and uv_idx < len(tile_uvs):
+                                        tile_vertices_expanded.append(tile_vertices[v_idx])
+                                        tile_uvs_expanded.append(tile_uvs[uv_idx])
+                                    else:
+                                        print(f"[!] Index out of range: v_idx={v_idx}/{len(tile_vertices)}, uv_idx={uv_idx}/{len(tile_uvs)}")
+                                        tile_vertices_expanded.append([0, 0, 0])
+                                        tile_uvs_expanded.append([0, 0])
+                                
+                                face.append(vertex_uv_to_new_idx[pair_key])
+                            else:
+                                # Kein UV-Mapping - nutze original Vertex-Index
+                                if v_idx not in vertex_uv_to_new_idx:
+                                    new_idx = len(tile_vertices_expanded)
+                                    vertex_uv_to_new_idx[v_idx] = new_idx
+                                    if v_idx < len(tile_vertices):
+                                        tile_vertices_expanded.append(tile_vertices[v_idx])
+                                    else:
+                                        tile_vertices_expanded.append([0, 0, 0])
+                                
+                                face.append(vertex_uv_to_new_idx[v_idx])
+                        
+                        # Globale Indizes (mit neuem Offset)
+                        face_global = [idx + vertex_offset for idx in face]
                         tile_faces.append(face_global)
-                        tile_faces_local.append(face_local)
                         all_materials.append(material_name)
             else:
-                # Standard format: v0 v1 v2
+                # stride==1: Standard format: v0 v1 v2 (nur Vertices, keine UVs/Normals)
                 for i in range(0, len(indices), 3):
                     if i + 2 < len(indices):
-                        face_global = [
-                            indices[i] + vertex_offset,
-                            indices[i + 1] + vertex_offset,
-                            indices[i + 2] + vertex_offset,
-                        ]
-                        face_local = [indices[i], indices[i + 1], indices[i + 2]]
-
+                        face = []
+                        for v_local in range(3):
+                            v_idx = indices[i + v_local]
+                            
+                            if v_idx not in vertex_uv_to_new_idx:
+                                new_idx = len(tile_vertices_expanded)
+                                vertex_uv_to_new_idx[v_idx] = new_idx
+                                if v_idx < len(tile_vertices):
+                                    tile_vertices_expanded.append(tile_vertices[v_idx])
+                                else:
+                                    tile_vertices_expanded.append([0, 0, 0])
+                            
+                            face.append(vertex_uv_to_new_idx[v_idx])
+                        
+                        face_global = [idx + vertex_offset for idx in face]
                         tile_faces.append(face_global)
-                        tile_faces_local.append(face_local)
                         all_materials.append(material_name)
 
-        # Speichere Tile-Info
-        if len(tile_vertices) > 0:
+        # Speichere Tile-Info mit expandierten Vertices
+        if len(tile_vertices_expanded) > 0:
+            # Konvertiere zu NumPy Arrays
+            final_vertices = np.array(tile_vertices_expanded, dtype=np.float32)
+            final_uvs = np.array(tile_uvs_expanded, dtype=np.float32) if len(tile_uvs_expanded) > 0 else np.array([])
+
             tiles_info[tile_name] = {
                 "faces": tile_faces,  # Globale Indizes
-                "faces_local": tile_faces_local,  # Lokale Indizes für UV
-                "vertices": tile_vertices,  # NumPy Array (nicht tolist()!)
-                "uvs": tile_uvs if len(tile_uvs) > 0 else np.array([]),  # NumPy Array
+                "vertices": final_vertices,  # Expandierte Vertices
+                "uvs": final_uvs,  # Entsprechende UVs (1:1 zu Vertices)
             }
 
-            all_vertices.append(tile_vertices)
+            all_vertices.append(final_vertices)
             all_faces.extend(tile_faces)
-            vertex_offset += len(tile_vertices)
+            vertex_offset += len(final_vertices)
 
     # ===== Merge alle Vertices =====
     merged_vertices = np.vstack(all_vertices) if all_vertices else np.array([])

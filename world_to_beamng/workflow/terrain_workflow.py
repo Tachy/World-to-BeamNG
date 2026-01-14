@@ -455,16 +455,14 @@ class TerrainWorkflow:
         # Hole alle Vertices vom VertexManager
         all_vertices = np.array(vertex_manager.get_array())
 
-        # Slice in Tiles (übergebe UVs aus mesh_obj!)
-        # terrain_mesh.face_uvs ist ein Dict: {face_idx: {vertex_idx: (u, v)}}
-        # Das speichert die korrekten UVs für ALLE Faces (Road + Terrain + Stitched)
+        # Slice in Tiles (übergebe mesh_obj für indexed UV-System!)
         tiles_dict = slice_mesh_into_tiles(
             vertices=all_vertices,
             faces=all_faces,
             materials_per_face=materials_per_face,
             tile_size=config.TILE_SIZE,
             vertex_normals=vertex_normals,
-            face_uvs_dict=mesh_obj.face_uvs,  # Nutze die korrekten UVs vom Mesh-Objekt
+            mesh_obj=mesh_obj,  # Nutze indexed UV-System (uvs + uv_indices)
         )
 
         # Export als DAE

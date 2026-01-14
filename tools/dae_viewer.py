@@ -619,21 +619,9 @@ class DAETileViewer:
 
                 mesh = self._create_mesh_with_uvs(tile_vertices_local, tile_faces_local, tile_uvs)
 
-                # Konvertiere tile_name von Index (z.B. "tile_-2_-2") zu Koordinaten
-                texture_key = tile_name
-                if tile_name.startswith("tile_"):
-                    parts = tile_name.split("_")
-                    if len(parts) == 3:  # "tile_X_Y"
-                        try:
-                            tile_idx_x = int(parts[1])
-                            tile_idx_y = int(parts[2])
-                            coords = self._index_to_coords(item_name, tile_idx_x, tile_idx_y)
-                            if coords:
-                                texture_key = f"tile_{coords[0]}_{coords[1]}"
-                        except:
-                            pass  # Fallback zu Original tile_name
-
-                lookup_key = texture_key.lower()
+                # tile_name ist bereits im Koordinaten-Format (z.B. "tile_-1000_-1000")
+                # KEINE Konvertierung mehr nötig, da DAE-Export jetzt Weltkoordinaten verwendet!
+                lookup_key = tile_name.lower()
                 texture = self.textures.get(lookup_key)
 
                 if texture is None and is_horizon:
@@ -1026,6 +1014,9 @@ class DAETileViewer:
         Das DAE hat Vertices und UVs pro Tile gespeichert. Diese Funktion
         kombiniert die UVs aller Tiles zu einem globalen UV-Array.
 
+        WICHTIG: Die Reihenfolge der Tiles muss mit der Vertex-Reihenfolge
+        übereinstimmen! Daher KEIN sorted() verwenden!
+
         Args:
             tiles_info: Dict mit Tile-Informationen
             num_vertices: Anzahl der globalen Vertices
@@ -1036,9 +1027,9 @@ class DAETileViewer:
         if not tiles_info:
             return None
 
-        # Sammle UVs von allen Tiles
+        # Sammle UVs von allen Tiles (OHNE sorted, damit Reihenfolge erhalten bleibt!)
         all_uvs = []
-        for tile_name, tile_data in sorted(tiles_info.items()):
+        for tile_name, tile_data in tiles_info.items():
             uvs = tile_data.get("uvs", np.array([]))
             if len(uvs) > 0:
                 all_uvs.append(uvs)

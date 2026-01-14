@@ -265,43 +265,6 @@ class DAEExporter:
         f.write("          </technique_common>\n")
         f.write("        </source>\n")
 
-    def _compute_uv_normalized(
-        self,
-        vertices: np.ndarray,
-        uv_offset: Tuple[float, float] = (0.0, 0.0),
-        uv_scale: Tuple[float, float] = (1.0, 1.0),
-        tile_bounds: Optional[Tuple[float, float, float, float]] = None,
-    ) -> np.ndarray:
-        """
-        Berechne UV-Koordinaten (normalisiert auf Mesh-Bounds oder Tile-Bounds).
-
-        Args:
-            vertices: (N, 3) Vertices
-            uv_offset: (u_offset, v_offset)
-            uv_scale: (u_scale, v_scale)
-            tile_bounds: Optional (x_min, x_max, y_min, y_max) - Wenn gesetzt, nutze diese
-                        Bounds statt der Vertex-Bounds (wichtig für Multi-Tile UV-Mapping)
-
-        Returns:
-            (N, 2) UV-Koordinaten
-        """
-        # Nutze Tile-Bounds wenn verfügbar, sonst Vertex-Bounds
-        if tile_bounds is not None:
-            x_min, x_max, y_min, y_max = tile_bounds
-        else:
-            x_min, x_max = vertices[:, 0].min(), vertices[:, 0].max()
-            y_min, y_max = vertices[:, 1].min(), vertices[:, 1].max()
-
-        # Normalisiere auf 0..1
-        u = (vertices[:, 0] - x_min) / (x_max - x_min) if x_max > x_min else 0.0
-        v = (vertices[:, 1] - y_min) / (y_max - y_min) if y_max > y_min else 0.0
-
-        # Apply offset und scale
-        u = uv_offset[0] + u * uv_scale[0]
-        v = uv_offset[1] + v * uv_scale[1]
-
-        return np.column_stack([u, v])
-
     def _write_triangles_with_normals(
         self,
         f,
@@ -364,6 +327,7 @@ class DAEExporter:
         vertices_id: str,
         normal_id: Optional[str] = None,
         uv_id: Optional[str] = None,
+        uv_indices: Optional[List[Tuple[int, int, int]]] = None,  # NEU: Separate UV-Indizes
     ) -> None:
         """
         Schreibe <triangles> Block mit optionalen Normals und UVs.
@@ -379,6 +343,7 @@ class DAEExporter:
             vertices_id: ID des <vertices> Elements
             normal_id: Optional ID der Normals <source>
             uv_id: Optional ID der UV <source>
+            uv_indices: Optional separate UV-Indizes (Liste von (uv0, uv1, uv2) Tupeln)
         """
         f.write(f'        <triangles material="{material_name}" count="{len(faces)}">\n')
         f.write(f'          <input semantic="VERTEX" source="#{vertices_id}" offset="0"/>\n')
@@ -398,17 +363,30 @@ class DAEExporter:
         # Alle Indizes in einer Zeile
         if normal_id and uv_id:
             # Mit Normals + UV: v0 n0 uv0 v1 n1 uv1 v2 n2 uv2
-            # Alle Indizes sind identisch, da 1:1 Mapping
-            indices_str = " ".join(
-                f"{face[0]} {face[0]} {face[0]} {face[1]} {face[1]} {face[1]} {face[2]} {face[2]} {face[2]}"
-                for face in faces
-            )
+            if uv_indices:
+                # Separate UV-Indizes vorhanden (z.B. für Roads)
+                indices_str = " ".join(
+                    f"{face[0]} {face[0]} {uv_ids[0]} {face[1]} {face[1]} {uv_ids[1]} {face[2]} {face[2]} {uv_ids[2]}"
+                    for face, uv_ids in zip(faces, uv_indices)
+                )
+            else:
+                # 1:1 Mapping (z.B. für Terrain)
+                indices_str = " ".join(
+                    f"{face[0]} {face[0]} {face[0]} {face[1]} {face[1]} {face[1]} {face[2]} {face[2]} {face[2]}"
+                    for face in faces
+                )
         elif normal_id:
             # Mit Normals nur: v0 n0 v1 n1 v2 n2
             indices_str = " ".join(f"{face[0]} {face[0]} {face[1]} {face[1]} {face[2]} {face[2]}" for face in faces)
         elif uv_id:
             # Mit UV nur: v0 uv0 v1 uv1 v2 uv2
-            indices_str = " ".join(f"{face[0]} {face[0]} {face[1]} {face[1]} {face[2]} {face[2]}" for face in faces)
+            if uv_indices:
+                indices_str = " ".join(
+                    f"{face[0]} {uv_ids[0]} {face[1]} {uv_ids[1]} {face[2]} {uv_ids[2]}"
+                    for face, uv_ids in zip(faces, uv_indices)
+                )
+            else:
+                indices_str = " ".join(f"{face[0]} {face[0]} {face[1]} {face[1]} {face[2]} {face[2]}" for face in faces)
         else:
             # Ohne UV/Normals: v0 v1 v2
             indices_str = " ".join(f"{face[0]} {face[1]} {face[2]}" for face in faces)
@@ -470,8 +448,11 @@ class DAEExporter:
             # UV Source (optional)
             if with_uv:
                 uv_src_id = f"{mesh_id}_uvs"
-                # Single-Mesh Export: keine tile_bounds (None)
-                uv_coords = self._compute_uv_normalized(vertices, uv_offset, uv_scale, None)
+                # UVs müssen vorhanden sein - kein Fallback!
+                if "uvs" in mesh_data and mesh_data["uvs"] is not None:
+                    uv_coords = mesh_data["uvs"]
+                else:
+                    raise ValueError(f"Mesh {mesh_id} hat with_uv=True aber keine UVs definiert!")
                 self._write_uv_source(f, uv_src_id, uv_coords)
             else:
                 uv_src_id = None
@@ -622,15 +603,11 @@ class DAEExporter:
                 if with_uv:
                     uv_src_id = f"{mesh_id}_uvs"
                     # Prüfe zuerst ob explizite UVs im mesh_data vorhanden sind
-                    # Diese stammen aus Mesh.face_uvs und sind bereits richtig berechnet
+                    # UVs müssen vorhanden sein - aus mesh_data["global_uvs"]
                     if "uvs" in mesh_data and mesh_data["uvs"] is not None:
                         uv_coords = mesh_data["uvs"]
                     else:
-                        # Fallback: berechne UVs automatisch (nur wenn nicht vorhanden)
-                        tile_bounds = mesh_data.get("tile_bounds", None)
-                        uv_offset = mesh_data.get("uv_offset", (0.0, 0.0))
-                        uv_scale = mesh_data.get("uv_scale", (1.0, 1.0))
-                        uv_coords = self._compute_uv_normalized(vertices, uv_offset, uv_scale, tile_bounds)
+                        raise ValueError(f"Tile {mesh_id} hat with_uv=True aber keine UVs in mesh_data!")
                     self._write_uv_source(f, uv_src_id, uv_coords)
                 else:
                     uv_src_id = None
@@ -642,14 +619,25 @@ class DAEExporter:
                 f.write("        </vertices>\n")
 
                 # Triangles (pro Material wenn faces ein Dict ist)
+                uv_indices_dict = mesh_data.get("uv_indices", {})  # NEU: Hole UV-Indizes
+
                 if isinstance(faces, dict):
                     for mat_name, mat_faces in faces.items():
                         if len(mat_faces) > 0:
-                            self._write_triangles(f, mat_name, mat_faces, vert_elem_id, normal_src_id, uv_src_id)
+                            # Hole UV-Indizes für dieses Material (falls vorhanden)
+                            mat_uv_indices = uv_indices_dict.get(mat_name, None)
+                            self._write_triangles(
+                                f, mat_name, mat_faces, vert_elem_id, normal_src_id, uv_src_id, mat_uv_indices
+                            )
                 else:
                     mat_name = mesh_data.get("material", "default")
                     if len(faces) > 0:
-                        self._write_triangles(f, mat_name, faces, vert_elem_id, normal_src_id, uv_src_id)
+                        mat_uv_indices = (
+                            uv_indices_dict.get(mat_name, None) if isinstance(uv_indices_dict, dict) else None
+                        )
+                        self._write_triangles(
+                            f, mat_name, faces, vert_elem_id, normal_src_id, uv_src_id, mat_uv_indices
+                        )
 
                 f.write("      </mesh>\n")
                 f.write("    </geometry>\n")
