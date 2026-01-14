@@ -133,6 +133,20 @@
                 "roughnessMap": "levels/world_to_beamng/art/shapes/materials/decalroad/concrete/italy_road_edge_concrete/t_italy_road_edge_concrete_r.data.dds",
                 "opacityMap": "levels/world_to_beamng/art/shapes/materials/decalroad/concrete/italy_road_edge_concrete/t_italy_road_edge_concrete_o.data.dds"
             }
+        },
+        "road_default": {
+            "width": 2.0,
+            "internal_name": "road_default",
+            "groundModelName": "dirt",
+            "priority": 0,
+            "drivability": 0.0,
+            "textures": {
+                "baseColorMap": "levels/world_to_beamng/art/shapes/materials/decalroad/dirt/m_asphalt_road_dirt_grass_edge_02/t_asphalt_dirt_moss_edge_02_b.color.dds",
+                "normalMap": "levels/world_to_beamng/art/shapes/materials/decalroad/dirt/m_asphalt_road_dirt_grass_edge_02/t_asphalt_dirt_moss_edge_02_nm.normal.dds",
+                "ambientOcclusionMap": "levels/world_to_beamng/art/shapes/materials/decalroad/dirt/m_asphalt_road_dirt_grass_edge_02/t_asphalt_dirt_moss_edge_02_ao.data.dds",
+                "roughnessMap": "levels/world_to_beamng/art/shapes/materials/decalroad/dirt/m_asphalt_road_dirt_grass_edge_02/t_asphalt_dirt_moss_edge_02_r.data.dds",
+                "opacityMap": "levels/world_to_beamng/art/shapes/materials/decalroad/dirt/m_asphalt_road_dirt_grass_edge_02/t_asphalt_dirt_moss_edge_02_o.data.dds"
+            }
         }
     },
     "surface_overrides": {

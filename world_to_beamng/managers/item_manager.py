@@ -124,6 +124,8 @@ class ItemManager:
             "enabled": "1",
             "parentId": "MissionGroup",
         },
+    ]
+    PLAYER_DROPPOINTS_LINE = [
         {
             "name": "spawn",  # Spawn-Sphere unter PlayerDropPoints
             "class": "SpawnSphere",
@@ -136,7 +138,7 @@ class ItemManager:
             "sphereWeight": 100,
             "indoorWeight": 100,
             "parentId": "PlayerDropPoints",  # Child von PlayerDropPoints!
-        },
+        }
     ]
 
     # Level-Info für info.json
@@ -460,7 +462,9 @@ class ItemManager:
         Exportiere Items in die richtige BeamNG-Struktur.
 
         Erzeugt:
-        - main/items.level.json: MissionGroup + alle Child-Items (komplette Level-Struktur in JSONL)
+        - main/items.level.json: MissionGroup
+        - main/MissionGroup/items.level.json: OTHER_BASE_LINES + Terrain/Building Items
+        - main/MissionGroup/PlayerDropPoints/items.level.json: Spawn-Points
 
         Args:
             filepath: Optionaler custom Pfad, ansonsten aus config.ITEMS_JSON
@@ -471,15 +475,23 @@ class ItemManager:
         if filepath is None:
             from .. import config
 
-            # Nutze ITEMS_JSON (items.level.json - enthält alles)
             filepath = os.path.join(self.beamng_dir, config.ITEMS_JSON)
 
-        # BeamNG erwartet zwei Dateien im JSONL-Format (Line-delimited JSON):
-        # 1. main/items.level.json - nur MissionGroup (jede Zeile ein JSON-Objekt)
-        # 2. main/MissionGroup/items.level.json - alle anderen Items (jede Zeile ein JSON-Objekt)
+        # BeamNG erwartet folgende Struktur:
+        # 1. main/items.level.json - nur MissionGroup
+        # 2. main/MissionGroup/items.level.json - LevelInfo, Sky, Sun + alle Terrain/Building Items
+        # 3. main/MissionGroup/PlayerDropPoints/items.level.json - Spawn-Points
 
         main_items = os.path.join(self.beamng_dir, "main", "items.level.json")
         missiongroup_items = os.path.join(self.beamng_dir, "main", "MissionGroup", "items.level.json")
+        playerdroppoints_items = os.path.join(
+            self.beamng_dir, "main", "MissionGroup", "PlayerDropPoints", "items.level.json"
+        )
+
+        # Berechne Spawn-Position mit Höhendaten falls verfügbar
+        spawn_position = [0, 0, 400]  # Default
+        if height_points is not None and height_elevations is not None and global_offset is not None:
+            spawn_position = self._get_spawn_position_with_height(height_points, height_elevations, global_offset)
 
         # Schreibe main/items.level.json im JSONL-Format (nur MissionGroup)
         os.makedirs(os.path.dirname(main_items), exist_ok=True)
@@ -490,25 +502,26 @@ class ItemManager:
         # Schreibe main/MissionGroup/items.level.json im JSONL-Format
         os.makedirs(os.path.dirname(missiongroup_items), exist_ok=True)
         with open(missiongroup_items, "w", encoding="utf-8") as f:
-            # Schreibe jedes Item auf eigene Zeile (JSONL-Format)
-
-            # Berechne Spawn-Position mit Höhendaten falls verfügbar
-            spawn_position = [0, 0, 400]  # Default
-            if height_points is not None and height_elevations is not None and global_offset is not None:
-                spawn_position = self._get_spawn_position_with_height(height_points, height_elevations, global_offset)
-
-            # OTHER_BASE_LINES (the_level_info, the_sky, the_sun, spawn)
+            # OTHER_BASE_LINES (the_level_info, the_sky, the_sun, PlayerDropPoints-SimGroup)
             for base_line in self.OTHER_BASE_LINES:
-                if base_line.get("name") == "spawn":
-                    # Überschreibe Position mit berechneter Position
-                    base_line = base_line.copy()
-                    base_line["position"] = spawn_position
                 json.dump(base_line, f, ensure_ascii=False)
                 f.write("\n")
 
-            # Alle neu hinzugefügten Items
+            # Alle neu hinzugefügten Items (Terrain, Buildings, etc.)
             for item in self.items.values():
                 json.dump(item, f, ensure_ascii=False)
+                f.write("\n")
+
+        # Schreibe main/MissionGroup/PlayerDropPoints/items.level.json im JSONL-Format
+        os.makedirs(os.path.dirname(playerdroppoints_items), exist_ok=True)
+        with open(playerdroppoints_items, "w", encoding="utf-8") as f:
+            # PLAYER_DROPPOINTS_LINE mit berechneter Spawn-Position
+            for spawn_line in self.PLAYER_DROPPOINTS_LINE:
+                if spawn_line.get("name") == "spawn":
+                    # Überschreibe Position mit berechneter Position
+                    spawn_line = spawn_line.copy()
+                    spawn_line["position"] = spawn_position
+                json.dump(spawn_line, f, ensure_ascii=False)
                 f.write("\n")
 
     def save_info_json(self) -> None:

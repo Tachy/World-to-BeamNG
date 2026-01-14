@@ -365,8 +365,6 @@ def slice_mesh_into_tiles(
                         vertex_to_uv_idx[v2],
                     ]
 
-            print(f"    Road-UVs gefunden: {road_uvs_found}, Road-Material aber keine UVs: {road_materials_but_no_uvs}")
-
             result[(tile_x, tile_y)] = {
                 "vertices": tile_vertices_array,
                 "faces": tile_faces_list,

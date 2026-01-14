@@ -509,20 +509,17 @@ class TerrainWorkflow:
         # Erstelle TSStatic-Items für JEDES Tile (separate DAEs!)
         print(f"  Erstelle {len(dae_files)} TSStatic-Items...")
         for dae_filename in dae_files:
-            item_name = os.path.splitext(dae_filename)[0]  # z.B. "tile_-1000_-1000"
+            # Extrahiere Tile-Koordinaten: tile_-1000_-1000.dae → "-1000_-1000"
+            tile_coords = os.path.splitext(dae_filename)[0].replace("tile_", "")
+            item_name = f"terrain_tile_{tile_coords}"  # z.B. "terrain_tile_-1000_-1000"
 
-            # Erstelle TSStatic-Item
-            terrain_item = {
-                "__name": item_name,
-                "shapeName": f"art/shapes/{dae_filename}",
-                "position": "0 0 0",
-                "rotation": "1 0 0 0",
-                "scale": "1 1 1",
-                "renderMode": "default",
-                "dynamic": False,
-            }
-
-            self.items.items[item_name] = terrain_item
+            # Nutze add_terrain() um persistentId und parentId automatisch zu erzeugen
+            self.items.add_terrain(
+                name=item_name,
+                dae_filename=dae_filename,
+                position=(0, 0, 0),
+                overwrite=True,
+            )
 
         print(f"  [OK] {len(dae_files)} Tile-DAEs exportiert")
         return dae_files

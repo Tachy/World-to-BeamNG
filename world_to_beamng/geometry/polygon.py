@@ -107,8 +107,53 @@ def clip_road_polygons(road_polygons, grid_bounds_local, margin=3.0):
     return clipped_roads
 
 
+def resample_road_xy_only(xy_coords, target_spacing):
+    """Resampled Centerline auf XY-Ebene mit fixer Schrittweite.
+    
+    Args:
+        xy_coords: Liste von (x, y) Koordinaten
+        target_spacing: Ziel-Abstand zwischen Punkten in Metern
+    
+    Returns:
+        Liste von resampleten (x, y) Koordinaten
+    """
+    if len(xy_coords) < 2:
+        return xy_coords
+    
+    coords_arr = np.array(xy_coords)
+    
+    # Berechne kumulative Distanz
+    diffs = np.diff(coords_arr, axis=0)
+    seg_len = np.linalg.norm(diffs, axis=1)
+    cum = np.concatenate([[0.0], np.cumsum(seg_len)])
+    total_len = cum[-1]
+    
+    if total_len < 1e-6:
+        return xy_coords
+    
+    # Berechne Sample-Positionen
+    num_samples = max(2, int(np.ceil(total_len / target_spacing)) + 1)
+    t = np.linspace(0.0, total_len, num_samples)
+    
+    # Interpoliere x, y
+    x = np.interp(t, cum, coords_arr[:, 0])
+    y = np.interp(t, cum, coords_arr[:, 1])
+    
+    # Stelle sicher, dass Start/End exakt bleiben (wichtig für Junctions!)
+    x[0], y[0] = coords_arr[0, 0], coords_arr[0, 1]
+    x[-1], y[-1] = coords_arr[-1, 0], coords_arr[-1, 1]
+    
+    return list(zip(x, y))
+
+
 def get_road_polygons(roads, bbox, height_points, height_elevations, global_offset, tile_hash=None):
-    """Extrahiert Strassen-Polygone mit ihren Koordinaten und Hoehen (OPTIMIERT).
+    """Extrahiert Strassen-Polygone mit ihren Koordinaten und Hoehen (NEUE PIPELINE).
+    
+    Pipeline:
+    1. OSM → lokale XY (ohne Z)
+    2. Resampling auf XY-Ebene (fixer Schritt)
+    3. Höhen-Sampling auf verdichteten Punkten
+    4. Optional: mildes XY-Smoothing
 
     Args:
         roads: OSM-Strassen-Daten
@@ -138,13 +183,7 @@ def get_road_polygons(roads, bbox, height_points, height_elevations, global_offs
     if not all_coords:
         return road_polygons
 
-    # Batch-Elevation-Lookup
-    print(f"  Lade Elevations fuer {len(all_coords)} Strassen-Punkte...")
-    all_elevations = get_elevations_for_points(
-        all_coords, bbox, height_points, height_elevations, global_offset, height_hash=tile_hash
-    )
-
-    # Batch-UTM-Transformation (vektorisiert)
+    # Batch-UTM-Transformation (vektorisiert) - NUR XY
     lats = np.array([c[0] for c in all_coords])
     lons = np.array([c[1] for c in all_coords])
     xs_utm, ys_utm = transformer_to_utm.transform(lons, lats)
@@ -154,27 +193,82 @@ def get_road_polygons(roads, bbox, height_points, height_elevations, global_offs
     xs = xs_utm - ox
     ys = ys_utm - oy
 
-    # Erstelle Strassen-Polygone (bereits in lokalen Koordinaten)
+    # Erstelle temporäre road_polygons mit XY (ohne Z)
+    temp_roads_xy = []
     for start_idx, end_idx, way in road_indices:
-        utm_coords = [(xs[i], ys[i], all_elevations[i]) for i in range(start_idx, end_idx)]
-
-        road_polygons.append(
+        xy_coords = [(xs[i], ys[i]) for i in range(start_idx, end_idx)]
+        osm_tags = way.get("tags", {})
+        temp_roads_xy.append(
             {
                 "id": way["id"],
-                "coords": utm_coords,
-                "name": way.get("tags", {}).get("name", f"road_{way['id']}"),
-                "osm_tags": way.get("tags", {}),  # Alle OSM-Tags speichern
+                "xy_coords": xy_coords,
+                "name": osm_tags.get("name", f"road_{way['id']}"),
+                "osm_tags": osm_tags,
             }
         )
 
-    # DEPRECATED: Strassenenden-Snapping wird nicht mehr verwendet (Junction-Erkennung in Schritt 6a)
+    # SCHRITT 2: XY-Resampling (verdichte Centerlines VOR Höhen-Sampling)
+    print(f"  Resample Centerlines auf XY-Ebene...")
+    points_before_resampling = sum(len(r["xy_coords"]) for r in temp_roads_xy)
+    
+    for road in temp_roads_xy:
+        osm_tags = road.get("osm_tags", {})
+        road_width = OSM_MAPPER.get_road_properties(osm_tags)["width"]
+        target_spacing = road_width * config.SAMPLE_SPACING_FACTOR
+        
+        resampled_xy = resample_road_xy_only(road["xy_coords"], target_spacing)
+        road["xy_coords"] = resampled_xy
+    
+    points_after_resampling = sum(len(r["xy_coords"]) for r in temp_roads_xy)
+    print(f"    -> {points_before_resampling} Punkte → {points_after_resampling} Punkte ({points_after_resampling - points_before_resampling:+d})")
 
-    # Glätte Strassen und fuege bei scharfen Kurven mehr Punkte ein
+    # SCHRITT 3: Batch-Elevation-Lookup auf den resampleten XY-Punkten
+    print(f"  Lade Elevations für {points_after_resampling} resampelte Punkte...")
+    
+    # Sammle alle XY-Punkte für Batch-Lookup
+    all_xy_flat = []
+    road_xy_indices = []
+    for road in temp_roads_xy:
+        start = len(all_xy_flat)
+        all_xy_flat.extend(road["xy_coords"])
+        end = len(all_xy_flat)
+        road_xy_indices.append((start, end, road))
+    
+    # Konvertiere XY zurück zu Lat/Lon für Elevation-Lookup
+    xs_flat = np.array([xy[0] for xy in all_xy_flat])
+    ys_flat = np.array([xy[1] for xy in all_xy_flat])
+    
+    # Transformiere zu UTM und dann zu Lat/Lon
+    xs_utm_flat = xs_flat + ox
+    ys_utm_flat = ys_flat + oy
+    lons_flat, lats_flat = transformer_to_utm.transform(xs_utm_flat, ys_utm_flat, direction='INVERSE')
+    
+    latlon_coords = [[lats_flat[i], lons_flat[i]] for i in range(len(lats_flat))]
+    all_elevations = get_elevations_for_points(
+        latlon_coords, bbox, height_points, height_elevations, global_offset, height_hash=tile_hash
+    )
+    
+    # Erstelle finale road_polygons mit XYZ
+    for start_idx, end_idx, road in road_xy_indices:
+        xyz_coords = [
+            (all_xy_flat[i][0], all_xy_flat[i][1], all_elevations[i])
+            for i in range(start_idx, end_idx)
+        ]
+        road_polygons.append(
+            {
+                "id": road["id"],
+                "coords": xyz_coords,
+                "name": road["name"],
+                "osm_tags": road["osm_tags"],
+            }
+        )
+
+    # SCHRITT 4: Optional - mildes XY-Smoothing (Z bleibt erhalten oder nur leicht geglättet)
     if config.ENABLE_ROAD_SMOOTHING:
-        print(f"  Glaette Strassen mit Spline-Interpolation...")
-        road_polygons = smooth_roads_with_spline(road_polygons)
+        print(f"  Mildes XY-Smoothing...")
+        road_polygons = smooth_roads_xy_only(road_polygons)
     else:
-        print(f"  Glaettung SKIP (config.ENABLE_ROAD_SMOOTHING=False)")
+        print(f"  Smoothing SKIP (config.ENABLE_ROAD_SMOOTHING=False)")
 
     return road_polygons
 
@@ -350,6 +444,52 @@ def smooth_roads_with_spline(road_polygons):
         f"    -> {total_points_before} Punkte -> {total_points_after} Punkte ({total_points_after - total_points_before:+d})"
     )
 
+    return road_polygons
+
+
+def smooth_roads_xy_only(road_polygons):
+    """Mildes XY+Z-Smoothing mit konfigurierbarer Stärke.
+    
+    Glättet XY und Z mit Chaikin-Filter.
+    Iterationen und Gewichtung sind über Config steuerbar:
+    - ROAD_SMOOTH_ITERATIONS: 1-3 (höher = glatter)
+    - ROAD_SMOOTH_WEIGHT: 0.5-0.9 (höher = weniger Glättung)
+    
+    Returns:
+        Modifizierte road_polygons mit geglätteten Koordinaten
+    """
+    total_points = sum(len(road["coords"]) for road in road_polygons)
+    
+    # Config-Parameter
+    iterations = max(1, config.ROAD_SMOOTH_ITERATIONS)
+    weight_center = config.ROAD_SMOOTH_WEIGHT  # z.B. 0.75
+    weight_neighbor = (1.0 - weight_center) / 2.0  # z.B. 0.125
+    
+    for road in road_polygons:
+        coords = road["coords"]
+        if len(coords) < 3:
+            continue
+        
+        coords_arr = np.array(coords)
+        smoothed_arr = coords_arr.copy()
+        
+        # Chaikin-Glättung für XYZ
+        for iteration in range(iterations):
+            temp = smoothed_arr.copy()
+            for i in range(1, len(smoothed_arr) - 1):
+                # Glätte XYZ mit konfigurierbarem Gewicht
+                temp[i, 0] = weight_center * smoothed_arr[i, 0] + weight_neighbor * smoothed_arr[i-1, 0] + weight_neighbor * smoothed_arr[i+1, 0]
+                temp[i, 1] = weight_center * smoothed_arr[i, 1] + weight_neighbor * smoothed_arr[i-1, 1] + weight_neighbor * smoothed_arr[i+1, 1]
+                temp[i, 2] = weight_center * smoothed_arr[i, 2] + weight_neighbor * smoothed_arr[i-1, 2] + weight_neighbor * smoothed_arr[i+1, 2]
+            smoothed_arr = temp
+        
+        # Start/End exakt beibehalten (wichtig für Junctions!)
+        smoothed_arr[0] = coords_arr[0]
+        smoothed_arr[-1] = coords_arr[-1]
+        
+        road["coords"] = [(p[0], p[1], p[2]) for p in smoothed_arr]
+    
+    print(f"    -> {total_points} Punkte geglättet (XY+Z, {iterations} Iter., Weight={weight_center:.2f})")
     return road_polygons
 
 

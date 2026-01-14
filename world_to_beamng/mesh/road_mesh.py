@@ -16,6 +16,69 @@ from .. import config
 from ..config import OSM_MAPPER
 
 
+def smooth_junction_centers_z(junction_fans, vertex_manager):
+    """
+    Glätte die Z-Werte der Rim-Vertices um Junction-Zentralpunkte.
+
+    Der zentrale Punkt bleibt unverändert. Die umlaufenden Rim-Vertices werden
+    mit Chaikin-Filter geglättet, um Höhen-Spikes zu reduzieren.
+
+    Args:
+        junction_fans: Dict aus generate_road_mesh_strips() mit Junction-Daten
+        vertex_manager: VertexManager mit allen Vertices
+    """
+    if not junction_fans:
+        return
+
+    smoothed_count = 0
+    for j_id, data in junction_fans.items():
+        center_idx = data.get("center_idx")
+        rim = data.get("rim", [])
+
+        if center_idx is None or len(rim) < 2:
+            continue
+
+        # Sammle Rim-Vertex-Indices in Reihenfolge (zirkulär)
+        rim_indices = []
+        for rim_entry in rim:
+            if isinstance(rim_entry, dict):
+                left_idx = rim_entry.get("left_idx")
+                right_idx = rim_entry.get("right_idx")
+            else:
+                left_idx, right_idx = rim_entry
+
+            if left_idx is not None:
+                rim_indices.append(left_idx)
+            if right_idx is not None:
+                rim_indices.append(right_idx)
+
+        # Duplikate entfernen (Vertices können mehrfach vorkommen)
+        rim_indices = list(dict.fromkeys(rim_indices))
+
+        if len(rim_indices) < 2:
+            continue
+
+        # Hole Z-Werte
+        rim_z_values = np.array([vertex_manager.vertices[vid][2] for vid in rim_indices])
+
+        # Chaikin-Glättung (1 Iteration) auf Z-Werte, zirkulär
+        smoothed_z = rim_z_values.copy()
+        for i in range(len(smoothed_z)):
+            prev_idx = (i - 1) % len(smoothed_z)
+            next_idx = (i + 1) % len(smoothed_z)
+            # Neuer Z-Wert: 50% aktuell + 25% links + 25% rechts
+            smoothed_z[i] = 0.5 * rim_z_values[i] + 0.25 * rim_z_values[prev_idx] + 0.25 * rim_z_values[next_idx]
+
+        # Schreibe geglättete Z-Werte zurück
+        for vid, z in zip(rim_indices, smoothed_z):
+            vertex_manager.vertices[vid, 2] = z
+
+        smoothed_count += 1
+
+    if smoothed_count > 0:
+        print(f"    -> {smoothed_count} Junction-Rim-Vertex-Ringe Z-geglättet")
+
+
 def compute_road_uv_coords(centerline_coords, tiling_distance=10.0):
     """
     Berechne UV-Koordinaten für eine Straße entlang des Centerline-Strips.
@@ -1362,6 +1425,12 @@ def generate_road_mesh_strips(road_polygons, height_points, height_elevations, v
         print(f"  [OK] Boeschungen OK")
     else:
         print(f"  [i] Boeschungs-Generierung deaktiviert (config.GENERATE_SLOPES=False)")
+
+    # === Junction Z-Glättung (nach Fan-Triangulation) ===
+    if junction_fans:
+        print(f"  Glaette Junction-Zentralpunkte in Z-Richtung...")
+        smooth_junction_centers_z(junction_fans, vertex_manager)
+
     print(f"  [OK] {len(road_slope_polygons_2d)} Road/Slope-Polygone fuer Grid-Ausschneiden (2D)")
     if clipped_roads > 0:
         print(f"  [i] {clipped_roads} Strassen komplett ausserhalb Grid (ignoriert)")

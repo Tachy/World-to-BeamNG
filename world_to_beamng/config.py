@@ -56,12 +56,12 @@ DEBUG_VERBOSE = False  # Zusätzliche Konsolen-Logs
 SKIP_PHASES_2_TO_4_IF_MAIN_ITEMS_EXISTS = True  # Wenn main.items.json existiert, Phase 2-4 überspringen
 
 # === STRASSENGLÄTTUNG / OPTIONEN ===
-ENABLE_ROAD_SMOOTHING = False  # False = Spline-Glättung komplett aus
+ENABLE_ROAD_SMOOTHING = True  # False = Spline-Glättung komplett aus
 ROAD_SMOOTH_ANGLE_THRESHOLD = 10.0  # Winkel in Grad - ab diesem Wert werden Kurven unterteilt
 SAMPLE_SPACING_FACTOR = 0.5  # Faktor für Segment-Spacing: road_width * SAMPLE_SPACING_FACTOR
 # (Alte feste Werte für Referenz: bei 7m Straßen war 2.5m → jetzt dynamisch via Faktor 0.5)
-ROAD_SMOOTH_TENSION = 0.05  # Spline-Glättungsfaktor (0.0 = eng an Originalpunkten, 1.0 = sehr glatt)
-ROAD_SMOOTH_MAX_DIR_CHANGE_DEG = 0.0  # Optional: maximale Richtungsänderung pro Segment (Grad); 0 = aus
+ROAD_SMOOTH_ITERATIONS = 1  # Anzahl Smoothing-Iterationen (1-3; höher = glatter)
+ROAD_SMOOTH_WEIGHT = 0.6  # Chaikin-Filter Gewicht (0.5-0.9; höher = weniger Glättung, 0.75 = mild)
 
 # === CLIPPING ===
 ENABLE_ROAD_CLIPPING = True  # True = Clip + Segment-Unterteilung am Grid-Rand, False = Skip (Testbetrieb)
