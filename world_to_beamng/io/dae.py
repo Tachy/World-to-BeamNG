@@ -47,54 +47,74 @@ def export_merged_dae(
         if len(faces) == 0:
             continue
 
-        # Extrahiere UVs aus mesh_obj.face_uvs falls vorhanden
+        # Extrahiere UVs aus tile_data["road_uvs"] oder berechne sie automatisch
         # Erstelle per-Vertex UV-Array basierend auf den Faces
         explicit_uvs = None
 
         # Hole vertex_mapping
         vertex_mapping = tile_data.get("vertex_mapping", {})  # orig_vertex_idx → tile_local_idx
 
-        if mesh_obj is not None and hasattr(mesh_obj, "face_uvs") and len(mesh_obj.face_uvs) > 0:
+        # Hole UVs aus tile_data (diese sind bereits pro Face spezifiziert)
+        tile_face_uvs = tile_data.get("face_uvs", {})  # {face_idx: {vertex_idx: (u, v)}}
+        materials_per_face = tile_data.get("materials", [])
+        
+        # === TERRAIN-UV FIX: Berechne ALLE Terrain-Face UVs direkt aus Vertex-XY ===
+        # Problem: Terrain-UVs wurden auf globale Mesh-Bounds normalisiert
+        # Lösung: Nutze tile_bounds statt globale Bounds
+        tile_bounds = tile_data.get("bounds", None)
+        if tile_bounds:
+            x_min, x_max, y_min, y_max = tile_bounds
+            x_range = x_max - x_min if x_max > x_min else 1.0
+            y_range = y_max - y_min if y_max > y_min else 1.0
+            
+            # Berechne neue UVs für ALLE Faces basierend auf Tile-Bounds
+            new_face_uvs = {}
+            tile_faces = tile_data.get("faces", [])
+            
+            for face_idx, face in enumerate(tile_faces):
+                material = materials_per_face[face_idx] if face_idx < len(materials_per_face) else "unknown"
+                
+                # Nur Terrain-Faces re-normalisieren (nicht "road*")
+                if "road" not in material.lower():
+                    uv_dict = {}
+                    for v_idx in face:
+                        if v_idx < len(vertices):
+                            x, y, z = vertices[v_idx]
+                            u = (x - x_min) / x_range
+                            v = (y - y_min) / y_range
+                            uv_dict[v_idx] = (float(u), float(v))
+                    
+                    if len(uv_dict) == len(face):
+                        new_face_uvs[face_idx] = uv_dict
+            
+            # Ersetze Terrain-UVs
+            if new_face_uvs:
+                tile_face_uvs = new_face_uvs
+        
+        # Erstelle globale UV-Array aus den Face-spezifischen UVs
+        explicit_uvs = None
+        if tile_face_uvs:
             num_vertices = len(vertices)
             uv_array = np.zeros((num_vertices, 2), dtype=np.float32)
             uv_assigned = np.zeros(num_vertices, dtype=bool)
 
-            # Strategie: mesh_obj.face_uvs hat Road-Face-UVs mit Keys 0, 1, 2, ...
-            # (der 0-ten Road-Face Indices, nicht Mesh-Indices!)
-            # Aber wie mappen wir zu original_face_indices?
-            #
-            # LÖSUNG: Die original_face_indices enthalten SOWOHL Terrain-Faces ALS AUCH Road-Faces
-            # Die ERSTEN N Terrain-Faces, dann die Road-Faces!
-            #
-            # Die road_face_indices speichert die FINALEN Mesh-Indices der ungeclippten Roads
-            # Das ist NICHT hilfreich.
-            #
-            # Neu-Strategie: Nutze tile_data["road_uvs"] falls vorhanden!
-
-            road_uvs_list = tile_data.get("road_uvs", [])
-
-            if road_uvs_list:
-                # road_uvs_list ist parallel zu road_face_indices
-                for face_local_idx, orig_face_idx in enumerate(tile_data.get("road_face_indices", [])):
-                    if face_local_idx < len(road_uvs_list):
-                        face_uv_dict = road_uvs_list[face_local_idx]
-
-                        # Mappe Original-Vertex-Indizes zu tile-local und speichere UVs
-                        for orig_vertex_idx, uv in face_uv_dict.items():
-                            if orig_vertex_idx in vertex_mapping:
-                                tile_local_idx = vertex_mapping[orig_vertex_idx]
-                                uv_array[tile_local_idx] = uv
-                                uv_assigned[tile_local_idx] = True
+            # Iteriere über alle Faces mit UVs
+            for face_idx, vertex_uv_dict in tile_face_uvs.items():
+                # vertex_uv_dict: {original_vertex_idx: (u, v)}
+                for orig_vertex_idx, uv in vertex_uv_dict.items():
+                    if orig_vertex_idx in vertex_mapping:
+                        tile_local_idx = vertex_mapping[orig_vertex_idx]
+                        uv_array[tile_local_idx] = uv
+                        uv_assigned[tile_local_idx] = True
 
             assigned_count = np.sum(uv_assigned)
             if assigned_count > 0:
-                # Road-UVs wurden zugewiesen, ABER: Terrain-Vertices brauchen noch UVs!
-                # Fülle fehlende UVs mit Terrain-Fallback
+                # UVs wurden zugewiesen! Fülle fehlende Vertices mit Fallback-UVs
                 tile_bounds = tile_data.get("bounds", None)
                 if tile_bounds:
                     x_min, x_max, y_min, y_max = tile_bounds
                     for i, vertex in enumerate(vertices):
-                        if not uv_assigned[i]:  # Nur für Vertices OHNE Road-UVs
+                        if not uv_assigned[i]:  # Nur für Vertices OHNE explizite UVs
                             x, y, z = vertex
                             u = (x - x_min) / (x_max - x_min) if x_max > x_min else 0.0
                             v = (y - y_min) / (y_max - y_min) if y_max > y_min else 0.0
@@ -102,8 +122,7 @@ def export_merged_dae(
 
                 explicit_uvs = uv_array
 
-        # Falls KEINE Road-UVs vorhanden: Nutze tile_bounds für ALLE Vertices (reiner Terrain-Fall)
-        # KRITISCH: Auch reine Terrain-/Stitch-Faces brauchen lokale UVs basierend auf tile_bounds!
+        # Falls KEINE UVs vorhanden: Nutze tile_bounds für ALLE Vertices (reiner Fallback)
         if explicit_uvs is None:
             tile_bounds = tile_data.get("bounds", None)
             if tile_bounds:

@@ -342,15 +342,21 @@ class DAEExporter:
         f.write("          <p>")
 
         # Alle Indizes mit Normals
+        # Format mit offsets 0,1,2: v0 n0 uv0 v1 n1 uv1 v2 n2 uv2
+        # Normals-Index = Vertex-Index (per-vertex normals)
+        # UV-Index = Vertex-Index (per-vertex UVs)
         if uv_id:
             # Mit Normals + UV: v0 n0 uv0 v1 n1 uv1 v2 n2 uv2
             indices_str = " ".join(
-                f"{face[0]} {face[0]} {face[0]} {face[1]} {face[1]} {face[1]} {face[2]} {face[2]} {face[2]}"
-                for face in all_faces
+                f"{v0} {v0} {v0} {v1} {v1} {v1} {v2} {v2} {v2}"
+                for v0, v1, v2 in all_faces
             )
         else:
-            # Mit Normals nur: v0 n0 v1 n1 v2 n2
-            indices_str = " ".join(f"{face[0]} {face[0]} {face[1]} {face[1]} {face[2]} {face[2]}" for face in all_faces)
+            # Nur Normals: v0 n0 v1 n1 v2 n2
+            indices_str = " ".join(
+                f"{v0} {v0} {v1} {v1} {v2} {v2}"
+                for v0, v1, v2 in all_faces
+            )
 
         f.write(f"\n{indices_str}")
         f.write("\n          </p>\n")
@@ -389,14 +395,8 @@ class DAEExporter:
             offset += 1
 
         if uv_id:
-            # Terrain-Tiles nutzen TEXCOORD (ursprüngliches System)
-            # Road-Materialien nutzen TEXCOORD0 (für PBR-Shader)
-            if material_name.startswith("tile_"):
-                # Terrain-Tile: altes TEXCOORD-System
-                f.write(f'          <input semantic="TEXCOORD" source="#{uv_id}" offset="{offset}" set="0"/>\n')
-            else:
-                # Road/andere Materialien: TEXCOORD0 für PBR-Shader-Support
-                f.write(f'          <input semantic="TEXCOORD0" source="#{uv_id}" offset="{offset}" set="0"/>\n')
+            # TEXCOORD (BeamNG-Standard für alle Materialien)
+            f.write(f'          <input semantic="TEXCOORD" source="#{uv_id}" offset="{offset}" set="0"/>\n')
             offset += 1
 
         f.write("          <p>")

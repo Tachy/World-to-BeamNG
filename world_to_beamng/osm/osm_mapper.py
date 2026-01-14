@@ -96,7 +96,7 @@ class OSMMapper:
 
         # Fallback für fehlende Texturen - nutze einfache Farben
         stages_config = {
-            "useAnisotropic": True,
+            #            "useAnisotropic": True,
             "specularPower": 1.0,
             "pixelSpecular": True,
         }
@@ -104,14 +104,14 @@ class OSMMapper:
         # Texturen IMMER verwenden (wenn vorhanden)
         if tex.get("baseColorMap"):
             stages_config["baseColorMap"] = tex.get("baseColorMap")
-        if tex.get("normalMap"):
-            stages_config["normalMap"] = tex.get("normalMap")
-        if tex.get("roughnessMap"):
-            stages_config["roughnessMap"] = tex.get("roughnessMap")
-        if tex.get("ambientOcclusionMap"):
-            stages_config["ambientOcclusionMap"] = tex.get("ambientOcclusionMap")
-        if tex.get("opacityMap"):
-            stages_config["opacityMap"] = tex.get("opacityMap")
+        #        if tex.get("normalMap"):
+        #            stages_config["normalMap"] = tex.get("normalMap")
+        #        if tex.get("roughnessMap"):
+        #            stages_config["roughnessMap"] = tex.get("roughnessMap")
+        #        if tex.get("ambientOcclusionMap"):
+        #            stages_config["ambientOcclusionMap"] = tex.get("ambientOcclusionMap")
+        #        if tex.get("opacityMap"):
+        #            stages_config["opacityMap"] = tex.get("opacityMap")
 
         # Fallback nur wenn Texturen-Keys nicht vorhanden sind
         if not any(k in stages_config for k in ["baseColorMap", "normalMap", "roughnessMap"]):
@@ -121,8 +121,8 @@ class OSMMapper:
                 color.append(1.0)
             stages_config["diffuseColor"] = color
 
-        # groundModelName muss IN den Stages sein für BeamNG Physics!
-        stages_config["groundModelName"] = props.get("groundModelName", "asphalt")
+        # groundModelName gehört auf TOP-LEVEL (nicht in Stages)!
+        ground_model_name = props.get("groundModelName", "asphalt")
 
         return {
             "__name": mat_name,  # ← WICHTIG: __name für MaterialManager
@@ -130,9 +130,10 @@ class OSMMapper:
             "mapTo": mat_name,
             "class": "Material",
             "version": 2,
-            "shader": "PBR",  # ← WICHTIG: PBR-Shader für Textur-Rendering!
+            "groundModelName": ground_model_name,  # ← TOP-LEVEL (nicht in Stages)
+            #            "shader": "PBR",  # ← WICHTIG: PBR-Shader für Textur-Rendering!
             "Stages": [stages_config],
-            "materialTag0": "RoadAndPath",  # ← KRITISCH: BeamNG erkennt nur "RoadAndPath" als Straßen-Material!
-            "materialTag1": "custom",  # Custom-Materialien mit BeamNG Standard-Texturen
+            #            "materialTag0": "RoadAndPath",  # ← KRITISCH: BeamNG erkennt nur "RoadAndPath" als Straßen-Material!
+            #            "materialTag1": "custom",  # Custom-Materialien mit BeamNG Standard-Texturen
             "persistentId": str(uuid.uuid4()),  # ← KRITISCH: BeamNG braucht eindeutige IDs für Material-Persistierung!
         }

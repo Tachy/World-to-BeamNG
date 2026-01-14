@@ -193,6 +193,7 @@ class TerrainMeshBuilder:
 
             # Berechne fehlende UV-Koordinaten für alle Faces (Terrain + Stitched)
             # Roads haben bereits explizite UVs vom road_mesh
+            # Terrain-UVs werden später pro Tile neu berechnet in export_merged_dae()
             mesh_obj.compute_missing_uvs(material_whitelist={"terrain"})
 
             # Berechne geglättete Normalen (gesamtes Mesh, inkl. Roads)

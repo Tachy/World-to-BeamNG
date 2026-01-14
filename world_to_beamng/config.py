@@ -56,7 +56,7 @@ DEBUG_VERBOSE = False  # Zusätzliche Konsolen-Logs
 SKIP_PHASES_2_TO_4_IF_MAIN_ITEMS_EXISTS = True  # Wenn main.items.json existiert, Phase 2-4 überspringen
 
 # === STRASSENGLÄTTUNG / OPTIONEN ===
-ENABLE_ROAD_SMOOTHING = True  # False = Spline-Glättung komplett aus
+ENABLE_ROAD_SMOOTHING = False  # False = Spline-Glättung komplett aus
 ROAD_SMOOTH_ANGLE_THRESHOLD = 10.0  # Winkel in Grad - ab diesem Wert werden Kurven unterteilt
 SAMPLE_SPACING_FACTOR = 0.5  # Faktor für Segment-Spacing: road_width * SAMPLE_SPACING_FACTOR
 # (Alte feste Werte für Referenz: bei 7m Straßen war 2.5m → jetzt dynamisch via Faktor 0.5)

@@ -43,8 +43,10 @@ def compute_road_uv_coords(centerline_coords, tiling_distance=10.0):
     cumulative_length = np.concatenate([[0.0], np.cumsum(segment_lengths)])
 
     # Normalisiere auf Tiling-Entfernung
-    # U wiederhole alle tiling_distance Meter
-    u_coords = (cumulative_length / tiling_distance) % 1.0
+    # U in Einheiten von tiling_distance (z.B. alle 10m = 1.0 U-Einheit)
+    # WICHTIG: Kein % 1.0 mehr - UVs sollen wachsen, nicht wiederholen!
+    # Die Wiederholung passiert in der Textur selbst (mit wrap mode)
+    u_coords = cumulative_length / tiling_distance
 
     return u_coords.tolist()
 

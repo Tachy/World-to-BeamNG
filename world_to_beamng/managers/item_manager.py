@@ -11,6 +11,7 @@ Verwaltet Items für:
 import json
 import os
 import uuid
+import shutil
 from typing import Dict, Any, Optional, List, Tuple
 from pathlib import Path
 
@@ -83,7 +84,7 @@ class ItemManager:
             "shadowDarkenColor": [0, 0, 0, 0],
             "shadowDistance": 1600,
             "shadowSoftness": 0.200000003,
-            "skyBrightness": 40,
+            "skyBrightness": 20,
             "sunScale": [0.996078432, 0.870588243, 0.784313738, 1],
             "sunScaleGradientFile": "/levels/italy/art/sky_gradients/default/gradient_sunscale.png",
             "texSize": 1024,
@@ -111,7 +112,7 @@ class ItemManager:
             "persistentId": "e75fc72e-4ec9-42ca-b08a-24eca2141534",
             "azimuth": 0,
             "elevation": 60,  # Erhöht von 45 für höhere Sonne
-            "brightness": 1.0,  # Erhöht für stärkere Sonne
+            "brightness": 0.6,  # Erhöht für stärkere Sonne
             "castShadows": True,
             "coronaEnabled": True,
             "parentId": "MissionGroup",
@@ -515,11 +516,25 @@ class ItemManager:
         Schreibe info.json ins Level-Root-Verzeichnis.
 
         Diese Datei enthält Metadaten für BeamNG (Titel, Autor, Spawn-Point, etc.).
+        Kopiert auch data/preview.jpg ins Level-Verzeichnis.
         """
         info_path = os.path.join(self.beamng_dir, "info.json")
 
         with open(info_path, "w", encoding="utf-8") as f:
             json.dump(self.LEVEL_INFO, f, ensure_ascii=False, indent=4)
+
+        # Kopiere preview.jpg von data/ nach BEAMNG_DIR
+        preview_src = "data/preview.jpg"
+        preview_dst = os.path.join(self.beamng_dir, "preview.jpg")
+
+        if os.path.exists(preview_src):
+            try:
+                shutil.copy2(preview_src, preview_dst)
+                print(f"  [OK] Preview-Bild kopiert: {preview_dst}")
+            except Exception as e:
+                print(f"  [WARNUNG] Preview-Bild konnte nicht kopiert werden: {e}")
+        else:
+            print(f"  [INFO] Keine Preview-Datei gefunden: {preview_src}")
 
     def load(self, filepath: Optional[str] = None) -> None:
         """

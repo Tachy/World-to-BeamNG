@@ -105,22 +105,32 @@ def load_dae_tile(filepath):
             # Schnelleres Parsing mit np.fromstring()
             indices = np.fromstring(p.text.strip(), sep=" ", dtype=np.int32)
 
-            # Prüfe ob UV-Koordinaten vorhanden sind (offset 0 = vertex, offset 1 = uv)
+            # Prüfe ob UV-Koordinaten UND Normals vorhanden sind
             inputs = triangles.findall("collada:input", ns)
+            has_normals = any(inp.get("semantic") == "NORMAL" for inp in inputs)
             has_uvs = any(inp.get("semantic") == "TEXCOORD" for inp in inputs)
 
+            # Stride-Berechnung: VERTEX=1, NORMAL=1, UV=1
+            stride = 1  # Minimum: nur VERTEX
+            if has_normals:
+                stride += 1
             if has_uvs:
-                # Indices format: v0 uv0 v1 uv1 v2 uv2 ...
-                for i in range(0, len(indices), 6):  # 2 indices pro vertex * 3 vertices
-                    if i + 5 < len(indices):
+                stride += 1
+
+            if stride > 1:
+                # Indices format: v0 n0 uv0 v1 n1 uv1 v2 n2 uv2 ... (bei stride=3)
+                # oder: v0 n0 v1 n1 v2 n2 ... (bei stride=2, nur Normals)
+                # oder: v0 uv0 v1 uv1 v2 uv2 ... (bei stride=2, nur UVs)
+                for i in range(0, len(indices), 3 * stride):  # stride indices pro vertex * 3 vertices
+                    if i + (3 * stride - 1) < len(indices):
                         # Globale Indizes für merged mesh
                         face_global = [
                             indices[i] + vertex_offset,
-                            indices[i + 2] + vertex_offset,
-                            indices[i + 4] + vertex_offset,
+                            indices[i + stride] + vertex_offset,
+                            indices[i + 2*stride] + vertex_offset,
                         ]
-                        # Lokale Indizes für Tile
-                        face_local = [indices[i], indices[i + 2], indices[i + 4]]
+                        # Lokale Indizes für Tile (nur Vertex-Indices, ohne Normals/UVs)
+                        face_local = [indices[i], indices[i + stride], indices[i + 2*stride]]
 
                         tile_faces.append(face_global)
                         tile_faces_local.append(face_local)
@@ -155,6 +165,27 @@ def load_dae_tile(filepath):
 
     # ===== Merge alle Vertices =====
     merged_vertices = np.vstack(all_vertices) if all_vertices else np.array([])
+
+    # WORKAROUND: Filtere degenerierte Faces (Duplikate) heraus
+    # Bug im DAE-Export sorgt dafür, dass alle Faces aktuell degeneriert sind!
+    valid_faces = []
+    valid_materials = []
+    degenerate_count = 0
+    
+    for face, mat in zip(all_faces, all_materials):
+        # Prüfe ob alle 3 Vertex-Indizes unterschiedlich sind
+        if len(set(face)) == 3:
+            valid_faces.append(face)
+            valid_materials.append(mat)
+        else:
+            degenerate_count += 1
+    
+    if degenerate_count > 0:
+        print(f"  [!] WARNUNG: {degenerate_count} degenerierte Faces gefiltert ({100*degenerate_count/len(all_faces):.1f}%)")
+        print(f"      Verbleibende valide Faces: {len(valid_faces)}")
+    
+    all_faces = valid_faces
+    all_materials = valid_materials
 
     # Erstelle materials_per_face dict
     materials_per_face = {}

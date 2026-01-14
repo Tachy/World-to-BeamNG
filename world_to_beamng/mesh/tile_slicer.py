@@ -12,7 +12,7 @@ from collections import defaultdict
 
 
 def slice_mesh_into_tiles(
-    vertices, faces, materials_per_face, tile_size=400, grid_bounds=None, vertex_normals=None, road_uvs_list=None
+    vertices, faces, materials_per_face, tile_size=400, grid_bounds=None, vertex_normals=None, face_uvs_dict=None
 ):
     """
     Clippt Mesh in 400×400m Tiles mit Sutherland-Hodgman.
@@ -27,17 +27,21 @@ def slice_mesh_into_tiles(
                             z.B. ["terrain", "road", "terrain", ...]
         tile_size: Größe pro Tile in Metern (default: 400)
         grid_bounds: (x_min, x_max, y_min, y_max) oder None für Auto
+        face_uvs_dict: Optional Dict {face_idx: {vertex_idx: (u, v)}} mit UV-Koordinaten
 
     Returns:
         Dict: {(tile_x, tile_y): {
             "vertices": numpy array,
             "faces": liste,
             "materials": liste (pro geclipptem Face),
-            "bounds": (x_min, x_max, y_min, y_max)
+            "bounds": (x_min, x_max, y_min, y_max),
+            "face_uvs": Dict {face_idx: {vertex_idx: (u, v)}} (kopiert von input für dieses Tile)
         }}
 
-    HINWEIS: UV-Koordinaten werden nicht mehr hier verwaltet!
-    Sie sind zentral im Mesh-Objekt gespeichert (Mesh.face_uvs).
+    DESIGN: UV-Koordinaten fließen unverändert durch!
+    Input: face_uvs_dict (zentral aus Mesh.face_uvs)
+    Output: tile_data["face_uvs"] (pro Tile)
+
     """
 
     # Automatische Bounds aus Vertices wenn nicht gegeben
@@ -143,8 +147,7 @@ def slice_mesh_into_tiles(
         tile_materials_list = []
         tile_normals_list = [] if has_normals else None
         tile_original_face_indices = []
-        tile_road_face_indices = []  # Track: original_face_idx der ungeclippten Roads
-        tile_road_uvs = []  # UVs der ungeclippten Roads (parallel zu tile_road_face_indices)
+        tile_face_uvs = {}  # {new_face_idx: {vertex_idx: (u, v)}} - UVs für dieses Tile
 
         for idx, (face_idx, poly_or_none) in enumerate(tile_info["face_indices"]):
             material = tile_info["materials"][idx]
@@ -165,13 +168,14 @@ def slice_mesh_into_tiles(
 
                     local_indices.append(tile_vertex_mapping[v_idx])
 
+                new_face_idx = len(tile_faces_list)
                 tile_faces_list.append(local_indices)
                 tile_materials_list.append(material)
                 tile_original_face_indices.append(face_idx)
-                tile_road_face_indices.append(face_idx)
-                # Speichere auch die entsprechenden UVs (wenn vorhanden)
-                if road_uvs_list and face_idx < len(road_uvs_list):
-                    tile_road_uvs.append(road_uvs_list[face_idx])
+                
+                # Kopiere UVs für dieses Face (falls vorhanden)
+                if face_uvs_dict and face_idx in face_uvs_dict:
+                    tile_face_uvs[new_face_idx] = face_uvs_dict[face_idx]
                 continue
 
             # ===== FALL 2: Geclipptes Polygon (Road) =====
@@ -238,6 +242,7 @@ def slice_mesh_into_tiles(
             # Trianguliere geclipptes Polygon (einfache Fan-Triangulation)
             if len(face_indices_for_tile) >= 3:
                 for i in range(1, len(face_indices_for_tile) - 1):
+                    new_face_idx = len(tile_faces_list)
                     tile_faces_list.append(
                         [
                             face_indices_for_tile[0],
@@ -247,6 +252,10 @@ def slice_mesh_into_tiles(
                     )
                     tile_materials_list.append(material)
                     tile_original_face_indices.append(face_idx)
+                    
+                    # Kopiere UVs vom Original-Face (für geclippte Faces)
+                    if face_uvs_dict and face_idx in face_uvs_dict:
+                        tile_face_uvs[new_face_idx] = face_uvs_dict[face_idx]
 
         # Speichere Tile-Daten
         if tile_vertices_list:
@@ -257,8 +266,7 @@ def slice_mesh_into_tiles(
                 "normals": np.array(tile_normals_list, dtype=np.float32) if has_normals else None,
                 "original_face_indices": tile_original_face_indices,
                 "vertex_mapping": tile_vertex_mapping,  # Mapping: orig_vertex_idx → tile_local_idx
-                "road_face_indices": tile_road_face_indices,
-                "road_uvs": tile_road_uvs,  # UVs der ungeclippten Roads
+                "face_uvs": tile_face_uvs,  # {new_face_idx: {vertex_idx: (u, v)}} - UVs für dieses Tile
                 "bounds": (
                     tile_x * tile_size,
                     (tile_x + 1) * tile_size,
