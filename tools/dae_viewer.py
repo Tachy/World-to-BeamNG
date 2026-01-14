@@ -1,5 +1,8 @@
 """
-DAE Viewer - Visualisiere die exportierte terrain.dae mit allen Tiles
+DAE Viewer - Visualisiere die exportierten Tile-DAEs
+
+NEUE ARCHITEKTUR: Lädt separate DAE-Dateien pro Tile (tile_X_Y.dae)
+Jede DAE enthält nur EINE Geometrie → verhindert überlappende Texturen!
 
 Steuerung:
     X = Toggle Texturen (An/Aus) - triggert Neuaufbau (Rendering ↔ Grid)
@@ -559,7 +562,7 @@ class DAETileViewer:
             return
 
         # Bestimme ob Terrain oder Building
-        is_terrain = item_name.startswith("terrain_")
+        is_terrain = item_name.startswith("terrain_") or item_name.startswith("tile_")
         is_horizon = "horizon" in item_name.lower()
         is_building = item_name.startswith("buildings_")
 

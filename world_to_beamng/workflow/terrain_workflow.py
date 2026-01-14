@@ -318,9 +318,9 @@ class TerrainWorkflow:
             mesh_data: Mesh-Daten aus process_tile()
 
         Returns:
-            Pfad zur DAE-Datei
+            Liste von exportierten DAE-Dateinamen
         """
-        from ..io.dae import export_merged_dae
+        from ..io.dae import export_separate_tile_daes
         from ..mesh.tile_slicer import slice_mesh_into_tiles
         from .. import config as legacy_config
 
@@ -424,31 +424,28 @@ class TerrainWorkflow:
             return best_mat, material_props[best_mat]
 
         # Kombiniere alle Faces mit Materials
+        # WICHTIG: mesh_obj.faces enthält BEREITS alle Road-Faces + Terrain-Faces + Stitch-Faces!
+        # Wir müssen diese NICHT doppelt hinzufügen!
         all_faces = []
         materials_per_face = []
 
-        # Road Faces (mit OSM-Mapper Materials)
-        for idx, face in enumerate(all_road_faces):
-            r_id = road_face_to_idx[idx] if idx < len(road_face_to_idx) else None
-
-            # Prüfe ob es eine Junction-ID ist (negative Zahlen)
-            if r_id is not None and r_id < 0:
-                # Junction-ID: -(junction_id + 1)
-                junction_id = -(r_id + 1)
-                mat_name, props = _get_junction_material(junction_id, junction_fans, road_material_map)
-            elif r_id is not None and r_id in road_material_map:
-                mat_name, props = road_material_map[r_id]
+        # Iteriere über ALLE Faces in mesh_obj (enthält schon Roads mit korrekten Materialien!)
+        for face_idx, face in enumerate(terrain_faces):
+            all_faces.append(face)
+            # Hole Material aus mesh_obj.face_props
+            if mesh_obj and hasattr(mesh_obj, 'face_props') and face_idx in mesh_obj.face_props:
+                mat_name = mesh_obj.face_props[face_idx].get("material", "terrain")
+                materials_per_face.append(mat_name)
+                
+                # Füge zu unique_materials hinzu falls Road-Material
+                if mat_name != "terrain":
+                    # Suche Properties in road_material_map
+                    for r_id, (r_mat, r_props) in road_material_map.items():
+                        if r_mat == mat_name:
+                            unique_materials[mat_name] = r_props
+                            break
             else:
-                mat_name, props = default_mat, default_props
-
-            unique_materials[mat_name] = props
-            all_faces.append(face)
-            materials_per_face.append(mat_name)
-
-        # Terrain Faces
-        for face in terrain_faces:
-            all_faces.append(face)
-            materials_per_face.append("terrain")
+                materials_per_face.append("terrain")
 
         # Hole alle Vertices vom VertexManager
         all_vertices = np.array(vertex_manager.get_array())
@@ -463,19 +460,20 @@ class TerrainWorkflow:
             mesh_obj=mesh_obj,  # Nutze indexed UV-System (uvs + uv_indices)
         )
 
-        # Export als DAE
+        # Export als DAE (SEPARATE Dateien pro Tile!)
         import os
 
-        dae_output_path = os.path.join(config.BEAMNG_DIR_SHAPES, "terrain.dae")
-        dae_path = export_merged_dae(
+        shapes_dir = config.BEAMNG_DIR_SHAPES
+        print(f"  Exportiere {len(tiles_dict)} Tiles als separate DAE-Dateien...")
+        dae_files = export_separate_tile_daes(
             tiles_dict=tiles_dict,
-            output_path=dae_output_path,
+            output_dir=shapes_dir,
             tile_size=config.TILE_SIZE,
             mesh_obj=mesh_obj,  # Übergebe Mesh für direkte UV-Zugriff
         )
 
         # Generiere und füge Materials hinzu
-        from ..io.dae import create_terrain_materials_json, create_terrain_items_json
+        from ..io.dae import create_terrain_materials_json
 
         # WICHTIG: Sammle auch alle Materials, die tatsächlich in materials_per_face sind
         # Manche Materials könnten in den Faces sein, aber nicht in unique_materials
@@ -508,13 +506,23 @@ class TerrainWorkflow:
         for mat_name, mat_data in terrain_materials.items():
             self.materials.materials[mat_name] = mat_data
 
-        # Erstelle und füge Terrain-Item hinzu
-        from ..io.dae import create_terrain_items_json
-        import os
+        # Erstelle TSStatic-Items für JEDES Tile (separate DAEs!)
+        print(f"  Erstelle {len(dae_files)} TSStatic-Items...")
+        for dae_filename in dae_files:
+            item_name = os.path.splitext(dae_filename)[0]  # z.B. "tile_-1000_-1000"
+            
+            # Erstelle TSStatic-Item
+            terrain_item = {
+                "__name": item_name,
+                "shapeName": f"art/shapes/{dae_filename}",
+                "position": "0 0 0",
+                "rotation": "1 0 0 0",
+                "scale": "1 1 1",
+                "renderMode": "default",
+                "dynamic": False,
+            }
+            
+            self.items.items[item_name] = terrain_item
 
-        dae_filename = os.path.basename(dae_path)
-        terrain_item = create_terrain_items_json(dae_filename)
-        item_name = terrain_item.get("__name", os.path.splitext(dae_filename)[0])
-        self.items.items[item_name] = terrain_item
-
-        return dae_path
+        print(f"  [OK] {len(dae_files)} Tile-DAEs exportiert")
+        return dae_files

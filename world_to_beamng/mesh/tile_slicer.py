@@ -304,41 +304,64 @@ def slice_mesh_into_tiles(
                 vertex_to_uv_idx[tile_v_idx] = uv_lookup[uv_key]
 
             # Setze UV-Indizes für alle Faces
-            # WICHTIG: Road-UVs werden zentral in mesh.preserve_road_uvs() gehandhabt!
+            # WICHTIG: Road-UVs kommen direkt aus mesh_obj.uv_indices!
+            # Da all_faces jetzt GENAU mesh_obj.faces entspricht, können wir direkt indexieren!
             tile_uv_indices_computed = {}
 
-            # Hole preservierte Road-UV-Daten aus mesh_obj
-            road_uv_data = getattr(mesh_obj, "road_uv_data", {}) if mesh_obj else {}
+            # Debug-Counter
+            road_uvs_found = 0
+            road_materials_but_no_uvs = 0
 
             for face_idx, face in enumerate(tile_faces_list):
                 v0, v1, v2 = face
 
-                # Prüfe ob dieses Face eine Road mit speziellen UVs ist
+                # Hole original Face-Index (zeigt jetzt direkt auf mesh_obj.faces!)
                 original_face_idx = (
                     tile_original_face_indices[face_idx] if face_idx < len(tile_original_face_indices) else None
                 )
+                
+                # Hole Material für Debug
+                mat = tile_materials_list[face_idx] if face_idx < len(tile_materials_list) else "unknown"
+                is_road_material = mat != "terrain" and not mat.startswith("tile_")
 
-                if original_face_idx in road_uv_data:
-                    # Road-Face mit speziellen UVs - füge sie ins Tile-UV-System ein
-                    uv_coords = road_uv_data[original_face_idx]  # [(u0,v0), (u1,v1), (u2,v2)]
+                # EINFACH: Prüfe ob mesh_obj UVs für diesen Face-Index hat!
+                if mesh_obj and hasattr(mesh_obj, 'uv_indices') and original_face_idx is not None and original_face_idx in mesh_obj.uv_indices:
+                    # Face hat bereits UVs (z.B. Road-UVs) - verwende sie!
+                    road_uvs_found += 1
+                    original_uv_indices = mesh_obj.uv_indices[original_face_idx]  # [uv_idx0, uv_idx1, uv_idx2]
+                    
+                    # Hole die tatsächlichen UV-Koordinaten aus mesh_obj.uvs
                     tile_uv_indices_new = []
-
-                    for u, v in uv_coords:
-                        # Füge UV ins Tile-Pool ein (dedupliziert mit float16)
-                        uv_key = (np.float16(u), np.float16(v))
-                        if uv_key not in uv_lookup:
-                            uv_lookup[uv_key] = len(tile_uvs)
-                            tile_uvs.append((float(u), float(v)))
-                        tile_uv_indices_new.append(uv_lookup[uv_key])
-
+                    for orig_uv_idx in original_uv_indices:
+                        if orig_uv_idx < len(mesh_obj.uvs):
+                            u, v = mesh_obj.uvs[orig_uv_idx]
+                            # Füge UV ins Tile-Pool ein (dedupliziert mit float16)
+                            uv_key = (np.float16(u), np.float16(v))
+                            if uv_key not in uv_lookup:
+                                uv_lookup[uv_key] = len(tile_uvs)
+                                tile_uvs.append((float(u), float(v)))
+                            tile_uv_indices_new.append(uv_lookup[uv_key])
+                        else:
+                            # Fallback: (0,0)
+                            uv_key = (np.float16(0.0), np.float16(0.0))
+                            if uv_key not in uv_lookup:
+                                uv_lookup[uv_key] = len(tile_uvs)
+                                tile_uvs.append((0.0, 0.0))
+                            tile_uv_indices_new.append(uv_lookup[uv_key])
+                    
                     tile_uv_indices_computed[face_idx] = tile_uv_indices_new
                 else:
-                    # Terrain-Face - nutze berechnete UVs aus Tile-Grenzen
+                    # Terrain-Face ODER Face ohne UVs - nutze berechnete UVs aus Tile-Grenzen
+                    if is_road_material:
+                        road_materials_but_no_uvs += 1
                     tile_uv_indices_computed[face_idx] = [
                         vertex_to_uv_idx[v0],
                         vertex_to_uv_idx[v1],
                         vertex_to_uv_idx[v2],
                     ]
+            
+            print(f"    Road-UVs gefunden: {road_uvs_found}, Road-Material aber keine UVs: {road_materials_but_no_uvs}")
+            
             result[(tile_x, tile_y)] = {
                 "vertices": tile_vertices_array,
                 "faces": tile_faces_list,

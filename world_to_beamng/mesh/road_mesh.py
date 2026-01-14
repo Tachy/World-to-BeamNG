@@ -1200,14 +1200,15 @@ def generate_road_mesh_strips(road_polygons, height_points, height_elevations, v
             right2 = road_vertex_indices_right[i + 1]
 
             # UV-Koordinaten für dieses Quad
-            # left = (u, 0), right = (u, 1)
+            # GEDREHT 90°: left = (0, u), right = (1, u)
+            # Dies ermöglicht, dass die Straßentextur in Fahrtrichtung korrekt verläuft
             u_curr = u_coords[i]
             u_next = u_coords[i + 1]
 
-            uv_left1 = (u_curr, 0.0)
-            uv_left2 = (u_next, 0.0)
-            uv_right1 = (u_curr, 1.0)
-            uv_right2 = (u_next, 1.0)
+            uv_left1 = (0.0, u_curr)
+            uv_left2 = (0.0, u_next)
+            uv_right1 = (1.0, u_curr)
+            uv_right2 = (1.0, u_next)
 
             # Quad: left1-right1-right2-left2 → zwei Dreiecke
             # Winding-Order wird automatisch in Mesh.add_face() korrigiert

@@ -151,14 +151,20 @@ class TerrainMeshBuilder:
             from ..mesh.mesh import Mesh
 
             mesh_obj = Mesh(self._vertex_manager)
+            
+            print(f"  [DEBUG] Füge {len(terrain_faces)} Terrain-Faces zu mesh_obj hinzu...")
             # Füge Terrain-Faces MIT Material hinzu (UVs werden später via compute_terrain_uvs_batch() berechnet)
             for face_idx, face in enumerate(terrain_faces):
                 mesh_obj.add_face(face[0], face[1], face[2], material="terrain")
 
+            print(f"  [DEBUG] mesh_obj hat jetzt {len(mesh_obj.faces)} Faces")
+            
             # NEU: Füge Road-Faces MIT OSM-mapped Material hinzu
             if self._road_mesh_data is not None:
                 from ..config import OSM_MAPPER
 
+                print(f"  [DEBUG] Füge {len(self._road_mesh_data)} Road-Faces zu mesh_obj hinzu...")
+                
                 # Baue Material-Map: road_id → material_name
                 road_material_map = {}
                 for poly in self._road_data:
@@ -177,6 +183,8 @@ class TerrainMeshBuilder:
 
                     mat_name = road_material_map.get(road_id, "road_default")
                     mesh_obj.add_face(v0, v1, v2, material=mat_name, uv_coords=uv_coords)
+                
+                print(f"  [DEBUG] mesh_obj hat jetzt {len(mesh_obj.faces)} Faces (nach Road-Faces)")
 
             stitch_all_gaps(
                 road_data_for_classification=self._road_data,
@@ -187,6 +195,14 @@ class TerrainMeshBuilder:
             )
 
             # Update terrain_faces mit neuen Faces
+            print(f"  [DEBUG] mesh_obj hat nach Stitching {len(mesh_obj.faces)} Faces")
+            
+            # KRITISCH: Entferne doppelte Faces (gleiches Set von Vertices)!
+            # Stitching kann Faces erstellen die bereits als Road-Faces existieren!
+            print(f"  [DEBUG] Entferne doppelte Faces...")
+            removed = mesh_obj.cleanup_duplicate_faces()
+            print(f"  [DEBUG] {removed} doppelte Faces entfernt, {len(mesh_obj.faces)} Faces verbleiben")
+            
             terrain_faces = mesh_obj.faces
 
             # ZENTRALE UV-VERWALTUNG:

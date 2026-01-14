@@ -1,14 +1,170 @@
 """
-DAE (Collada) Exporter für Mesh (alle Tiles in einer Datei).
+DAE (Collada) Exporter für Mesh.
 
-Exportiert eine .dae Datei mit:
-- Mehrere Geometrien (ein Chunk = eine Geometrie)
-- Material-Gruppen (terrain, road, etc.)
-- Pro Face eindeutige Material-Zuordnung
+NEUE ARCHITEKTUR:
+- Exportiert SEPARATE DAE-Dateien pro Tile (tile_X_Y.dae)
+- Jede DAE hat NUR EINE Geometrie
+- Verhindert Z-Fighting durch überlappende Geometrien
+- Besseres Culling durch separate TSStatics
 """
 
 import numpy as np
 import os
+
+
+def export_separate_tile_daes(
+    tiles_dict,
+    output_dir,
+    tile_size=400,
+    mesh_obj=None,
+):
+    """
+    Exportiert jedes Tile als SEPARATE .dae Datei.
+
+    NEUE LÖSUNG: Statt einer DAE mit 16 Geometrien → 16 DAEs mit je 1 Geometrie!
+    Verhindert überlappende Rendering an Tile-Grenzen.
+
+    Args:
+        tiles_dict: Dictionary von tile_slicer.slice_mesh_into_tiles()
+                    Format: {(tile_x, tile_y): {"vertices": [...], "faces": [...], "materials": [...]}}
+        output_dir: Ziel-Verzeichnis für DAE-Dateien
+        tile_size: Tile-Größe in Metern
+        mesh_obj: Optional: Mesh-Objekt mit face_uvs für UV-Koordinaten
+
+    Returns:
+        Liste von exportierten DAE-Dateinamen
+    """
+    from ..managers import DAEExporter, MaterialManager
+    from .. import config
+
+    os.makedirs(output_dir, exist_ok=True)
+    
+    exported_files = []
+    material_manager = MaterialManager(beamng_dir="")
+
+    # Exportiere jedes Tile als separate DAE
+    for (tile_x, tile_y), tile_data in sorted(tiles_dict.items()):
+        vertices = np.array(tile_data["vertices"])
+        faces = list(tile_data["faces"])
+        materials_per_face = tile_data.get("materials", [])
+        tile_normals = tile_data.get("normals")
+
+        if len(faces) == 0:
+            continue
+
+        # Berechne Welt-Koordinaten
+        corner_x = tile_x * tile_size
+        corner_y = tile_y * tile_size
+        tile_name = f"tile_{corner_x}_{corner_y}"
+        dae_filename = f"{tile_name}.dae"
+        dae_path = os.path.join(output_dir, dae_filename)
+
+        # Nutze UV-Indizes direkt aus tile_data
+        face_uv_indices = tile_data.get("uv_indices", {})
+        global_uvs = tile_data.get("global_uvs", [])
+
+        # Validierung
+        if len(face_uv_indices) != len(faces):
+            raise ValueError(
+                f"Tile ({tile_x}, {tile_y}): {len(faces)} Faces aber nur {len(face_uv_indices)} UV-Index-Sets!"
+            )
+
+        explicit_uvs = np.array(global_uvs, dtype=np.float32) if global_uvs else None
+
+        # Gruppiere Faces pro Material
+        tile_material_name = tile_name  # "tile_X_Y"
+        faces_by_material = {}
+        uv_indices_by_material = {}
+
+        for idx, face in enumerate(faces):
+            mat_name = materials_per_face[idx] if idx < len(materials_per_face) else "unknown"
+
+            # Terrain/Unknown → Tile-Material
+            if mat_name in ("terrain", "unknown"):
+                mat_name = tile_material_name
+
+            faces_by_material.setdefault(mat_name, []).append(face)
+            uv_ids = face_uv_indices.get(idx, list(face))
+            uv_indices_by_material.setdefault(mat_name, []).append(uv_ids)
+
+        # Tile-Bounds
+        tile_bounds = tile_data.get("bounds", None)
+        if tile_bounds:
+            x_min, x_max, y_min, y_max = tile_bounds
+        else:
+            x_min = corner_x
+            x_max = corner_x + tile_size
+            y_min = corner_y
+            y_max = corner_y + tile_size
+
+        # Erstelle Material-Definitionen
+        all_material_names = set(faces_by_material.keys())
+        
+        for mat_name in all_material_names:
+            if mat_name.startswith("tile_"):
+                # Terrain-Material
+                texture_path = config.RELATIVE_DIR_TEXTURES + f"{mat_name}.dds"
+                material_manager.add_terrain_material(corner_x, corner_y, texture_path)
+            else:
+                # Road-Material
+                road_props = config.OSM_MAPPER.get_road_properties({"surface": mat_name})
+                if not road_props or road_props.get("internal_name") != mat_name:
+                    # Fallback-Suche
+                    found = False
+                    for highway_type, props in config.OSM_MAPPER.config.get("highway_defaults", {}).items():
+                        if props.get("internal_name") == mat_name:
+                            road_props = props
+                            found = True
+                            break
+                    
+                    if not found:
+                        for surface_type, props in config.OSM_MAPPER.config.get("surface_overrides", {}).items():
+                            if props.get("internal_name") == mat_name:
+                                road_props = props
+                                found = True
+                                break
+                    
+                    if not found:
+                        print(f"  ⚠ Material {mat_name} nicht in OSM_MAPPER gefunden")
+                        continue
+                
+                material_manager.add_road_material(mat_name, road_props)
+
+        # Extrahiere Textur-Pfade
+        material_textures = {}
+        for mat_name, mat_data in material_manager.materials.items():
+            stages = mat_data.get("Stages", [])
+            if stages and "baseColorMap" in stages[0]:
+                material_textures[mat_name] = stages[0]["baseColorMap"]
+
+        # Erstelle Mesh-Daten für DAEExporter
+        mesh_data = {
+            "id": tile_name,
+            "vertices": vertices,
+            "faces": faces_by_material,
+            "uv_indices": uv_indices_by_material,
+            "normals": tile_normals,
+            "uvs": explicit_uvs,
+            "uv_offset": (0.0, 0.0),
+            "uv_scale": (1.0, 1.0),
+            "tile_bounds": (x_min, x_max, y_min, y_max),
+        }
+
+        # Export mit DAEExporter (SINGLE Mesh!)
+        exporter = DAEExporter()
+        exporter.export_multi_mesh(
+            output_path=dae_path,
+            meshes=[mesh_data],  # NUR DIESES EINE Tile!
+            with_uv=True,
+            material_textures=material_textures
+        )
+
+        total_faces = sum(len(f) for f in faces_by_material.values())
+        print(f"    [OK] {dae_filename}: {len(vertices)} Vertices, {total_faces} Faces, {len(faces_by_material)} Materialien")
+        
+        exported_files.append(dae_filename)
+
+    return exported_files
 
 
 def export_merged_dae(
@@ -18,7 +174,10 @@ def export_merged_dae(
     mesh_obj=None,
 ):
     """
-    Exportiert alle Tiles als EINE .dae (Collada 1.4.1) mit mehreren Geometrien.
+    DEPRECATED: Exportiert alle Tiles als EINE .dae (Collada 1.4.1) mit mehreren Geometrien.
+    
+    PROBLEM: Führt zu überlappenden Geometrien → Z-Fighting!
+    LÖSUNG: Nutze export_separate_tile_daes() stattdessen!
 
     REFACTORED: Verwendet jetzt DAEExporter und liest UVs direkt aus Mesh.face_uvs.
 
@@ -70,6 +229,12 @@ def export_merged_dae(
         faces_by_material = {}
         uv_indices_by_material = {}  # Separate UV-Indizes pro Material
 
+        # DEBUG: Zähle original Materialien
+        original_materials = {}
+        for idx in range(len(faces)):
+            mat = materials_per_face[idx] if idx < len(materials_per_face) else "unknown"
+            original_materials[mat] = original_materials.get(mat, 0) + 1
+
         for idx, face in enumerate(faces):
             mat_name = materials_per_face[idx] if idx < len(materials_per_face) else "unknown"
 
@@ -83,6 +248,12 @@ def export_merged_dae(
             # Hole UV-Indizes für dieses Face
             uv_ids = face_uv_indices.get(idx, list(face))  # Fallback: uv_idx == v_idx
             uv_indices_by_material.setdefault(mat_name, []).append(uv_ids)
+
+        # DEBUG: Zeige Material-Verteilung für dieses Tile
+        if tile_coord_x == -1000 and tile_coord_y == -1000:  # Nur erstes Tile
+            print(f"  [DEBUG] Tile {tile_material_name}:")
+            print(f"    Original-Materialien: {original_materials}")
+            print(f"    Nach Remapping: {dict((k, len(v)) for k, v in faces_by_material.items())}")
 
         # WICHTIG: UV-Koordinaten müssen die Tile-Bounds reflektieren, nicht Vertex-Bounds!
         # Berechne absolute Tile-Bounds in lokalen Koordinaten

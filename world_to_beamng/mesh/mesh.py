@@ -384,7 +384,6 @@ class Mesh:
                     if len(uv_coords) == 3:
                         road_uv_data[face_idx] = uv_coords
 
-        print(f"  [INFO] {len(road_uv_data)} Road-Faces mit existierenden UVs identifiziert")
         return road_uv_data
 
     def compute_terrain_uvs_batch(self, material_filter=None, preserve_road_uv_data=None):
@@ -394,9 +393,12 @@ class Mesh:
         Verwendet Vertex-XY-Positionen normalisiert auf Terrain-Bounds für 1:1 UV-Mapping.
         Respektiert bereits vorhandene UVs (z.B. von Roads) - überschreibt sie NICHT!
 
+        HINWEIS: Diese Funktion ist aktuell NICHT in der Pipeline integriert.
+        UV-Berechnung erfolgt stattdessen im tile_slicer pro Tile.
+
         Args:
             material_filter: Liste von Materials (z.B. ["terrain"]) oder None für alle
-            preserve_road_uv_data: dict von preserve_road_uvs() - speichert Road-UV-Daten
+            preserve_road_uv_data: dict von preserve_road_uvs() - speichert Road-UV-Daten (DEPRECATED)
 
         Returns:
             Anzahl Faces mit neuen UVs versehen
@@ -405,26 +407,24 @@ class Mesh:
             return 0
 
         # Filtere Faces nach Material
-        # WICHTIG: Überspringe Faces die bereits UV-Indizes haben!
+        # WICHTIG: Nur Faces OHNE existierende UVs bearbeiten!
+        # Die Mengen von Road-Faces und Terrain-Faces sind bereits disjunkt:
+        # - Road-Faces: material in [dirt_road, asphalt_road_old, gravel_road, ...]
+        # - Terrain-Faces: material == "terrain"
+        # Es ist UNMÖGLICH dass eine Road-Face mit Terrain-UVs überschrieben wird!
         face_indices = []
+        
         for face_idx, props in self.face_props.items():
-            mat = props.get("material")
+            mat = props.get("material", "")
+            
+            # Prüfe Material-Filter
             if material_filter is None or mat in material_filter:
-                # Nur Faces ohne existierende UVs bearbeiten!
-                # (oder auch wenn sie spezielle Road-UVs haben - diese müssen bewahrt werden)
-                if preserve_road_uv_data and face_idx in preserve_road_uv_data:
-                    # Road-Face mit speziellen UVs - überspringen
-                    continue
-                if face_idx not in self.uv_indices:
-                    face_indices.append(face_idx)
-
+                # Nur Faces OHNE existierende UVs bearbeiten
                 if face_idx not in self.uv_indices:
                     face_indices.append(face_idx)
 
         if not face_indices:
             return 0
-
-        print(f"    Berechne UVs für {len(face_indices)} Faces ohne existierende UVs (batch-optimiert)...")
 
         # Hole alle Vertex-Positionen
         verts = np.asarray(self.vertex_manager.get_array(), dtype=np.float32)
@@ -472,5 +472,4 @@ class Mesh:
             v0, v1, v2 = self.faces[face_idx]
             self.uv_indices[face_idx] = [uv_mapping[v0], uv_mapping[v1], uv_mapping[v2]]
 
-        print(f"    [OK] {len(face_indices)} Faces mit UVs versehen ({len(self.uvs)} unique UVs)")
         return len(face_indices)
