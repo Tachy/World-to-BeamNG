@@ -265,9 +265,9 @@ def slice_mesh_into_tiles(
             # Grund: Nach Clipping sind Vertex-Bounds != Tile-Grenzen
             # Dadurch entsteht Versatz bei Texture-Alignment zwischen Tiles.
             # Lösung: Nutze exakte Tile-Grenzen als Bounds für UV-Normalisierung.
-            
+
             tile_vertices_array = np.array(tile_vertices_list, dtype=np.float32)
-            
+
             # Berechne EXAKTE Tile-Grenzen (nicht aus Vertices!)
             # Tile-Indizes sind: tile_x, tile_y
             # Tile-Grenzen sind: [tile_x * tile_size, (tile_x+1) * tile_size] × [tile_y * tile_size, (tile_y+1) * tile_size]
@@ -275,54 +275,54 @@ def slice_mesh_into_tiles(
             x_max_tile = (tile_x + 1) * tile_size
             y_min_tile = tile_y * tile_size
             y_max_tile = (tile_y + 1) * tile_size
-            
+
             x_range = x_max_tile - x_min_tile  # immer tile_size (z.B. 500m)
             y_range = y_max_tile - y_min_tile  # immer tile_size (z.B. 500m)
-            
+
             # Berechne UVs für alle Vertices im Tile
             # Nutze Tile-Grenzen, nicht Vertex-Bounds!
             all_uvs_x = (tile_vertices_array[:, 0] - x_min_tile) / x_range
             all_uvs_y = (tile_vertices_array[:, 1] - y_min_tile) / y_range
-            
+
             # Dedupliziere UVs (float16 für Precision)
             all_uvs_x_f16 = np.float16(all_uvs_x)
             all_uvs_y_f16 = np.float16(all_uvs_y)
-            
+
             tile_uvs = []  # Liste von (u, v) Tupeln
             uv_lookup = {}  # (u_f16, v_f16) → uv_idx
             vertex_to_uv_idx = {}  # tile_vertex_idx → uv_idx
-            
+
             for tile_v_idx in range(len(tile_vertices_array)):
                 u = all_uvs_x_f16[tile_v_idx]
                 v = all_uvs_y_f16[tile_v_idx]
                 uv_key = (u, v)
-                
+
                 if uv_key not in uv_lookup:
                     uv_lookup[uv_key] = len(tile_uvs)
                     tile_uvs.append((float(u), float(v)))
-                
+
                 vertex_to_uv_idx[tile_v_idx] = uv_lookup[uv_key]
-            
+
             # Setze UV-Indizes für alle Faces
             # WICHTIG: Road-UVs werden zentral in mesh.preserve_road_uvs() gehandhabt!
             tile_uv_indices_computed = {}
-            
+
             # Hole preservierte Road-UV-Daten aus mesh_obj
-            road_uv_data = getattr(mesh_obj, 'road_uv_data', {}) if mesh_obj else {}
-            print(f"  [DEBUG-SLICER] Tile ({tile_x},{tile_y}): road_uv_data={len(road_uv_data)} entries")
-            
+            road_uv_data = getattr(mesh_obj, "road_uv_data", {}) if mesh_obj else {}
+
             for face_idx, face in enumerate(tile_faces_list):
                 v0, v1, v2 = face
-                
+
                 # Prüfe ob dieses Face eine Road mit speziellen UVs ist
-                original_face_idx = tile_original_face_indices[face_idx] if face_idx < len(tile_original_face_indices) else None
-                
+                original_face_idx = (
+                    tile_original_face_indices[face_idx] if face_idx < len(tile_original_face_indices) else None
+                )
+
                 if original_face_idx in road_uv_data:
                     # Road-Face mit speziellen UVs - füge sie ins Tile-UV-System ein
-                    print(f"    [DEBUG-SLICER] Found Road-Face {original_face_idx} in tile ({tile_x},{tile_y})")
                     uv_coords = road_uv_data[original_face_idx]  # [(u0,v0), (u1,v1), (u2,v2)]
                     tile_uv_indices_new = []
-                    
+
                     for u, v in uv_coords:
                         # Füge UV ins Tile-Pool ein (dedupliziert mit float16)
                         uv_key = (np.float16(u), np.float16(v))
@@ -330,14 +330,14 @@ def slice_mesh_into_tiles(
                             uv_lookup[uv_key] = len(tile_uvs)
                             tile_uvs.append((float(u), float(v)))
                         tile_uv_indices_new.append(uv_lookup[uv_key])
-                    
+
                     tile_uv_indices_computed[face_idx] = tile_uv_indices_new
                 else:
                     # Terrain-Face - nutze berechnete UVs aus Tile-Grenzen
                     tile_uv_indices_computed[face_idx] = [
                         vertex_to_uv_idx[v0],
                         vertex_to_uv_idx[v1],
-                        vertex_to_uv_idx[v2]
+                        vertex_to_uv_idx[v2],
                     ]
             result[(tile_x, tile_y)] = {
                 "vertices": tile_vertices_array,

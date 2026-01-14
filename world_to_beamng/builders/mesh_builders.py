@@ -33,9 +33,7 @@ class TerrainMeshBuilder:
         self._road_data = None
         self._junctions = None
         self._enable_stitching = False
-        self._road_faces = None  # NEU: Road-Faces mit Material
-        self._road_face_to_idx = None  # NEU: Face->Road-ID Mapping
-        self._road_face_uvs = None  # NEU: UV-Koordinaten für Road-Faces
+        self._road_mesh_data = None  # Strukturierte Road-Daten: [{'vertices': [...], 'road_id': ..., 'uvs': {...}}, ...]
 
     def with_grid(self, grid: np.ndarray) -> "TerrainMeshBuilder":
         """
@@ -97,20 +95,15 @@ class TerrainMeshBuilder:
         Füge Road-Mesh hinzu (für Material-Mapping).
 
         Args:
-            road_mesh_tuple: (road_faces, road_face_to_idx, road_face_uvs, ...) von RoadMeshBuilder
+            road_mesh_tuple: (road_mesh_data, road_slope_polygons_2d, ...) von RoadMeshBuilder
+                            road_mesh_data = [{'vertices': [v0,v1,v2], 'road_id': id, 'uvs': {...}}, ...]
             road_polygons_2d: road_slope_polygons_2d für OSM-Mapping
 
         Returns:
             Self für Method-Chaining
         """
         if road_mesh_tuple:
-            self._road_faces = road_mesh_tuple[0]  # road_faces
-            self._road_face_to_idx = road_mesh_tuple[1]  # road_face_to_idx
-            self._road_face_uvs = road_mesh_tuple[2]  # road_face_uvs (Index 2!)
-            print(f"  [DEBUG] road_mesh_tuple:")
-            print(f"    _road_faces: {len(self._road_faces)}")
-            print(f"    _road_face_to_idx: {len(self._road_face_to_idx)}")
-            print(f"    _road_face_uvs: {len(self._road_face_uvs) if self._road_face_uvs else 0}")
+            self._road_mesh_data = road_mesh_tuple[0]  # Strukturierte Road-Daten
         self._road_data = road_polygons_2d  # Für OSM-Tag-Lookup
         return self
 
@@ -161,7 +154,7 @@ class TerrainMeshBuilder:
                 mesh_obj.add_face(face[0], face[1], face[2], material="terrain")
 
             # NEU: Füge Road-Faces MIT OSM-mapped Material hinzu
-            if self._road_faces is not None and self._road_face_to_idx is not None:
+            if self._road_mesh_data is not None:
                 from ..config import OSM_MAPPER
 
                 # Baue Material-Map: road_id → material_name
@@ -175,15 +168,13 @@ class TerrainMeshBuilder:
                         road_material_map[r_id] = mat_name
 
                 # Füge Road-Faces mit Material UND UV-Koordinaten hinzu
-                for idx, face in enumerate(self._road_faces):
-                    r_id = self._road_face_to_idx[idx] if idx < len(self._road_face_to_idx) else None
-                    mat_name = road_material_map.get(r_id, "road_default")
-                    # Hole UV-Koordinaten, falls vorhanden
-                    # WICHTIG: UVs sind nach r_id (Polygon-ID aus road_mesh.py) indexiert, nicht nach Face-Index!
-                    uv_coords = None
-                    if self._road_face_uvs and r_id is not None and r_id < len(self._road_face_uvs):
-                        uv_coords = self._road_face_uvs[r_id]
-                    mesh_obj.add_face(face[0], face[1], face[2], material=mat_name, uv_coords=uv_coords)
+                for road_face_data in self._road_mesh_data:
+                    v0, v1, v2 = road_face_data['vertices']
+                    road_id = road_face_data['road_id']
+                    uv_coords = road_face_data['uvs']  # {v0: (u,v), v1: (u,v), v2: (u,v)}
+                    
+                    mat_name = road_material_map.get(road_id, "road_default")
+                    mesh_obj.add_face(v0, v1, v2, material=mat_name, uv_coords=uv_coords)
 
             stitch_all_gaps(
                 road_data_for_classification=self._road_data,
@@ -200,7 +191,7 @@ class TerrainMeshBuilder:
             # 1. Speichere Road-UV-Daten BEVOR Terrain-UVs berechnet werden
             print("  Speichere Road-UV-Daten...")
             road_uv_data = mesh_obj.preserve_road_uvs()
-            
+
             # 2. Berechne Terrain-UVs (respektiert Road-UVs)
             # UVs werden NACH dem Slicing PRO TILE berechnet (siehe tile_slicer.py)
             # Hier speichern wir nur die Road-Daten für später.
@@ -208,7 +199,7 @@ class TerrainMeshBuilder:
             # Berechne geglättete Normalen (gesamtes Mesh, inkl. Roads)
             mesh_obj.compute_smooth_normals()
             vertex_normals = mesh_obj.vertex_normals
-            
+
             # Speichere road_uv_data im Mesh-Objekt für tile_slicer
             mesh_obj.road_uv_data = road_uv_data
         else:

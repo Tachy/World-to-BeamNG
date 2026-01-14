@@ -355,26 +355,24 @@ class Mesh:
     def preserve_road_uvs(self):
         """
         Speichere Road-UV-Daten BEVOR Terrain-UVs berechnet werden.
-        
+
         Roads haben bereits UV-Koordinaten aus road_mesh.py, die müssen bewahrt werden.
         Dieses System speichert die tatsächlichen UV-Koordinaten pro Road-Face,
         damit sie später in tile_slicer korrekt remapped werden können.
-        
+
         Returns:
             dict: {face_idx: [(u0,v0), (u1,v1), (u2,v2)]} für alle Road-Faces
         """
         road_uv_data = {}
-        road_faces_with_mat = 0
-        road_faces_in_uv_indices = 0
-        
+
         for face_idx, props in self.face_props.items():
             mat = props.get("material", "")
             # Prüfe ob Material mit "road" anfängt oder enthält
-            if mat and ("road" in mat.lower() or "asphalt" in mat.lower() or "gravel" in mat.lower() or "dirt" in mat.lower()):
-                road_faces_with_mat += 1
+            if mat and (
+                "road" in mat.lower() or "asphalt" in mat.lower() or "gravel" in mat.lower() or "dirt" in mat.lower()
+            ):
                 # Hole die tatsächlichen UV-Koordinaten für dieses Face
                 if face_idx in self.uv_indices:
-                    road_faces_in_uv_indices += 1
                     uv_indices = self.uv_indices[face_idx]
                     uv_coords = []
                     for uv_idx in uv_indices:
@@ -382,12 +380,10 @@ class Mesh:
                             uv_coords.append(self.uvs[uv_idx])
                         else:
                             uv_coords.append((0.0, 0.0))  # Fallback
-                    
+
                     if len(uv_coords) == 3:
                         road_uv_data[face_idx] = uv_coords
-        
-        print(f"  [DEBUG] Road-Material-Faces: {road_faces_with_mat}")
-        print(f"  [DEBUG] Road-Faces IN uv_indices: {road_faces_in_uv_indices}")
+
         print(f"  [INFO] {len(road_uv_data)} Road-Faces mit existierenden UVs identifiziert")
         return road_uv_data
 

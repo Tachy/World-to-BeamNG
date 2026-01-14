@@ -264,24 +264,21 @@ class TerrainWorkflow:
         )
 
         # 10a. Road-Face Cleanup: Clippe Road-Faces an Grid-Grenzen (messerscharf)
-        from ..mesh.road_cleanup import clip_road_faces_at_bounds
+        from ..mesh.road_cleanup import clip_road_mesh_data
 
-        # Entpacke road_mesh Tupel (Slopes sind deaktiviert: config.GENERATE_SLOPES=False)
-        all_road_faces = road_mesh[0]
-        all_road_face_uvs = road_mesh[2]  # UV-Koordinaten (neuer Index 2!)
+        # Road-Mesh ist jetzt strukturiert: [{'vertices': [...], 'road_id': ..., 'uvs': {...}}, ...]
+        road_mesh_data = road_mesh[0]
 
-        # Clippe Road-Faces (TODO: auch UVs müssen gekl ippt werden!)
-        clipped_road_faces = clip_road_faces_at_bounds(all_road_faces, vertex_manager, grid_bounds_local)
+        # Clippe Road-Faces (mit UVs zusammen!)
+        clipped_road_mesh_data = clip_road_mesh_data(road_mesh_data, vertex_manager, grid_bounds_local)
 
-        # Packe Tupel neu zusammen (mit geclippten Faces)
+        # Packe Tupel neu zusammen (mit geclippten Daten)
         road_mesh = (
-            clipped_road_faces,
-            road_mesh[1],  # all_road_face_to_idx
-            all_road_face_uvs,  # all_road_face_uvs (Index 2)
-            road_mesh[3],  # road_slope_polygons_2d (alt Index 3)
-            road_mesh[4],  # original_to_mesh_idx (alt Index 4)
-            road_mesh[5],  # all_road_polygons_2d (alt Index 5)
-            road_mesh[6],  # junction_fans (alt Index 7 → jetzt 6!)
+            clipped_road_mesh_data,  # Strukturierte Road-Daten
+            road_mesh[1],  # road_slope_polygons_2d (alt Index 2)
+            road_mesh[2],  # original_to_mesh_idx (alt Index 3)
+            road_mesh[3],  # all_road_polygons_2d (alt Index 4)
+            road_mesh[4],  # junction_fans (alt Index 5)
         )
 
         # 11. Terrain Mesh (mit Builder)
@@ -310,7 +307,6 @@ class TerrainWorkflow:
             "buildings_data": buildings_data,  # Übergebe Gebäude-Daten
             "height_points": local_points,  # Für Spawn-Punkt-Berechnung
             "height_elevations": elevations,  # Für Spawn-Punkt-Berechnung
-            "road_face_uvs": all_road_face_uvs,  # Für UV-Zuordnung in tile_slicer
         }
 
     def export_tile(self, tile_x: int, tile_y: int, mesh_data: Dict) -> str:
@@ -334,11 +330,13 @@ class TerrainWorkflow:
         road_slope_polygons_2d = mesh_data["road_slope_polygons_2d"]
         vertex_manager = mesh_data["vertex_manager"]
 
-        # Entpacke road_mesh 7-Tupel
-        all_road_faces = road_mesh_tuple[0]
-        road_face_to_idx = road_mesh_tuple[1]  # Mapping Face-Index -> Road-ID
-        # all_road_face_uvs = road_mesh_tuple[2]  # UVs sind jetzt zentral im Mesh.face_uvs!
-        # Slopes sind deaktiviert (config.GENERATE_SLOPES=False)
+        # Entpacke strukturierte Road-Daten
+        # Format: [{'vertices': [v0,v1,v2], 'road_id': id, 'uvs': {...}}, ...]
+        road_mesh_data = road_mesh_tuple[0]
+        
+        # Konvertiere zurück in die beiden Arrays für diese Funktion (zur Kompatibilität)
+        all_road_faces = [rd['vertices'] for rd in road_mesh_data]
+        road_face_to_idx = [rd['road_id'] for rd in road_mesh_data]
 
         # Entpacke terrain_mesh
         terrain_faces = terrain_mesh["faces"]

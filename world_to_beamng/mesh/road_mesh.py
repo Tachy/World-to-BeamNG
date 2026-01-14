@@ -995,9 +995,9 @@ def generate_road_mesh_strips(road_polygons, height_points, height_elevations, v
         junctions_full = junctions  # Vollständige Junction-Objekte für Anzahl-Prüfung
     junction_stop_buffer = config.JUNCTION_STOP_BUFFER
 
-    all_road_faces = []
-    all_road_face_to_idx = []
-    all_road_face_uvs = []  # Parallel zu all_road_faces: {v0: (u,v), v1: (u,v), v2: (u,v)}
+    # NEU: Strukturiertes Array statt drei separate Arrays
+    # Jeder Eintrag: {'vertices': [v0, v1, v2], 'road_id': road_id, 'uvs': {v0: (u,v), ...}}
+    road_mesh_data = []
     road_slope_polygons_2d = []
 
     # Mapping: original road_polygons index -> road_slope_polygons_2d index
@@ -1213,14 +1213,18 @@ def generate_road_mesh_strips(road_polygons, height_points, height_elevations, v
             # Winding-Order wird automatisch in Mesh.add_face() korrigiert
 
             # Dreieck 1: left1-right1-right2
-            all_road_faces.append([left1, right1, right2])
-            all_road_face_to_idx.append(road_id)
-            all_road_face_uvs.append({left1: uv_left1, right1: uv_right1, right2: uv_right2})
+            road_mesh_data.append({
+                'vertices': [left1, right1, right2],
+                'road_id': road_id,
+                'uvs': {left1: uv_left1, right1: uv_right1, right2: uv_right2}
+            })
 
             # Dreieck 2: left1-right2-left2
-            all_road_faces.append([left1, right2, left2])
-            all_road_face_to_idx.append(road_id)
-            all_road_face_uvs.append({left1: uv_left1, right2: uv_right2, left2: uv_left2})
+            road_mesh_data.append({
+                'vertices': [left1, right2, left2],
+                'road_id': road_id,
+                'uvs': {left1: uv_left1, right2: uv_right2, left2: uv_left2}
+            })
 
         # Böschungen sind deaktiviert (config.GENERATE_SLOPES=False)
 
@@ -1328,7 +1332,6 @@ def generate_road_mesh_strips(road_polygons, height_points, height_elevations, v
 
                 # Projektion auf Achsen, skaliert wie Straßen (10m Tiling)
                 scale = 10.0
-
                 def proj_uv(p):
                     d = p - pc
                     u = np.dot(d, u_axis) / scale
@@ -1339,11 +1342,13 @@ def generate_road_mesh_strips(road_polygons, height_points, height_elevations, v
                 uv_b = proj_uv(pb)
                 uv_c = proj_uv(pc)
 
-                all_road_faces.append([a, b, center_idx])
-                all_road_face_to_idx.append(-(j_id + 1))
-                all_road_face_uvs.append({a: uv_a, b: uv_b, center_idx: uv_c})
+                road_mesh_data.append({
+                    'vertices': [a, b, center_idx],
+                    'road_id': -(j_id + 1),
+                    'uvs': {a: uv_a, b: uv_b, center_idx: uv_c}
+                })
 
-    print(f"  [OK] {len(all_road_faces)} Strassen-Faces")
+    print(f"  [OK] {len(road_mesh_data)} Strassen-Faces")
     if config.GENERATE_SLOPES:
         print(f"  [OK] {len(all_slope_faces)} Boeschungs-Faces")
         print(f"  [OK] Boeschungen OK")
@@ -1389,9 +1394,7 @@ def generate_road_mesh_strips(road_polygons, height_points, height_elevations, v
                 junction_fan_polygons_added += 1
 
     return (
-        all_road_faces,
-        all_road_face_to_idx,
-        all_road_face_uvs,  # UV-Koordinaten für jedes Road-Face
+        road_mesh_data,  # Strukturiert: [{'vertices': [...], 'road_id': ..., 'uvs': {...}}, ...]
         road_slope_polygons_2d,
         original_to_mesh_idx,
         all_road_polygons_2d,

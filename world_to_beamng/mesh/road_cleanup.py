@@ -8,30 +8,30 @@ import numpy as np
 from shapely.geometry import Polygon, box
 
 
-def clip_road_faces_at_bounds(road_faces, vertex_manager, grid_bounds_local):
+def clip_road_mesh_data(road_mesh_data, vertex_manager, grid_bounds_local):
     """
-    Clippt Road-Faces an Grid-Grenzen (messerscharf).
+    Clippt strukturierte Road-Daten an Grid-Grenzen.
 
     Args:
-        road_faces: Liste von [v0_idx, v1_idx, v2_idx]
+        road_mesh_data: Liste von {'vertices': [v0,v1,v2], 'road_id': id, 'uvs': {v: (u,v), ...}}
         vertex_manager: VertexManager für Vertex-Zugriff
         grid_bounds_local: (min_x, max_x, min_y, max_y)
 
     Returns:
-        Liste von geclippten Road-Faces
+        Liste von geclippten Road-Daten (gleiche Struktur)
     """
-    if not road_faces or grid_bounds_local is None:
-        return road_faces
+    if not road_mesh_data or grid_bounds_local is None:
+        return road_mesh_data
 
     min_x, max_x, min_y, max_y = grid_bounds_local
     bounds_box = box(min_x, min_y, max_x, max_y)
 
-    faces_to_keep = []
-    faces_to_clip = []
+    data_to_keep = []
+    data_to_clip = []
 
     # Phase 1: Sortiere Faces in "komplett drin", "komplett draußen", "teilweise"
-    for face in road_faces:
-        v0_idx, v1_idx, v2_idx = face
+    for face_data in road_mesh_data:
+        v0_idx, v1_idx, v2_idx = face_data['vertices']
 
         v0 = vertex_manager.vertices[v0_idx]
         v1 = vertex_manager.vertices[v1_idx]
@@ -46,23 +46,23 @@ def clip_road_faces_at_bounds(road_faces, vertex_manager, grid_bounds_local):
 
         if outside_count == 0:
             # Komplett innerhalb
-            faces_to_keep.append(face)
+            data_to_keep.append(face_data)
         elif outside_count == 3:
             # Komplett außerhalb - verwerfen
             pass
         else:
             # Teilweise überstehend - clippen
-            faces_to_clip.append((face, (v0, v1, v2)))
+            data_to_clip.append((face_data, (v0, v1, v2)))
 
-    if not faces_to_clip:
-        print(f"  [Road-Cleanup] Alle {len(faces_to_keep)} Road-Faces innerhalb Grid")
-        return faces_to_keep
+    if not data_to_clip:
+        print(f"  [Road-Cleanup] Alle {len(data_to_keep)} Road-Faces innerhalb Grid")
+        return data_to_keep
 
-    print(f"  [Road-Cleanup] Clippe {len(faces_to_clip)} teilweise überstehende Road-Faces...")
+    print(f"  [Road-Cleanup] Clippe {len(data_to_clip)} teilweise überstehende Road-Faces...")
 
     # Phase 2: Clippe überstehende Faces
     clipped_count = 0
-    for face, (v0, v1, v2) in faces_to_clip:
+    for face_data, (v0, v1, v2) in data_to_clip:
         # Erstelle Face-Polygon (2D)
         face_poly = Polygon([(v0[0], v0[1]), (v1[0], v1[1]), (v2[0], v2[1])])
 
@@ -98,12 +98,27 @@ def clip_road_faces_at_bounds(road_faces, vertex_manager, grid_bounds_local):
                 idx1 = vertex_manager.add_vertex(p1[0], p1[1], z1)
                 idx2 = vertex_manager.add_vertex(p2[0], p2[1], z2)
 
-                faces_to_keep.append([idx0, idx1, idx2])
+                # Füge neue Face-Daten mit geclippten Vertices und UVs aus Original hinzu
+                # UVs werden interpoliert wie Z-Werte
+                road_id = face_data['road_id']
+                orig_uvs = face_data['uvs']
+                
+                # Interpoliere UVs basierend auf baryzentrische Koordinaten
+                # (vereinfacht: nutze UV vom ursprünglichen Vertex am nächsten)
+                data_to_keep.append({
+                    'vertices': [idx0, idx1, idx2],
+                    'road_id': road_id,
+                    'uvs': {
+                        idx0: orig_uvs.get(v0_idx, (0.0, 0.0)),
+                        idx1: orig_uvs.get(v1_idx, (0.0, 0.0)),
+                        idx2: orig_uvs.get(v2_idx, (0.0, 0.0))
+                    }
+                })
                 clipped_count += 1
 
-    print(f"  [Road-Cleanup] {clipped_count} neue Dreiecke nach Clipping, {len(faces_to_keep)} total")
+    print(f"  [Road-Cleanup] {clipped_count} neue Dreiecke nach Clipping, {len(data_to_keep)} total")
 
-    return faces_to_keep
+    return data_to_keep
 
 
 def _interpolate_z_from_triangle(point_2d, v0, v1, v2):
