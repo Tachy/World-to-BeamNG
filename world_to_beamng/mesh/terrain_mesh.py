@@ -20,7 +20,7 @@ def generate_full_grid_mesh(grid_points, modified_heights, vertex_types, nx, ny,
     Returns:
         terrain_faces: Liste von Face-Indizes (0-basiert)
         vertex_indices: Liste aller Vertex-Indizes
-        
+
     HINWEIS: UVs werden NICHT hier berechnet, sondern am Ende per mesh.compute_terrain_uvs_batch()
     für maximale Performance (vektorisiert über alle Terrain-Faces).
     """

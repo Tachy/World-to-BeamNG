@@ -553,7 +553,7 @@ def _triangulate_polygons(polygons, verts, mesh, debug=False):
 
     Returns:
         Liste der neu erzeugten Face-Indices
-        
+
     HINWEIS: UVs werden NICHT hier berechnet (zu langsam pro Face!),
     sondern am Ende per mesh.compute_terrain_uvs_batch() für alle Terrain+Stitch-Faces.
     """

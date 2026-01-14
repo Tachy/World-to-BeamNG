@@ -88,7 +88,7 @@ def load_dae_tile(filepath):
         # Extrahiere Faces für dieses Tile
         # WICHTIG: DAE hat indexed UVs - ein Vertex kann mehrere verschiedene UVs haben!
         # Lösung: Dupliziere Vertices für jeden unique (vertex_idx, uv_idx) Pair
-        
+
         tile_faces = []
         tile_vertices_expanded = []  # Expandierte Vertices (dupliziert)
         tile_uvs_expanded = []  # Entsprechende UVs
@@ -127,38 +127,40 @@ def load_dae_tile(filepath):
             if stride > 1:
                 # Indices format: [offset0_data, offset1_data, offset2_data, ...] * vertices
                 # z.B. bei stride=3: v0 n0 uv0 v1 n1 uv1 v2 n2 uv2 ...
-                
+
                 vertex_offset_in_stride = input_offsets.get("VERTEX", 0)
                 uv_offset_in_stride = input_offsets.get("TEXCOORD", 2)
 
                 for i in range(0, len(indices), 3 * stride):  # stride indices pro vertex * 3 vertices
                     if i + (3 * stride - 1) < len(indices):
                         face = []
-                        
+
                         # Für jeden der 3 Vertices im Face
                         for v_local in range(3):
                             v_idx = indices[i + v_local * stride + vertex_offset_in_stride]
-                            
+
                             # Bestimme UV-Index (wenn vorhanden)
                             if has_uvs and len(tile_uvs) > 0:
                                 uv_idx = indices[i + v_local * stride + uv_offset_in_stride]
                                 pair_key = (v_idx, uv_idx)
-                                
+
                                 # Prüfe ob diese Kombination schon existiert
                                 if pair_key not in vertex_uv_to_new_idx:
                                     # Neuer expandierter Vertex
                                     new_idx = len(tile_vertices_expanded)
                                     vertex_uv_to_new_idx[pair_key] = new_idx
-                                    
+
                                     # Füge Vertex und UV hinzu
                                     if v_idx < len(tile_vertices) and uv_idx < len(tile_uvs):
                                         tile_vertices_expanded.append(tile_vertices[v_idx])
                                         tile_uvs_expanded.append(tile_uvs[uv_idx])
                                     else:
-                                        print(f"[!] Index out of range: v_idx={v_idx}/{len(tile_vertices)}, uv_idx={uv_idx}/{len(tile_uvs)}")
+                                        print(
+                                            f"[!] Index out of range: v_idx={v_idx}/{len(tile_vertices)}, uv_idx={uv_idx}/{len(tile_uvs)}"
+                                        )
                                         tile_vertices_expanded.append([0, 0, 0])
                                         tile_uvs_expanded.append([0, 0])
-                                
+
                                 face.append(vertex_uv_to_new_idx[pair_key])
                             else:
                                 # Kein UV-Mapping - nutze original Vertex-Index
@@ -169,9 +171,9 @@ def load_dae_tile(filepath):
                                         tile_vertices_expanded.append(tile_vertices[v_idx])
                                     else:
                                         tile_vertices_expanded.append([0, 0, 0])
-                                
+
                                 face.append(vertex_uv_to_new_idx[v_idx])
-                        
+
                         # Globale Indizes (mit neuem Offset)
                         face_global = [idx + vertex_offset for idx in face]
                         tile_faces.append(face_global)
@@ -183,7 +185,7 @@ def load_dae_tile(filepath):
                         face = []
                         for v_local in range(3):
                             v_idx = indices[i + v_local]
-                            
+
                             if v_idx not in vertex_uv_to_new_idx:
                                 new_idx = len(tile_vertices_expanded)
                                 vertex_uv_to_new_idx[v_idx] = new_idx
@@ -191,9 +193,9 @@ def load_dae_tile(filepath):
                                     tile_vertices_expanded.append(tile_vertices[v_idx])
                                 else:
                                     tile_vertices_expanded.append([0, 0, 0])
-                            
+
                             face.append(vertex_uv_to_new_idx[v_idx])
-                        
+
                         face_global = [idx + vertex_offset for idx in face]
                         tile_faces.append(face_global)
                         all_materials.append(material_name)

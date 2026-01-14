@@ -355,76 +355,76 @@ class Mesh:
     def compute_terrain_uvs_batch(self, material_filter=None):
         """
         Berechnet UVs für alle Faces mit bestimmtem Material (vektorisiert - sehr schnell!).
-        
+
         Verwendet Vertex-XY-Positionen normalisiert auf Terrain-Bounds für 1:1 UV-Mapping.
         Deutlich schneller als Face-by-Face Berechnung (10-50x).
-        
+
         Args:
             material_filter: Liste von Materials (z.B. ["terrain"]) oder None für alle
-        
+
         Returns:
             Anzahl Faces mit UVs versehen
         """
         if len(self.faces) == 0:
             return 0
-        
+
         # Filtere Faces nach Material
         face_indices = []
         for face_idx, props in self.face_props.items():
             mat = props.get("material")
             if material_filter is None or mat in material_filter:
                 face_indices.append(face_idx)
-        
+
         if not face_indices:
             return 0
-        
+
         print(f"    Berechne UVs für {len(face_indices)} Faces (batch-optimiert)...")
-        
+
         # Hole alle Vertex-Positionen
         verts = np.asarray(self.vertex_manager.get_array(), dtype=np.float32)
-        
+
         # Sammle alle relevanten Vertex-Indizes
         relevant_vert_indices = set()
         for face_idx in face_indices:
             relevant_vert_indices.update(self.faces[face_idx])
-        
+
         # Berechne Bounds aus Vertex-XY-Positionen (vektorisiert)
         relevant_verts_xy = verts[list(relevant_vert_indices)][:, :2]
         x_min, y_min = relevant_verts_xy.min(axis=0)
         x_max, y_max = relevant_verts_xy.max(axis=0)
-        
+
         x_range = float(x_max - x_min) if x_max > x_min else 1.0
         y_range = float(y_max - y_min) if y_max > y_min else 1.0
-        
+
         # Berechne UVs für ALLE Vertices auf einmal (vektorisiert)
         all_uvs_x = (verts[:, 0] - x_min) / x_range
         all_uvs_y = (verts[:, 1] - y_min) / y_range
-        
+
         # === BATCH-OPTIMIERUNG: Alle UVs pre-compute + deduplicate ===
         # Runde alle UVs zu float16 für Deduplication
         all_uvs_x_f16 = np.float16(all_uvs_x)
         all_uvs_y_f16 = np.float16(all_uvs_y)
-        
+
         # Erstelle Lookup-Table: (u,v) → uv_idx (nur für relevante Vertices)
         uv_lookup_batch = {}  # (u_f16, v_f16) → uv_idx
         uv_mapping = {}  # vert_idx → uv_idx
-        
+
         for vert_idx in relevant_vert_indices:
             u = all_uvs_x_f16[vert_idx]
             v = all_uvs_y_f16[vert_idx]
             uv_key = (u, v)
-            
+
             # Nutze bestehende UV wenn vorhanden, sonst erstelle neue
             if uv_key not in uv_lookup_batch:
                 uv_lookup_batch[uv_key] = len(self.uvs)
                 self.uvs.append((float(u), float(v)))
-            
+
             uv_mapping[vert_idx] = uv_lookup_batch[uv_key]
-        
+
         # Setze uv_indices für alle Faces (schnell - nur Array-Lookup!)
         for face_idx in face_indices:
             v0, v1, v2 = self.faces[face_idx]
             self.uv_indices[face_idx] = [uv_mapping[v0], uv_mapping[v1], uv_mapping[v2]]
-        
+
         print(f"    [OK] {len(face_indices)} Faces mit UVs versehen ({len(self.uvs)} unique UVs)")
         return len(face_indices)
