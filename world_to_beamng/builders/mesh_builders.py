@@ -192,6 +192,10 @@ class TerrainMeshBuilder:
                 mesh=mesh_obj,
                 terrain_vertex_indices=terrain_vertex_indices,
                 junction_points=junction_points if junction_points else None,
+                filter_road_id=None,
+                filter_junction_id=None,
+                debug_stop_at_road=None,
+                debug_stop_at_circle=None,
             )
 
             # Update terrain_faces mit neuen Faces

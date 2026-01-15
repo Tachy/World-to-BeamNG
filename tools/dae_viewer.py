@@ -51,7 +51,7 @@ from PIL import Image
 # Importiere config
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from world_to_beamng import config
-from tools.dae_loader import load_dae_tile
+from tools.dae_loader import load_dae_tile, load_all_dae_files as load_dae_tile_all_from_items
 
 
 # BeamNG-Relative Pfade ("/levels/<Level>/...") nach absoluten Pfaden auflösen
@@ -90,23 +90,6 @@ class DAETileViewer:
 
         print(f"Lade Items aus: {items_path}")
 
-        # Versuche items.json zu laden (kann fehlschlagen, wenn nicht in BeamNG Format)
-        self.items = {}
-        try:
-            with open(items_path, "r", encoding="utf-8") as f:
-                items_data = json.load(f)
-                # items.json könnte verschiedene Strukturen haben - prüfe verschiedene Patterns
-                if isinstance(items_data, dict):
-                    # Pattern 1: Direct dict mit shapeName
-                    if any(isinstance(v, dict) and "shapeName" in v for v in items_data.values()):
-                        self.items = items_data
-                    # Pattern 2: Nested 'Instances'
-                    elif "Instances" in items_data and isinstance(items_data["Instances"], dict):
-                        self.items = items_data["Instances"]
-        except Exception as e:
-            print(f"  [!] items.json konnte nicht geladen werden: {e}")
-            print(f"  [i] Suche stattdessen direkt nach DAE-Dateien im Niveau...")
-
         print(f"Lade Materialien aus: {materials_path}")
         if os.path.exists(materials_path):
             with open(materials_path, "r", encoding="utf-8") as f:
@@ -124,50 +107,18 @@ class DAETileViewer:
                 print(f"  [!] Fehler beim Generieren von Materials: {e}")
                 self.materials = {}
 
-        # Extrahiere alle DAE-Dateien aus Items oder suche direkt
-        self.dae_files = []
-
-        # Method 1: Aus items.json
-        if self.items:
-            for item_name, item_data in self.items.items():
-                if isinstance(item_data, dict):
-                    shape_name = item_data.get("shapeName")
-                    if shape_name and shape_name.endswith(".dae"):
-                        dae_path = _resolve_beamng_path(shape_name)
-                        if dae_path and os.path.exists(dae_path):
-                            self.dae_files.append((item_name, dae_path))
-                        else:
-                            print(f"  [!] DAE nicht gefunden: {shape_name}")
-
-        # Method 2: Direkt im Verzeichnis suchen (Fallback oder Ergänzung)
-        if not self.dae_files:
-            print(f"  [i] Suche nach DAE-Dateien im Level-Verzeichnis...")
-            shapes_dir = os.path.join(config.BEAMNG_DIR, "art", "shapes")
-            if os.path.exists(shapes_dir):
-                for dae_file in Path(shapes_dir).glob("*.dae"):
-                    item_name = dae_file.stem  # Verwende Dateinamen als item_name
-                    self.dae_files.append((item_name, str(dae_file)))
-                    print(f"  [✓] Gefunden: {item_name}")
+        # Lade alle DAE-Dateien aus gemeinsamer Funktion
+        self.dae_files, self.tile_data = load_dae_tile_all_from_items(
+            config.BEAMNG_DIR, items_path, _resolve_beamng_path
+        )
 
         if not self.dae_files:
-            print("Keine DAE-Dateien in items.json oder art/shapes gefunden!")
+            print("Keine DAE-Dateien in items.level.json gefunden!")
             return
-
-        print(f"  -> {len(self.dae_files)} DAE-Dateien gefunden")
-
-        # Lade alle DAE-Dateien
-        self.tile_data = []
-        for item_name, dae_path in self.dae_files:
-            print(f"  Lade {item_name}: {os.path.basename(dae_path)}")
-            data = load_dae_tile(dae_path)
-            if data:
-                self.tile_data.append((item_name, data))
 
         if not self.tile_data:
             print("Keine Geometrie in DAE-Dateien gefunden!")
             return
-
-        print(f"  -> {len(self.tile_data)} DAE-Dateien geladen")
 
         # Initialisiere config_path FRÜH (wird für _load_layers_state benötigt)
         self.config_path = os.path.join(os.path.dirname(__file__), "dae_viewer.cfg")
@@ -512,18 +463,6 @@ class DAETileViewer:
                 print(f"  [!] Fehler beim Wiederherstellen der Kamera: {e}")
 
         self._update_camera_status()
-
-        # Füge Debug-Actors wieder zum Plotter hinzu (falls sie existierten)
-        if saved_debug_actors:
-            self.debug_actors = []
-            for actor in saved_debug_actors:
-                try:
-                    self.plotter.add_actor(actor)
-                    self.debug_actors.append(actor)
-                    # Stelle Sichtbarkeit wieder her
-                    actor.SetVisibility(saved_debug_visibility)
-                except Exception as e:
-                    print(f"[!] Fehler beim Wiederherstellen des Debug-Actors: {e}")
 
         # Füge Debug-Actors wieder zum Plotter hinzu (falls sie existierten)
         if saved_debug_actors:
@@ -1812,7 +1751,7 @@ class DAETileViewer:
         """Lade alle DAE-Dateien neu (L-Taste)."""
         self._show_reload_overlay()
         try:
-            print(f"  [Reload] Lade alle DAE-Dateien aus main.items.json...")
+            print(f"\n[Reload] Lade alle DAE-Dateien aus items.level.json...")
 
             # Speichere Kamera UND Debug-Layer-Status
             camera_pos = None
@@ -1827,52 +1766,42 @@ class DAETileViewer:
             except Exception as e:
                 print(f"[!] Fehler beim Speichern der Kamera-Position: {e}")
 
-            # Lade Items neu
+            # Lade Items neu mit gemeinsamer Funktion aus dae_loader
             items_path = os.path.join(config.BEAMNG_DIR, config.ITEMS_JSON)
-            with open(items_path, "r", encoding="utf-8") as f:
-                self.items = json.load(f)
 
-            # Extrahiere alle DAE-Dateien aus Items
-            self.dae_files = []
-            for item_name, item_data in self.items.items():
-                # item_data kann ein Dict oder ein String sein
-                if isinstance(item_data, dict):
-                    shape_name = item_data.get("shapeName")
-                elif isinstance(item_data, str):
-                    # Direkter String-Wert (z.B. einfache Pfad-Struktur)
-                    shape_name = item_data
-                else:
-                    continue
+            try:
+                self.dae_files, self.tile_data = load_dae_tile_all_from_items(
+                    config.BEAMNG_DIR, items_path, _resolve_beamng_path
+                )
+            except Exception as e:
+                print(f"  [!] Fehler beim Laden von DAE-Dateien: {e}")
+                import traceback
 
-                if shape_name and shape_name.endswith(".dae"):
-                    dae_path = _resolve_beamng_path(shape_name)
-                    if dae_path and os.path.exists(dae_path):
-                        self.dae_files.append((item_name, dae_path))
-
-            # Lade alle DAE-Dateien neu
-            from tools.dae_loader import load_dae_tile
-
-            self.tile_data = []
-            for item_name, dae_path in self.dae_files:
-                data = load_dae_tile(dae_path)
-                if data:
-                    self.tile_data.append((item_name, data))
+                traceback.print_exc()
+                self.dae_files = []
+                self.tile_data = []
 
             # Lade Texturen neu
             self.textures = self._load_textures()
 
             print(f"  ✓ {len(self.tile_data)} DAE-Dateien neu geladen")
 
-            # Debug-Layer zurücksetzen (wird neu geladen wenn aktiv)
+            # Setze Debug-Layer-Status zurück (wird NACH update_view neu geladen)
             self.debug_loaded = False
             self.debug_actors = []
 
+            # update_view() lädt Terrain/Road/Building actors
             self.update_view()
 
-            # Stelle Debug-Layer wieder her wenn er aktiv war
+            # NACH update_view: Lade Debug-Layer neu (damit sie nicht von plotter.clear() gelöscht werden)
             if debug_was_visible:
+                self._load_debug_layer()
+                self.debug_loaded = True
                 self.show_debug = True
-                self._update_debug_visibility()
+                # Setze Sichtbarkeit
+                for actor in self.debug_actors:
+                    actor.SetVisibility(True)
+                self.plotter.render()
 
             # Stelle Kamera wieder her
             if camera_pos is not None:

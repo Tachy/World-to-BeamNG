@@ -269,9 +269,9 @@ class BeamNGExporter:
 
         # main.level.json ist NICHT nötig - BeamNG lädt automatisch main/items.level.json
 
-    # Debug-Netzwerk-Export (auskommentiert für Performance)
-    # if config.DEBUG_EXPORTS:
-    #     self.debug_exporter.export(config.CACHE_DIR)
+        # Debug-Netzwerk-Export (auskommentiert für Performance)
+        if config.DEBUG_EXPORTS:
+            self.debug_exporter.export(config.CACHE_DIR)
 
     def clear_cache(self):
         """Lösche gesamten Cache."""

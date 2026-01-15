@@ -10,6 +10,10 @@ from scipy.spatial import cKDTree
 from mapbox_earcut import triangulate_float64
 from collections import defaultdict
 
+from world_to_beamng import config
+
+from ..utils.debug_exporter import DebugNetworkExporter
+
 
 def find_boundary_polygons_in_circle(
     centerline_point,
@@ -64,7 +68,7 @@ def find_boundary_polygons_in_circle(
     face_materials = (
         cached_face_materials
         if cached_face_materials is not None
-        else [mesh.face_props.get(idx, {}).get("material") for idx in range(len(mesh.faces))]
+        else {idx: mesh.face_props.get(idx, {}).get("material") for idx in range(len(mesh.faces))}
     )
     vertex_to_faces = cached_vertex_to_faces if cached_vertex_to_faces is not None else {}
 
@@ -77,25 +81,31 @@ def find_boundary_polygons_in_circle(
     circle_vertex_set = set(circle_vertex_indices)
 
     # Filter Centerline-Segmente in Reichweite (einmal pro Circle, nicht pro Edge)
-    cl2d = np.asarray(centerline_geometry[:, :2], dtype=float)
     centerline_segments = []
     seg_start_arr = None
     seg_vec_arr = None
     seg_mid_arr = None
-    if len(cl2d) >= 2:
-        seg_start = cl2d[:-1]
-        seg_end = cl2d[1:]
-        mids = 0.5 * (seg_start + seg_end)
-        dx = mids[:, 0] - cx
-        dy = mids[:, 1] - cy
-        dist2 = dx * dx + dy * dy
-        max_r2 = (search_radius + 5.0) * (search_radius + 5.0)
-        mask = dist2 <= max_r2
-        if np.any(mask):
-            centerline_segments = list(zip(seg_start[mask], seg_end[mask]))
-            seg_start_arr = seg_start[mask]
-            seg_vec_arr = seg_end[mask] - seg_start[mask]
-            seg_mid_arr = mids[mask]
+
+    if centerline_geometry is not None and len(centerline_geometry) >= 2:
+        cl2d = np.asarray(centerline_geometry[:, :2], dtype=float)
+        if len(cl2d) >= 2:
+            seg_start = cl2d[:-1]
+            seg_end = cl2d[1:]
+            mids = 0.5 * (seg_start + seg_end)
+            dx = mids[:, 0] - cx
+            dy = mids[:, 1] - cy
+            dist2 = dx * dx + dy * dy
+            # WICHTIG: Großzügiger Filter - nehme alle Segmente die den Circle überschneiden könnten!
+            # Segment-Länge kann größer als search_radius sein, deshalb: radius + max_segment_length
+            max_r2 = (search_radius * 2.0 + 20.0) ** 2  # Großzügig: 2x Radius + 20m Puffer
+            mask = dist2 <= max_r2
+            if np.any(mask):
+                centerline_segments = list(zip(seg_start[mask], seg_end[mask]))
+                seg_start_arr = seg_start[mask]
+                seg_vec_arr = seg_end[mask] - seg_start[mask]
+                seg_mid_arr = mids[mask]
+    else:
+        print(f"[DEBUG] Keine Centerline-Geometrie verfügbar (Junction-Point)")
 
     # Finde relevante Face-Indizes über Vertex->Faces Mapping
     candidate_face_indices = set()
@@ -117,7 +127,7 @@ def find_boundary_polygons_in_circle(
         if vertices_in_circle >= 2:
             faces_in_circle.append(face)
             face_indices_in_circle.append(face_idx)
-            mat = face_materials[face_idx] if face_idx < len(face_materials) else None
+            mat = face_materials.get(face_idx)  # ← Dict-Zugriff statt Index
             if mat == "terrain":
                 terrain_face_count += 1
             elif mat in ("slope", "road"):
@@ -152,8 +162,8 @@ def find_boundary_polygons_in_circle(
             boundary_edges_single += 1
         elif len(face_list) == 2:
             f1, f2 = face_list
-            f1_mat = face_materials[f1] if f1 < len(face_materials) else None
-            f2_mat = face_materials[f2] if f2 < len(face_materials) else None
+            f1_mat = face_materials.get(f1)  # ← Dict-Zugriff statt Index
+            f2_mat = face_materials.get(f2)  # ← Dict-Zugriff statt Index
             f1_is_terrain = f1_mat == "terrain"
             f2_is_terrain = f2_mat == "terrain"
             if f1_is_terrain != f2_is_terrain:
@@ -166,7 +176,14 @@ def find_boundary_polygons_in_circle(
     # Komponenten nur aus offenen Rändern bilden (keine Material-Wechsel-Kanten)
     boundary_edges = boundary_edges_single_edges
 
-    # Finde Connected Components (ohne Centerline-Überquerungen)
+    # Baue terrain_face_set VOR Component-Bildung (wird für Face-Type-Separation benötigt)
+    terrain_face_set = (
+        cached_terrain_face_indices
+        if cached_terrain_face_indices is not None
+        else {idx for idx, mat in enumerate(face_materials) if mat == "terrain"}
+    )
+
+    # Finde Connected Components (ohne Centerline-Überquerungen, getrennt nach Face-Typ)
     components = _find_connected_components(
         boundary_edges,
         verts,
@@ -174,24 +191,67 @@ def find_boundary_polygons_in_circle(
         seg_vec_arr,
         seg_mid_arr,
         centerline_point,
+        edge_to_faces,
+        terrain_face_set,
+    )
+
+    print(f"[DEBUG] Search-Circle: {len(components)} components gefunden")
+
+    _export_component_lines_to_debug(
+        components, verts, centerline_point, edge_to_faces, terrain_face_set, sample_rate=1
     )
 
     if not components:
         return []
 
     # Merge Components die am Kreisrand getrennt sind
-    # Skaliere merge_threshold proportional zum search_radius
-    # search_radius = road_width + GRID_SPACING*2.5 (dynamisch), merge_threshold ~ 1/3 davon
-    dynamic_merge_threshold = max(1.5, search_radius / 3.0)  # Heuristic: 1/3 des search_radius
-    if len(components) > 2:
-        components = _merge_nearby_components(components, verts, merge_threshold=dynamic_merge_threshold)
+    if len(components) >= 2:
+        if centerline_geometry is not None:
+            # Roads: Merge mit Crossing-Check (verhindert Merging über die Straße)
+            dynamic_merge_threshold = max(1.5, config.GRID_SPACING * 2.5)  # Roads: 5m bei 2m Grid
+            components = _merge_nearby_components(
+                components,
+                verts,
+                edge_to_faces,
+                terrain_face_set,
+                merge_threshold=dynamic_merge_threshold,
+                centerline_geom=centerline_geometry,
+            )
+        else:
+            # Junctions: Merge OHNE Crossing-Check (keine Centerline verfügbar)
+            # Nutze gleichen Threshold wie Roads - Components sollen sich auf gleicher Seite mergen
+            dynamic_merge_threshold = max(1.5, config.GRID_SPACING * 2.5)  # 5m bei 2m Grid
+            components = _merge_nearby_components(
+                components,
+                verts,
+                edge_to_faces,
+                terrain_face_set,
+                merge_threshold=dynamic_merge_threshold,
+                centerline_geom=None,
+            )
+
+    # Filtere offene Components (die keinen Partner gefunden haben)
+    # Nur geschlossene Polygone triangulieren
+    closed_components = []
+    for comp in components:
+        # Prüfe ob Component geschlossen ist (keine Endpunkte)
+        adj = defaultdict(set)
+        for v1, v2 in comp:
+            adj[v1].add(v2)
+            adj[v2].add(v1)
+
+        # Zähle Endpunkte (Vertices mit nur 1 Nachbar)
+        endpoint_count = sum(1 for neighbors in adj.values() if len(neighbors) == 1)
+
+        if endpoint_count == 0:
+            # Geschlossen - behalten
+            closed_components.append(comp)
+        else:
+            print(f"[DEBUG] Offene Component mit {endpoint_count} Endpunkten gefiltert (kein Partner gefunden)")
+
+    components = closed_components
 
     # Baue Polygone aus Components
-    terrain_face_set = (
-        cached_terrain_face_indices
-        if cached_terrain_face_indices is not None
-        else {idx for idx, mat in enumerate(face_materials) if mat == "terrain"}
-    )
     polygons = []
 
     for component_path in components:
@@ -205,9 +265,32 @@ def find_boundary_polygons_in_circle(
         if polygon:
             polygons.append(polygon)
 
+    # Export Boundary-Polygone vor Triangulation (für Debug)
+
+    # if polygons:
+    #     _export_boundary_polygons_to_debug(polygons, centerline_point, search_radius=search_radius, sample_rate=1)
     # Trianguliere die Polygone und füge neue Faces hinzu
+    _export_search_circle_to_debug(centerline_point, search_radius=search_radius, sample_rate=1)
+
+    new_faces = []
     if polygons:
-        _triangulate_polygons(polygons, verts, mesh, debug=debug)
+        new_faces = _triangulate_polygons(polygons, verts, mesh, debug=debug)
+
+    # Aktualisiere optionale Caches sofort, damit der nächste Circle aktuelle Daten sieht
+    if new_faces:
+        for face_idx in new_faces:
+            if cached_face_materials is not None:
+                cached_face_materials[face_idx] = mesh.face_props.get(face_idx, {}).get("material")
+
+            if cached_vertex_to_faces is not None:
+                face = mesh.faces[face_idx]
+                for v in face:
+                    cached_vertex_to_faces.setdefault(v, []).append(face_idx)
+
+            if cached_terrain_face_indices is not None:
+                mat = mesh.face_props.get(face_idx, {}).get("material")
+                if mat == "terrain":
+                    cached_terrain_face_indices.add(face_idx)
 
     return
 
@@ -243,12 +326,18 @@ def _edges_cross_centerline_vectorized(edges_arr, verts, seg_start_arr, seg_vec_
     return cross_p1 * cross_p2 < 0
 
 
-def _find_connected_components(boundary_edges, verts, seg_start_arr, seg_vec_arr, seg_mid_arr, centerline_point):
+def _find_connected_components(
+    boundary_edges, verts, seg_start_arr, seg_vec_arr, seg_mid_arr, centerline_point, edge_to_faces, terrain_face_set
+):
     """
     Findet alle zusammenhängenden Komponenten in Edge-Liste.
 
     Verwendet DFS um alle zusammenhängenden Edge-Gruppen zu finden.
     Edges die die Centerline überqueren werden ignoriert.
+    WICHTIG: Edges werden nach Face-Typ getrennt (terrain vs road)!
+    Components mit unterschiedlichen Face-Typen werden getrennt gehalten,
+    auch wenn sie topologisch zusammenhängen.
+
     Jede Komponente wird als Liste von Edges zurückgegeben.
     """
     if not boundary_edges:
@@ -261,21 +350,41 @@ def _find_connected_components(boundary_edges, verts, seg_start_arr, seg_vec_arr
     )
     valid_edges_arr = edges_arr[~crosses]
 
-    # Baue Adjacency-List (ungerichtet)
-    adj = defaultdict(list)
+    # Klassifiziere jede Edge nach Face-Typ (terrain vs road)
+    edge_types = {}  # (v1, v2) → "terrain" oder "road"
     for v1, v2 in valid_edges_arr:
-        adj[v1].append(v2)
-        adj[v2].append(v1)
+        edge_faces = edge_to_faces.get((v1, v2), []) or edge_to_faces.get((v2, v1), [])
+        if edge_faces:
+            is_terrain = any(f in terrain_face_set for f in edge_faces)
+            edge_key = tuple(sorted([v1, v2]))
+            edge_types[edge_key] = "terrain" if is_terrain else "road"
 
-    # Finde Connected Components (Vertex-basiert)
+    # Baue Adjacency-List (ungerichtet) - aber nur für Edges des GLEICHEN Typs
+    # Jeder Vertex kann mehrere Adjacencies haben, gruppiert nach Edge-Typ
+    adj_terrain = defaultdict(list)  # Nur terrain-Edges
+    adj_road = defaultdict(list)  # Nur road-Edges
+
+    for v1, v2 in valid_edges_arr:
+        edge_key = tuple(sorted([v1, v2]))
+        edge_type = edge_types.get(edge_key)
+
+        if edge_type == "terrain":
+            adj_terrain[v1].append(v2)
+            adj_terrain[v2].append(v1)
+        elif edge_type == "road":
+            adj_road[v1].append(v2)
+            adj_road[v2].append(v1)
+
+    # Finde Connected Components für jeden Typ separat
+    components_edges = []
+
+    # Terrain-Components
     visited_vertices = set()
-    components_vertices = []
-
-    for start_v in adj.keys():
+    for start_v in adj_terrain.keys():
         if start_v in visited_vertices:
             continue
 
-        # DFS um alle verbundenen Vertices zu finden
+        # DFS um alle verbundenen Vertices zu finden (nur über terrain-Edges)
         component_verts = set()
         stack = [start_v]
 
@@ -287,44 +396,118 @@ def _find_connected_components(boundary_edges, verts, seg_start_arr, seg_vec_arr
             component_verts.add(v)
             visited_vertices.add(v)
 
-            for neighbor in adj[v]:
+            for neighbor in adj_terrain[v]:
                 if neighbor not in component_verts:
                     stack.append(neighbor)
 
         if len(component_verts) >= 3:
-            components_vertices.append(component_verts)
+            # Extrahiere die zugehörigen terrain-Edges
+            comp_edges = []
+            for v1, v2 in valid_edges_arr:
+                edge_key = tuple(sorted([v1, v2]))
+                if v1 in component_verts and v2 in component_verts and edge_types.get(edge_key) == "terrain":
+                    comp_edges.append((v1, v2))
 
-    # Für jede Komponente: Extrahiere die zugehörigen Edges
-    components_edges = []
-    for comp_verts in components_vertices:
-        comp_edges = []
-        for v1, v2 in valid_edges_arr:
-            if v1 in comp_verts and v2 in comp_verts:
-                comp_edges.append((v1, v2))
+            if len(comp_edges) >= 3:
+                components_edges.append(comp_edges)
 
-        if len(comp_edges) >= 3:
-            components_edges.append(comp_edges)
+    # Road-Components
+    visited_vertices = set()
+    for start_v in adj_road.keys():
+        if start_v in visited_vertices:
+            continue
+
+        # DFS um alle verbundenen Vertices zu finden (nur über road-Edges)
+        component_verts = set()
+        stack = [start_v]
+
+        while stack:
+            v = stack.pop()
+            if v in component_verts:
+                continue
+
+            component_verts.add(v)
+            visited_vertices.add(v)
+
+            for neighbor in adj_road[v]:
+                if neighbor not in component_verts:
+                    stack.append(neighbor)
+
+        if len(component_verts) >= 3:
+            # Extrahiere die zugehörigen road-Edges
+            comp_edges = []
+            for v1, v2 in valid_edges_arr:
+                edge_key = tuple(sorted([v1, v2]))
+                if v1 in component_verts and v2 in component_verts and edge_types.get(edge_key) == "road":
+                    comp_edges.append((v1, v2))
+
+            if len(comp_edges) >= 3:
+                components_edges.append(comp_edges)
 
     return components_edges
 
 
-def _merge_nearby_components(components_edges, verts, merge_threshold=2.0):
+def _merge_nearby_components(
+    components_edges, verts, edge_to_faces, terrain_face_set, merge_threshold=2.0, centerline_geom=None
+):
     """
     Merged Components die am Kreisrand durch fehlende Faces getrennt sind.
 
     Findet Endpoints zwischen Components, die nahe beieinander liegen,
     und fügt synthetische Edges hinzu, um sie zu verbinden.
 
+    WICHTIG: Nur Road+Terrain Paare werden gemergt (nicht Road+Road oder Terrain+Terrain)!
+    Component-Typ wird basierend auf den angrenzenden Faces bestimmt.
+
+    WICHTIG: Mutual-Nearest-Neighbor Matching verhindert falsche Verbindungen!
+
     Args:
         components_edges: Liste von Edge-Listen (eine pro Component)
         verts: Vertex-Array
+        edge_to_faces: Dict mapping edge (v1, v2) or (v2, v1) → face_list
+        terrain_face_set: Set von Terrain-Face-Indices
         merge_threshold: Maximale Distanz zwischen Endpoints für Merge (in Metern)
+        centerline_geom: UNUSED (nur für API-Kompatibilität)
 
     Returns:
         Neue Liste von Components (evtl. gemerged)
     """
-    if len(components_edges) <= 2:
+    if len(components_edges) < 2:
         return components_edges
+
+    # Klassifiziere Components nach Face-Typ
+    # Terrain: Component-Edges grenzen an Terrain-Faces
+    # Road: Component-Edges grenzen an Non-Terrain-Faces
+    component_types = []
+
+    for comp in components_edges:
+        # Sammle alle Face-Types für diese Component
+        # Ignoriere Edges ohne Faces (synthetische Edges aus Merge)
+        face_types = set()
+        edges_with_faces = 0
+        for v1, v2 in comp:
+            # Prüfe beide Richtungen
+            edge_faces = edge_to_faces.get((v1, v2), []) or edge_to_faces.get((v2, v1), [])
+            if not edge_faces:
+                # Synthetische Edge - ignorieren
+                continue
+
+            edges_with_faces += 1
+            for face_idx in edge_faces:
+                if face_idx in terrain_face_set:
+                    face_types.add("terrain")
+                else:
+                    face_types.add("road")
+
+        # Klassifizierung basierend auf vorhandenen Faces
+        # Keine Faces (nur synthetische Edges) → ignorieren diese Component
+        if edges_with_faces == 0:
+            # Nur synthetische Edges - skip diese Component
+            component_types.append("synthetic")
+        elif face_types == {"terrain"}:
+            component_types.append("terrain")
+        else:
+            component_types.append("road")
 
     # Baue Adjacency für jede Component um Endpoints zu finden
     def find_endpoints(comp_edges):
@@ -350,6 +533,12 @@ def _merge_nearby_components(components_edges, verts, merge_threshold=2.0):
 
     for i in range(len(components_edges)):
         for j in range(i + 1, len(components_edges)):
+            # WICHTIG: Nur Road+Terrain Paare mergen, nicht Road+Road oder Terrain+Terrain!
+            type_i = component_types[i]
+            type_j = component_types[j]
+            if type_i == type_j:  # Beide gleicher Typ - skip
+                continue
+
             eps_i = component_endpoints[i]
             eps_j = component_endpoints[j]
 
@@ -357,7 +546,7 @@ def _merge_nearby_components(components_edges, verts, merge_threshold=2.0):
                 for ep_j in eps_j:
                     pi = verts[ep_i]
                     pj = verts[ep_j]
-                    dist = np.linalg.norm(np.array(pi) - np.array(pj))
+                    dist = np.linalg.norm(np.array(pi[:2]) - np.array(pj[:2]))
 
                     if dist <= merge_threshold:
                         merge_pairs.append((i, j, ep_i, ep_j, dist))
@@ -365,10 +554,58 @@ def _merge_nearby_components(components_edges, verts, merge_threshold=2.0):
     if not merge_pairs:
         return components_edges
 
-    # Sortiere nach Distanz (merge closest first)
-    merge_pairs.sort(key=lambda x: x[4])
+    print(f"[DEBUG] Merge-Kandidaten gefunden: {len(merge_pairs)} Paare")
 
-    # Union-Find Struktur zum Tracken welche Components gemerged wurden
+    # MUTUAL-NEAREST-NEIGHBOR MATCHING
+    # Nur verbinden wenn beide Components sich gegenseitig als nächste wählen
+
+    # Schritt 1: Finde für jede Component die nächste Component des anderen Typs
+    nearest_neighbor = {}  # comp_idx → (nearest_comp_idx, ep_i, ep_j, dist)
+
+    for i in range(len(components_edges)):
+        best_dist = float("inf")
+        best_match = None
+
+        # Suche die nächste Component des anderen Typs in merge_pairs
+        for ci, cj, ep_i, ep_j, dist in merge_pairs:
+            if ci == i:
+                # i ist erste Component, ep_i gehört zu i
+                other_comp = cj
+                if dist < best_dist:
+                    best_dist = dist
+                    best_match = (other_comp, ep_i, ep_j, dist)
+            elif cj == i:
+                # i ist zweite Component, ep_j gehört zu i - tausche Endpunkte!
+                other_comp = ci
+                if dist < best_dist:
+                    best_dist = dist
+                    best_match = (other_comp, ep_j, ep_i, dist)  # Getauscht!
+
+        if best_match:
+            nearest_neighbor[i] = best_match
+
+    # Debug-Ausgaben deaktiviert (zu verbose)
+
+    # Schritt 2: Finde mutual nearest neighbors
+    mutual_pairs = []
+    processed = set()
+
+    for i, (j, ep_i, ep_j, dist_ij) in nearest_neighbor.items():
+        if i in processed or j in processed:
+            continue
+
+        # Prüfe ob j auch i als nächsten hat
+        if j in nearest_neighbor:
+            j_nearest, j_ep_i, j_ep_j, dist_ji = nearest_neighbor[j]
+            if j_nearest == i:
+                # Mutual match!
+                mutual_pairs.append((i, j, ep_i, ep_j, dist_ij))
+                processed.add(i)
+                processed.add(j)
+
+    # Debug-Ausgaben deaktiviert
+
+    # Union-Find: Merge nur die mutual pairs
     parent = list(range(len(components_edges)))
 
     def find(x):
@@ -383,33 +620,52 @@ def _merge_nearby_components(components_edges, verts, merge_threshold=2.0):
             return True
         return False
 
-    # Merge Components und füge synthetische Edges hinzu
-    synthetic_edges = []
-    for i, j, ep_i, ep_j, dist in merge_pairs:
-        if union(i, j):
-            synthetic_edges.append((ep_i, ep_j))
+    # Merge Components
+    synthetic_edges_with_comps = []
+    for i, j, ep_i, ep_j, dist in mutual_pairs:
+        # WICHTIG: Prüfe ob die Endpunkte bereits in der gleichen Adjacency sind!
+        # Das passiert bei überschneidenden Suchkreisen - dann ist bereits eine Kante vorhanden
 
-    # Baue neue Component-Liste
+        eps_i = component_endpoints[i]
+        eps_j = component_endpoints[j]
+
+        # Baue Adjacency für beide Components um zu prüfen ob bereits verbunden
+        adj_i = defaultdict(set)
+        for v1, v2 in components_edges[i]:
+            adj_i[v1].add(v2)
+            adj_i[v2].add(v1)
+
+        adj_j = defaultdict(set)
+        for v1, v2 in components_edges[j]:
+            adj_j[v1].add(v2)
+            adj_j[v2].add(v1)
+
+        # Prüfe: Sind ep_i und ep_j bereits direkt verbunden?
+        already_connected = ep_j in adj_i.get(ep_i, set()) or ep_i in adj_j.get(ep_j, set())
+
+        if union(i, j):
+            # Finde die anderen Endpunkte
+            other_ep_i = [e for e in eps_i if e != ep_i][0] if len(eps_i) > 1 else None
+            other_ep_j = [e for e in eps_j if e != ep_j][0] if len(eps_j) > 1 else None
+
+            if not already_connected:
+                # ep_i und ep_j sind NICHT verbunden - verbinde sie
+                synthetic_edges_with_comps.append(((ep_i, ep_j), i, j))
+
+            # Verbinde auch die anderen Endpunkte (falls vorhanden)
+            if other_ep_i is not None and other_ep_j is not None:
+                synthetic_edges_with_comps.append(((other_ep_i, other_ep_j), i, j))
+
+    # Baue neue Component-Liste (Union-Find Ergebnis)
     merged_components = defaultdict(list)
     for idx, comp_edges in enumerate(components_edges):
         root = find(idx)
         merged_components[root].extend(comp_edges)
 
     # Füge synthetische Edges hinzu
-    for edge in synthetic_edges:
-        # Finde welcher Component diese Edge gehört
-        v1, v2 = edge
-        # Finde Components die v1 oder v2 enthalten
-        for root, edges in merged_components.items():
-            # Prüfe ob v1 oder v2 in diesen Edges vorkommen
-            vertices_in_comp = set()
-            for e_v1, e_v2 in edges:
-                vertices_in_comp.add(e_v1)
-                vertices_in_comp.add(e_v2)
-
-            if v1 in vertices_in_comp or v2 in vertices_in_comp:
-                edges.append(edge)
-                break
+    for edge, comp_i, comp_j in synthetic_edges_with_comps:
+        root = find(comp_i)
+        merged_components[root].append(edge)
 
     return list(merged_components.values())
 
@@ -477,17 +733,13 @@ def _build_polygon_from_component(component_edges, edge_to_faces, terrain_face_s
 def _build_ordered_path_from_edges(edges):
     """
     Baut geordneten Pfad aus ungeordneten Edges.
-
-    Verwendet einen verbesserten Algorithmus der auch bei Gabeln funktioniert:
-    - Findet Start-Vertex (Vertex mit nur 1 Nachbar, oder beliebiger wenn Loop)
-    - Baut Pfad durch Greedy-Auswahl noch nicht besuchter Edges
-    - Behandelt Gabeln durch Priorisierung von unbesuchten Edges
+    - Schließt automatisch den Loop wenn möglich
 
     Args:
         edges: Liste von (v1, v2) Tuples (können orientiert oder unorientiert sein)
 
     Returns:
-        Liste von Vertex-Indices in Reihenfolge
+        Liste von Vertex-Indices in Reihenfolge (geschlossen wenn möglich)
     """
     if not edges:
         return []
@@ -640,7 +892,7 @@ def _export_search_circle_to_debug(centerline_point, search_radius, sample_rate=
     # Exportiere als Component-Line (gelbe Farbe)
     exporter.add_component_line(
         coords=circle_coords,
-        color=[1.0, 1.0, 0.0],  # Gelb
+        color=[0.0, 0.0, 1.0],  # Blau
         label=f"search_circle_{cx:.1f}_{cy:.1f}",
         line_width=2.0,
     )
@@ -654,14 +906,14 @@ def _export_boundary_polygons_to_debug(polygons, centerline_point, search_radius
         polygons: Liste von Polygon-Dicts
         centerline_point: (x, y, z) - Centerline-Sample-Punkt
         search_radius: Optionaler Suchradius
-        sample_rate: Nur jeder N-te Sample wird exportiert (default: 100)
+        sample_rate: Nur jeder N-te Sample wird exportiert (default: 100, sample_rate=1 exportiert alle)
     """
     # Nutze Hash der Centerline-Koordinaten als Pseudo-Counter
     cx, cy, cz = centerline_point
     coord_hash = hash((round(cx, 2), round(cy, 2)))
 
-    # Nur jeden N-ten Sample exportieren
-    if coord_hash % sample_rate != 0:
+    # Nur jeden N-ten Sample exportieren (wenn sample_rate > 1)
+    if sample_rate > 1 and coord_hash % sample_rate != 0:
         return
 
     exporter = DebugNetworkExporter.get_instance()
@@ -680,7 +932,7 @@ def _export_boundary_polygons_to_debug(polygons, centerline_point, search_radius
                 {
                     "type": "boundary",
                     "coords": coords_list,
-                    "color": [1.0, 0.0, 1.0],  # Magenta
+                    "color": [1.0, 0.0, 0.0],  # Magenta
                     "terrain_count": int(terrain_count),
                     "slope_count": int(slope_count),
                 }
@@ -690,63 +942,75 @@ def _export_boundary_polygons_to_debug(polygons, centerline_point, search_radius
     # NICHT hier (verhindert Duplikation)
 
 
-def _export_component_lines_to_debug(components_edges, verts, centerline_point, component_type="auto", sample_rate=100):
+def _export_component_lines_to_debug(
+    components_edges, verts, centerline_point, edge_to_faces, terrain_face_set, sample_rate=100
+):
     """
     Exportiert Connected Component Linien zum Debug-Exporter (Singleton).
 
-    Verwendet einen Sample-Counter um nur jeden N-ten Sample zu exportieren.
+    Klassifizierung basiert auf angrenzenden Faces:
+    - Grün: Terrain-Edges (grenzen an Terrain-Faces)
+    - Rot: Road-Edges (grenzen an Non-Terrain-Faces)
+    - Synthetische Edges (ohne Faces) werden ignoriert
 
     Args:
         components_edges: Liste von Edge-Listen (eine pro Component)
         verts: Vertex-Array
         centerline_point: (x, y, z) - Centerline-Sample-Punkt (für Zähler)
-        component_type: "terrain" (grün), "road" (rot), oder "auto" (alternierend)
+        edge_to_faces: Dict mapping edge (v1, v2) or (v2, v1) → face_list
+        terrain_face_set: Set von Terrain-Face-Indices
         sample_rate: Nur jeder N-te Sample wird exportiert (default: 100)
     """
-    # Nutze Hash der Centerline-Koordinaten als Pseudo-Counter
     cx, cy, cz = centerline_point
     coord_hash = hash((round(cx, 2), round(cy, 2)))
 
-    # Nur jeden N-ten Sample exportieren
     if coord_hash % sample_rate != 0:
         return
 
     exporter = DebugNetworkExporter.get_instance()
 
+    # Für jede Component: Zeichne Terrain-Edges und Road-Edges separat
     for comp_idx, comp_edges in enumerate(components_edges):
-        # Baue geordneten Pfad aus Edges
-        ordered_path = _build_ordered_path_from_edges(comp_edges)
+        terrain_edges = []
+        road_edges = []
 
-        if len(ordered_path) < 2:
-            continue
+        for v1, v2 in comp_edges:
+            edge_faces = edge_to_faces.get((v1, v2), []) or edge_to_faces.get((v2, v1), [])
+            if not edge_faces:
+                # Synthetische Edge - ignorieren
+                continue
 
-        # Konvertiere Vertex-Indizes zu Koordinaten
-        coords = [tuple(verts[v]) for v in ordered_path]
+            # Klassifiziere diese Edge nach ihrem Face-Typ
+            is_terrain = any(f in terrain_face_set for f in edge_faces)
 
-        # Bestimme Farbe und Label basierend auf component_type
-        if component_type == "terrain":
-            color = [0.2, 0.8, 0.2]  # Grün für Terrain
-            label = f"component_terrain_{comp_idx}"
-        elif component_type == "road":
-            color = [0.8, 0.2, 0.2]  # Rot für Straße
-            label = f"component_road_{comp_idx}"
-        else:  # "auto" - alternierend
-            if comp_idx == 0:
-                color = [0.2, 0.8, 0.2]  # Grün
-                label = "component_terrain"
-            elif comp_idx == 1:
-                color = [0.8, 0.2, 0.2]  # Rot
-                label = "component_road"
+            if is_terrain:
+                terrain_edges.append((v1, v2))
             else:
-                color = [0.2, 0.2, 0.8 + (comp_idx * 0.1) % 0.4]
-                label = f"component_{comp_idx}"
+                road_edges.append((v1, v2))
 
-        exporter.add_component_line(
-            coords=coords,
-            color=color,
-            label=label,
-            line_width=3.0,
-        )
+        # Exportiere Terrain-Edges (grün)
+        if terrain_edges:
+            ordered_path = _build_ordered_path_from_edges(terrain_edges)
+            if len(ordered_path) >= 2:
+                coords = [tuple(verts[v]) for v in ordered_path]
+                exporter.add_component_line(
+                    coords=coords,
+                    color=[0.2, 0.8, 0.2],  # Grün
+                    label=f"component_terrain_{comp_idx}",
+                    line_width=3.0,
+                )
+
+        # Exportiere Road-Edges (rot)
+        if road_edges:
+            ordered_path = _build_ordered_path_from_edges(road_edges)
+            if len(ordered_path) >= 2:
+                coords = [tuple(verts[v]) for v in ordered_path]
+                exporter.add_component_line(
+                    coords=coords,
+                    color=[0.8, 0.2, 0.2],  # Rot
+                    label=f"component_road_{comp_idx}",
+                    line_width=3.0,
+                )
 
 
 # UV-Berechnung wurde komplett entfernt - erfolgt jetzt per mesh.compute_terrain_uvs_batch()

@@ -124,8 +124,8 @@ def detect_junctions_in_centerlines(road_polygons, height_points=None, height_el
     endpoints_xy = np.array([(p[0], p[1]) for p in endpoints])
     kdtree = cKDTree(endpoints_xy)
 
-    # Finde alle Punkte, die nah beieinander liegen (Toleranz 0.5 m = 50cm)
-    endpoint_merge_tol = 0.5
+    # Finde alle Punkte, die nah beieinander liegen (Toleranz 1 m)
+    endpoint_merge_tol = 1.0
     junction_pairs = kdtree.query_pairs(r=endpoint_merge_tol)
 
     if not junction_pairs:
@@ -272,7 +272,7 @@ def detect_junctions_in_centerlines(road_polygons, height_points=None, height_el
 
     # Suchradius nur anhand Rasterweite (OSM-Knoten liegen meist exakt)
     t_search_radius = config.GRID_SPACING * 2.5
-    t_line_tol = 0.5  # Meter - Toleranz für Punkt-zu-Linie Entfernung (50cm)
+    t_line_tol = 1.0  # Meter - Toleranz für Punkt-zu-Linie Entfernung (1.0m)
     t_line_tol_sq = t_line_tol * t_line_tol
     merge_tol = 1.0  # Zusammenführungs-Toleranz zu bestehenden Junctions (1.0m)
     merge_tol_sq = merge_tol * merge_tol

@@ -21,7 +21,7 @@ RELATIVE_DIR_TEXTURES = RELATIVE_DIR_SHAPES + "textures/"
 RELATIVE_DIR_BUILDINGS = RELATIVE_DIR_SHAPES + "buildings/"
 
 # === BEAMNG LEVEL-STRUKTUR ===
-ITEMS_JSON = "main\\items.level.json"  # Enthält nur MissionGroup (BeamNG lädt dann automatisch main/MissionGroup/items.level.json)
+ITEMS_JSON = "main\\MissionGroup\\items.level.json"  # Items im MissionGroup-Verzeichnis
 MATERIALS_JSON = "main\\materials.json"  # Enthält Material-Definitionen
 
 # === MATERIAL-EINSTELLUNGEN ===

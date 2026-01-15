@@ -1,7 +1,7 @@
 # Workflow-Regeln
 Antworte immer in Deutsch.
 Wir befinden uns in einer Windows-Umgebung. Die Terminals sind Powershell-Terminals.
-Bitte den dae_viewer nicht selbst öffnen.
+Bitte den dae_viewer nicht selbst starten.
 
 Wenn ich eine Frage stelle, dann antworte nur auf die Frage und implementiere dann erst einmal keinen Code.
 Bitte möglichst auf Fallback-Lösungen verzichten. Bitte sauber und nachhaltigen Code schreiben. Wenn möglich, OOP-Prinzipien beachten.

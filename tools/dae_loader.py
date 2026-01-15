@@ -352,3 +352,95 @@ def merge_dae_tiles(tiles_data, tile_ids=None):
         "materials": all_materials,
         "tile_origins": tile_origins,
     }
+
+
+def load_all_dae_files(beamng_dir, items_json_path, resolve_path_func=None):
+    """
+    Lade alle DAE-Dateien aus items.level.json.
+
+    Sucht shapeName Einträge in items.level.json und lädt die referenzierten DAE-Dateien.
+
+    Args:
+        beamng_dir: BeamNG-Verzeichnis (config.BEAMNG_DIR)
+        items_json_path: Vollständiger Pfad zu items.level.json
+        resolve_path_func: Funktion zum Auflösen von BeamNG-Pfaden
+                         (z.B. _resolve_beamng_path aus dae_viewer.py)
+
+    Returns:
+        Tuple (dae_files, tile_data):
+        - dae_files: Liste von (item_name, dae_path) Tuples
+        - tile_data: Liste von (item_name, data) Tuples (geladen mit load_dae_tile)
+    """
+    import json
+    import os
+
+    dae_files = []
+    tile_data = []
+
+    # Lade items.level.json
+    if not os.path.exists(items_json_path):
+        print(f"  [!] items.level.json nicht gefunden: {items_json_path}")
+        return dae_files, tile_data
+
+    try:
+        # items.level.json ist JSONL (JSON Lines) - jede Zeile ein separates JSON-Objekt
+        items = {}
+        with open(items_json_path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    item_data = json.loads(line)
+                    # Extrahiere Item-Name (meist "name" oder "id")
+                    item_name = item_data.get("name") or item_data.get("id") or str(len(items))
+                    items[item_name] = item_data
+                except json.JSONDecodeError as e:
+                    print(f"  [!] Fehler beim Parsen der Zeile: {e}")
+                    continue
+
+        print(f"  [DAE Loader] {len(items)} Items gefunden")
+
+    except Exception as e:
+        print(f"  [!] Fehler beim Laden von items.level.json: {e}")
+        return dae_files, tile_data
+
+    # Extrahiere DAE-Pfade aus Items
+    for item_name, item_data in items.items():
+        if not isinstance(item_data, dict):
+            continue
+
+        shape_name = item_data.get("shapeName")
+        if not shape_name or not shape_name.endswith(".dae"):
+            continue
+
+        # Löse Pfad auf
+        if resolve_path_func:
+            dae_path = resolve_path_func(shape_name)
+        else:
+            # Fallback: Einfache Pfad-Auflösung
+            dae_path = os.path.join(beamng_dir, shape_name.replace("/", os.sep))
+
+        # Prüfe ob Datei existiert
+        if dae_path and os.path.exists(dae_path):
+            dae_files.append((item_name, dae_path))
+            print(f"  [DAE Loader] ✓ {item_name}")
+        else:
+            print(f"  [!] DAE nicht gefunden: {shape_name}")
+
+    print(f"  [DAE Loader] {len(dae_files)} DAE-Dateien gefunden")
+
+    # Lade alle DAE-Dateien
+    for item_name, dae_path in dae_files:
+        try:
+            data = load_dae_tile(dae_path)
+            if data:
+                tile_data.append((item_name, data))
+                print(f"  [DAE Loader] ✓ Geladen: {item_name}")
+            else:
+                print(f"  [!] Keine Daten in {item_name}")
+        except Exception as e:
+            print(f"  [!] Fehler beim Laden von {item_name}: {e}")
+
+    print(f"  [DAE Loader] {len(tile_data)} DAE-Dateien erfolgreich geladen")
+    return dae_files, tile_data
