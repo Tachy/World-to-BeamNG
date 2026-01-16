@@ -583,41 +583,101 @@ def _compute_wall_uvs(vertices: np.ndarray, tiling_scale: float = 4.0) -> np.nda
     return np.column_stack([u, v])
 
 
-def _compute_roof_uvs(vertices: np.ndarray, tiling_scale: float = 2.0) -> np.ndarray:
+def _compute_roof_uvs(vertices: np.ndarray, faces: list = None, tiling_scale: float = 2.0) -> np.ndarray:
     """
     Berechne UV-Koordinaten für Dach-Vertices (planare XY-Projektion).
 
-    Für Dächer: U = X, V = Y (planare Projektion).
-    Tiling alle tiling_scale Meter.
+    Für Dächer: Ausrichtung entlang des Steigungsgradienten.
+    - V-Achse: Richtung steilster Abstieg (Gradient der Ebene)
+    - U-Achse: orthogonal dazu in der Dach-Ebene
+    - Tiling: metrisch über Projektion auf diese Achsen, Wiederholung alle tiling_scale Meter
+
+    WICHTIG: Die Normal wird gemittelt über ALLE Vertices, nicht nur erste 3!
+    Das gewährleistet, dass alle Faces eines Daches die GLEICHE Orientierung bekommen.
 
     Args:
         vertices: (N, 3) NumPy Array mit XYZ-Koordinaten (Weltkoordinaten!)
+        faces: Optional Liste von Faces (zur korrekten Normal-Berechnung)
         tiling_scale: Wiederholung alle X Meter (z.B. 2.0 für 2m)
 
     Returns:
         (N, 2) UV-Koordinaten (0..tiling_count, wobei tiling_count = Mesh_Größe / tiling_scale)
     """
-    # Normalisiere auf Mesh-Bounds
-    x_min, x_max = vertices[:, 0].min(), vertices[:, 0].max()
-    y_min, y_max = vertices[:, 1].min(), vertices[:, 1].max()
+    if len(vertices) < 3:
+        return np.zeros((len(vertices), 2))
 
-    # Normalisiere auf 0..1
-    if x_max > x_min:
-        u = (vertices[:, 0] - x_min) / (x_max - x_min)
+    # WICHTIG: Berechne durchschnittliche Normal über ALLE Triangles
+    # Das gewährleistet konsistente Orientierung für alle Faces eines Daches!
+    normals = []
+
+    if faces is not None and len(faces) > 0:
+        # Nutze die expliziten Faces für korrekte Normal-Berechnung
+        for face in faces:
+            if len(face) >= 3:
+                v0, v1, v2 = vertices[face[0]], vertices[face[1]], vertices[face[2]]
+                edge1 = v1 - v0
+                edge2 = v2 - v0
+                normal = np.cross(edge1, edge2)
+                norm_len = np.linalg.norm(normal)
+                if norm_len > 1e-8:
+                    normals.append(normal / norm_len)
     else:
-        u = np.zeros(len(vertices))
+        # Fallback: Iteriere über Triangles (3 Vertices pro Triangle)
+        for i in range(0, len(vertices) - 2, 3):
+            v0, v1, v2 = vertices[i : i + 3]
+            edge1 = v1 - v0
+            edge2 = v2 - v0
+            normal = np.cross(edge1, edge2)
+            norm_len = np.linalg.norm(normal)
+            if norm_len > 1e-8:
+                normals.append(normal / norm_len)
 
-    if y_max > y_min:
-        v = (vertices[:, 1] - y_min) / (y_max - y_min)
+    if normals:
+        # Gemittelte Normal
+        avg_normal = np.mean(normals, axis=0)
+        norm = np.linalg.norm(avg_normal)
+        if norm > 1e-8:
+            normal = avg_normal / norm
+        else:
+            normal = np.array([0, 0, 1])  # Fallback: vertikal
     else:
-        v = np.zeros(len(vertices))
+        normal = np.array([0, 0, 1])
 
-    # Skaliere auf Tiling (z.B. 0..2 für 2m Tiling)
-    mesh_width = x_max - x_min
-    mesh_depth = y_max - y_min
+    # Check: Ist das Dach flach genug?
+    if abs(normal[2]) < 1e-6:
+        # Fallback: flach → alte XY-Projektion
+        x_min, x_max = vertices[:, 0].min(), vertices[:, 0].max()
+        y_min, y_max = vertices[:, 1].min(), vertices[:, 1].max()
+        u = vertices[:, 0] - x_min
+        v = vertices[:, 1] - y_min
+        return np.column_stack([u / tiling_scale, v / tiling_scale])
 
-    u = u * (mesh_width / tiling_scale)
-    v = v * (mesh_depth / tiling_scale)
+    # Gradient in XY: steilster Abstieg
+    grad_xy = np.array([-normal[0], -normal[1]])
+    grad_norm = np.linalg.norm(grad_xy)
+
+    if grad_norm < 1e-8:
+        # Fast horizontal (flach) → Fallback XY
+        x_min, x_max = vertices[:, 0].min(), vertices[:, 0].max()
+        y_min, y_max = vertices[:, 1].min(), vertices[:, 1].max()
+        u = vertices[:, 0] - x_min
+        v = vertices[:, 1] - y_min
+        return np.column_stack([u / tiling_scale, v / tiling_scale])
+
+    v_axis = grad_xy / grad_norm  # V: Gefälle
+    u_axis = np.array([-v_axis[1], v_axis[0]])  # U: orthogonal in XY
+
+    xy = vertices[:, :2]
+    # Projektion auf Achsen
+    proj_u = xy @ u_axis
+    proj_v = xy @ v_axis
+
+    # Origin stabilisieren: auf 0 verschieben, damit Wiederholung an Ecke startet
+    proj_u = proj_u - proj_u.min()
+    proj_v = proj_v - proj_v.min()
+
+    u = proj_u / tiling_scale
+    v = proj_v / tiling_scale
 
     return np.column_stack([u, v])
 
@@ -629,7 +689,13 @@ def export_buildings_to_dae(
     tile_y: int,
 ) -> Optional[str]:
     """
-    Exportiert Gebäude als .dae-Datei.
+    Exportiert Gebäude als .dae-Datei (Simplified - mit expandierten Vertices).
+
+    STRUKTUR:
+    - Vertices pro Wand/Dach-Geometrie (expandiert, NICHT dedupliziert)
+    - UVs direkt an Vertices (1:1 Mapping, nicht indexed)
+    - Flat Normals (Gebäude sollen Kanten behalten!)
+    - Material-Namen (lod2_wall_white, lod2_roof_red)
 
     Args:
         buildings: Liste von Gebäude-Dicts
@@ -670,8 +736,9 @@ def export_buildings_to_dae(
     output_path.mkdir(parents=True, exist_ok=True)
     dae_file = output_path / f"buildings_tile_{tile_x}_{tile_y}.dae"
 
-    # Konvertiere Buildings zu DAEExporter Format
+    # === Sammle alle Geometrien mit expandierten Vertices ===
     meshes = []
+
     for bldg_idx, building in enumerate(buildings):
         all_vertices = []
         all_uvs = []
@@ -679,29 +746,36 @@ def export_buildings_to_dae(
         wall_faces = []
         roof_faces = []
 
-        # Wände
+        # === Wände ===
         for verts, faces in building.get("walls", []):
+            # Berechne UVs für diese Wand
+            wall_uvs = _compute_wall_uvs(verts, tiling_scale=4.0)
+
+            # Füge Vertices und UVs hinzu (expandiert!)
             for face in faces:
                 wall_faces.append([f + vertex_offset for f in face])
+
             all_vertices.append(verts)
-            # UV für Wände: 3D-basiert (horizontale Distanz + Höhe), 4m Tiling
-            wall_uvs = _compute_wall_uvs(verts, tiling_scale=4.0)
             all_uvs.append(wall_uvs)
             vertex_offset += len(verts)
 
-        # Dächer
+        # === Dächer ===
         for verts, faces in building.get("roofs", []):
+            # Berechne UVs für dieses Dach
+            roof_uvs = _compute_roof_uvs(verts, faces=faces, tiling_scale=2.0)
+
+            # Füge Vertices und UVs hinzu (expandiert!)
             for face in faces:
                 roof_faces.append([f + vertex_offset for f in face])
+
             all_vertices.append(verts)
-            # UV für Dächer: planare XY-Projektion, 2m Tiling
-            roof_uvs = _compute_roof_uvs(verts, tiling_scale=2.0)
             all_uvs.append(roof_uvs)
             vertex_offset += len(verts)
 
         if not all_vertices:
             continue
 
+        # Kombiniere alles zu einem Mesh pro Gebäude
         vertices_combined = np.vstack(all_vertices)
         uvs_combined = np.vstack(all_uvs)
 
@@ -741,6 +815,7 @@ def create_materials_json() -> Dict:
 
     manager.add_building_material(
         wall_name,
+        color=wall_props.get("diffuseColor"),  # Einfärbung der Textur
         textures=wall_props.get("textures"),
         tiling_scale=wall_props.get("tiling_scale", 4.0),
         groundType="concrete",
@@ -754,6 +829,7 @@ def create_materials_json() -> Dict:
 
     manager.add_building_material(
         roof_name,
+        color=roof_props.get("diffuseColor"),  # Einfärbung der Textur
         textures=roof_props.get("textures"),
         tiling_scale=roof_props.get("tiling_scale", 2.0),
         groundType="concrete",

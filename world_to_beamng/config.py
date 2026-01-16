@@ -81,14 +81,14 @@ DGM30_DATA_DIR = "data/DGM30"  # Verzeichnis mit 30m Höhendaten für Horizont
 DOP300_DATA_DIR = "data/DOP300"  # Verzeichnis mit Sentinel-2 RGB Bildern
 
 # === GEBÄUDE (LoD2) ===
-LOD2_ENABLED = False  # LoD2-Gebäude verarbeiten
+LOD2_ENABLED = True  # LoD2-Gebäude verarbeiten
 LOD2_SNAP_TO_TERRAIN = True  # Gebäude auf Terrain ausrichten
 LOD2_FOUNDATION_EXTRUDE = 0.5  # Meter: Wände nach unten verlängern für Fundament
 
 # === PHASE 5: HORIZONT-LAYER ===
-PHASE5_ENABLED = False  # Horizont-Layer aktivieren (erfordert DGM30 + DOP300 Daten)
+PHASE5_ENABLED = True  # Horizont-Layer aktivieren (erfordert DGM30 + DOP300 Daten)
 HORIZON_BBOX_BUFFER = 50000  # Buffer um Kerngebiet in Metern (50km)
-HORIZON_GRID_SPACING = 1000  # Horizont-Grid Auflösung in Metern (1km)
+HORIZON_GRID_SPACING = 200  # Horizont-Grid Auflösung in Metern (200m)
 
 # === MULTIPROCESSING ===
 # WARNUNG: Unter Windows kann Multiprocessing hängen bleiben!

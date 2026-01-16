@@ -95,10 +95,12 @@ class BeamNGExporter:
 
         # Sammle alle Gebäude über alle Tiles
         all_buildings = []
+        tile_bounds_local = []  # Sammle Tile-Grenzen für Horizon-Clipping
 
         # Phase 1: Terrain-Tiles
         for tile_idx, tile in enumerate(tiles):
-            print(f"\n[Tile {tile_idx + 1}/{len(tiles)}]")
+
+            timer.begin(f"[Tile {tile_idx + 1}/{len(tiles)}]")
 
             # Terrain benötigt nur (x, y)
             result = self.terrain.process_tile(tile=tile, global_offset=global_offset[:2], bbox_margin=50.0)
@@ -122,15 +124,31 @@ class BeamNGExporter:
             self.terrain.export_tile(tile_x, tile_y, result)
             stats["tiles_processed"] += 1
 
+            # Sammle Tile-Grenzen für Horizon-Clipping (in lokalen Koordinaten!)
+            # tile ist der große DGM1-Tile (2×2 km), nicht der DAE-Export-Tile (500m)
+            # tile_x und tile_y sind in UTM-Koordinaten, also erst zu lokal konvertieren
+            ox, oy = global_offset[0], global_offset[1]
+            tile_x_local = tile_x - ox
+            tile_y_local = tile_y - oy
+
+            # Verwende die tatsächliche Tile-Größe (2000m für DGM1-Tiles)
+            large_tile_size = tile.get("tile_size", 2000)
+
+            x_min = tile_x_local
+            x_max = tile_x_local + large_tile_size
+            y_min = tile_y_local
+            y_max = tile_y_local + large_tile_size
+            tile_bounds_local.append((x_min, y_min, x_max, y_max))
+
             # Sammle Gebäude-Daten (werden später gruppiert nach Tiles exportiert)
             if include_buildings and result.get("buildings_data"):
                 all_buildings.extend(result["buildings_data"])
 
-        timer.begin("Terrain Export")
-
         # Phase 2: Buildings (nach Terrain-Export, wie im alten multitile.py)
         if include_buildings and all_buildings:
             from collections import defaultdict
+
+            timer.begin("Buildings Export")
 
             # Gruppiere Gebäude nach DAE-Tiles (500m x 500m)
             buildings_by_tile = defaultdict(list)
@@ -155,19 +173,19 @@ class BeamNGExporter:
             # Füge LoD2-Materialien zu gemeinsamen Materials hinzu (NICHT separat exportieren!)
             self._add_lod2_materials()
 
-        timer.begin("Buildings Export")
+        timer.begin("Horizon Export")
 
         # Phase 3: Horizon-Layer (optional)
         if include_horizon:
-            horizon_dae = self.horizon.generate_horizon(global_offset=global_offset)
+            # Übergebe Tile-Grenzen zum Filtern von Quads die über Terrain liegen
+            horizon_dae = self.horizon.generate_horizon(global_offset=global_offset, tile_bounds=tile_bounds_local)
             stats["horizon_exported"] = horizon_dae is not None
 
-        timer.begin("Horizon Export")
+        timer.begin("Finalisierung")
 
         # Phase 4: Finalisierung
         self._finalize_export()
 
-        timer.begin("Finalisierung")
         timer.report()
 
         return stats
@@ -228,6 +246,7 @@ class BeamNGExporter:
 
         self.materials.add_building_material(
             wall_name,
+            color=wall_props.get("diffuseColor"),
             textures=wall_props.get("textures"),
             tiling_scale=wall_props.get("tiling_scale", 4.0),
             groundType="concrete",
@@ -241,6 +260,7 @@ class BeamNGExporter:
 
         self.materials.add_building_material(
             roof_name,
+            color=roof_props.get("diffuseColor"),
             textures=roof_props.get("textures"),
             tiling_scale=roof_props.get("tiling_scale", 2.0),
             groundType="concrete",

@@ -42,7 +42,10 @@ def extract_roads_from_osm(osm_elements):
     roads = [
         element
         for element in osm_elements
-        if element.get("type") == "way" and "tags" in element and "highway" in element["tags"]
+        if element.get("type") == "way" 
+        and "tags" in element 
+        and "highway" in element["tags"]
+        and element["tags"].get("area") != "yes"  # Filtere Flächen-Features (area=yes)
     ]
     print(f"  [->] {len(roads)} Strassensegmente aus {len(osm_elements)} OSM-Elementen extrahiert")
     return roads

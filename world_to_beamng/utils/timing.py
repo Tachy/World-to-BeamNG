@@ -19,7 +19,10 @@ class StepTimer:
         self._counter += 1
         label = str(self._counter)
         self.steps.append({"label": label, "title": title, "start": now, "duration": None})
-        print(f"\n[{label}] {title}...")
+
+        print(f"\n{'='*60}")
+        print(f"[{label}] {title}...")
+        print(f"{'='*60}")
 
     def set_duration(self, duration: float):
         """Setze Dauer manuell (z.B. bei Skips nach begin)."""

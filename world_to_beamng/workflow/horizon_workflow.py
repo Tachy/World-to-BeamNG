@@ -36,7 +36,10 @@ class HorizonWorkflow:
         self.dae = dae_exporter
 
     def generate_horizon(
-        self, global_offset: Tuple[float, float, float], tile_hash: Optional[str] = None
+        self,
+        global_offset: Tuple[float, float, float],
+        tile_hash: Optional[str] = None,
+        tile_bounds: Optional[list] = None,
     ) -> Optional[str]:
         """
         Generiere Horizon-Layer (wie in multitile.py phase5_generate_horizon_layer).
@@ -44,6 +47,8 @@ class HorizonWorkflow:
         Args:
             global_offset: (origin_x, origin_y, origin_z) - UTM Offset
             tile_hash: Optional - Hash für Cache
+            tile_bounds: Optional - Liste von (x_min, y_min, x_max, y_max) Tuples in lokalen Koordinaten
+                         zum Filtern von Quads die über Terrain liegen
 
         Returns:
             Pfad zur DAE-Datei oder None
@@ -55,10 +60,6 @@ class HorizonWorkflow:
             texture_horizon_mesh,
             export_horizon_dae,
         )
-
-        print("\n" + "=" * 60)
-        print("PHASE 5: HORIZON-LAYER")
-        print("=" * 60)
 
         # Prüfe ob Phase 5 aktiviert ist
         if not config.PHASE5_ENABLED:
@@ -87,7 +88,7 @@ class HorizonWorkflow:
 
         # === Mesh generieren ===
         print("  [i] Generiere Horizont-Mesh...")
-        vertices, faces, nx, ny = generate_horizon_mesh(height_points, height_elevations, global_offset)
+        mesh, nx, ny = generate_horizon_mesh(height_points, height_elevations, global_offset, tile_bounds=tile_bounds)
 
         # === Sentinel-2 laden (optional) ===
         print("  [i] Lade Sentinel-2 Satellitenbilder...")
@@ -101,6 +102,7 @@ class HorizonWorkflow:
             horizon_image, bounds_utm, transform = sentinel2_data
 
             # Zeige Koordinaten-Übereinstimmung mit Mesh
+            vertices = mesh.vertex_manager.vertices
             mesh_x_min, mesh_x_max = vertices[:, 0].min(), vertices[:, 0].max()
             mesh_y_min, mesh_y_max = vertices[:, 1].min(), vertices[:, 1].max()
 
@@ -120,8 +122,7 @@ class HorizonWorkflow:
         import os
 
         dae_filename = export_horizon_dae(
-            vertices,
-            faces,
+            mesh,
             texture_info,
             config.BEAMNG_DIR,
             level_name=config.LEVEL_NAME,

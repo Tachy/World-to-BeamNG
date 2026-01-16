@@ -71,10 +71,6 @@ class TerrainWorkflow:
         from ..mesh.stitch_gaps import stitch_all_gaps
         from ..terrain.grid import create_terrain_grid
 
-        print(f"\n{'='*60}")
-        print(f"TILE: {tile.get('name', 'Unknown')}")
-        print(f"{'='*60}")
-
         # 1. Lade Höhendaten
         height_points, height_elevations = self.tile_processor.load_height_data(tile)
         if height_points is None:
@@ -204,8 +200,11 @@ class TerrainWorkflow:
         # WICHTIG: Erzeuge tatsächliche Straßen-Polygone (Puffer um Centerline)
         from shapely.geometry import LineString
         from ..config import OSM_MAPPER
+        from ..utils.debug_exporter import DebugNetworkExporter
 
         road_slope_polygons_2d = []
+        debug_exporter = DebugNetworkExporter.get_instance()
+        
         for road in road_polygons:
             coords = np.asarray(road.get("coords", []), dtype=float)
             if len(coords) < 2:
@@ -225,14 +224,23 @@ class TerrainWorkflow:
                 # Fallback: verwende Centerline direkt
                 road_polygon_2d = centerline_2d
 
+            road_id = road.get("id")
             road_slope_polygons_2d.append(
                 {
-                    "road_id": road.get("id"),  # Wichtig für Material-Mapping
+                    "road_id": road_id,  # Wichtig für Material-Mapping
                     "road_polygon": road_polygon_2d,
                     "trimmed_centerline": coords,
                     "osm_tags": osm_tags,
                 }
             )
+            
+            # Exportiere Road zur Debug-Visualisierung
+            debug_exporter.add_road({
+                "road_id": road_id,
+                "coords": coords.tolist() if hasattr(coords, 'tolist') else coords,
+                "num_points": len(coords),
+                "label": f"Road_{road_id}",
+            })
 
         # 8. Grid erstellen (mit Builder)
         from ..builders import GridBuilder

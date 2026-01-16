@@ -178,21 +178,27 @@
             "internal_name": "lod2_wall_white",
             "groundModelName": "concrete",
             "textures": {
-                "baseColorMap": "art/shapes/materials/tileable/plaster/m_stucco_white/t_stucco_white_b.color.dds",
-                "normalMap": "art/shapes/materials/tileable/plaster/m_stucco_white/t_stucco_white_nm.normal.dds",
-                "ambientOcclusionMap": "art/shapes/materials/tileable/plaster/m_stucco_white/t_stucco_white_ao.data.dds",
-                "roughnessMap": "art/shapes/materials/tileable/plaster/m_stucco_white/t_stucco_white_r.data.dds",
+                "baseColorMap": "levels/world_to_beamng/art/shapes/materials/tileable/plaster/m_stucco_white/t_stucco_white_b.color.dds",
+                "normalMap": "levels/world_to_beamng/art/shapes/materials/tileable/plaster/m_stucco_white/t_stucco_white_nm.normal.dds",
+                "ambientOcclusionMap": "levels/world_to_beamng/art/shapes/materials/tileable/plaster/m_stucco_white/t_stucco_white_ao.data.dds",
+                "roughnessMap": "levels/world_to_beamng/art/shapes/materials/tileable/plaster/m_stucco_white/t_stucco_white_r.data.dds",
                 "useAnisotropic": true
             }
         },
         "roof": {
             "internal_name": "lod2_roof_red",
             "groundModelName": "concrete",
+            "diffuseColor": [
+                0.85,
+                0.45,
+                0.3,
+                1.0
+            ],
             "textures": {
-                "baseColorMap": "art/shapes/materials/tileable/brick/brick_herringbone/t_brick_herringbone_b.color.dds",
-                "normalMap": "art/shapes/materials/tileable/brick/brick_herringbone/t_brick_herringbone_nm.normal.dds",
-                "ambientOcclusionMap": "art/shapes/materials/tileable/brick/brick_herringbone/t_brick_herringbone_ao.data.dds",
-                "roughnessMap": "art/shapes/materials/tileable/brick/brick_herringbone/t_brick_herringbone_r.data.dds",
+                "baseColorMap": "levels/world_to_beamng/art/shapes/materials/tileable/roofing/m_roof_slates_rounded/t_roof_slates_rounded_b.color.dds",
+                "normalMap": "levels/world_to_beamng/art/shapes/materials/tileable/roofing/m_roof_slates_rounded/t_roof_slates_rounded_nm.normal.dds",
+                "ambientOcclusionMap": "levels/world_to_beamng/art/shapes/materials/tileable/roofing/m_roof_slates_rounded/t_roof_slates_rounded_ao.data.dds",
+                "roughnessMap": "levels/world_to_beamng/art/shapes/materials/tileable/roofing/m_roof_slates_rounded/t_roof_slates_rounded_r.data.dds",
                 "useAnisotropic": true
             }
         }

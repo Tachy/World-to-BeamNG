@@ -57,12 +57,10 @@ def stitch_all_gaps(
     if junction_points:
         print(f"  Verarbeite {len(junction_points)} Junction-Punkte...")
         for jp_idx, jp in enumerate(junction_points):
-            jp_id = jp_idx
             coords = None
             connected_road_tags = []
 
             if isinstance(jp, dict):
-                jp_id = jp.get("id", jp_idx)
                 coords = jp.get("pos")
                 if coords is None:
                     coords = jp.get("position")
@@ -70,11 +68,11 @@ def stitch_all_gaps(
                     coords = jp.get("coords")
                 connected_road_tags = jp.get("connected_road_tags", [])
             elif isinstance(jp, (list, tuple)) and len(jp) == 2 and hasattr(jp[1], "__len__"):
-                jp_id, coords = jp[0], jp[1]
+                coords = jp[1]
             else:
                 coords = jp
 
-            if filter_junction_id is not None and str(jp_id) != str(filter_junction_id):
+            if filter_junction_id is not None and int(jp_idx) != int(filter_junction_id):
                 continue
             if coords is None or len(coords) < 2:
                 continue
@@ -90,10 +88,10 @@ def stitch_all_gaps(
             debug_exporter = DebugNetworkExporter.get_instance()
             debug_exporter.add_junction(
                 {
-                    "id": str(jp_id),
+                    "id": jp_idx,
                     "position": centerline_sample.tolist(),
                     "road_indices": [],
-                    "label": f"Junction_{jp_id}",
+                    "label": f"Junction_{jp_idx}",
                 }
             )
 
@@ -145,12 +143,10 @@ def stitch_all_gaps(
         num_samples = max(2, int(np.ceil(total_length / dynamic_sample_spacing)) + 1)
         sample_distances = np.linspace(0, total_length, num_samples)
 
-        print(sample_distances)
-
         circle_count = 0
         for distance in sample_distances:
             circle_count += 1
-            if debug_stop_at_road is not None and valid_road_count == debug_stop_at_road:
+            if filter_road_id is not None or debug_stop_at_road is not None and valid_road_count == debug_stop_at_road:
                 print(f"  [DEBUG] Suchkreis #{circle_count}...")
 
             sample_pt_2d = centerline_linestring.interpolate(distance)
@@ -175,8 +171,13 @@ def stitch_all_gaps(
                 debug=False,
             )
 
-            if debug_stop_at_road is not None and debug_stop_at_circle is not None:
-                if valid_road_count == debug_stop_at_road and circle_count == debug_stop_at_circle:
+            if filter_road_id is not None or debug_stop_at_road is not None and debug_stop_at_circle is not None:
+                if (
+                    filter_road_id is not None
+                    and circle_count == debug_stop_at_circle
+                    or valid_road_count == debug_stop_at_road
+                    and circle_count == debug_stop_at_circle
+                ):
                     print(f"  [DEBUG] Stoppe bei Straße #{valid_road_count}, Suchkreis #{circle_count}")
                     return []
 

@@ -426,21 +426,32 @@ def load_sentinel2_geotiff(sentinel2_dir, bbox_utm, tile_hash=None):
         return None
 
 
-def generate_horizon_mesh(height_points, height_elevations, local_offset):
+def generate_horizon_mesh(height_points, height_elevations, local_offset, tile_bounds=None):
     """
-    Generiert Mesh aus 200m Horizont-Grid (einfache Triangulation).
+    Generiert Horizont-Mesh mit zentraler UV-Verwaltung (VertexManager + Mesh.uvs).
+
+    OPTIMIERUNGEN:
+    - Vektorisierte UV-Berechnung (keine Python-Schleifen)
+    - Batch-VertexManager-Einfügung
+    - Effiziente Grid-Indizierung
+    - Keine redundanten Lookups
+    - Quads über Terrain-Tiles filtern (optional)
 
     Args:
         height_points: (N, 2) Grid-Punkte bereits in lokalen Koordinaten
         height_elevations: (N,) Höhenwerte in lokalen Koordinaten
         local_offset: (ox, oy, oz) Transformation – hier nur noch für Konsistenz/Logging genutzt
+        tile_bounds: Optional - Liste von (x_min, y_min, x_max, y_max) Tuples in lokalen Koordinaten
+                     zum Überspringen von Quads die über Terrain liegen
 
     Returns:
-        Tuple (vertices, faces, nx, ny)
-        vertices: (M, 3) Array mit XYZ-Koordinaten
-        faces: List von [v0, v1, v2] Indizes
+        Tuple (mesh, nx, ny)
+        mesh: Mesh-Objekt mit zentralem VertexManager + deduplizierten UVs
         nx, ny: Grid-Dimensionen (für Texturierung)
     """
+    from ..mesh.vertex_manager import VertexManager
+    from ..mesh.mesh import Mesh
+
     _ = local_offset  # behalten für Aufrufer-Signatur; Daten sind bereits lokal
 
     # Punkte und Höhen liegen bereits lokal vor
@@ -459,7 +470,7 @@ def generate_horizon_mesh(height_points, height_elevations, local_offset):
     nx = len(x_coords)
     ny = len(y_coords)
 
-    print(f"  [i] Erstelle Horizont-Mesh: {nx}×{ny} Grid")
+    print(f"  [i] Erstelle Horizont-Mesh: {nx}×{ny} Grid mit zentraler UV-Verwaltung")
 
     # Erstelle Grid mit Nearest-Neighbor-Interpolation
     from scipy.spatial import cKDTree
@@ -473,151 +484,129 @@ def generate_horizon_mesh(height_points, height_elevations, local_offset):
     distances, indices = tree.query(grid_points_flat)
     grid_elevations = local_elevations[indices]
 
-    # Erstelle 3D Vertices - Horizont 150m0m unter Z-Level für Kern-Mesh Separation
-    vertices = np.column_stack([grid_points_flat, grid_elevations - 50.0])
+    # Erstelle 3D Vertices - Horizont 50m unter Z-Level für Kern-Mesh Separation
+    vertices = np.column_stack([grid_points_flat, grid_elevations])
 
-    # Generiere Faces (Triangulation)
-    faces = []
-    for y in range(ny - 1):
-        for x in range(nx - 1):
-            # Indizes der 4 Ecken einer Zelle
-            v0 = y * nx + x
-            v1 = y * nx + (x + 1)
-            v2 = (y + 1) * nx + x
-            v3 = (y + 1) * nx + (x + 1)
+    # Initialisiere Mesh mit VertexManager
+    vm = VertexManager(tolerance=0.001)
+    mesh = Mesh(vm)
 
-            # Zwei Dreiecke pro Zelle
-            faces.append([v0, v1, v2])
-            faces.append([v1, v3, v2])
+    # === OPTIMIERUNG 1: Vektorisierte UV-Berechnung ===
+    # Berechne UV-Bounds für Normalisierung
+    mesh_x_min, mesh_x_max = vertices[:, 0].min(), vertices[:, 0].max()
+    mesh_y_min, mesh_y_max = vertices[:, 1].min(), vertices[:, 1].max()
 
-    print(f"  [OK] {len(faces)} Dreiecke generiert")
+    # Normalisiere alle Vertices auf einmal
+    uvs_x = (vertices[:, 0] - mesh_x_min) / max(mesh_x_max - mesh_x_min, 1e-10)
+    uvs_y = (vertices[:, 1] - mesh_y_min) / max(mesh_y_max - mesh_y_min, 1e-10)
+    uvs_array = np.column_stack([uvs_x, uvs_y])
 
-    return vertices, faces, nx, ny
+    # === OPTIMIERUNG 2: Batch Vertex-Einfügung (OHNE Hash-Lookup!) ===
+    # Für reguläre Grids: Alle Vertices sind unterschiedlich, kein Dedup nötig!
+    # Nutze add_vertices_direct_nohash() statt einzelner add_vertex() Calls (258k Aufrufe!)
+    vertex_indices = np.array(vm.add_vertices_direct_nohash(vertices), dtype=int)
 
+    # Reshape vertex_indices in (ny, nx) Grid für einfachen Zugriff
+    vertex_grid = vertex_indices.reshape(ny, nx)
 
-def get_terrain_tile_bounds(items_json_path=None, beamng_dir=None):
-    """
-    Liest items.json und extrahiert die Bounds aller Terrain-Tiles aus Item-Namen.
-
-    Format der Item-Namen: "terrain_X_Y" wobei X, Y die lokalen Koordinaten der Tile-Ursprünge sind.
-    Jedes Terrain-Tile ist 2000×2000m (2×2 km).
-    Beispiel: "terrain_-1000_-1000" → Bounds X=[-1000, 1000], Y=[-1000, 1000]
-
-    Args:
-        _path: Pfad zu items.json (wird geprüft zuerst)
-        beamng_dir: BeamNG Verzeichnis (Fallback für items_json_path)
-
-    Returns:
-        List von Tuples [(x_min, y_min, x_max, y_max), ...] in lokalen Koordinaten
-        oder leere Liste, wenn Datei nicht existiert/lesbar
-    """
-    # Versuche items_json_path direkt
-    if items_json_path is None and beamng_dir is not None:
-        from .. import config
-
-        items_json_path = os.path.join(beamng_dir, config.ITEMS_JSON)
-
-    tile_bounds = []
-    tile_size = 2000  # Jeder Terrain-Tile ist 2000×2000m (2×2 km)
-    collected_tiles = set()
-
-    # Lese items.json
-    if items_json_path and os.path.exists(items_json_path):
-        try:
-            with open(items_json_path, "r", encoding="utf-8") as f:
-                items = json.load(f)
-
-            for item_name in items.keys():
-                # Suche nach terrain_X_Y Einträgen (nicht terrain_tile_!)
-                if not item_name.startswith("terrain_"):
-                    continue
-
-                # terrain_tile_... sind Einträge der Tile-Slices, nicht die 2x2km Tiles
-                if "tile_" in item_name:
-                    continue
-
-                # Parse Koordinaten aus "terrain_X_Y"
-                # Format: "terrain_-1000_-1000" oder "terrain_0_500"
-                parts = item_name.split("_")
-                if len(parts) < 3:
-                    continue
-
-                try:
-                    # Lese X und Y aus den letzten zwei Teilen
-                    coord_x = int(parts[-2])
-                    coord_y = int(parts[-1])
-                    collected_tiles.add((coord_x, coord_y))
-                except ValueError:
-                    continue
-
-        except Exception as e:
-            print(f"  [!] Fehler beim Lesen von main.items.json: {e}")
-
-    # Konvertiere collected_tiles zu Bounds (Koordinaten sind X_min, Y_min des Tiles)
-    # Jedes Terrain-Tile ist 2000×2000m
-    for coord_x, coord_y in collected_tiles:
-        x_min = coord_x
-        x_max = coord_x + tile_size
-        y_min = coord_y
-        y_max = coord_y + tile_size
-        tile_bounds.append((x_min, y_min, x_max, y_max))
+    # === OPTIMIERUNG 3: Vektorisierte Quad-Filterung über Tile-Bounds ===
+    quads_mask = np.ones((ny - 1, nx - 1), dtype=bool)
 
     if tile_bounds:
-        print(f"  [OK] {len(tile_bounds)} Terrain-Tile-Bereiche aus main.items.json gelesen")
-        for idx, (x_min, y_min, x_max, y_max) in enumerate(tile_bounds):
-            print(f"      Tile {idx}: X=[{x_min}..{x_max}], Y=[{y_min}..{y_max}]")
-    else:
-        print(f"  [i] Keine Tile-Bounds in main.items.json gefunden")
+        print(f"  [i] Filtere {len(tile_bounds)} Terrain-Tiles (2x2 km) mit vektorisiertem Lookup...")
 
-    return tile_bounds
+        import time
 
+        t0 = time.time()
 
-def clip_horizon_mesh_to_tiles(vertices, faces, tile_bounds):
-    """
-    Entfernt alle Faces aus dem Horizont-Mesh, die vollständig in einem Tile-Bereich liegen.
+        # Pre-compute alle 4 Vertex-Positionen für jedes Quad (vektorisiert)
+        # Quad (y, x) hat Vertices bei:
+        #   v0 = (x_coords[x], y_coords[y])       - unten links
+        #   v1 = (x_coords[x+1], y_coords[y])     - unten rechts
+        #   v2 = (x_coords[x], y_coords[y+1])     - oben links
+        #   v3 = (x_coords[x+1], y_coords[y+1])   - oben rechts
 
-    Ein Face wird entfernt, wenn **alle 3 Vertices** vollständig innerhalb mindestens eines Tile-Bounds liegen.
+        # Erstelle Meshgrids für alle 4 Ecken
+        x_left = x_coords[:-1]
+        x_right = x_coords[1:]
+        y_bottom = y_coords[:-1]
+        y_top = y_coords[1:]
 
-    Args:
-        vertices: (M, 3) Array mit Vertex-Koordinaten (lokal)
-        faces: List von [v0, v1, v2] Face-Indizes
-        tile_bounds: List von (x_min, y_min, x_max, y_max) Tuples
+        # Prüfe für jeden Tile ob mindestens ein Vertex darin liegt
+        for tile_x_min, tile_y_min, tile_x_max, tile_y_max in tile_bounds:
+            # Für jedes Quad: Prüfe ob IRGENDEIN Vertex im Tile liegt
+            # Vertex liegt im Tile wenn: tile_x_min <= x < tile_x_max AND tile_y_min <= y < tile_y_max
 
-    Returns:
-        Tuple (filtered_vertices, filtered_faces, removed_count)
-    """
-    if not tile_bounds:
-        print(f"  [i] Keine Tile-Bounds zum Clipping vorhanden")
-        return vertices, faces, 0
+            # Prüfe alle 4 Vertices (vektorisiert über alle Quads)
+            # v0 (unten links): (x_left, y_bottom)
+            v0_inside = ((x_left >= tile_x_min) & (x_left < tile_x_max))[:, None] & (
+                (y_bottom >= tile_y_min) & (y_bottom < tile_y_max)
+            )[None, :]
 
-    print(f"  [i] Clippe Horizont-Mesh gegen {len(tile_bounds)} Tile-Bereiche...")
+            # v1 (unten rechts): (x_right, y_bottom)
+            v1_inside = ((x_right >= tile_x_min) & (x_right < tile_x_max))[:, None] & (
+                (y_bottom >= tile_y_min) & (y_bottom < tile_y_max)
+            )[None, :]
 
-    def vertex_in_tile(vertex, tile_bounds):
-        """Prüft ob Vertex komplett in mindestens einem Tile liegt."""
-        x, y = vertex[0], vertex[1]
-        for x_min, y_min, x_max, y_max in tile_bounds:
-            if x_min <= x <= x_max and y_min <= y <= y_max:
-                return True
-        return False
+            # v2 (oben links): (x_left, y_top)
+            v2_inside = ((x_left >= tile_x_min) & (x_left < tile_x_max))[:, None] & (
+                (y_top >= tile_y_min) & (y_top < tile_y_max)
+            )[None, :]
 
-    # Filtere Faces: Behalte nur Faces, bei denen mindestens ein Vertex NICHT in einem Tile liegt
-    original_face_count = len(faces)
-    filtered_faces = []
+            # v3 (oben rechts): (x_right, y_top)
+            v3_inside = ((x_right >= tile_x_min) & (x_right < tile_x_max))[:, None] & (
+                (y_top >= tile_y_min) & (y_top < tile_y_max)
+            )[None, :]
 
-    for face in faces:
-        v0, v1, v2 = face
-        v0_in = vertex_in_tile(vertices[v0], tile_bounds)
-        v1_in = vertex_in_tile(vertices[v1], tile_bounds)
-        v2_in = vertex_in_tile(vertices[v2], tile_bounds)
+            # Quad entfernen wenn MINDESTENS EIN Vertex im Tile liegt
+            tile_mask = v0_inside | v1_inside | v2_inside | v3_inside
+            quads_mask &= ~tile_mask.T  # Transpose weil Meshgrid (x, y) statt (y, x)
 
-        # Entferne Face nur wenn **alle 3 Vertices** in Tiles liegen
-        if not (v0_in and v1_in and v2_in):
-            filtered_faces.append(face)
+        skipped_count = np.sum(~quads_mask)
+        if skipped_count > 0:
+            print(f"  [OK] {skipped_count} Quads über Terrain gefiltert ({time.time() - t0:.2f}s)")
 
-    removed_count = original_face_count - len(filtered_faces)
-    print(f"  [OK] {removed_count} Faces entfernt (aus {original_face_count}), {len(filtered_faces)} behalten")
+    # === OPTIMIERUNG 4: Batch-Insert direkter Arrays (KEINE Deduplizierung nötig) ===
+    # Speichere Faces & UVs direkt ohne add_face() Overhead
 
-    return vertices, filtered_faces, removed_count
+    valid_quads = np.argwhere(quads_mask)  # (N, 2) Array mit (y, x) Indizes
+
+    if len(valid_quads) == 0:
+        print("  [!] Keine Quads zu generieren (alle gefiltert)")
+        return mesh, nx, ny
+
+    num_quads = len(valid_quads)
+
+    # Erstelle Face-Arrays vektorisiert
+    y_indices = valid_quads[:, 0]
+    x_indices = valid_quads[:, 1]
+
+    # Vertex-Indizes für alle Quads auf einmal
+    v0 = vertex_grid[y_indices, x_indices]
+    v1 = vertex_grid[y_indices, x_indices + 1]
+    v2 = vertex_grid[y_indices + 1, x_indices]
+    v3 = vertex_grid[y_indices + 1, x_indices + 1]
+
+    # Erstelle zwei Dreiecke pro Quad direkt
+    faces_tri1 = np.column_stack([v0, v1, v2])
+    faces_tri2 = np.column_stack([v1, v3, v2])
+
+    # Kombiniere und speichere direkt (KEINE add_face Loops!)
+    faces_array = np.vstack([faces_tri1, faces_tri2]).astype(int)
+    mesh.faces = list(map(tuple, faces_array))
+
+    # UVs: Einfach alle Vertex-UVs als Liste (keine Deduplizierung nötig)
+    mesh.uvs = [tuple(uv) for uv in uvs_array]
+
+    # UV-Mapping: Jedes Face nutzt die entsprechenden Vertex-UVs
+    mesh.uv_indices = {i: tuple(faces_array[i]) for i in range(len(faces_array))}
+
+    face_count = len(mesh.faces)
+
+    print(f"  [OK] {face_count} Dreiecke generiert")
+    print(f"  [OK] {len(mesh.uvs)} UVs (1 pro Vertex, ohne Deduplizierung)")
+
+    return mesh, nx, ny
 
 
 def texture_horizon_mesh(vertices, horizon_image, nx, ny, bounds_utm, transform, global_offset):
@@ -727,38 +716,34 @@ def texture_horizon_mesh(vertices, horizon_image, nx, ny, bounds_utm, transform,
     }
 
 
-def export_horizon_dae(vertices, faces, texture_info, output_dir, level_name="default", global_offset=None):
+def export_horizon_dae(mesh, texture_info, output_dir, level_name="default", global_offset=None, tile_bounds=None):
     """
-    Exportiert Horizon-Mesh als DAE (Collada) Datei mit UV-Mapping.
+    Exportiert Horizon-Mesh als DAE (Collada) Datei mit deduplizierten UVs.
 
-    Clippt automatisch Horizont-Mesh gegen Terrain-Tile-Bereiche aus main.items.json.
+    Tile-Bounds werden bereits während Mesh-Generierung gefiltert (siehe generate_horizon_mesh).
+    Diese Funktion ist rein für DAE-Export zuständig.
 
     Args:
-        vertices: (M, 3) Mesh-Vertices in lokalen Koordinaten
-        faces: List von [v0, v1, v2] Face-Indizes
+        mesh: Mesh-Objekt mit zentralem VertexManager + deduplizierten UVs (bereits gefiltert)
         texture_info: Dict mit Textur-Informationen (bounds_utm, mesh_coverage)
         output_dir: Zielverzeichnis (BeamNG Level Verzeichnis)
         level_name: Name des Levels
         global_offset: (ox, oy, oz) für UTM-Konvertierung
+        tile_bounds: (UNBENUTZT - nur für API-Kompatibilität, Filterung erfolgt in generate_horizon_mesh)
 
     Returns:
         Pfad zur erzeugten DAE-Datei
     """
-    # ===== Clipping: Entferne Horizont-Faces in Tile-Bereichen =====
-    tile_bounds = get_terrain_tile_bounds(beamng_dir=output_dir)
-
-    if tile_bounds:
-        vertices, faces, removed = clip_horizon_mesh_to_tiles(vertices, faces, tile_bounds)
-        if removed > 0:
-            print(f"  [OK] Clipping abgeschlossen: {removed} Faces entfernt")
-    else:
-        print(f"  [i] Kein Clipping: Keine Tile-Bounds gefunden")
+    # tile_bounds wird hier nicht mehr benötigt - Filterung erfolgt bereits im Mesh-Generieren!
+    _ = tile_bounds  # Unbenutzt - Filterung erfolgt in generate_horizon_mesh()
 
     dae_path = os.path.join(output_dir, "art", "shapes", "terrain_horizon.dae")
     os.makedirs(os.path.dirname(dae_path), exist_ok=True)
 
     # Berechne UV-Offsets basierend auf Koordinaten-Mismatch
     bounds_utm = texture_info.get("bounds_utm", None)
+    vertices = mesh.vertex_manager.vertices
+    faces = mesh.faces  # Extrahiere Faces aus dem Mesh
 
     if bounds_utm and global_offset:
         ox, oy, oz = global_offset
@@ -795,118 +780,217 @@ def export_horizon_dae(vertices, faces, texture_info, output_dir, level_name="de
         uv_offset_x, uv_offset_y = 0.0, 0.0
         uv_scale_x, uv_scale_y = 1.0, 1.0
 
-    # Schreibe DAE direkt als formatiertes XML (nicht mit ElementTree um großen Text zu vermeiden)
-    with open(dae_path, "w", encoding="utf-8") as f:
-        f.write('<?xml version="1.0" encoding="UTF-8"?>\n')
-        f.write('<COLLADA version="1.4.1" xmlns="http://www.collada.org/2005/11/COLLADASchema">\n')
+    # Skaliere deduplizierte UVs VEKTORISIERT mit Offset und Skalierung
+    uvs_array = np.array(mesh.uvs, dtype=np.float32)
+    scaled_uvs_array = uvs_array.copy()
+    scaled_uvs_array[:, 0] = uv_offset_x + uvs_array[:, 0] * uv_scale_x
+    scaled_uvs_array[:, 1] = uv_offset_y + uvs_array[:, 1] * uv_scale_y
 
-        # Asset
-        f.write("  <asset>\n")
-        f.write("    <created>2025-01-07T00:00:00</created>\n")
-        f.write("    <modified>2025-01-07T00:00:00</modified>\n")
-        f.write("  </asset>\n")
+    # Konvertiere zu Liste für Kompatibilität
+    scaled_uvs = [(u, v) for u, v in scaled_uvs_array]
 
-        # Library Geometries
-        f.write("  <library_geometries>\n")
-        f.write('    <geometry id="horizon_mesh" name="horizon">\n')
-        f.write("      <mesh>\n")
+    # Schreibe DAE mit StringIO Buffer (schneller als direkte File-I/O)
+    from io import StringIO
 
-        # === Vertices Source ===
-        f.write('        <source id="horizon_vertices">\n')
-        f.write(f'          <float_array id="horizon_vertices_array" count="{len(vertices) * 3}">')
+    buffer = StringIO()
 
-        # Schreibe Vertices mit minimalem Overhead - jeden Float auf eigene Zeile
-        for vertex in vertices:
-            f.write(f"\n{vertex[0]:.2f} {vertex[1]:.2f} {vertex[2]:.2f}")
+    # Schreibe alles in Buffer (viel schneller als direkt in Datei)
+    f = buffer
+    f.write('<?xml version="1.0" encoding="UTF-8"?>\n')
+    f.write('<COLLADA version="1.4.1" xmlns="http://www.collada.org/2005/11/COLLADASchema">\n')
 
-        f.write("\n          </float_array>\n")
-        f.write("          <technique_common>\n")
-        f.write(f'            <accessor source="#horizon_vertices_array" count="{len(vertices)}" stride="3">\n')
-        f.write('              <param name="X" type="float"/>\n')
-        f.write('              <param name="Y" type="float"/>\n')
-        f.write('              <param name="Z" type="float"/>\n')
-        f.write("            </accessor>\n")
-        f.write("          </technique_common>\n")
-        f.write("        </source>\n")
+    # Asset
+    f.write("  <asset>\n")
+    f.write("    <created>2025-01-07T00:00:00</created>\n")
+    f.write("    <modified>2025-01-07T00:00:00</modified>\n")
+    f.write("  </asset>\n")
 
-        # === UV Coordinates Source ===
-        mesh_x_min, mesh_x_max = vertices[:, 0].min(), vertices[:, 0].max()
-        mesh_y_min, mesh_y_max = vertices[:, 1].min(), vertices[:, 1].max()
+    # === Library Materials ===
+    f.write("  <library_materials>\n")
+    f.write('    <material id="horizon_terrain" name="horizon_terrain">\n')
+    f.write('      <instance_effect url="#horizon_terrain_effect"/>\n')
+    f.write("    </material>\n")
+    f.write("  </library_materials>\n")
 
-        uv_coords = []
-        for vertex in vertices:
-            uv_x = (vertex[0] - mesh_x_min) / (mesh_x_max - mesh_x_min) if mesh_x_max > mesh_x_min else 0.0
-            uv_y = (vertex[1] - mesh_y_min) / (mesh_y_max - mesh_y_min) if mesh_y_max > mesh_y_min else 0.0
+    # === Library Effects ===
+    f.write("  <library_effects>\n")
+    f.write('    <effect id="horizon_terrain_effect">\n')
+    f.write("      <profile_COMMON>\n")
+    f.write('        <technique sid="common">\n')
+    if texture_info and texture_info.get("texture_path"):
+        # Mit Textur
+        f.write("          <phong>\n")
+        f.write("            <diffuse>\n")
+        f.write("              <color>1.0 1.0 1.0 1.0</color>\n")
+        f.write("            </diffuse>\n")
+        f.write("            <shininess>\n")
+        f.write("              <float>1.0</float>\n")
+        f.write("            </shininess>\n")
+        f.write("          </phong>\n")
+    else:
+        # Ohne Textur - Fallback-Farbe
+        f.write("          <phong>\n")
+        f.write("            <diffuse>\n")
+        f.write("              <color>0.8 0.8 0.8 1.0</color>\n")
+        f.write("            </diffuse>\n")
+        f.write("            <shininess>\n")
+        f.write("              <float>1.0</float>\n")
+        f.write("            </shininess>\n")
+        f.write("          </phong>\n")
+    f.write("        </technique>\n")
+    f.write("      </profile_COMMON>\n")
+    f.write("    </effect>\n")
+    f.write("  </library_effects>\n")
 
-            uv_x = uv_offset_x + uv_x * uv_scale_x
-            uv_y = uv_offset_y + uv_y * uv_scale_y
+    # Library Geometries
+    f.write("  <library_geometries>\n")
+    f.write('    <geometry id="horizon_mesh" name="horizon">\n')
+    f.write("      <mesh>\n")
 
-            uv_coords.append((uv_x, uv_y))
+    # === Vertices Source ===
+    f.write('        <source id="horizon_vertices">\n')
+    f.write(f'          <float_array id="horizon_vertices_array" count="{len(vertices) * 3}">')
 
-        f.write('        <source id="horizon_uvs">\n')
-        f.write(f'          <float_array id="horizon_uvs_array" count="{len(uv_coords) * 2}">')
+    # Schreibe Vertices mit minimalem Overhead
+    for vertex in vertices:
+        f.write(f"\n{vertex[0]:.2f} {vertex[1]:.2f} {vertex[2]:.2f}")
 
-        # Schreibe UV-Koordinaten - minimal one Paar pro Zeile
-        for u, v in uv_coords:
-            f.write(f"\n{u:.6f} {v:.6f}")
+    f.write("\n          </float_array>\n")
+    f.write("          <technique_common>\n")
+    f.write(f'            <accessor source="#horizon_vertices_array" count="{len(vertices)}" stride="3">\n')
+    f.write('              <param name="X" type="float"/>\n')
+    f.write('              <param name="Y" type="float"/>\n')
+    f.write('              <param name="Z" type="float"/>\n')
+    f.write("            </accessor>\n")
+    f.write("          </technique_common>\n")
+    f.write("        </source>\n")
 
-        f.write("\n          </float_array>\n")
-        f.write("          <technique_common>\n")
-        f.write(f'            <accessor source="#horizon_uvs_array" count="{len(uv_coords)}" stride="2">\n')
-        f.write('              <param name="S" type="float"/>\n')
-        f.write('              <param name="T" type="float"/>\n')
-        f.write("            </accessor>\n")
-        f.write("          </technique_common>\n")
-        f.write("        </source>\n")
-        f.write('        <vertices id="horizon_vertices_input">\n')
-        f.write('          <input semantic="POSITION" source="#horizon_vertices_array"/>\n')
-        f.write("        </vertices>\n")
+    # === Normals Source (für BeamNG-Kompatibilität) ===
+    # Berechne Smooth Normals VEKTORISIERT aus den Faces
+    normals = np.zeros((len(vertices), 3), dtype=np.float32)
 
-        # === Triangles ===
-        f.write(f'        <triangles material="horizon_terrain" count="{len(faces)}">\n')
-        f.write('          <input semantic="VERTEX" source="#horizon_vertices_input" offset="0"/>\n')
-        # TEXCOORD verweist auf den <source id="horizon_uvs"> (nicht auf das float_array)
-        f.write('          <input semantic="TEXCOORD" source="#horizon_uvs" offset="1" set="0"/>\n')
-        f.write("          <p>")
+    # Konvertiere Faces zu Numpy Array für vektorisierte Verarbeitung
+    faces_array = np.array(faces, dtype=np.int32)
 
-        # Schreibe Face-Indizes mit separaten Offsets: v0 uv0 v1 uv1 v2 uv2
-        for face in faces:
-            f.write(f"\n{face[0]} {face[0]} {face[1]} {face[1]} {face[2]} {face[2]}")
+    # Extrahiere alle Vertices für alle Faces auf einmal
+    v0_all = vertices[faces_array[:, 0]]
+    v1_all = vertices[faces_array[:, 1]]
+    v2_all = vertices[faces_array[:, 2]]
 
-        f.write("\n          </p>\n")
-        f.write("        </triangles>\n")
+    # Berechne Edges vektorisiert
+    edge1_all = v1_all - v0_all
+    edge2_all = v2_all - v0_all
 
-        # Close mesh, geometry
-        f.write("      </mesh>\n")
-        f.write("    </geometry>\n")
-        f.write("  </library_geometries>\n")
+    # Berechne Face-Normals vektorisiert
+    face_normals = np.cross(edge1_all, edge2_all)
+    face_normals_len = np.linalg.norm(face_normals, axis=1, keepdims=True)
+    face_normals = np.divide(
+        face_normals, face_normals_len, out=np.zeros_like(face_normals), where=face_normals_len > 0
+    )
 
-        # === Library Visual Scenes ===
-        f.write("  <library_visual_scenes>\n")
-        f.write('    <visual_scene id="Scene" name="Scene">\n')
-        f.write('      <node id="Horizon" name="Horizon" type="NODE">\n')
-        f.write('        <instance_geometry url="#horizon_mesh">\n')
-        f.write("          <bind_material>\n")
-        f.write("            <technique_common>\n")
-        f.write('              <instance_material symbol="horizon_terrain" target="#horizon_terrain"/>\n')
-        f.write("            </technique_common>\n")
-        f.write("          </bind_material>\n")
-        f.write("        </instance_geometry>\n")
-        f.write("      </node>\n")
-        f.write("    </visual_scene>\n")
-        f.write("  </library_visual_scenes>\n")
+    # Akkumuliere Face-Normals zu Vertex-Normals
+    for i, face in enumerate(faces_array):
+        normals[face[0]] += face_normals[i]
+        normals[face[1]] += face_normals[i]
+        normals[face[2]] += face_normals[i]
 
-        # === Scene ===
-        f.write("  <scene>\n")
-        f.write('    <instance_visual_scene url="#Scene"/>\n')
-        f.write("  </scene>\n")
+    # Normalisiere Vertex-Normals vektorisiert
+    normals_len = np.linalg.norm(normals, axis=1, keepdims=True)
+    normals = np.divide(normals, normals_len, out=np.tile([0.0, 0.0, 1.0], (len(normals), 1)), where=normals_len > 0)
 
-        f.write("</COLLADA>\n")
+    f.write('        <source id="horizon_normals">\n')
+    f.write(f'          <float_array id="horizon_normals_array" count="{len(normals) * 3}">')
+    # Schreibe Normals
+    for normal in normals:
+        f.write(f"\n{normal[0]:.6f} {normal[1]:.6f} {normal[2]:.6f}")
+    f.write("\n          </float_array>\n")
+    f.write("          <technique_common>\n")
+    f.write(f'            <accessor source="#horizon_normals_array" count="{len(vertices)}" stride="3">\n')
+    f.write('              <param name="X" type="float"/>\n')
+    f.write('              <param name="Y" type="float"/>\n')
+    f.write('              <param name="Z" type="float"/>\n')
+    f.write("            </accessor>\n")
+    f.write("          </technique_common>\n")
+    f.write("        </source>\n")
 
-    print(f"  [OK] DAE exportiert mit UV-Mapping: {os.path.basename(dae_path)}")
+    # === UV Coordinates Source (dedupliziert aus mesh.uvs) ===
+    f.write('        <source id="horizon_uvs">\n')
+    f.write(f'          <float_array id="horizon_uvs_array" count="{len(scaled_uvs) * 2}">')
+
+    # Schreibe deduplizierte UV-Koordinaten
+    for u, v in scaled_uvs:
+        f.write(f"\n{u:.6f} {v:.6f}")
+
+    f.write("\n          </float_array>\n")
+    f.write("          <technique_common>\n")
+    f.write(f'            <accessor source="#horizon_uvs_array" count="{len(scaled_uvs)}" stride="2">\n')
+    f.write('              <param name="S" type="float"/>\n')
+    f.write('              <param name="T" type="float"/>\n')
+    f.write("            </accessor>\n")
+    f.write("          </technique_common>\n")
+    f.write("        </source>\n")
+    f.write('        <vertices id="horizon_vertices_input">\n')
+    f.write('          <input semantic="POSITION" source="#horizon_vertices"/>\n')
+    f.write("        </vertices>\n")
+
+    # === Triangles (mit deduplizierten UV-Indizes und Normals) ===
+    f.write(f'        <triangles material="horizon_terrain" count="{len(faces)}">\n')
+    f.write('          <input semantic="VERTEX" source="#horizon_vertices_input" offset="0"/>\n')
+    f.write('          <input semantic="NORMAL" source="#horizon_normals" offset="1"/>\n')
+    f.write('          <input semantic="TEXCOORD" source="#horizon_uvs" offset="2" set="0"/>\n')
+    f.write("          <p>")
+
+    # Schreibe Face-Indizes mit Normals + deduplizierten UV-Indizes aus mesh.uv_indices
+    # Format: v0 n0 uv0 v1 n1 uv1 v2 n2 uv2
+    for face_idx, face in enumerate(faces):
+        if face_idx in mesh.uv_indices:
+            uv_indices = mesh.uv_indices[face_idx]
+            f.write(
+                f"\n{face[0]} {face[0]} {uv_indices[0]} {face[1]} {face[1]} {uv_indices[1]} {face[2]} {face[2]} {uv_indices[2]}"
+            )
+        else:
+            # Fallback: Nutze Vertex-Indizes als UV-Indizes (sollte nicht vorkommen)
+            f.write(f"\n{face[0]} {face[0]} {face[0]} {face[1]} {face[1]} {face[1]} {face[2]} {face[2]} {face[2]}")
+
+    f.write("\n          </p>\n")
+    f.write("        </triangles>\n")
+
+    # Close mesh, geometry
+    f.write("      </mesh>\n")
+    f.write("    </geometry>\n")
+    f.write("  </library_geometries>\n")
+
+    # === Library Visual Scenes ===
+    f.write("  <library_visual_scenes>\n")
+    f.write('    <visual_scene id="Scene" name="Scene">\n')
+    f.write('      <node id="Horizon" name="Horizon" type="NODE">\n')
+    f.write('        <instance_geometry url="#horizon_mesh">\n')
+    f.write("          <bind_material>\n")
+    f.write("            <technique_common>\n")
+    f.write('              <instance_material symbol="horizon_terrain" target="#horizon_terrain"/>\n')
+    f.write("            </technique_common>\n")
+    f.write("          </bind_material>\n")
+    f.write("        </instance_geometry>\n")
+    f.write("      </node>\n")
+    f.write("    </visual_scene>\n")
+    f.write("  </library_visual_scenes>\n")
+
+    # === Scene ===
+    f.write("  <scene>\n")
+    f.write('    <instance_visual_scene url="#Scene"/>\n')
+    f.write("  </scene>\n")
+
+    f.write("</COLLADA>\n")
+
+    # Schreibe Buffer-Inhalt auf einmal in Datei (viel schneller)
+    with open(dae_path, "w", encoding="utf-8") as file:
+        file.write(buffer.getvalue())
+    buffer.close()
+
+    print(f"  [OK] DAE exportiert mit deduplizierten UVs: {os.path.basename(dae_path)}")
+    print(f"  [OK] UV-Statistik: {len(mesh.uvs)} deduplizierte UVs, {len(mesh.faces)} Faces")
 
     # Überprüfe ob Datei existiert
-    print(f"  [DEBUG] Prüfe Dateiexistenz: {dae_path}")
     if os.path.exists(dae_path):
         file_size = os.path.getsize(dae_path)
         print(f"      Dateigröße: {file_size:,} Bytes")

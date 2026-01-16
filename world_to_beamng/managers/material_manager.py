@@ -217,6 +217,10 @@ class MaterialManager:
                 stages_config["normalMap"] = textures["normalMap"]
             if textures.get("roughnessMap"):
                 stages_config["roughnessMap"] = textures["roughnessMap"]
+
+            # Color-Tint: Einfärbung der Textur (kombiniert mit baseColorMap)
+            if color:
+                stages_config["diffuseColor"] = color
         elif color:
             stages_config["diffuseColor"] = color
         else:
