@@ -81,7 +81,6 @@ def find_boundary_polygons_in_circle(
     circle_vertex_set = set(circle_vertex_indices)
 
     # Filter Centerline-Segmente in Reichweite (einmal pro Circle, nicht pro Edge)
-    centerline_segments = []
     seg_start_arr = None
     seg_vec_arr = None
     seg_mid_arr = None
@@ -100,7 +99,6 @@ def find_boundary_polygons_in_circle(
             max_r2 = (search_radius * 2.0 + 20.0) ** 2  # Großzügig: 2x Radius + 20m Puffer
             mask = dist2 <= max_r2
             if np.any(mask):
-                centerline_segments = list(zip(seg_start[mask], seg_end[mask]))
                 seg_start_arr = seg_start[mask]
                 seg_vec_arr = seg_end[mask] - seg_start[mask]
                 seg_mid_arr = mids[mask]
@@ -116,8 +114,6 @@ def find_boundary_polygons_in_circle(
     # Finde Faces deren Vertices im Circle sind (mindestens 2 von 3)
     faces_in_circle = []
     face_indices_in_circle = []
-    terrain_face_count = 0
-    slope_face_count = 0
 
     for face_idx in candidate_face_indices:
         face = mesh.faces[face_idx]
@@ -126,10 +122,6 @@ def find_boundary_polygons_in_circle(
             faces_in_circle.append(face)
             face_indices_in_circle.append(face_idx)
             mat = face_materials.get(face_idx)  # ← Dict-Zugriff statt Index
-            if mat == "terrain":
-                terrain_face_count += 1
-            elif mat in ("slope", "road"):
-                slope_face_count += 1
 
     if len(faces_in_circle) < 2:
         return []
@@ -147,8 +139,6 @@ def find_boundary_polygons_in_circle(
     # - Fall A: nur 1 Face (klassische Außengrenze)
     # - Fall B: genau 2 Faces mit unterschiedlichem Material (Terrain vs. Slope/Road)
     boundary_edges_single_edges = []
-    boundary_edges_mixed = 0
-    boundary_edges_single = 0
 
     for edge, face_list in edge_to_faces.items():
         v1, v2 = edge
@@ -157,7 +147,6 @@ def find_boundary_polygons_in_circle(
 
         if len(face_list) == 1:
             boundary_edges_single_edges.append(edge)
-            boundary_edges_single += 1
         elif len(face_list) == 2:
             f1, f2 = face_list
             f1_mat = face_materials.get(f1)  # ← Dict-Zugriff statt Index
@@ -165,7 +154,7 @@ def find_boundary_polygons_in_circle(
             f1_is_terrain = f1_mat == "terrain"
             f2_is_terrain = f2_mat == "terrain"
             if f1_is_terrain != f2_is_terrain:
-                boundary_edges_mixed += 1
+                pass  # Material-Wechsel-Kante wird nicht als Boundary behandelt
 
     # Skip, wenn keine offenen Boundary-Edges vorhanden sind
     if len(boundary_edges_single_edges) < 3:
@@ -181,6 +170,17 @@ def find_boundary_polygons_in_circle(
         else {idx for idx, mat in enumerate(face_materials) if mat == "terrain"}
     )
 
+    # Detektiere ob wir am letzten Centerline-Punkt sind (Sackgasse)
+    is_last_centerline_point = False
+    if centerline_geometry is not None and len(centerline_geometry) >= 2:
+        first_point = centerline_geometry[0]
+        last_point = centerline_geometry[-1]
+        # Prüfe ob aktueller Punkt der ERSTE oder LETZTE ist (unabhängig von Richtung)
+        if np.allclose(centerline_point[:2], first_point[:2], atol=0.1) or np.allclose(
+            centerline_point[:2], last_point[:2], atol=0.1
+        ):
+            is_last_centerline_point = True
+
     # Finde Connected Components (ohne Centerline-Überquerungen, getrennt nach Face-Typ)
     components = _find_connected_components(
         boundary_edges,
@@ -191,6 +191,7 @@ def find_boundary_polygons_in_circle(
         centerline_point,
         edge_to_faces,
         terrain_face_set,
+        is_last_point=is_last_centerline_point,
     )
 
     _export_component_lines_to_debug(
@@ -229,7 +230,8 @@ def find_boundary_polygons_in_circle(
     # Filtere offene Components (die keinen Partner gefunden haben)
     # Nur geschlossene Polygone triangulieren
     closed_components = []
-    for comp in components:
+    open_components_count = 0
+    for comp_idx, comp in enumerate(components):
         # Prüfe ob Component geschlossen ist (keine Endpunkte)
         adj = defaultdict(set)
         for v1, v2 in comp:
@@ -242,6 +244,8 @@ def find_boundary_polygons_in_circle(
         if endpoint_count == 0:
             # Geschlossen - behalten
             closed_components.append(comp)
+        else:
+            open_components_count += 1
 
     components = closed_components
 
@@ -321,28 +325,44 @@ def _edges_cross_centerline_vectorized(edges_arr, verts, seg_start_arr, seg_vec_
 
 
 def _find_connected_components(
-    boundary_edges, verts, seg_start_arr, seg_vec_arr, seg_mid_arr, centerline_point, edge_to_faces, terrain_face_set
+    boundary_edges,
+    verts,
+    seg_start_arr,
+    seg_vec_arr,
+    seg_mid_arr,
+    centerline_point,
+    edge_to_faces,
+    terrain_face_set,
+    is_last_point=False,
 ):
     """
     Findet alle zusammenhängenden Komponenten in Edge-Liste.
 
     Verwendet DFS um alle zusammenhängenden Edge-Gruppen zu finden.
-    Edges die die Centerline überqueren werden ignoriert.
+    Edges die die Centerline überqueren werden ignoriert (AUSSER am letzten Centerline-Punkt).
     WICHTIG: Edges werden nach Face-Typ getrennt (terrain vs road)!
     Components mit unterschiedlichen Face-Typen werden getrennt gehalten,
     auch wenn sie topologisch zusammenhängen.
 
     Jede Komponente wird als Liste von Edges zurückgegeben.
+
+    Args:
+        is_last_point: Wenn True, wird der Cross-Filter deaktiviert (Sackgasse)
     """
     if not boundary_edges:
         return []
 
     # Vectorized Centerline-Crossing Filter
-    edges_arr = np.array(boundary_edges, dtype=int)
-    crosses = _edges_cross_centerline_vectorized(
-        edges_arr, verts, seg_start_arr, seg_vec_arr, seg_mid_arr, centerline_point
-    )
-    valid_edges_arr = edges_arr[~crosses]
+    # AUSNAHME: Am letzten Centerline-Punkt (Sackgasse) wird dieser Filter deaktiviert
+    if is_last_point:
+        # Keine Filterung - akzeptiere alle Edges
+        valid_edges_arr = np.array(boundary_edges, dtype=int)
+    else:
+        edges_arr = np.array(boundary_edges, dtype=int)
+        crosses = _edges_cross_centerline_vectorized(
+            edges_arr, verts, seg_start_arr, seg_vec_arr, seg_mid_arr, centerline_point
+        )
+        valid_edges_arr = edges_arr[~crosses]
 
     # Klassifiziere jede Edge nach Face-Typ (terrain vs road)
     edge_types = {}  # (v1, v2) → "terrain" oder "road"
@@ -401,7 +421,7 @@ def _find_connected_components(
                 if neighbor not in component_verts:
                     stack.append(neighbor)
 
-        if len(component_verts) >= 3:
+        if len(component_verts) >= 2:
             # Extrahiere die zugehörigen terrain-Edges
             comp_edges = []
             for v1, v2 in valid_edges_arr:
@@ -415,8 +435,6 @@ def _find_connected_components(
 
     # Road-Components (mit separatem visited_vertices für Road!)
     visited_vertices_road = set()
-    road_components_found = 0
-    road_components_checked = 0
     for start_v in adj_road.keys():
         if start_v in visited_vertices_road:
             continue
@@ -437,7 +455,7 @@ def _find_connected_components(
                 if neighbor not in component_verts:
                     stack.append(neighbor)
 
-        if len(component_verts) >= 3:
+        if len(component_verts) >= 2:
             # Extrahiere die zugehörigen road-Edges
             comp_edges = []
             for v1, v2 in valid_edges_arr:
@@ -446,7 +464,6 @@ def _find_connected_components(
                     comp_edges.append((v1, v2))
 
             if len(comp_edges) >= 1:
-                road_components_found += 1
                 components_edges.append(comp_edges)
 
     return components_edges
