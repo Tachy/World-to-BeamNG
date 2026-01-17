@@ -4,6 +4,8 @@ Zentrale Konfiguration fuer World-to-BeamNG.
 
 from .osm.osm_mapper import OSMMapper
 
+LEVEL_NAME = "world_to_beamng"  # Name des BeamNG Levels (muss mit BEAMNG_DIR übereinstimmen)
+
 # OSM Mapper Singleton (lädt data/osm_to_beamng.json)
 OSM_MAPPER = OSMMapper(config_path="data/osm_to_beamng.json")
 
@@ -24,12 +26,19 @@ RELATIVE_DIR_BUILDINGS = RELATIVE_DIR_SHAPES + "buildings/"
 ITEMS_JSON = "main\\MissionGroup\\items.level.json"  # Items im MissionGroup-Verzeichnis
 MATERIALS_JSON = "main\\materials.json"  # Enthält Material-Definitionen
 
+# Ablaufsteuerung
+LOD2_ENABLED = True  # LoD2-Gebäude verarbeiten
+PHASE5_ENABLED = True  # Horizont-Layer aktivieren (erfordert DGM30 + DOP300 Daten)
+HORIZON_BOUNDARY_STITCHING = True  # Stitching zwischen Terrain und Horizon aktivieren
+
+
 # === MATERIAL-EINSTELLUNGEN ===
 # Materialien verwenden IMMER Texturen (keine Farb-Fallbacks)
 
-# === OpenTopography API ===
+# === OpenTopography API für Horizont ===
 OPENTOPOGRAPHY_API_KEY = "9805a06e82a636afd885c07a2f2e1838"  # Registrierung: https://opentopography.org/
 OPENTOPOGRAPHY_ENABLED = False  # Automatischer Download von DGM30 aktivieren
+HORIZON_GRID_SPACING = 200  # Horizont-Grid Auflösung in Metern (200m)
 
 # === MESH-PARAMETER ===
 ROAD_WIDTH = 7.0
@@ -42,18 +51,14 @@ JUNCTION_STOP_BUFFER = 5.0
 GENERATE_SLOPES = False
 # Minimale Boeschungsbreite (Meter) unabhängig von Hoehenunterschieden
 MIN_SLOPE_WIDTH = 2
-# Loch-Check schaltbar: False = kein Check/Export, True = Check + immer Export
-HOLE_CHECK_ENABLED = False
 SLOPE_ANGLE = 45.0  # Neigungswinkel der Boeschung in Grad (45° = 1:1 Steigung)
 # Vorab-Reduktion ueber groeberes Grid (Strategie 2). Fuer feineres Terrain z.B. 1.0 setzen.
 GRID_SPACING = 2.0  # Abstand zwischen Grid-Punkten in Metern (1.0 = sehr fein, 10.0 = grob)
 TERRAIN_REDUCTION = 0  # Decimation bleibt aus; steuern wir ueber GRID_SPACING
-LEVEL_NAME = "world_to_beamng"  # Name des BeamNG Levels (muss mit BEAMNG_DIR übereinstimmen)
 
 # DEBUG / EXPORTS
 DEBUG_EXPORTS = True  # Debug-Dumps (Netz, Grid) nur bei Bedarf aktivieren
 DEBUG_VERBOSE = False  # Zusätzliche Konsolen-Logs
-SKIP_PHASES_2_TO_4_IF_MAIN_ITEMS_EXISTS = True  # Wenn main.items.json existiert, Phase 2-4 überspringen
 
 # === STRASSENGLÄTTUNG / OPTIONEN ===
 ENABLE_ROAD_SMOOTHING = True  # False = Spline-Glättung komplett aus
@@ -70,7 +75,6 @@ CLIP_ROAD_FACES_AT_BOUNDS = True  # True = Entferne Straßen-Dreiecke, die kompl
 
 # === TILE-EXPORT (DAE) ===
 TILE_SIZE = 500  # Größe pro DAE-Tile in Metern
-MATERIAL_TYPES = ["terrain", "road"]  # Verfügbare Materialien (später erweiterbar)
 
 
 # === VERZEICHNISSE ===
@@ -80,16 +84,6 @@ LOD2_DATA_DIR = "data/LOD2"  # Verzeichnis mit 3D-Gebäudemodellen (CityGML)
 DGM30_DATA_DIR = "data/DGM30"  # Verzeichnis mit 30m Höhendaten für Horizont
 DOP300_DATA_DIR = "data/DOP300"  # Verzeichnis mit Sentinel-2 RGB Bildern
 
-# === GEBÄUDE (LoD2) ===
-LOD2_ENABLED = True  # LoD2-Gebäude verarbeiten
-LOD2_SNAP_TO_TERRAIN = True  # Gebäude auf Terrain ausrichten
-LOD2_FOUNDATION_EXTRUDE = 0.5  # Meter: Wände nach unten verlängern für Fundament
-
-# === PHASE 5: HORIZONT-LAYER ===
-PHASE5_ENABLED = True  # Horizont-Layer aktivieren (erfordert DGM30 + DOP300 Daten)
-HORIZON_BBOX_BUFFER = 50000  # Buffer um Kerngebiet in Metern (50km)
-HORIZON_GRID_SPACING = 200  # Horizont-Grid Auflösung in Metern (200m)
-HORIZON_BOUNDARY_STITCHING = True  # Stitching zwischen Terrain und Horizon aktivieren
 
 # === MULTIPROCESSING ===
 # WARNUNG: Unter Windows kann Multiprocessing hängen bleiben!
@@ -100,9 +94,6 @@ NUM_WORKERS = 4  # None = Automatisch (alle CPU-Kerne), oder Anzahl (z.B. 4)
 HEIGHT_LOOKUP_MODE = "kdtree"
 # Maximale Strassen pro Batch im Multiprocessing
 MAX_ROADS_PER_BATCH = 500
-
-# === PHASE-SKIPPING ===
-SKIP_PHASES_2_TO_4_IF_ITEMS_EXISTS = True  # Wenn items.json existiert, Phase 2-4 überspringen
 
 # === GLOBALE ZUSTANDSVARIABLEN (werden in main() initialisiert) ===
 # WICHTIG: Nur echte GLOBALE Parameter hier! Keine Tile-spezifischen Werte!
