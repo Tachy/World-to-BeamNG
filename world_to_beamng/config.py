@@ -35,6 +35,10 @@ HORIZON_BOUNDARY_STITCHING = True  # Stitching zwischen Terrain und Horizon akti
 # === MATERIAL-EINSTELLUNGEN ===
 # Materialien verwenden IMMER Texturen (keine Farb-Fallbacks)
 
+# === MESH-HOLE-FILLING ===
+FILL_ALL_MESH_HOLES = False  # Schließe ALLE Boundary-Holes (äußer + Inseln)
+FILL_HOLES_MAX_EDGE_LENGTH = 100.0  # Warnung bei Edge-Länge > X Metern
+
 # === OpenTopography API für Horizont ===
 OPENTOPOGRAPHY_API_KEY = "9805a06e82a636afd885c07a2f2e1838"  # Registrierung: https://opentopography.org/
 OPENTOPOGRAPHY_ENABLED = False  # Automatischer Download von DGM30 aktivieren

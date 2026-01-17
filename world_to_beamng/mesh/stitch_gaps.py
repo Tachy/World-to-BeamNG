@@ -8,6 +8,7 @@ from shapely.geometry import LineString
 from scipy.spatial import cKDTree
 
 from .. import config
+from .fill_all_mesh_holes import fill_all_mesh_holes
 from ..config import OSM_MAPPER
 from .stitch_local import find_boundary_polygons_in_circle
 from ..utils.debug_exporter import DebugNetworkExporter
@@ -180,6 +181,19 @@ def stitch_all_gaps(
                 ):
                     print(f"  [DEBUG] Stoppe bei Straße #{valid_road_count}, Suchkreis #{circle_count}")
                     return []
+
+    # === STEP 3: Schließe verbliebene Löcher (Inseln, etc.) ===
+    holes_filled = 0
+    if config.FILL_ALL_MESH_HOLES:
+        print(f"\n  [Hole-Filling] Schließe alle verbliebenen Mesh-Holes...")
+        holes_filled = fill_all_mesh_holes(
+            mesh_obj=mesh,
+            vertex_manager=vertex_manager,
+            max_edge_length=config.FILL_HOLES_MAX_EDGE_LENGTH,
+        )
+        print(f"  [✓] {holes_filled} Faces durch Hole-Filling eingefügt\n")
+    else:
+        print(f"  [i] Hole-Filling deaktiviert (config.FILL_ALL_MESH_HOLES=False)")
 
     return []
 

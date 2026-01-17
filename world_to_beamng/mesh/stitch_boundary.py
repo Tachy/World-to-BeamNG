@@ -409,7 +409,9 @@ def stitch_ring_strip(
         horizon_side_vertices = horizon_sides[side]
 
         if len(terrain_side_vertices) == 0 or len(horizon_side_vertices) == 0:
-            print(f"    [!] FEHLER: Seite {side} hat keine Vertices (Terrain: {len(terrain_side_vertices)}, Horizon: {len(horizon_side_vertices)})")
+            print(
+                f"    [!] FEHLER: Seite {side} hat keine Vertices (Terrain: {len(terrain_side_vertices)}, Horizon: {len(horizon_side_vertices)})"
+            )
             continue
 
         # Sortiere beide nach Position entlang der Seite
