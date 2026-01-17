@@ -42,7 +42,6 @@ BUILDINGS_DIR = "buildings"
 # Dateinamen
 MATERIALS_JSON = "materials.json"
 ITEMS_JSON_FILENAME = "items.json"
-DEBUG_NETWORK_JSON = "debug_network.json"
 
 # DAE Dateinamen und Muster
 TERRAIN_DAE_PATTERN = "terrain_*.dae"
@@ -93,7 +92,6 @@ class ExportIntegrityTest:
         self.textures_dir = Path(config.BEAMNG_DIR_TEXTURES)
         self.buildings_dir = Path(config.BEAMNG_DIR_BUILDINGS)
         self.cache_dir = Path(config.CACHE_DIR)
-        self.debug_network_path = self.cache_dir / DEBUG_NETWORK_JSON
 
         # Lade items.json als Root-Verzeichnis
         self.items = {}
@@ -1492,299 +1490,6 @@ class ExportIntegrityTest:
         else:
             self.success(f"Alle {total_geometries} Geometrien haben Texturen")
 
-    def test_debug_network_json(self):
-        """Teste debug_network.json Integrität und Konsistenz."""
-        print("\n[6] Teste debug_network.json...")
-
-        if not self.debug_network_path.exists():
-            self.warning(f"debug_network.json nicht gefunden: {self.debug_network_path}")
-            return
-
-        self.success(f"debug_network.json gefunden")
-
-        try:
-            with open(self.debug_network_path, "r", encoding="utf-8") as f:
-                debug_data = json.load(f)
-
-            self.success("debug_network.json erfolgreich geparst")
-
-            # Prüfe notwendige Top-Level Keys
-            required_keys = ["roads", "junctions", "grid_colors", "boundary_polygons"]
-            missing_keys = [k for k in required_keys if k not in debug_data]
-
-            if missing_keys:
-                self.error(f"Erforderliche Keys fehlen: {missing_keys}")
-            else:
-                self.success("Alle erforderlichen Sections vorhanden")
-
-            # === Prüfe ROADS ===
-            roads = debug_data.get("roads", [])
-            self.success(f"{len(roads)} Roads definiert")
-
-            if roads:
-                invalid_roads = []
-                missing_colors = []
-                for idx, road in enumerate(roads):
-                    if "road_id" not in road:
-                        invalid_roads.append(f"Road[{idx}]: fehlt 'road_id'")
-                    if "coords" not in road or not isinstance(road["coords"], list):
-                        invalid_roads.append(f"Road[{idx}]: fehlt/invalid 'coords'")
-                    elif len(road["coords"]) < 2:
-                        invalid_roads.append(f"Road[{idx}]: weniger als 2 Koordinaten")
-                    else:
-                        # Prüfe Koordinaten-Format
-                        for coord_idx, coord in enumerate(road["coords"]):
-                            if not isinstance(coord, list) or len(coord) != 3:
-                                invalid_roads.append(
-                                    f"Road[{idx}].coords[{coord_idx}]: ungültiges Format (erwartet [x,y,z])"
-                                )
-                                break
-
-                    if "junction_start_id" not in road or "junction_end_id" not in road:
-                        invalid_roads.append(f"Road[{idx}]: fehlen Junction-IDs")
-
-                    # Prüfe Farbdefinitionen (Debug-Layer-Objekte)
-                    required_color_fields = ["color", "line_width", "opacity"]
-                    missing_fields = [f for f in required_color_fields if f not in road]
-                    if missing_fields:
-                        missing_colors.append(f"Road[{idx}]: fehlen {missing_fields}")
-
-                if invalid_roads:
-                    self.error(f"{len(invalid_roads)} Roads mit Fehlern:")
-                    for err in invalid_roads[:5]:
-                        self.error(f"  - {err}")
-                    if len(invalid_roads) > 5:
-                        self.error(f"  ... und {len(invalid_roads)-5} weitere")
-                else:
-                    self.success("Alle Roads haben valide Struktur")
-
-                if missing_colors:
-                    self.error(f"{len(missing_colors)} Roads ohne vollständige Farbdefinition:")
-                    for err in missing_colors[:5]:
-                        self.error(f"  - {err}")
-                    if len(missing_colors) > 5:
-                        self.error(f"  ... und {len(missing_colors)-5} weitere")
-                else:
-                    self.success("Alle Roads haben Farbdefinitionen (color, line_width, opacity)")
-
-            # === Prüfe JUNCTIONS ===
-            junctions = debug_data.get("junctions", [])
-            self.success(f"{len(junctions)} Junctions definiert")
-
-            if junctions:
-                invalid_junctions = []
-                missing_colors = []
-                for idx, junction in enumerate(junctions):
-                    if "position" not in junction:
-                        invalid_junctions.append(f"Junction[{idx}]: fehlt 'position'")
-                    elif not isinstance(junction["position"], list) or len(junction["position"]) != 3:
-                        invalid_junctions.append(f"Junction[{idx}]: ungültiges Position-Format")
-
-                    # Prüfe Farbdefinitionen (Debug-Layer-Objekte)
-                    required_color_fields = ["color", "opacity"]
-                    missing_fields = [f for f in required_color_fields if f not in junction]
-                    if missing_fields:
-                        missing_colors.append(f"Junction[{idx}]: fehlen {missing_fields}")
-
-                if invalid_junctions:
-                    self.error(f"{len(invalid_junctions)} Junctions mit Fehlern:")
-                    for err in invalid_junctions[:5]:
-                        self.error(f"  - {err}")
-                else:
-                    self.success("Alle Junctions haben valide Struktur")
-
-                if missing_colors:
-                    self.error(f"{len(missing_colors)} Junctions ohne vollständige Farbdefinition:")
-                    for err in missing_colors[:5]:
-                        self.error(f"  - {err}")
-                    if len(missing_colors) > 5:
-                        self.error(f"  ... und {len(missing_colors)-5} weitere")
-                else:
-                    self.success("Alle Junctions haben Farbdefinitionen (color, opacity)")
-
-            # === Prüfe GRID_COLORS ===
-            grid_colors = debug_data.get("grid_colors", {})
-            if grid_colors:
-                self.success(f"grid_colors vorhanden ({len(grid_colors)} Einträge)")
-
-                required_color_keys = ["building_wall", "building_roof"]
-                missing_color_keys = [k for k in required_color_keys if k not in grid_colors]
-
-                if missing_color_keys:
-                    self.warning(f"grid_colors: Fehlende Standard-Keys: {missing_color_keys}")
-                else:
-                    # Prüfe Struktur der Color-Definitionen
-                    # Mesh-Layer (terrain, road, building_*) brauchen: face, edge, face_opacity, edge_opacity
-                    # Debug-Layer (junction, centerline, boundary) brauchen: color, opacity
-                    invalid_colors = []
-                    for color_name, color_def in grid_colors.items():
-                        # Debug-Layer haben andere Struktur
-                        if color_name in [
-                            MATERIAL_PREFIX_JUNCTION,
-                            MATERIAL_PREFIX_CENTERLINE,
-                            MATERIAL_PREFIX_BOUNDARY,
-                        ]:
-                            required_fields = ["color", "opacity"]
-                        else:
-                            # Mesh-Layer
-                            required_fields = ["face", "edge", "face_opacity", "edge_opacity"]
-
-                        missing_fields = [f for f in required_fields if f not in color_def]
-                        if missing_fields:
-                            invalid_colors.append(f"{color_name}: fehlen {missing_fields}")
-
-                    if invalid_colors:
-                        for err in invalid_colors[:5]:
-                            self.warning(f"  - {err}")
-                    else:
-                        self.success("grid_colors haben valide Struktur")
-            else:
-                self.warning("grid_colors nicht vorhanden")
-
-            # === Prüfe BOUNDARY_POLYGONS ===
-            boundary_polygons = debug_data.get("boundary_polygons", [])
-            self.success(f"{len(boundary_polygons)} Boundary-Polygone definiert")
-
-            if boundary_polygons:
-                invalid_polygons = []
-                polygon_types = {}
-
-                for idx, poly in enumerate(boundary_polygons):
-                    poly_type = poly.get("type", "unknown")
-                    polygon_types[poly_type] = polygon_types.get(poly_type, 0) + 1
-
-                    if "type" not in poly:
-                        invalid_polygons.append(f"Polygon[{idx}]: fehlt 'type'")
-                    elif poly_type not in ["boundary", "search_circle"]:
-                        invalid_polygons.append(f"Polygon[{idx}]: unbekannter type '{poly_type}'")
-
-                    if "coords" not in poly or not isinstance(poly["coords"], list):
-                        invalid_polygons.append(f"Polygon[{idx}]: fehlt/invalid 'coords'")
-                    elif len(poly["coords"]) < 2:
-                        invalid_polygons.append(f"Polygon[{idx}]: weniger als 2 Koordinaten")
-
-                    if "color" not in poly or not isinstance(poly["color"], list) or len(poly["color"]) != 3:
-                        invalid_polygons.append(f"Polygon[{idx}]: fehlt/invalid 'color' (RGB [0-1])")
-
-                if polygon_types:
-                    self.success(f"Polygon-Typen: {polygon_types}")
-
-                if invalid_polygons:
-                    self.error(f"{len(invalid_polygons)} Polygone mit Fehlern:")
-                    for err in invalid_polygons[:5]:
-                        self.error(f"  - {err}")
-                    if len(invalid_polygons) > 5:
-                        self.error(f"  ... und {len(invalid_polygons)-5} weitere")
-                else:
-                    self.success("Alle Boundary-Polygone haben valide Struktur")
-
-            # === Konsistenz-Prüfung: Roads vs. Junctions ===
-            if roads and junctions:
-                max_junction_id = len(junctions) - 1
-                invalid_refs = []
-
-                for road_idx, road in enumerate(roads):
-                    jstart = road.get("junction_start_id")
-                    jend = road.get("junction_end_id")
-
-                    if jstart is not None and (jstart < 0 or jstart > max_junction_id):
-                        invalid_refs.append(
-                            f"Road[{road_idx}]: junction_start_id {jstart} außerhalb Range [0-{max_junction_id}]"
-                        )
-                    if jend is not None and (jend < 0 or jend > max_junction_id):
-                        invalid_refs.append(
-                            f"Road[{road_idx}]: junction_end_id {jend} außerhalb Range [0-{max_junction_id}]"
-                        )
-
-                if invalid_refs:
-                    self.error(f"{len(invalid_refs)} ungültige Junction-Referenzen:")
-                    for err in invalid_refs[:5]:
-                        self.error(f"  - {err}")
-                    if len(invalid_refs) > 5:
-                        self.error(f"  ... und {len(invalid_refs)-5} weitere")
-                else:
-                    self.success("Alle Road-Junction-Referenzen sind konsistent")
-
-            # === INTEGRITÄT: Z-Koordinaten der Debug-Daten ===
-            print("  [Debug-Layer] Validiere Z-Koordinaten...")
-            z_errors = []
-
-            # Prüfe Junction-Positionen
-            for idx, junction in enumerate(junctions):
-                pos = junction.get("position", [])
-                if len(pos) == 3:
-                    x, y, z = pos
-                    if not all(
-                        isinstance(v, (int, float)) and not (abs(v) == float("inf") or v != v) for v in [x, y, z]
-                    ):
-                        z_errors.append(f"Junction[{idx}]: ungültige Koordinaten (NaN/Inf)")
-
-            # Prüfe Road-Centerline-Koordinaten
-            for road_idx, road in enumerate(roads):
-                coords = road.get("coords", [])
-                for coord_idx, coord in enumerate(coords):
-                    if len(coord) == 3:
-                        x, y, z = coord
-                        if not all(
-                            isinstance(v, (int, float)) and not (abs(v) == float("inf") or v != v) for v in [x, y, z]
-                        ):
-                            z_errors.append(f"Road[{road_idx}].coords[{coord_idx}]: ungültige Koordinaten (NaN/Inf)")
-                            break
-
-            # Prüfe Boundary-Polygon-Koordinaten
-            for poly_idx, poly in enumerate(boundary_polygons):
-                coords = poly.get("coords", [])
-                for coord_idx, coord in enumerate(coords):
-                    if len(coord) == 3:
-                        x, y, z = coord
-                        if not all(
-                            isinstance(v, (int, float)) and not (abs(v) == float("inf") or v != v) for v in [x, y, z]
-                        ):
-                            z_errors.append(
-                                f"Boundary[{poly_idx}].coords[{coord_idx}]: ungültige Koordinaten (NaN/Inf)"
-                            )
-                            break
-
-            if z_errors:
-                self.error(f"{len(z_errors)} Z-Koordinaten-Fehler im Debug-Layer:")
-                for err in z_errors[:5]:
-                    self.error(f"  - {err}")
-                if len(z_errors) > 5:
-                    self.error(f"  ... und {len(z_errors)-5} weitere")
-            else:
-                self.success("Alle Debug-Layer Z-Koordinaten sind valide (keine NaN/Inf)")
-
-            # === INTEGRITÄT: Z-Range Konsistenz ===
-            print("  [Debug-Layer] Prüfe Z-Koordinaten-Bereiche...")
-            junction_zs = [j["position"][2] for j in junctions if "position" in j and len(j["position"]) == 3]
-            road_zs = []
-            for road in roads:
-                road_zs.extend([c[2] for c in road.get("coords", []) if len(c) == 3])
-            boundary_zs = []
-            for poly in boundary_polygons:
-                boundary_zs.extend([c[2] for c in poly.get("coords", []) if len(c) == 3])
-
-            if junction_zs:
-                junc_z_range = (min(junction_zs), max(junction_zs))
-                self.success(f"Junctions Z-Range: [{junc_z_range[0]:.2f}, {junc_z_range[1]:.2f}]")
-
-            if road_zs:
-                road_z_range = (min(road_zs), max(road_zs))
-                self.success(f"Roads (Centerlines) Z-Range: [{road_z_range[0]:.2f}, {road_z_range[1]:.2f}]")
-
-            if boundary_zs:
-                boundary_z_range = (min(boundary_zs), max(boundary_zs))
-                self.success(f"Boundaries Z-Range: [{boundary_z_range[0]:.2f}, {boundary_z_range[1]:.2f}]")
-
-            # === Gesamtstatistik ===
-            debug_json_size = self.debug_network_path.stat().st_size
-            self.success(f"debug_network.json Größe: {debug_json_size/1024:.1f} KB")
-
-        except json.JSONDecodeError as e:
-            self.error(f"JSON-Parse-Fehler: {e}")
-        except Exception as e:
-            self.error(f"Fehler beim Testen: {e}")
-
     def test_xyz_normalization(self):
         """Teste XYZ-Koordinaten-Normalisierung aller Objekte."""
         print("\n[7] Teste XYZ-Koordinaten-Normalisierung...")
@@ -1850,54 +1555,10 @@ class ExportIntegrityTest:
                 if len(building_z_ranges) > 5:
                     print(f"      ... und {len(building_z_ranges)-5} weitere")
 
-        # === LADE DEBUG_NETWORK.JSON ===
-        debug_z_values = {"roads": [], "junctions": [], "boundaries": []}
-
-        if self.debug_network_path.exists():
-            try:
-                with open(self.debug_network_path, "r", encoding="utf-8") as f:
-                    debug_data = json.load(f)
-
-                # Roads
-                roads = debug_data.get("roads", [])
-                for road in roads:
-                    coords = road.get("coords", [])
-                    for coord in coords:
-                        if len(coord) >= 3:
-                            debug_z_values["roads"].append(coord[2])
-
-                # Junctions
-                junctions = debug_data.get("junctions", [])
-                for junction in junctions:
-                    pos = junction.get("position", [])
-                    if len(pos) >= 3:
-                        debug_z_values["junctions"].append(pos[2])
-
-                # Boundary Polygons
-                boundary_polygons = debug_data.get("boundary_polygons", [])
-                for poly in boundary_polygons:
-                    coords = poly.get("coords", [])
-                    for coord in coords:
-                        if len(coord) >= 3:
-                            debug_z_values["boundaries"].append(coord[2])
-
-                # Statistik
-                for key, z_values in debug_z_values.items():
-                    if z_values:
-                        z_min, z_max = min(z_values), max(z_values)
-                        z_mean = np.mean(z_values)
-                        count = len(z_values)
-                        self.success(
-                            f"Debug {key.capitalize()}: {count} Coordinates, Z=[{z_min:.2f}, {z_max:.2f}], M={z_mean:.2f}"
-                        )
-
-            except Exception as e:
-                self.warning(f"Debug-Daten-Analyse: {e}")
-
         # === KONSISTENZ-PRÜFUNG ===
         print("\n  [Konsistenz] Vergleiche Z-Koordinaten zwischen Objekten:")
 
-        all_z_values = terrain_z_values + building_z_values + debug_z_values["roads"] + debug_z_values["junctions"]
+        all_z_values = terrain_z_values + building_z_values
 
         if all_z_values:
             z_min, z_max = min(all_z_values), max(all_z_values)
@@ -2323,7 +1984,6 @@ class ExportIntegrityTest:
         self.test_items_json()
         self.test_textures()
         self.test_texture_mapping()
-        self.test_debug_network_json()
         self.test_xyz_normalization()
 
         # Horizon-Tests

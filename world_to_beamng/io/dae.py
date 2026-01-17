@@ -52,6 +52,13 @@ def export_separate_tile_daes(
         if len(faces) == 0:
             continue
 
+        # === FILTER: Ignoriere Mini-Tiles (Stitch-Artefakte) ===
+        # Tiles mit weniger als 10 Faces sind wahrscheinlich Fehler beim Gap-Filling
+        min_faces_threshold = 10
+        if len(faces) < min_faces_threshold:
+            print(f"      [Filter] Ignoriere Mini-Tile tile_{tile_x * tile_size}_{tile_y * tile_size}: nur {len(faces)} Faces")
+            continue
+
         # Berechne Welt-Koordinaten
         corner_x = tile_x * tile_size
         corner_y = tile_y * tile_size
@@ -309,7 +316,10 @@ def export_merged_dae(
     for mesh_data in meshes:
         faces_dict = mesh_data.get("faces", {})
         if isinstance(faces_dict, dict):
-            all_material_names.update(faces_dict.keys())
+            # NUR Materialien mit echten Faces hinzufügen (nicht leere Platzhalter)
+            for mat_name, face_list in faces_dict.items():
+                if len(face_list) > 0:  # ← Nur wenn Faces existieren
+                    all_material_names.add(mat_name)
 
     # Erstelle Materials für alle Namen
     for mat_name in all_material_names:
