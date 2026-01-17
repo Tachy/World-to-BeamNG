@@ -486,9 +486,39 @@ def stitch_ring_strip(
                 # Es gibt einen näheren Horizon-Vertex
                 dist_t_next_h_next = np.linalg.norm(vertices[t_next][:2] - vertices[h_next][:2])
                 if dist_t_next_h_next < dist_t_next_h_curr:
+                    # === FÜLL-DREIECKE: Wenn Horizon-Index springt ===
+                    index_jump = h_next_idx - h_curr_idx
+
+                    # Behandle auch negative Sprünge (Wrap-around am Ende der Liste)
+                    if index_jump < 0:
+                        index_jump += len(horizon_side_vertices)
+
+                    if index_jump >= 1:
+                        # Fülle Lücke mit Dreiecken für jeden Sprung
+                        for fill_offset in range(1, index_jump + 1):
+                            fill_idx = (h_curr_idx + fill_offset) % len(horizon_side_vertices)
+                            h_fill = horizon_side_vertices[fill_idx]
+                            h_fill_prev = horizon_side_vertices[
+                                (h_curr_idx + fill_offset - 1) % len(horizon_side_vertices)
+                            ]
+
+                            # Füll-Dreieck: t_next -> h_fill_prev -> h_fill (nutze nächsten Terrain-Vertex für konsistente Reihenfolge)
+                            faces.append((t_next, h_fill_prev, h_fill))
+
                     # Nächster Horizon-Vertex ist näher - wechsle
                     h_prev_idx = h_curr_idx
                     h_curr_idx = h_next_idx
+
+        # === Abschluss: Falls letzter Horizon-Eckpunkt noch nicht genutzt wurde, fülle bis zum Ende ===
+        last_t_vertex = terrain_side_vertices[-1]
+        last_horizon_idx = len(horizon_side_vertices) - 1
+        if h_curr_idx < last_horizon_idx:
+            for fill_idx in range(h_curr_idx + 1, last_horizon_idx + 1):
+                h_fill = horizon_side_vertices[fill_idx]
+                h_fill_prev = horizon_side_vertices[fill_idx - 1]
+
+                # Füll-Dreieck mit letztem Terrain-Vertex zur Ecke hin
+                faces.append((last_t_vertex, h_fill_prev, h_fill))
 
     print(f"    [i] Ring-Strip Faces: {len(faces)}")
     return faces
