@@ -191,18 +191,18 @@ def extract_horizon_boundary_ring(
     # WICHTIG: Der Horizon hat ein LOCH in der Mitte (wo das Terrain ist).
     # - Innere Boundary: Rand des Lochs (direkt außerhalb des Terrain-Bereichs)
     # - Äußere Boundary: Äußerer Rand des Horizon-Meshes (weit draußen)
-    
+
     vertices = horizon_vertex_manager.vertices
     x_min, x_max, y_min, y_max = grid_bounds
-    
+
     # Importiere HORIZON_GRID_SPACING
     from .. import config
-    
+
     # EINFACHE GEOMETRISCHE FILTERUNG:
     # Innere Boundary = Vertices, die nahe am Terrain-Bereich liegen
     # Erweitere die Terrain-Bounds um ein paar Grid-Spacings
     buffer = config.HORIZON_GRID_SPACING * 2.0  # 400m Buffer
-    
+
     inner_x_min = x_min - buffer
     inner_x_max = x_max + buffer
     inner_y_min = y_min - buffer
@@ -214,7 +214,7 @@ def extract_horizon_boundary_ring(
     for v_idx in boundary_vertices:
         v = vertices[v_idx]
         x, y = v[0], v[1]
-        
+
         # Prüfe ob Vertex innerhalb des erweiterten Bereichs liegt
         if inner_x_min <= x <= inner_x_max and inner_y_min <= y <= inner_y_max:
             inner_boundary.append(v_idx)
@@ -284,40 +284,39 @@ def stitch_ring_strip(
     terrain_x_max = terrain_coords[:, 0].max()
     terrain_y_min = terrain_coords[:, 1].min()
     terrain_y_max = terrain_coords[:, 1].max()
-    
+
     # WICHTIG: Verwende TERRAIN Bounds für die Seiten-Zuordnung!
     # Die Horizon-Ring-Vertices liegen auf einem regulären Grid - EXAKT auf horizontalen/vertikalen Linien
     # KEINE Toleranz nötig, da die Quads perfekt ausgerichtet sind!
     horizon_coords = vertices[horizon_vertices_idx][:, :2]
-    
+
     tolerance = 1.0  # 1m: Nur für Rundungsfehler, Vertices liegen exakt auf Grid-Linien
 
-    print(f"    [i] Terrain-Bounds: X=[{terrain_x_min:.0f}..{terrain_x_max:.0f}], Y=[{terrain_y_min:.0f}..{terrain_y_max:.0f}]")
+    print(
+        f"    [i] Terrain-Bounds: X=[{terrain_x_min:.0f}..{terrain_x_max:.0f}], Y=[{terrain_y_min:.0f}..{terrain_y_max:.0f}]"
+    )
     print(f"    [i] Stitching-Toleranz: {tolerance:.0f}m (exakte Grid-Linien)")
 
     # === STEP 2: Zerlege beide Ringe in 4 Seiten (mit Linien-Filter) ===
-    def assign_sides_with_line_filter(vertices_idx, coords, x_min, x_max, y_min, y_max, coarse_tolerance=300.0, line_tolerance=1.0):
+    def assign_sides_with_line_filter(
+        vertices_idx, coords, x_min, x_max, y_min, y_max, coarse_tolerance=300.0, line_tolerance=1.0
+    ):
         """
         Zweistufige Filterung:
         1. Grobe Selektion: Vertices nahe am Terrain-Rand (< coarse_tolerance)
         2. Feine Selektion: Nur Vertices auf einer gemeinsamen Linie (Abweichung < line_tolerance)
-        
+
         Returns: Dictionary mit Listen von Vertex-Indizes pro Seite
         """
-        sides = {
-            "NORTH": [],
-            "SOUTH": [],
-            "EAST": [],
-            "WEST": []
-        }
-        
+        sides = {"NORTH": [], "SOUTH": [], "EAST": [], "WEST": []}
+
         # NORTH: Vertices mit Y nahe y_max
         candidates = []
         for i, v_idx in enumerate(vertices_idx):
             v = coords[i]
             if abs(v[1] - y_max) < coarse_tolerance:
                 candidates.append((v_idx, v[1]))  # (index, y-coord)
-        
+
         if len(candidates) > 0:
             # Finde die gemeinsame Y-Linie (Median oder Mehrheit)
             y_values = [y for _, y in candidates]
@@ -326,73 +325,91 @@ def stitch_ring_strip(
             for v_idx, y in candidates:
                 if abs(y - y_median) < line_tolerance:
                     sides["NORTH"].append(v_idx)
-        
+
         # SOUTH: Vertices mit Y nahe y_min
         candidates = []
         for i, v_idx in enumerate(vertices_idx):
             v = coords[i]
             if abs(v[1] - y_min) < coarse_tolerance:
                 candidates.append((v_idx, v[1]))
-        
+
         if len(candidates) > 0:
             y_values = [y for _, y in candidates]
             y_median = np.median(y_values)
             for v_idx, y in candidates:
                 if abs(y - y_median) < line_tolerance:
                     sides["SOUTH"].append(v_idx)
-        
+
         # EAST: Vertices mit X nahe x_max
         candidates = []
         for i, v_idx in enumerate(vertices_idx):
             v = coords[i]
             if abs(v[0] - x_max) < coarse_tolerance:
                 candidates.append((v_idx, v[0]))  # (index, x-coord)
-        
+
         if len(candidates) > 0:
             x_values = [x for _, x in candidates]
             x_median = np.median(x_values)
             for v_idx, x in candidates:
                 if abs(x - x_median) < line_tolerance:
                     sides["EAST"].append(v_idx)
-        
+
         # WEST: Vertices mit X nahe x_min
         candidates = []
         for i, v_idx in enumerate(vertices_idx):
             v = coords[i]
             if abs(v[0] - x_min) < coarse_tolerance:
                 candidates.append((v_idx, v[0]))
-        
+
         if len(candidates) > 0:
             x_values = [x for _, x in candidates]
             x_median = np.median(x_values)
             for v_idx, x in candidates:
                 if abs(x - x_median) < line_tolerance:
                     sides["WEST"].append(v_idx)
-        
+
         return sides
 
     # Terrain-Seiten
     # Terrain: Präzisere Filterung (50 cm Toleranz)
-    terrain_sides = assign_sides_with_line_filter(terrain_vertices_idx, terrain_coords, 
-                                                   terrain_x_min, terrain_x_max, terrain_y_min, terrain_y_max,
-                                                   coarse_tolerance=300.0, line_tolerance=0.5)
+    terrain_sides = assign_sides_with_line_filter(
+        terrain_vertices_idx,
+        terrain_coords,
+        terrain_x_min,
+        terrain_x_max,
+        terrain_y_min,
+        terrain_y_max,
+        coarse_tolerance=300.0,
+        line_tolerance=0.5,
+    )
 
     # Horizon: 1 m Toleranz (Quad-Grid)
-    horizon_sides = assign_sides_with_line_filter(horizon_vertices_idx, horizon_coords,
-                                                   terrain_x_min, terrain_x_max, terrain_y_min, terrain_y_max,
-                                                   coarse_tolerance=300.0, line_tolerance=1.0)
+    horizon_sides = assign_sides_with_line_filter(
+        horizon_vertices_idx,
+        horizon_coords,
+        terrain_x_min,
+        terrain_x_max,
+        terrain_y_min,
+        terrain_y_max,
+        coarse_tolerance=300.0,
+        line_tolerance=1.0,
+    )
 
-    print(f"    [i] Terrain-Seiten: N={len(terrain_sides['NORTH'])}, S={len(terrain_sides['SOUTH'])}, E={len(terrain_sides['EAST'])}, W={len(terrain_sides['WEST'])}")
-    print(f"    [i] Horizon-Seiten: N={len(horizon_sides['NORTH'])}, S={len(horizon_sides['SOUTH'])}, E={len(horizon_sides['EAST'])}, W={len(horizon_sides['WEST'])}")
-    
+    print(
+        f"    [i] Terrain-Seiten: N={len(terrain_sides['NORTH'])}, S={len(terrain_sides['SOUTH'])}, E={len(terrain_sides['EAST'])}, W={len(terrain_sides['WEST'])}"
+    )
+    print(
+        f"    [i] Horizon-Seiten: N={len(horizon_sides['NORTH'])}, S={len(horizon_sides['SOUTH'])}, E={len(horizon_sides['EAST'])}, W={len(horizon_sides['WEST'])}"
+    )
+
     # Zähle eindeutige Vertices
     all_horizon_assigned = set()
     for side in ["NORTH", "SOUTH", "EAST", "WEST"]:
         all_horizon_assigned.update(horizon_sides[side])
-    
+
     horizon_no_side = len(horizon_vertices_idx) - len(all_horizon_assigned)
     print(f"    [!] Horizon-Vertices OHNE Seite: {horizon_no_side} (von {len(horizon_vertices_idx)} total)")
-    
+
     # Zähle Ecken vs Kanten
     vertex_side_count = {}
     for side in ["NORTH", "SOUTH", "EAST", "WEST"]:
@@ -400,11 +417,13 @@ def stitch_ring_strip(
             if v_idx not in vertex_side_count:
                 vertex_side_count[v_idx] = 0
             vertex_side_count[v_idx] += 1
-    
+
     corner_count = sum(1 for count in vertex_side_count.values() if count == 2)
     edge_count = sum(1 for count in vertex_side_count.values() if count == 1)
-    
-    print(f"    [DEBUG] Horizon-Vertices Kategorisierung: {corner_count} Ecken (2 Seiten), {edge_count} Kanten (1 Seite)")
+
+    print(
+        f"    [DEBUG] Horizon-Vertices Kategorisierung: {corner_count} Ecken (2 Seiten), {edge_count} Kanten (1 Seite)"
+    )
 
     # === STEP 3: Verbinde Seite-zu-Seite mit sequenziellem Strip ===
     faces = []
@@ -416,7 +435,9 @@ def stitch_ring_strip(
         if len(terrain_side_vertices) == 0 or len(horizon_side_vertices) == 0:
             continue
 
-        print(f"    [i] Stitching {side}: {len(terrain_side_vertices)} Terrain <-> {len(horizon_side_vertices)} Horizon")
+        print(
+            f"    [i] Stitching {side}: {len(terrain_side_vertices)} Terrain <-> {len(horizon_side_vertices)} Horizon"
+        )
 
         # Sortiere beide nach Position entlang der Seite
         if side == "NORTH":
@@ -447,9 +468,7 @@ def stitch_ring_strip(
             t_curr_pos = vertices[t_curr][:2]
 
             # Finde NÄCHSTEN Horizon-Vertex zu t_curr (nur auf dieser Seite!)
-            distances_to_horizon = np.linalg.norm(
-                vertices[np.array(horizon_side_vertices)][:, :2] - t_curr_pos, axis=1
-            )
+            distances_to_horizon = np.linalg.norm(vertices[np.array(horizon_side_vertices)][:, :2] - t_curr_pos, axis=1)
             h_next_idx = np.argmin(distances_to_horizon)
             h_curr = horizon_side_vertices[h_curr_idx]
             h_next = horizon_side_vertices[h_next_idx]
