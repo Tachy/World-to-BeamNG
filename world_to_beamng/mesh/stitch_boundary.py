@@ -292,10 +292,7 @@ def stitch_ring_strip(
 
     tolerance = 1.0  # 1m: Nur für Rundungsfehler, Vertices liegen exakt auf Grid-Linien
 
-    print(
-        f"    [i] Terrain-Bounds: X=[{terrain_x_min:.0f}..{terrain_x_max:.0f}], Y=[{terrain_y_min:.0f}..{terrain_y_max:.0f}]"
-    )
-    print(f"    [i] Stitching-Toleranz: {tolerance:.0f}m (exakte Grid-Linien)")
+    # Stitching-Toleranz und Bounds für Filterung
 
     # === STEP 2: Zerlege beide Ringe in 4 Seiten (mit Linien-Filter) ===
     def assign_sides_with_line_filter(
@@ -395,35 +392,14 @@ def stitch_ring_strip(
         line_tolerance=1.0,
     )
 
-    print(
-        f"    [i] Terrain-Seiten: N={len(terrain_sides['NORTH'])}, S={len(terrain_sides['SOUTH'])}, E={len(terrain_sides['EAST'])}, W={len(terrain_sides['WEST'])}"
-    )
-    print(
-        f"    [i] Horizon-Seiten: N={len(horizon_sides['NORTH'])}, S={len(horizon_sides['SOUTH'])}, E={len(horizon_sides['EAST'])}, W={len(horizon_sides['WEST'])}"
-    )
-
-    # Zähle eindeutige Vertices
+    # Validierung: Prüfe auf nicht zugewiesene Horizon-Vertices
     all_horizon_assigned = set()
     for side in ["NORTH", "SOUTH", "EAST", "WEST"]:
         all_horizon_assigned.update(horizon_sides[side])
 
     horizon_no_side = len(horizon_vertices_idx) - len(all_horizon_assigned)
-    print(f"    [!] Horizon-Vertices OHNE Seite: {horizon_no_side} (von {len(horizon_vertices_idx)} total)")
-
-    # Zähle Ecken vs Kanten
-    vertex_side_count = {}
-    for side in ["NORTH", "SOUTH", "EAST", "WEST"]:
-        for v_idx in horizon_sides[side]:
-            if v_idx not in vertex_side_count:
-                vertex_side_count[v_idx] = 0
-            vertex_side_count[v_idx] += 1
-
-    corner_count = sum(1 for count in vertex_side_count.values() if count == 2)
-    edge_count = sum(1 for count in vertex_side_count.values() if count == 1)
-
-    print(
-        f"    [DEBUG] Horizon-Vertices Kategorisierung: {corner_count} Ecken (2 Seiten), {edge_count} Kanten (1 Seite)"
-    )
+    if horizon_no_side > 0:
+        print(f"    [!] WARNUNG: {horizon_no_side} Horizon-Vertices OHNE Seite (von {len(horizon_vertices_idx)} total)")
 
     # === STEP 3: Verbinde Seite-zu-Seite mit sequenziellem Strip ===
     faces = []
@@ -433,11 +409,8 @@ def stitch_ring_strip(
         horizon_side_vertices = horizon_sides[side]
 
         if len(terrain_side_vertices) == 0 or len(horizon_side_vertices) == 0:
+            print(f"    [!] FEHLER: Seite {side} hat keine Vertices (Terrain: {len(terrain_side_vertices)}, Horizon: {len(horizon_side_vertices)})")
             continue
-
-        print(
-            f"    [i] Stitching {side}: {len(terrain_side_vertices)} Terrain <-> {len(horizon_side_vertices)} Horizon"
-        )
 
         # Sortiere beide nach Position entlang der Seite
         if side == "NORTH":
@@ -557,18 +530,14 @@ def stitch_terrain_horizon_boundary(
         - stitching_faces: Liste von Faces mit Indizes im Horizon-VM
         - terrain_ring_vertices_global_coords: (N, 3) Koordinaten der Terrain-Ring-Vertices (für Horizon-VM)
     """
-    print(f"  [Boundary-Stitching] Extrahiere Terrain-Boundary-Kontur...")
     terrain_boundary_vertices, actual_bounds = extract_terrain_boundary_edges(terrain_mesh, terrain_vertex_manager)
-    print(f"  [Boundary-Stitching] {len(terrain_boundary_vertices)} Terrain-Boundary-Vertices")
 
     if len(terrain_boundary_vertices) == 0:
         print(f"  [!] Keine Terrain-Boundaries gefunden")
         return [], np.array([])
 
-    print(f"  [Boundary-Stitching] Extrahiere Horizon-Ring (innere Reihe)...")
     # WICHTIG: Nutze TATSÄCHLICHE Terrain-Bounds, nicht übergebene grid_bounds!
     horizon_ring_vertices_local = extract_horizon_boundary_ring(horizon_vertex_manager, horizon_mesh, actual_bounds)
-    print(f"  [Boundary-Stitching] {len(horizon_ring_vertices_local)} Horizon-Ring-Vertices (im Horizon-VM)")
 
     if len(horizon_ring_vertices_local) == 0:
         print(f"  [!] Keine Horizon-Ring-Vertices gefunden")
@@ -576,21 +545,10 @@ def stitch_terrain_horizon_boundary(
 
     # === SAUBERE LÖSUNG: Kopiere Terrain-Ring-Vertices in den HORIZON-VM ===
     # (nicht in den Terrain-VM - der bleibt unverändert!)
-    print(f"  [Boundary-Stitching] Kopiere Terrain-Ring-Vertices in HORIZON-VertexManager...")
-
-    # Hole Terrain-Ring-Vertex-Koordinaten
     terrain_ring_vertices_coords = terrain_vertex_manager.vertices[terrain_boundary_vertices]
-
-    # Füge sie in den Horizon-VM ein
     terrain_ring_vertices_horizon_idx = np.array(
         horizon_vertex_manager.add_vertices_direct_nohash(terrain_ring_vertices_coords), dtype=np.int32
     )
-
-    print(
-        f"  [Boundary-Stitching] Terrain-Vertices jetzt auch im Horizon-VM (Indizes {terrain_ring_vertices_horizon_idx[0]}..{terrain_ring_vertices_horizon_idx[-1]})"
-    )
-
-    print(f"  [Boundary-Stitching] Generiere Ring-Strip-Stitching (Triangle-Strips zwischen zwei Polygonen)...")
     # JETZT BEIDE RINGE IM GLEICHEN HORIZON-VM!
     faces = stitch_ring_strip(
         terrain_ring_vertices_horizon_idx,  # Terrain-Ring im Horizon-VM

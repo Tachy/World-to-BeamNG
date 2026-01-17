@@ -115,7 +115,6 @@ def stitch_terrain_to_roads(
     tile_center_2d = np.array([(x_min + x_max) / 2.0, (y_min + y_max) / 2.0])
 
     for side in ["north", "south", "east", "west"]:
-        print(f"\n    [{side.upper()}]")
 
         side_verts = get_side_vertices(side)
         if len(side_verts) < 2:
@@ -123,7 +122,6 @@ def stitch_terrain_to_roads(
             continue
 
         sorted_verts = sort_side_vertices(side_verts, side)
-        print(f"      {len(sorted_verts)} Vertices entlang der Kante")
 
         # Prüfe ob benachbarte Vertices verbunden sind
         gaps_found = 0
@@ -198,8 +196,9 @@ def stitch_terrain_to_roads(
         else:
             print(f"      ✓ Keine Lücken")
 
+    print(f"  [✓] {new_faces} Dreiecke eingefügt (Tile-Kante vervollständigt)")
     # === VERIFIKATION: Prüfe dass Tile-Kante jetzt lückenlos verbunden ist ===
-    print(f"\n  [Verifikation] Prüfe Tile-Kanten-Durchgängigkeit...")
+    print(f"  [Verifikation] Prüfe Tile-Kanten-Durchgängigkeit...")
 
     # Rebuild existing_edges mit neuen Faces
     existing_edges_new = set()
@@ -234,13 +233,10 @@ def stitch_terrain_to_roads(
 
         if gaps_remaining > 0:
             print(f"    [{side.upper()}] ✗ {gaps_remaining} Lücken NOCH VORHANDEN!")
-        else:
-            print(f"    [{side.upper()}] ✓ Lückenlos verbunden ({len(sorted_verts)} Vertices)")
 
     if all_verified:
         print(f"  [✓✓] Alle Tile-Kanten lückenlos verbunden!\n")
     else:
         print(f"  [!] WARNUNG: Nicht alle Lücken gefüllt!\n")
 
-    print(f"  [✓] {new_faces} Dreiecke eingefügt (Tile-Kante vervollständigt)")
     return new_faces
