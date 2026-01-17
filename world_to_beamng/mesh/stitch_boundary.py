@@ -372,27 +372,28 @@ def stitch_terrain_horizon_boundary(
     # === SAUBERE LÖSUNG: Kopiere Terrain-Ring-Vertices in den HORIZON-VM ===
     # (nicht in den Terrain-VM - der bleibt unverändert!)
     print(f"  [Boundary-Stitching] Kopiere Terrain-Ring-Vertices in HORIZON-VertexManager...")
-    
+
     # Hole Terrain-Ring-Vertex-Koordinaten
     terrain_ring_vertices_coords = terrain_vertex_manager.vertices[terrain_boundary_vertices]
-    
+
     # Füge sie in den Horizon-VM ein
     terrain_ring_vertices_horizon_idx = np.array(
-        horizon_vertex_manager.add_vertices_direct_nohash(terrain_ring_vertices_coords), 
-        dtype=np.int32
+        horizon_vertex_manager.add_vertices_direct_nohash(terrain_ring_vertices_coords), dtype=np.int32
     )
-    
-    print(f"  [Boundary-Stitching] Terrain-Vertices jetzt auch im Horizon-VM (Indizes {terrain_ring_vertices_horizon_idx[0]}..{terrain_ring_vertices_horizon_idx[-1]})")
+
+    print(
+        f"  [Boundary-Stitching] Terrain-Vertices jetzt auch im Horizon-VM (Indizes {terrain_ring_vertices_horizon_idx[0]}..{terrain_ring_vertices_horizon_idx[-1]})"
+    )
 
     print(f"  [Boundary-Stitching] Generiere Ring-Strip-Stitching (Triangle-Strips zwischen zwei Polygonen)...")
     # JETZT BEIDE RINGE IM GLEICHEN HORIZON-VM!
     faces = stitch_ring_strip(
         terrain_ring_vertices_horizon_idx,  # Terrain-Ring im Horizon-VM
-        horizon_ring_vertices_local,          # Horizon-Ring im Horizon-VM
+        horizon_ring_vertices_local,  # Horizon-Ring im Horizon-VM
         horizon_vertex_manager,
-        max_distance=grid_spacing * 1.5
+        max_distance=grid_spacing * 1.5,
     )
 
     print(f"  [Boundary-Stitching] FERTIG: {len(faces)} Stitching-Faces")
 
-    return faces, terrain_ring_vertices_coords
+    return faces

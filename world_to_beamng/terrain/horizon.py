@@ -508,7 +508,7 @@ def generate_horizon_mesh(height_points, height_elevations, local_offset, tile_b
     # Boundary-Stitching arbeitet mit Horizon-VM + kopiert Terrain-Ring in Horizon-VM
     vm = VertexManager(tolerance=0.001)
     global_to_horizon_map = None  # Immer None (nur separater VM)
-    
+
     mesh = Mesh(vm)
 
     # === OPTIMIERUNG: Batch Vertex-Einfügung (OHNE Hash-Lookup!) ===
@@ -757,7 +757,7 @@ def export_horizon_dae(mesh, texture_info, output_dir, level_name="default", glo
     bounds_utm = texture_info.get("bounds_utm", None)
     vertices = mesh.vertex_manager.vertices
     faces = mesh.faces  # Extrahiere Faces aus dem Mesh
-    
+
     print(f"  [i] DAE-Export: {len(vertices)} Vertices, {len(faces)} Faces")
 
     if bounds_utm and global_offset:

@@ -94,12 +94,12 @@ class HorizonWorkflow:
 
         # === Mesh generieren ===
         print("  [i] Generiere Horizont-Mesh...")
-        
+
         # Nutze GEMEINSAMEN VertexManager nur wenn Boundary-Stitching aktiviert ist
         # Sonst: Separater VertexManager für saubere Architektur
         # === STEP 1: Generiere Horizont-Mesh (separater VM, OHNE UVs noch) ===
         print("  [i] Generiere Horizont-Mesh...")
-        
+
         # WICHTIG: IMMER separater VM!
         # Boundary-Stitching arbeitet NUR mit dem Horizon-VM
         horizon_mesh, nx, ny, horizon_vertex_indices, global_to_horizon_map = generate_horizon_mesh(
@@ -115,7 +115,7 @@ class HorizonWorkflow:
         if terrain_mesh is not None and terrain_vertex_manager is not None and config.HORIZON_BOUNDARY_STITCHING:
             print(f"  [i] Generiere Boundary-Stitching zwischen Terrain und Horizon...")
 
-            stitching_faces, terrain_ring_coords = stitch_terrain_horizon_boundary(
+            stitching_faces = stitch_terrain_horizon_boundary(
                 terrain_mesh,
                 terrain_vertex_manager,
                 horizon_mesh,
@@ -123,11 +123,11 @@ class HorizonWorkflow:
                 None,  # grid_bounds wird ignoriert - wird aus Boundary-Vertices berechnet!
                 grid_spacing=200.0,
             )
-            
+
             # Füge Stitching-Faces zum Horizon-Mesh hinzu
             if len(stitching_faces) > 0:
                 print(f"  [i] Füge {len(stitching_faces)} Stitching-Faces zu Horizon-Mesh hinzu...")
-                for (v0, v1, v2) in stitching_faces:
+                for v0, v1, v2 in stitching_faces:
                     # === Füge Face hinzu ===
                     current_face_idx = len(horizon_mesh.faces)
                     horizon_mesh.faces.append((v0, v1, v2))
@@ -136,9 +136,9 @@ class HorizonWorkflow:
                     if not hasattr(horizon_mesh, "face_props"):
                         horizon_mesh.face_props = {}
                     horizon_mesh.face_props[current_face_idx] = {"material": "horizon"}
-                
+
                 print(f"  [✓] {len(stitching_faces)} Stitching-Faces integriert")
-            
+
             print(f"  [i] {len(stitching_faces)} Stitching-Faces generiert")
 
         # === Sentinel-2 laden (optional) ===
@@ -185,7 +185,7 @@ class HorizonWorkflow:
             u = (vertex[0] - mesh_x_min) / max(mesh_width, 1e-10)
             v = (vertex[1] - mesh_y_min) / max(mesh_height, 1e-10)
             horizon_mesh.uvs.append((u, v))
-        
+
         print(f"  [✓] {len(horizon_mesh.uvs)} UVs generiert für {len(horizon_vertices)} Vertices")
 
         # === Export ===
