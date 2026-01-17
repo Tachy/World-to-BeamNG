@@ -97,26 +97,51 @@ def extract_terrain_boundary_edges(
             boundary_vertices.add(v2_idx)
             boundary_edges.append((v1_idx, v2_idx))
 
-    print(f"    [i] Boundary-Edges: {len(boundary_edges)}, Boundary-Vertices: {len(boundary_vertices)}")
-
-    # Konvertiere zu sortiertem Array für konsistente Reihenfolge
-    boundary_array = np.array(sorted(boundary_vertices), dtype=np.int32)
+    print(f"    [i] Boundary-Edges gesamt: {len(boundary_edges)}, Boundary-Vertices gesamt: {len(boundary_vertices)}")
 
     # === KRITISCH: Berechne TATSÄCHLICHE Bounds der Boundary-Vertices ===
-    # Diese Bounds sind im gleichen Koordinatensystem wie die Horizon-Vertices!
     vertices = vertex_manager.vertices
-    if len(boundary_array) > 0:
-        boundary_coords = vertices[boundary_array]
+    if len(boundary_vertices) > 0:
+        boundary_coords = vertices[np.array(list(boundary_vertices))]
         x_min = float(boundary_coords[:, 0].min())
         x_max = float(boundary_coords[:, 0].max())
         y_min = float(boundary_coords[:, 1].min())
         y_max = float(boundary_coords[:, 1].max())
         actual_bounds = (x_min, x_max, y_min, y_max)
-        print(
-            f"    [i] Boundary-Bounds (TATSÄCHLICH, lokal): X=[{x_min:.0f}..{x_max:.0f}], Y=[{y_min:.0f}..{y_max:.0f}]"
-        )
     else:
-        actual_bounds = (0.0, 0.0, 0.0, 0.0)
+        return np.array([], dtype=np.int32), (0.0, 0.0, 0.0, 0.0)
+
+    # === FILTERUNG: Nur Vertices die EXAKT auf den 4 Tile-Kanten liegen ===
+    # Dies entspricht dem Ansatz aus stitch_terrain_roads
+    # Ignoriere innenliegende Vertices!
+    boundary_rim_vertices = set()
+    tolerance = 0.1  # 10cm - für Float-Gleichheit
+
+    for v_idx in boundary_vertices:
+        v = vertices[v_idx]
+        x, y = v[0], v[1]
+
+        # EXAKT auf einer der 4 Seiten?
+        on_rim = False
+        if abs(y - y_max) < tolerance:  # NORTH
+            on_rim = True
+        elif abs(y - y_min) < tolerance:  # SOUTH
+            on_rim = True
+        elif abs(x - x_max) < tolerance:  # EAST
+            on_rim = True
+        elif abs(x - x_min) < tolerance:  # WEST
+            on_rim = True
+
+        if on_rim:
+            boundary_rim_vertices.add(v_idx)
+
+    boundary_array = np.array(sorted(boundary_rim_vertices), dtype=np.int32)
+    print(
+        f"    [i] Boundary-Rim-Vertices (nur Kanten): {len(boundary_array)}"
+    )
+    print(
+        f"    [i] Boundary-Bounds (TATSÄCHLICH): X=[{x_min:.0f}..{x_max:.0f}], Y=[{y_min:.0f}..{y_max:.0f}]"
+    )
 
     return boundary_array, actual_bounds
 
@@ -244,53 +269,39 @@ def stitch_ring_strip(
 
     print(f"    [i] Ring-Stitching: Terrain={len(terrain_sorted)} Vertices, Horizon={len(horizon_sorted)} Vertices")
 
-    # === STEP 3: Verbinde die Ringe mit Triangle-Strips ===
-    faces = []
+    # === STEP 3 & 4: Erzeuge saubere Triangle-Strips zwischen den Ringen ===
+    # Für jeden Terrain-Vertex: Verbinde zu nächstem Horizon-Vertex
+    # WICHTIG: Saubere topologische Struktur, keine wilden Sprünge!
+    
     n_terrain = len(terrain_sorted)
     n_horizon = len(horizon_sorted)
-
-    # Interpoliere Horizon-Indices für gleichmäßige Verteilung
-    # (Horizon hat nur 69 Vertices, Terrain hat 8659)
-    horizon_extended = []
-    for i in range(n_terrain):
-        # Wieviel Prozent durch den Terrain-Ring?
-        t = i / n_terrain
-        # Position im Horizon-Ring
-        horizon_idx_float = t * n_horizon
-
-        # Lineare Interpolation zwischen zwei Horizon-Vertices
-        h_idx_low = int(horizon_idx_float) % n_horizon
-        h_idx_high = (int(horizon_idx_float) + 1) % n_horizon
-        t_frac = horizon_idx_float - int(horizon_idx_float)
-
-        # Wähle nächsten Horizon-Vertex (vereinfacht - keine echte Interpolation)
-        h_idx = h_idx_high if t_frac > 0.5 else h_idx_low
-        horizon_extended.append(h_idx)
-
-    # === STEP 4: Erzeuge Triangles zwischen benachbarten Vertices ===
+    faces = []
+    
     for i in range(n_terrain):
         t_curr = terrain_sorted[i]
         t_next = terrain_sorted[(i + 1) % n_terrain]
-        h_curr_idx = horizon_extended[i]
-        h_next_idx = horizon_extended[(i + 1) % n_terrain]
+        
+        # Finde NÄCHSTEN Horizon-Vertex zu t_curr
+        # (Nicht interpolieren, sondern topologisch konsistent)
+        t_curr_pos = vertices[t_curr][:2]
+        distances_to_horizon = np.linalg.norm(vertices[horizon_sorted][:, :2] - t_curr_pos, axis=1)
+        h_curr_idx = np.argmin(distances_to_horizon)
         h_curr = horizon_sorted[h_curr_idx]
-        h_next = horizon_sorted[h_next_idx]
-
-        # Berechne Distanzen
-        dist_t_h_curr = np.linalg.norm(vertices[t_curr][:2] - vertices[h_curr][:2])
-        dist_t_next_h_next = np.linalg.norm(vertices[t_next][:2] - vertices[h_next][:2])
-
-        # Prüfe Max-Distance
-        if dist_t_h_curr <= max_distance and dist_t_next_h_next <= max_distance:
-            # Erzeuge zwei Triangles für das Quad: (t_curr, t_next, h_next, h_curr)
-            # Triangle 1: t_curr, t_next, h_curr
+        
+        # Nächster Horizon-Vertex (ringsum)
+        h_next = horizon_sorted[(h_curr_idx + 1) % n_horizon]
+        
+        # Prüfe Distanzen
+        dist_t_curr_h_curr = np.linalg.norm(vertices[t_curr][:2] - vertices[h_curr][:2])
+        dist_t_next_h_curr = np.linalg.norm(vertices[t_next][:2] - vertices[h_curr][:2])
+        
+        # Erzeuge NUR EIN DREIECK pro Terrain-Vertex (t_curr, t_next, h_curr)
+        # Dies erzeugt einen sauberen Streifen ohne wilde Sprünge
+        if dist_t_curr_h_curr <= max_distance and dist_t_next_h_curr <= max_distance:
             faces.append((t_curr, t_next, h_curr))
-            # Triangle 2: t_next, h_next, h_curr
-            faces.append((t_next, h_next, h_curr))
 
     print(f"    [i] Ring-Strip Faces: {len(faces)}")
     return faces
-
 
 def stitch_terrain_horizon_boundary(
     terrain_mesh,
