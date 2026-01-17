@@ -56,7 +56,9 @@ def export_separate_tile_daes(
         # Tiles mit weniger als 10 Faces sind wahrscheinlich Fehler beim Gap-Filling
         min_faces_threshold = 10
         if len(faces) < min_faces_threshold:
-            print(f"      [Filter] Ignoriere Mini-Tile tile_{tile_x * tile_size}_{tile_y * tile_size}: nur {len(faces)} Faces")
+            print(
+                f"      [Filter] Ignoriere Mini-Tile tile_{tile_x * tile_size}_{tile_y * tile_size}: nur {len(faces)} Faces"
+            )
             continue
 
         # Berechne Welt-Koordinaten
