@@ -94,7 +94,7 @@ class HorizonWorkflow:
 
         # === Mesh generieren (optional mit bestehendem VertexManager) ===
         print("  [i] Generiere Horizont-Mesh...")
-        mesh, nx, ny, horizon_vertex_indices = generate_horizon_mesh(
+        horizon_mesh, nx, ny, horizon_vertex_indices = generate_horizon_mesh(
             height_points,
             height_elevations,
             global_offset,
@@ -110,7 +110,7 @@ class HorizonWorkflow:
             stitching_faces = stitch_terrain_horizon_boundary(
                 terrain_mesh,
                 terrain_vertex_manager,
-                np.array(horizon_vertex_indices, dtype=np.int32),
+                horizon_mesh,  # Horizon-Mesh statt Vertex-Indices
                 None,  # grid_bounds wird ignoriert - wird aus Boundary-Vertices berechnet!
                 grid_spacing=200.0,
             )
@@ -130,7 +130,7 @@ class HorizonWorkflow:
             horizon_image, bounds_utm, transform = sentinel2_data
 
             # Zeige Koordinaten-Übereinstimmung mit Mesh
-            vertices = mesh.vertex_manager.vertices
+            vertices = horizon_mesh.vertex_manager.vertices
             mesh_x_min, mesh_x_max = vertices[:, 0].min(), vertices[:, 0].max()
             mesh_y_min, mesh_y_max = vertices[:, 1].min(), vertices[:, 1].max()
 
@@ -151,7 +151,7 @@ class HorizonWorkflow:
 
             # Berechne UV-Koordinaten basierend auf Mesh-Bounds (wie Horizon-UVs)
             # Diese UVs werden später in export_horizon_dae() mit uv_offset/uv_scale transformiert
-            vertices = mesh.vertex_manager.vertices
+            vertices = horizon_mesh.vertex_manager.vertices
 
             # Mesh-Bounds (lokal)
             mesh_x_min = vertices[:, 0].min()
@@ -166,28 +166,28 @@ class HorizonWorkflow:
             # Nicht nur die Stitching-Faces haben Vertices - auch Terrain-Vertices
             # können im gemeinsamen VertexManager sein!
             print(f"  [i] Initialisiere UV-Liste für alle {len(vertices)} Vertices...")
-            while len(mesh.uvs) < len(vertices):
-                v_idx = len(mesh.uvs)
+            while len(horizon_mesh.uvs) < len(vertices):
+                v_idx = len(horizon_mesh.uvs)
                 vx_local = vertices[v_idx, 0]
                 vy_local = vertices[v_idx, 1]
 
                 u = (vx_local - mesh_x_min) / mesh_width if mesh_width > 0 else 0.5
                 v = (vy_local - mesh_y_min) / mesh_height if mesh_height > 0 else 0.5
-                mesh.uvs.append((u, v))
+                horizon_mesh.uvs.append((u, v))
 
             # Jetzt füge die Stitching-Faces hinzu (UVs existieren bereits)
             for face_tuple in stitching_faces:
-                mesh.faces.append(face_tuple)
+                horizon_mesh.faces.append(face_tuple)
 
             print(f"  [✓] {len(stitching_faces)} Stitching-Faces integriert")
-            print(f"  [i] UV-Liste: {len(mesh.uvs)} UVs für {len(vertices)} Vertices")
+            print(f"  [i] UV-Liste: {len(horizon_mesh.uvs)} UVs für {len(vertices)} Vertices")
 
         # === Export ===
         print("  [i] Exportiere Horizont DAE...")
         import os
 
         dae_filename = export_horizon_dae(
-            mesh,
+            horizon_mesh,
             texture_info,
             config.BEAMNG_DIR,
             level_name=config.LEVEL_NAME,

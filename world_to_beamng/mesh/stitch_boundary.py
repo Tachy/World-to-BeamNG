@@ -144,68 +144,87 @@ def extract_terrain_boundary_edges(
 
 def extract_horizon_boundary_ring(
     vertex_manager: VertexManager,
-    horizon_vertex_indices: np.ndarray,
+    horizon_mesh,
     grid_bounds: Tuple[float, float, float, float],
-    grid_spacing: float = 200.0,
 ) -> np.ndarray:
     """
-    Identifiziert die INNERE Reihe des Horizon-Meshes (direkt außerhalb der Terrain-Tiles).
+    Extrahiert die INNERE Boundary des Horizon-Meshes (Rand des Loches in der Mitte).
 
-    PERFORMANCE: Vektorisierte NumPy-Operationen O(n) statt Python-Loop
+    STRATEGIE: Edge-basierte Boundary-Extraktion (wie bei extract_terrain_boundary_edges)
+    Das Horizon-Mesh hat ein Loch in der Mitte (wo das Terrain ist).
+    Wir extrahieren ALLE Boundary-Vertices und filtern dann die innere Boundary
+    (näher am Terrain) von der äußeren Boundary (äußerer Rand des Horizon-Meshes).
 
     Args:
         vertex_manager: Gemeinsamer VertexManager
-        horizon_vertex_indices: NumPy Array von Horizon-Vertex-Indizes
-        grid_bounds: (x_min, x_max, y_min, y_max) der Terrain-Tiles
-        grid_spacing: Spacing des Horizon-Grids (default: 200m)
+        horizon_mesh: Horizon-Mesh-Objekt (mit .faces)
+        grid_bounds: (x_min, x_max, y_min, y_max) der Terrain-Tiles (für Filterung)
 
     Returns:
-        NumPy Array von Horizon-Ring-Vertex-Indizes
+        NumPy Array von Horizon-Ring-Vertex-Indizes (innere Boundary)
     """
-    # === OPTIMIERUNG: Direkte Vektorisierung ohne Loop ===
-    horizon_vertices = vertex_manager.vertices[horizon_vertex_indices]  # (N, 3)
+    # === Kompatibilität: Mesh-Objekt oder Dictionary ===
+    if hasattr(horizon_mesh, "faces"):
+        faces_list = horizon_mesh.faces
+    else:
+        faces_list = horizon_mesh.get("faces", [])
+
+    # === Edge-basierte Boundary-Extraktion (wie bei Terrain) ===
+    edge_faces = defaultdict(list)
+
+    for face_idx, face in enumerate(faces_list):
+        v0, v1, v2 = face
+        edges = [(min(v0, v1), max(v0, v1)), (min(v1, v2), max(v1, v2)), (min(v2, v0), max(v2, v0))]
+        for edge in edges:
+            edge_faces[edge].append(face_idx)
+
+    # Boundary-Edges: Nur 1 Face pro Edge
+    boundary_vertices = set()
+    for (v1_idx, v2_idx), faces in edge_faces.items():
+        if len(faces) == 1:
+            boundary_vertices.add(v1_idx)
+            boundary_vertices.add(v2_idx)
+
+    print(f"    [i] Horizon-Mesh Boundary-Vertices gesamt: {len(boundary_vertices)}")
+
+    # === Filtere innere vs. äußere Boundary ===
+    # Innere Boundary: Vertices nahe am Terrain (innerhalb von 500m Abstand)
+    # Äußere Boundary: Vertices weit weg vom Terrain (außerhalb von 500m Abstand)
+    vertices = vertex_manager.vertices
     x_min, x_max, y_min, y_max = grid_bounds
-
-    # Erweitere Bounds um grid_spacing
-    expanded_x_min = x_min - grid_spacing * 1.5
-    expanded_x_max = x_max + grid_spacing * 1.5
-    expanded_y_min = y_min - grid_spacing * 1.5
-    expanded_y_max = y_max + grid_spacing * 1.5
-
-    # Vektorisierte Bereichsprüfung (alle auf einmal!)
-    x = horizon_vertices[:, 0]
-    y = horizon_vertices[:, 1]
-
-    # Im erweiterten Ring?
-    in_expanded = (x >= expanded_x_min) & (x <= expanded_x_max) & (y >= expanded_y_min) & (y <= expanded_y_max)
-
-    # Außerhalb der Terrain-Bounds?
-    outside_inner = ~((x >= x_min) & (x <= x_max) & (y >= y_min) & (y <= y_max))
-
-    # Kombiniere: Im Ring UND außerhalb Terrain
-    ring_mask = in_expanded & outside_inner
-    ring_local_indices = np.where(ring_mask)[0]
-
+    center_x = (x_min + x_max) / 2.0
+    center_y = (y_min + y_max) / 2.0
+    
+    inner_boundary = []
+    outer_boundary = []
+    
+    for v_idx in boundary_vertices:
+        v = vertices[v_idx]
+        dist_to_center = np.sqrt((v[0] - center_x)**2 + (v[1] - center_y)**2)
+        
+        # Heuristik: Innere Boundary liegt näher am Center als 2000m
+        # (das Terrain ist 2km x 2km, also max 1414m vom Center)
+        if dist_to_center < 2000.0:
+            inner_boundary.append(v_idx)
+        else:
+            outer_boundary.append(v_idx)
+    
+    inner_boundary_array = np.array(sorted(inner_boundary), dtype=np.int32)
+    
     print(f"    [i] Horizon-Ring Extraktion:")
     print(f"        Grid-Bounds: X=[{x_min:.0f}..{x_max:.0f}], Y=[{y_min:.0f}..{y_max:.0f}]")
-    print(
-        f"        Expanded-Bounds: X=[{expanded_x_min:.0f}..{expanded_x_max:.0f}], Y=[{expanded_y_min:.0f}..{expanded_y_max:.0f}]"
-    )
-    print(f"        Horizon-Vertices gesamt: {len(horizon_vertex_indices)}")
-    print(f"        In Expanded: {in_expanded.sum()}, Outside Inner: {outside_inner.sum()}")
-    print(f"        Ring-Vertices: {len(ring_local_indices)}")
-
-    # Ring-Koordinaten für Debug
-    if len(ring_local_indices) > 0:
-        ring_vertices = horizon_vertices[ring_local_indices]
+    print(f"        Innere Boundary-Vertices: {len(inner_boundary)}")
+    print(f"        Äußere Boundary-Vertices: {len(outer_boundary)}")
+    
+    if len(inner_boundary_array) > 0:
+        ring_vertices = vertices[inner_boundary_array]
         x_min_ring = ring_vertices[:, 0].min()
         x_max_ring = ring_vertices[:, 0].max()
         y_min_ring = ring_vertices[:, 1].min()
         y_max_ring = ring_vertices[:, 1].max()
         print(f"        Ring-Bounds: X=[{x_min_ring:.0f}..{x_max_ring:.0f}], Y=[{y_min_ring:.0f}..{y_max_ring:.0f}]")
 
-    # Mappe zu globalen Indizes
-    return horizon_vertex_indices[ring_local_indices]
+    return inner_boundary_array
 
 
 def stitch_ring_strip(
@@ -303,7 +322,7 @@ def stitch_ring_strip(
 def stitch_terrain_horizon_boundary(
     terrain_mesh,
     vertex_manager: VertexManager,
-    horizon_vertex_indices: np.ndarray,
+    horizon_mesh,
     grid_bounds: Tuple[float, float, float, float],
     grid_spacing: float = 200.0,
 ) -> List[Tuple[int, int, int]]:
@@ -321,7 +340,7 @@ def stitch_terrain_horizon_boundary(
     Args:
         terrain_mesh: Mesh-Objekt mit .faces und .face_props
         vertex_manager: Gemeinsamer VertexManager für Terrain UND Horizon
-        horizon_vertex_indices: NumPy Array von Horizon-Vertex-Indizes
+        horizon_mesh: Horizon-Mesh-Objekt mit .faces
         grid_bounds: (x_min, x_max, y_min, y_max) - WIRD IGNORIERT! (siehe oben)
         grid_spacing: Spacing des Horizon-Grids (default 200m)
 
@@ -339,7 +358,7 @@ def stitch_terrain_horizon_boundary(
     print(f"  [Boundary-Stitching] Extrahiere Horizon-Ring (innere Reihe)...")
     # WICHTIG: Nutze TATSÄCHLICHE Terrain-Bounds, nicht übergebene grid_bounds!
     horizon_ring_vertices = extract_horizon_boundary_ring(
-        vertex_manager, horizon_vertex_indices, actual_bounds, grid_spacing
+        vertex_manager, horizon_mesh, actual_bounds
     )
     print(f"  [Boundary-Stitching] {len(horizon_ring_vertices)} Horizon-Ring-Vertices")
 
