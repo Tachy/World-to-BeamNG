@@ -64,7 +64,6 @@ DEBUG_VERBOSE = False  # Zusätzliche Konsolen-Logs
 ENABLE_ROAD_SMOOTHING = True  # False = Spline-Glättung komplett aus
 ROAD_SMOOTH_ANGLE_THRESHOLD = 10.0  # Winkel in Grad - ab diesem Wert werden Kurven unterteilt
 SAMPLE_SPACING_FACTOR = 0.5  # Faktor für Segment-Spacing: road_width * SAMPLE_SPACING_FACTOR
-# (Alte feste Werte für Referenz: bei 7m Straßen war 2.5m → jetzt dynamisch via Faktor 0.5)
 ROAD_SMOOTH_ITERATIONS = 1  # Anzahl Smoothing-Iterationen (1-3; höher = glatter)
 ROAD_SMOOTH_WEIGHT = 0.6  # Chaikin-Filter Gewicht (0.5-0.9; höher = weniger Glättung, 0.75 = mild)
 
