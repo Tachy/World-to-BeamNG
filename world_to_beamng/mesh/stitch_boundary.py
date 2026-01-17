@@ -136,12 +136,8 @@ def extract_terrain_boundary_edges(
             boundary_rim_vertices.add(v_idx)
 
     boundary_array = np.array(sorted(boundary_rim_vertices), dtype=np.int32)
-    print(
-        f"    [i] Boundary-Rim-Vertices (nur Kanten): {len(boundary_array)}"
-    )
-    print(
-        f"    [i] Boundary-Bounds (TATSÄCHLICH): X=[{x_min:.0f}..{x_max:.0f}], Y=[{y_min:.0f}..{y_max:.0f}]"
-    )
+    print(f"    [i] Boundary-Rim-Vertices (nur Kanten): {len(boundary_array)}")
+    print(f"    [i] Boundary-Bounds (TATSÄCHLICH): X=[{x_min:.0f}..{x_max:.0f}], Y=[{y_min:.0f}..{y_max:.0f}]")
 
     return boundary_array, actual_bounds
 
@@ -272,29 +268,29 @@ def stitch_ring_strip(
     # === STEP 3 & 4: Erzeuge saubere Triangle-Strips zwischen den Ringen ===
     # Für jeden Terrain-Vertex: Verbinde zu nächstem Horizon-Vertex
     # WICHTIG: Saubere topologische Struktur, keine wilden Sprünge!
-    
+
     n_terrain = len(terrain_sorted)
     n_horizon = len(horizon_sorted)
     faces = []
-    
+
     for i in range(n_terrain):
         t_curr = terrain_sorted[i]
         t_next = terrain_sorted[(i + 1) % n_terrain]
-        
+
         # Finde NÄCHSTEN Horizon-Vertex zu t_curr
         # (Nicht interpolieren, sondern topologisch konsistent)
         t_curr_pos = vertices[t_curr][:2]
         distances_to_horizon = np.linalg.norm(vertices[horizon_sorted][:, :2] - t_curr_pos, axis=1)
         h_curr_idx = np.argmin(distances_to_horizon)
         h_curr = horizon_sorted[h_curr_idx]
-        
+
         # Nächster Horizon-Vertex (ringsum)
         h_next = horizon_sorted[(h_curr_idx + 1) % n_horizon]
-        
+
         # Prüfe Distanzen
         dist_t_curr_h_curr = np.linalg.norm(vertices[t_curr][:2] - vertices[h_curr][:2])
         dist_t_next_h_curr = np.linalg.norm(vertices[t_next][:2] - vertices[h_curr][:2])
-        
+
         # Erzeuge NUR EIN DREIECK pro Terrain-Vertex (t_curr, t_next, h_curr)
         # Dies erzeugt einen sauberen Streifen ohne wilde Sprünge
         if dist_t_curr_h_curr <= max_distance and dist_t_next_h_curr <= max_distance:
@@ -302,6 +298,7 @@ def stitch_ring_strip(
 
     print(f"    [i] Ring-Strip Faces: {len(faces)}")
     return faces
+
 
 def stitch_terrain_horizon_boundary(
     terrain_mesh,
