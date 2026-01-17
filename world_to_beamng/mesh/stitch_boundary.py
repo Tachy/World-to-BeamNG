@@ -143,7 +143,7 @@ def extract_terrain_boundary_edges(
 
 
 def extract_horizon_boundary_ring(
-    vertex_manager: VertexManager,
+    horizon_vertex_manager: VertexManager,
     horizon_mesh,
     grid_bounds: Tuple[float, float, float, float],
 ) -> np.ndarray:
@@ -156,12 +156,12 @@ def extract_horizon_boundary_ring(
     (näher am Terrain) von der äußeren Boundary (äußerer Rand des Horizon-Meshes).
 
     Args:
-        vertex_manager: Gemeinsamer VertexManager
+        horizon_vertex_manager: VertexManager des Horizon-Meshes (separater VM!)
         horizon_mesh: Horizon-Mesh-Objekt (mit .faces)
         grid_bounds: (x_min, x_max, y_min, y_max) der Terrain-Tiles (für Filterung)
 
     Returns:
-        NumPy Array von Horizon-Ring-Vertex-Indizes (innere Boundary)
+        NumPy Array von Horizon-Ring-Vertex-Indizes im horizon_vertex_manager
     """
     # === Kompatibilität: Mesh-Objekt oder Dictionary ===
     if hasattr(horizon_mesh, "faces"):
@@ -188,34 +188,34 @@ def extract_horizon_boundary_ring(
     print(f"    [i] Horizon-Mesh Boundary-Vertices gesamt: {len(boundary_vertices)}")
 
     # === Filtere innere vs. äußere Boundary ===
-    # Innere Boundary: Vertices nahe am Terrain (innerhalb von 500m Abstand)
-    # Äußere Boundary: Vertices weit weg vom Terrain (außerhalb von 500m Abstand)
-    vertices = vertex_manager.vertices
+    # Innere Boundary: Vertices nahe am Terrain (innerhalb von 2000m Abstand)
+    # Äußere Boundary: Vertices weit weg vom Terrain (außerhalb von 2000m Abstand)
+    vertices = horizon_vertex_manager.vertices
     x_min, x_max, y_min, y_max = grid_bounds
     center_x = (x_min + x_max) / 2.0
     center_y = (y_min + y_max) / 2.0
-    
+
     inner_boundary = []
     outer_boundary = []
-    
+
     for v_idx in boundary_vertices:
         v = vertices[v_idx]
-        dist_to_center = np.sqrt((v[0] - center_x)**2 + (v[1] - center_y)**2)
-        
+        dist_to_center = np.sqrt((v[0] - center_x) ** 2 + (v[1] - center_y) ** 2)
+
         # Heuristik: Innere Boundary liegt näher am Center als 2000m
         # (das Terrain ist 2km x 2km, also max 1414m vom Center)
         if dist_to_center < 2000.0:
             inner_boundary.append(v_idx)
         else:
             outer_boundary.append(v_idx)
-    
+
     inner_boundary_array = np.array(sorted(inner_boundary), dtype=np.int32)
-    
+
     print(f"    [i] Horizon-Ring Extraktion:")
     print(f"        Grid-Bounds: X=[{x_min:.0f}..{x_max:.0f}], Y=[{y_min:.0f}..{y_max:.0f}]")
     print(f"        Innere Boundary-Vertices: {len(inner_boundary)}")
     print(f"        Äußere Boundary-Vertices: {len(outer_boundary)}")
-    
+
     if len(inner_boundary_array) > 0:
         ring_vertices = vertices[inner_boundary_array]
         x_min_ring = ring_vertices[:, 0].min()
@@ -321,79 +321,78 @@ def stitch_ring_strip(
 
 def stitch_terrain_horizon_boundary(
     terrain_mesh,
-    vertex_manager: VertexManager,
+    terrain_vertex_manager: VertexManager,
     horizon_mesh,
+    horizon_vertex_manager: VertexManager,
     grid_bounds: Tuple[float, float, float, float],
     grid_spacing: float = 200.0,
-) -> List[Tuple[int, int, int]]:
+) -> Tuple[List[Tuple[int, int, int]], np.ndarray]:
     """
-    Hauptfunktion: Stitched Terrain-Tiles mit Horizon-Mesh entlang der Boundary.
+    Stitched Terrain-Tiles mit Horizon-Mesh entlang der Boundary.
+
+    SAUBERE ARCHITEKTUR:
+    - terrain_mesh: Unverändert! (bleibt in eigenem terrain_vertex_manager)
+    - horizon_mesh: Wird erweitert mit neuen Vertices + Faces
+    - Terrain-Ring-Vertices werden in den HORIZON-VM kopiert
+    - Stitching-Faces arbeiten mit Horizon-VM Indizes
 
     WICHTIG: Berechnet TATSÄCHLICHE Terrain-Bounds aus Boundary-Vertices!
     Der übergebene grid_bounds wird ignoriert - diese sind oft im falschen Koordinatensystem.
 
-    OPTIMIERUNGEN:
-    - Alle kritischen Pfade vektorisiert
-    - Minimal Speicher-Overhead
-    - Schnelle Set-Operationen statt Loops
-
     Args:
         terrain_mesh: Mesh-Objekt mit .faces und .face_props
-        vertex_manager: Gemeinsamer VertexManager für Terrain UND Horizon
-        horizon_mesh: Horizon-Mesh-Objekt mit .faces
+        terrain_vertex_manager: VertexManager für Terrain (UNVERÄNDERT!)
+        horizon_mesh: Horizon-Mesh-Objekt (wird erweitert)
+        horizon_vertex_manager: Separater VertexManager für Horizon
         grid_bounds: (x_min, x_max, y_min, y_max) - WIRD IGNORIERT! (siehe oben)
         grid_spacing: Spacing des Horizon-Grids (default 200m)
 
     Returns:
-        Liste von Faces als Tuples (v0, v1, v2)
+        Tuple (stitching_faces, terrain_ring_vertices_global_coords)
+        - stitching_faces: Liste von Faces mit Indizes im Horizon-VM
+        - terrain_ring_vertices_global_coords: (N, 3) Koordinaten der Terrain-Ring-Vertices (für Horizon-VM)
     """
     print(f"  [Boundary-Stitching] Extrahiere Terrain-Boundary-Kontur...")
-    terrain_boundary_vertices, actual_bounds = extract_terrain_boundary_edges(terrain_mesh, vertex_manager)
+    terrain_boundary_vertices, actual_bounds = extract_terrain_boundary_edges(terrain_mesh, terrain_vertex_manager)
     print(f"  [Boundary-Stitching] {len(terrain_boundary_vertices)} Terrain-Boundary-Vertices")
 
     if len(terrain_boundary_vertices) == 0:
         print(f"  [!] Keine Terrain-Boundaries gefunden")
-        return []
+        return [], np.array([])
 
     print(f"  [Boundary-Stitching] Extrahiere Horizon-Ring (innere Reihe)...")
     # WICHTIG: Nutze TATSÄCHLICHE Terrain-Bounds, nicht übergebene grid_bounds!
-    horizon_ring_vertices = extract_horizon_boundary_ring(
-        vertex_manager, horizon_mesh, actual_bounds
-    )
-    print(f"  [Boundary-Stitching] {len(horizon_ring_vertices)} Horizon-Ring-Vertices")
+    horizon_ring_vertices_local = extract_horizon_boundary_ring(horizon_vertex_manager, horizon_mesh, actual_bounds)
+    print(f"  [Boundary-Stitching] {len(horizon_ring_vertices_local)} Horizon-Ring-Vertices (im Horizon-VM)")
 
-    if len(horizon_ring_vertices) == 0:
+    if len(horizon_ring_vertices_local) == 0:
         print(f"  [!] Keine Horizon-Ring-Vertices gefunden")
-        return []
+        return [], np.array([])
 
-    # === DEBUG: Speichere Mesh-Daten für Analyse ===
-    try:
-        import pickle
-        import os
-
-        cache_file = os.path.join("cache", "mesh_debug_dump.pkl")
-        os.makedirs("cache", exist_ok=True)
-        with open(cache_file, "wb") as f:
-            pickle.dump(
-                {
-                    "terrain_mesh": terrain_mesh,
-                    "vertex_manager": vertex_manager,
-                    "horizon_vertex_indices": horizon_vertex_indices,
-                    "terrain_boundary_vertices": terrain_boundary_vertices,
-                    "horizon_ring_vertices": horizon_ring_vertices,
-                    "actual_bounds": actual_bounds,
-                },
-                f,
-            )
-        print(f"  [DEBUG] Mesh-Daten gespeichert: {cache_file}")
-    except Exception as e:
-        print(f"  [!] Konnte Debug-Daten nicht speichern: {e}")
+    # === SAUBERE LÖSUNG: Kopiere Terrain-Ring-Vertices in den HORIZON-VM ===
+    # (nicht in den Terrain-VM - der bleibt unverändert!)
+    print(f"  [Boundary-Stitching] Kopiere Terrain-Ring-Vertices in HORIZON-VertexManager...")
+    
+    # Hole Terrain-Ring-Vertex-Koordinaten
+    terrain_ring_vertices_coords = terrain_vertex_manager.vertices[terrain_boundary_vertices]
+    
+    # Füge sie in den Horizon-VM ein
+    terrain_ring_vertices_horizon_idx = np.array(
+        horizon_vertex_manager.add_vertices_direct_nohash(terrain_ring_vertices_coords), 
+        dtype=np.int32
+    )
+    
+    print(f"  [Boundary-Stitching] Terrain-Vertices jetzt auch im Horizon-VM (Indizes {terrain_ring_vertices_horizon_idx[0]}..{terrain_ring_vertices_horizon_idx[-1]})")
 
     print(f"  [Boundary-Stitching] Generiere Ring-Strip-Stitching (Triangle-Strips zwischen zwei Polygonen)...")
+    # JETZT BEIDE RINGE IM GLEICHEN HORIZON-VM!
     faces = stitch_ring_strip(
-        terrain_boundary_vertices, horizon_ring_vertices, vertex_manager, max_distance=grid_spacing * 1.5
+        terrain_ring_vertices_horizon_idx,  # Terrain-Ring im Horizon-VM
+        horizon_ring_vertices_local,          # Horizon-Ring im Horizon-VM
+        horizon_vertex_manager,
+        max_distance=grid_spacing * 1.5
     )
 
     print(f"  [Boundary-Stitching] FERTIG: {len(faces)} Stitching-Faces")
 
-    return faces
+    return faces, terrain_ring_vertices_coords

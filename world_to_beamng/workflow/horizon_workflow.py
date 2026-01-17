@@ -92,31 +92,54 @@ class HorizonWorkflow:
             print("  [!] DGM30-Daten nicht gefunden - Phase 5 übersprungen")
             return None, []
 
-        # === Mesh generieren (optional mit bestehendem VertexManager) ===
+        # === Mesh generieren ===
         print("  [i] Generiere Horizont-Mesh...")
-        horizon_mesh, nx, ny, horizon_vertex_indices = generate_horizon_mesh(
+        
+        # Nutze GEMEINSAMEN VertexManager nur wenn Boundary-Stitching aktiviert ist
+        # Sonst: Separater VertexManager für saubere Architektur
+        # === STEP 1: Generiere Horizont-Mesh (separater VM, OHNE UVs noch) ===
+        print("  [i] Generiere Horizont-Mesh...")
+        
+        # WICHTIG: IMMER separater VM!
+        # Boundary-Stitching arbeitet NUR mit dem Horizon-VM
+        horizon_mesh, nx, ny, horizon_vertex_indices, global_to_horizon_map = generate_horizon_mesh(
             height_points,
             height_elevations,
             global_offset,
             tile_bounds=tile_bounds,
-            vertex_manager=terrain_vertex_manager,  # Gemeinsamer VM wenn vorhanden!
+            vertex_manager=None,  # ALWAYS separater VM (saubere Architektur)
         )
 
-        # === Boundary-Stitching (falls Terrain-Mesh übergeben) ===
+        # === STEP 2: Boundary-Stitching (falls aktiviert) ===
         stitching_faces = []
-        if terrain_mesh is not None and terrain_vertex_manager is not None:
+        if terrain_mesh is not None and terrain_vertex_manager is not None and config.HORIZON_BOUNDARY_STITCHING:
             print(f"  [i] Generiere Boundary-Stitching zwischen Terrain und Horizon...")
 
-            stitching_faces = stitch_terrain_horizon_boundary(
+            stitching_faces, terrain_ring_coords = stitch_terrain_horizon_boundary(
                 terrain_mesh,
                 terrain_vertex_manager,
-                horizon_mesh,  # Horizon-Mesh statt Vertex-Indices
+                horizon_mesh,
+                horizon_mesh.vertex_manager,  # Separater VertexManager des Horizon-Meshes
                 None,  # grid_bounds wird ignoriert - wird aus Boundary-Vertices berechnet!
                 grid_spacing=200.0,
             )
-            print(f"  [i] {len(stitching_faces)} Stitching-Faces generiert")
+            
+            # Füge Stitching-Faces zum Horizon-Mesh hinzu
+            if len(stitching_faces) > 0:
+                print(f"  [i] Füge {len(stitching_faces)} Stitching-Faces zu Horizon-Mesh hinzu...")
+                for (v0, v1, v2) in stitching_faces:
+                    # === Füge Face hinzu ===
+                    current_face_idx = len(horizon_mesh.faces)
+                    horizon_mesh.faces.append((v0, v1, v2))
 
-            # Noch NICHT ins Mesh integrieren - erst nach Texturierung!
+                    # === Setze Face-Properties ===
+                    if not hasattr(horizon_mesh, "face_props"):
+                        horizon_mesh.face_props = {}
+                    horizon_mesh.face_props[current_face_idx] = {"material": "horizon"}
+                
+                print(f"  [✓] {len(stitching_faces)} Stitching-Faces integriert")
+            
+            print(f"  [i] {len(stitching_faces)} Stitching-Faces generiert")
 
         # === Sentinel-2 laden (optional) ===
         print("  [i] Lade Sentinel-2 Satellitenbilder...")
@@ -145,42 +168,25 @@ class HorizonWorkflow:
             print("  [i] Texturiere Horizont-Mesh...")
             texture_info = texture_horizon_mesh(vertices, horizon_image, nx, ny, bounds_utm, transform, global_offset)
 
-        # === Integriere Stitching-Faces mit korrekten UVs ===
-        if stitching_faces:
-            print(f"  [i] Füge {len(stitching_faces)} Stitching-Faces mit UVs hinzu...")
+        # === STEP 3: UVs generieren NACH Stitching (für ALL Vertices + Faces!) ===
+        print("  [i] Generiere UVs für Horizont-Mesh (inklusive Stitching)...")
+        horizon_vertices = horizon_mesh.vertex_manager.vertices
+        mesh_x_min = horizon_vertices[:, 0].min()
+        mesh_x_max = horizon_vertices[:, 0].max()
+        mesh_y_min = horizon_vertices[:, 1].min()
+        mesh_y_max = horizon_vertices[:, 1].max()
 
-            # Berechne UV-Koordinaten basierend auf Mesh-Bounds (wie Horizon-UVs)
-            # Diese UVs werden später in export_horizon_dae() mit uv_offset/uv_scale transformiert
-            vertices = horizon_mesh.vertex_manager.vertices
+        mesh_width = mesh_x_max - mesh_x_min
+        mesh_height = mesh_y_max - mesh_y_min
 
-            # Mesh-Bounds (lokal)
-            mesh_x_min = vertices[:, 0].min()
-            mesh_x_max = vertices[:, 0].max()
-            mesh_y_min = vertices[:, 1].min()
-            mesh_y_max = vertices[:, 1].max()
-
-            mesh_width = mesh_x_max - mesh_x_min
-            mesh_height = mesh_y_max - mesh_y_min
-
-            # === WICHTIG: Initialisiere UV-Liste für ALL Vertices ===
-            # Nicht nur die Stitching-Faces haben Vertices - auch Terrain-Vertices
-            # können im gemeinsamen VertexManager sein!
-            print(f"  [i] Initialisiere UV-Liste für alle {len(vertices)} Vertices...")
-            while len(horizon_mesh.uvs) < len(vertices):
-                v_idx = len(horizon_mesh.uvs)
-                vx_local = vertices[v_idx, 0]
-                vy_local = vertices[v_idx, 1]
-
-                u = (vx_local - mesh_x_min) / mesh_width if mesh_width > 0 else 0.5
-                v = (vy_local - mesh_y_min) / mesh_height if mesh_height > 0 else 0.5
-                horizon_mesh.uvs.append((u, v))
-
-            # Jetzt füge die Stitching-Faces hinzu (UVs existieren bereits)
-            for face_tuple in stitching_faces:
-                horizon_mesh.faces.append(face_tuple)
-
-            print(f"  [✓] {len(stitching_faces)} Stitching-Faces integriert")
-            print(f"  [i] UV-Liste: {len(horizon_mesh.uvs)} UVs für {len(vertices)} Vertices")
+        # Generiere UVs für ALLE Vertices (Original-Horizon + Stitching)
+        horizon_mesh.uvs = []
+        for vertex in horizon_vertices:
+            u = (vertex[0] - mesh_x_min) / max(mesh_width, 1e-10)
+            v = (vertex[1] - mesh_y_min) / max(mesh_height, 1e-10)
+            horizon_mesh.uvs.append((u, v))
+        
+        print(f"  [✓] {len(horizon_mesh.uvs)} UVs generiert für {len(horizon_vertices)} Vertices")
 
         # === Export ===
         print("  [i] Exportiere Horizont DAE...")

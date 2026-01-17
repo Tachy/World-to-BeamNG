@@ -89,6 +89,7 @@ LOD2_FOUNDATION_EXTRUDE = 0.5  # Meter: Wände nach unten verlängern für Funda
 PHASE5_ENABLED = True  # Horizont-Layer aktivieren (erfordert DGM30 + DOP300 Daten)
 HORIZON_BBOX_BUFFER = 50000  # Buffer um Kerngebiet in Metern (50km)
 HORIZON_GRID_SPACING = 200  # Horizont-Grid Auflösung in Metern (200m)
+HORIZON_BOUNDARY_STITCHING = True  # Stitching zwischen Terrain und Horizon aktivieren
 
 # === MULTIPROCESSING ===
 # WARNUNG: Unter Windows kann Multiprocessing hängen bleiben!

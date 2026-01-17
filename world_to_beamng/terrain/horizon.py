@@ -428,12 +428,20 @@ def load_sentinel2_geotiff(sentinel2_dir, bbox_utm, tile_hash=None):
 
 def generate_horizon_mesh(height_points, height_elevations, local_offset, tile_bounds=None, vertex_manager=None):
     """
-    Generiert Horizont-Mesh mit zentraler UV-Verwaltung (VertexManager + Mesh.uvs).
+    Generiert Horizont-Mesh mit SEPARATEM VertexManager (saubere Architektur).
+
+    ARCHITEKTUR:
+    - IMMER separater VM (vertex_manager Parameter wird IGNORIERT für Sauberness)
+    - Stitching arbeitet NUR mit dem Horizon-VM
+    - UVs werden NACH dem Stitching generiert (in horizon_workflow.py)
+    - Rückgabe: (mesh, nx, ny, horizon_vertex_indices, global_to_horizon_map)
+      - horizon_vertex_indices: Alle Horizon-Vertices (im separaten VM)
+      - global_to_horizon_map: IMMER None (nur separater VM)
 
     OPTIMIERUNGEN:
-    - Vektorisierte UV-Berechnung (keine Python-Schleifen)
-    - Batch-VertexManager-Einfügung
+    - Vektorisierte Batch-VertexManager-Einfügung
     - Effiziente Grid-Indizierung
+    - KEINE UV-Berechnung (kommt später!)
     - Keine redundanten Lookups
     - Quads über Terrain-Tiles filtern (optional)
 
@@ -443,13 +451,15 @@ def generate_horizon_mesh(height_points, height_elevations, local_offset, tile_b
         local_offset: (ox, oy, oz) Transformation – hier nur noch für Konsistenz/Logging genutzt
         tile_bounds: Optional - Liste von (x_min, y_min, x_max, y_max) Tuples in lokalen Koordinaten
                      zum Überspringen von Quads die über Terrain liegen
-        vertex_manager: Optional - Bestehender VertexManager (z.B. vom Terrain)
-                        Falls None, wird ein neuer erstellt
+        vertex_manager: Optional - Bestehender VertexManager (z.B. vom Terrain für Stitching)
+                        Falls None, wird ein SEPARATER erstellt (EMPFOHLEN)
 
     Returns:
-        Tuple (mesh, nx, ny)
-        mesh: Mesh-Objekt mit zentralem VertexManager + deduplizierten UVs
+        Tuple (mesh, nx, ny, horizon_vertex_indices, global_to_horizon_map)
+        mesh: Mesh-Objekt mit VertexManager + deduplizierten UVs
         nx, ny: Grid-Dimensionen (für Texturierung)
+        horizon_vertex_indices: Vertex-Indizes im VertexManager
+        global_to_horizon_map: Dict {global_index → local_index} (nur wenn shared VM gegeben)
     """
     from ..mesh.vertex_manager import VertexManager
     from ..mesh.mesh import Mesh
@@ -472,7 +482,11 @@ def generate_horizon_mesh(height_points, height_elevations, local_offset, tile_b
     nx = len(x_coords)
     ny = len(y_coords)
 
-    print(f"  [i] Erstelle Horizont-Mesh: {nx}×{ny} Grid mit zentraler UV-Verwaltung")
+    print(f"  [i] Erstelle Horizont-Mesh: {nx}×{ny} Grid")
+    if vertex_manager is None:
+        print(f"      Mit SEPARATEM VertexManager (saubere Architektur)")
+    else:
+        print(f"      Mit GEMEINSAMEN VertexManager (für Boundary-Stitching)")
 
     # Erstelle Grid mit Nearest-Neighbor-Interpolation
     from scipy.spatial import cKDTree
@@ -489,24 +503,15 @@ def generate_horizon_mesh(height_points, height_elevations, local_offset, tile_b
     # Erstelle 3D Vertices - Horizont 50m unter Z-Level für Kern-Mesh Separation
     vertices = np.column_stack([grid_points_flat, grid_elevations])
 
-    # Initialisiere Mesh mit VertexManager (oder nutze bestehenden)
-    if vertex_manager is None:
-        vm = VertexManager(tolerance=0.001)
-    else:
-        vm = vertex_manager
+    # === ARCHITEKTUR: IMMER Separater VertexManager ===
+    # vertex_manager Parameter wird für Sauberness ignoriert
+    # Boundary-Stitching arbeitet mit Horizon-VM + kopiert Terrain-Ring in Horizon-VM
+    vm = VertexManager(tolerance=0.001)
+    global_to_horizon_map = None  # Immer None (nur separater VM)
+    
     mesh = Mesh(vm)
 
-    # === OPTIMIERUNG 1: Vektorisierte UV-Berechnung ===
-    # Berechne UV-Bounds für Normalisierung
-    mesh_x_min, mesh_x_max = vertices[:, 0].min(), vertices[:, 0].max()
-    mesh_y_min, mesh_y_max = vertices[:, 1].min(), vertices[:, 1].max()
-
-    # Normalisiere alle Vertices auf einmal
-    uvs_x = (vertices[:, 0] - mesh_x_min) / max(mesh_x_max - mesh_x_min, 1e-10)
-    uvs_y = (vertices[:, 1] - mesh_y_min) / max(mesh_y_max - mesh_y_min, 1e-10)
-    uvs_array = np.column_stack([uvs_x, uvs_y])
-
-    # === OPTIMIERUNG 2: Batch Vertex-Einfügung (OHNE Hash-Lookup!) ===
+    # === OPTIMIERUNG: Batch Vertex-Einfügung (OHNE Hash-Lookup!) ===
     # Für reguläre Grids: Alle Vertices sind unterschiedlich, kein Dedup nötig!
     # Nutze add_vertices_direct_nohash() statt einzelner add_vertex() Calls (258k Aufrufe!)
     vertex_indices = np.array(vm.add_vertices_direct_nohash(vertices), dtype=int)
@@ -600,22 +605,21 @@ def generate_horizon_mesh(height_points, height_elevations, local_offset, tile_b
     faces_array = np.vstack([faces_tri1, faces_tri2]).astype(int)
     mesh.faces = list(map(tuple, faces_array))
 
-    # UVs: Einfach alle Vertex-UVs als Liste (keine Deduplizierung nötig)
-    mesh.uvs = [tuple(uv) for uv in uvs_array]
-
-    # UV-Mapping: Jedes Face nutzt die entsprechenden Vertex-UVs
-    mesh.uv_indices = {i: tuple(faces_array[i]) for i in range(len(faces_array))}
+    # === UVs werden NICHT hier generiert! ===
+    # Sie werden in horizon_workflow.py NACH dem Stitching generiert (für alle Vertices zusammen)
+    mesh.uvs = []
+    mesh.uv_indices = {}
 
     face_count = len(mesh.faces)
 
     print(f"  [OK] {face_count} Dreiecke generiert")
     print(f"  [OK] {len(mesh.uvs)} UVs (1 pro Vertex, ohne Deduplizierung)")
 
-    # Gebe Mesh, Grid-Dimensionen UND Horizon-Vertex-Indizes zurück
+    # Gebe Mesh, Grid-Dimensionen, Horizon-Vertex-Indizes UND Mapping zurück
     # vertex_indices ist flaches Array - konvertiere zu Liste
     horizon_vertex_indices = vertex_indices.tolist()
 
-    return mesh, nx, ny, horizon_vertex_indices
+    return mesh, nx, ny, horizon_vertex_indices, global_to_horizon_map
 
 
 def texture_horizon_mesh(vertices, horizon_image, nx, ny, bounds_utm, transform, global_offset):
@@ -753,6 +757,8 @@ def export_horizon_dae(mesh, texture_info, output_dir, level_name="default", glo
     bounds_utm = texture_info.get("bounds_utm", None)
     vertices = mesh.vertex_manager.vertices
     faces = mesh.faces  # Extrahiere Faces aus dem Mesh
+    
+    print(f"  [i] DAE-Export: {len(vertices)} Vertices, {len(faces)} Faces")
 
     if bounds_utm and global_offset:
         ox, oy, oz = global_offset
