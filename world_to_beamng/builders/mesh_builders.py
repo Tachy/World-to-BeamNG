@@ -186,14 +186,31 @@ class TerrainMeshBuilder:
 
                 print(f"  [DEBUG] mesh_obj hat jetzt {len(mesh_obj.faces)} Faces (nach Road-Faces)")
 
+            # Berechne Grid-Bounds aus grid_points (für tile_bounds)
+            x_min = float(grid_points[:, 0].min())
+            x_max = float(grid_points[:, 0].max())
+            y_min = float(grid_points[:, 1].min())
+            y_max = float(grid_points[:, 1].max())
+            tile_bounds = (x_min, x_max, y_min, y_max)
+
+            # === Verbinde offene Terrain↔Straßen-Grenzen (KRITISCH VOR stitch_gaps!) ===
+            print(f"  [i] Fülle offene Terrain↔Straßen-Grenzen an Tile-Grenze...")
+            from ..mesh.stitch_terrain_roads import stitch_terrain_to_roads
+
+            terrain_road_faces = stitch_terrain_to_roads(
+                terrain_mesh=mesh_obj,
+                vertex_manager=self._vertex_manager,
+                tile_bounds=tile_bounds,
+            )
+
             stitch_all_gaps(
                 road_data_for_classification=self._road_data,
                 vertex_manager=self._vertex_manager,
                 mesh=mesh_obj,
                 terrain_vertex_indices=terrain_vertex_indices,
                 junction_points=junction_points if junction_points else None,
-                filter_road_id=None,
-                filter_junction_id=None,
+                filter_road_id=1,
+                filter_junction_id=1,
                 debug_stop_at_road=None,
                 debug_stop_at_circle=None,
             )

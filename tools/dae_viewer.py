@@ -130,6 +130,7 @@ class DAETileViewer:
         self.show_terrain = saved_layers.get("terrain", True)
         self.show_roads = saved_layers.get("roads", True)
         self.show_buildings = saved_layers.get("buildings", True)  # Häuser Toggle
+        self.show_horizon = saved_layers.get("horizon", True)  # Horizont Toggle
         self.use_textures = saved_layers.get("textures", True)  # Texturen standardmäßig an
         self.show_debug = saved_layers.get("debug", False)  # Debug-Layer (Junctions, Centerlines)
 
@@ -137,6 +138,7 @@ class DAETileViewer:
         self.terrain_actors = []  # Liste von Terrain-Mesh-Actors
         self.road_actors = []  # Liste von Road-Mesh-Actors
         self.building_actors = []  # Liste von Building-Mesh-Actors
+        self.horizon_actors = []  # Liste von Horizon-Mesh-Actors
         self.debug_actors = []  # Liste von Debug-Actors (Junctions, Centerlines)
         self.debug_loaded = False  # Flag: Debug-Layer bereits geladen?
         self._first_update_view = True  # Flag: Erstes Mal update_view() aufgerufen?
@@ -247,6 +249,10 @@ class DAETileViewer:
             # Toggle nur Häuser (kein Neuaufbau)
             self.show_buildings = not self.show_buildings
             print(f"\n[Häuser] {'AN' if self.show_buildings else 'AUS'}")
+
+        if key == "o":
+            self.show_horizon = not self.show_horizon
+            print(f"\n[Horizont] {'AN' if self.show_horizon else 'AUS'}")
             self._update_visibility()
 
         elif key_lower == "x":
@@ -286,6 +292,8 @@ class DAETileViewer:
             actor.SetVisibility(self.show_roads)
         for actor in self.building_actors:
             actor.SetVisibility(self.show_buildings)
+        for actor in self.horizon_actors:
+            actor.SetVisibility(self.show_horizon)
 
         self._update_active_layers_text()
         self.plotter.render()
@@ -401,10 +409,11 @@ class DAETileViewer:
         self.plotter.clear()
         self._reinit_lights()
 
-        # Leere NUR Terrain/Road/Building Actor-Listen
+        # Leere NUR Terrain/Road/Building/Horizon Actor-Listen
         self.terrain_actors = []
         self.road_actors = []
         self.building_actors = []
+        self.horizon_actors = []
         # Debug-Actors wurden durch clear() gelöscht, aber wir laden sie danach wieder
 
         # Iteriere über alle geladenen DAE-Dateien
@@ -414,7 +423,7 @@ class DAETileViewer:
 
         # Statuszeilen
         # Oben links: Bedienungsanleitung
-        bedienung = "S: Straßen | T: Terrain | D: Debug | X: Texturen | K: Cam | L: Reload | 2xLMB: Jump"
+        bedienung = "S: Straßen | T: Terrain | H: Häuser | O: Horizont | D: Debug | X: Texturen | K: Cam | L: Reload | 2xLMB: Jump"
         self.plotter.add_text(
             bedienung,
             position="upper_left",
@@ -493,6 +502,21 @@ class DAETileViewer:
         x_coord = tile_index_x * 500
         y_coord = tile_index_y * 500
         return (x_coord, y_coord)
+
+    def _get_actor_list_for_item(self, item_name):
+        """Bestimme, zu welcher Actor-Liste ein Item gehört basierend auf item_name."""
+        is_terrain = item_name.startswith("terrain_") or item_name.startswith("tile_")
+        is_horizon = "horizon" in item_name.lower()
+        is_building = item_name.startswith("buildings_")
+
+        if is_horizon:
+            return self.horizon_actors
+        elif is_building:
+            return self.building_actors
+        elif is_terrain:
+            return self.terrain_actors
+        else:
+            return self.terrain_actors  # Default: terrain_actors
 
     def _render_single_dae(self, item_name, tile_data):
         """Rendere ein einzelnes DAE-File (terrain oder building)."""
@@ -600,8 +624,9 @@ class DAETileViewer:
                             diffuse=self.material_diffuse,
                             specular=self.material_specular,
                         )
-                        self.terrain_actors.append(actor)
-                        actor.SetVisibility(self.show_terrain)
+                        self._get_actor_list_for_item(item_name).append(actor)
+                        visibility = self.show_horizon if "horizon" in item_name.lower() else self.show_terrain
+                        actor.SetVisibility(visibility)
                         terrain_texture_log.append(f"✓ {tile_name} → {lookup_key}")
                     except Exception as e:
                         print(f"  [!] Textur-Fehler für {tile_name}: {e}")
@@ -610,8 +635,9 @@ class DAETileViewer:
                         actor = self.plotter.add_mesh(
                             mesh, color=[0.6, 0.5, 0.4], opacity=0.5, label=f"{item_name}_{tile_name}"
                         )
-                        self.terrain_actors.append(actor)
-                        actor.SetVisibility(self.show_terrain)
+                        self._get_actor_list_for_item(item_name).append(actor)
+                        visibility = self.show_horizon if "horizon" in item_name.lower() else self.show_terrain
+                        actor.SetVisibility(visibility)
                 else:
                     # Keine Textur oder keine UVs
                     reason = "KEINE UVs" if len(tile_uvs) == 0 else f"Textur nicht gefunden: {lookup_key}"
@@ -619,8 +645,9 @@ class DAETileViewer:
                     actor = self.plotter.add_mesh(
                         mesh, color=[0.6, 0.5, 0.4], opacity=0.5, label=f"{item_name}_{tile_name}"
                     )
-                    self.terrain_actors.append(actor)
-                    actor.SetVisibility(self.show_terrain)
+                    self._get_actor_list_for_item(item_name).append(actor)
+                    visibility = self.show_horizon if "horizon" in item_name.lower() else self.show_terrain
+                    actor.SetVisibility(visibility)
 
             # Debug-Output
             if terrain_texture_log:
@@ -646,8 +673,9 @@ class DAETileViewer:
                     diffuse=self.material_diffuse,
                     specular=self.material_specular,
                 )
-                self.terrain_actors.append(actor)
-                actor.SetVisibility(self.show_terrain)
+                self._get_actor_list_for_item(item_name).append(actor)
+                visibility = self.show_horizon if "horizon" in item_name.lower() else self.show_terrain
+                actor.SetVisibility(visibility)
 
         # Rendere Roads pro Material (immer, egal ob Texture oder Grid)
         if road_faces_by_material and tiles_info:
@@ -1295,6 +1323,8 @@ class DAETileViewer:
             active_items.append("S")  # S für Straßen
         if self.show_buildings:
             active_items.append("H")  # H für Häuser
+        if self.show_horizon:
+            active_items.append("O")  # O für Horizont
         if self.use_textures:
             active_items.append("X")
         if self.show_debug:

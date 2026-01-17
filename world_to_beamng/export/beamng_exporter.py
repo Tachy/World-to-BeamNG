@@ -97,6 +97,11 @@ class BeamNGExporter:
         all_buildings = []
         tile_bounds_local = []  # Sammle Tile-Grenzen für Horizon-Clipping
 
+        # Speichere Terrain-Daten für Horizon-Stitching
+        terrain_mesh = None
+        terrain_vertex_manager = None
+        terrain_grid_bounds = None
+
         # Phase 1: Terrain-Tiles
         for tile_idx, tile in enumerate(tiles):
 
@@ -116,6 +121,14 @@ class BeamNGExporter:
                 print(
                     f"  [i] Spawn-Höhendaten: {len(self.height_points) if self.height_points is not None else 0} Punkte"
                 )
+
+            # Speichere Terrain-Daten für Horizon-Stitching (vom letzten erfolgreichen Tile)
+            if result.get("terrain_mesh") is not None:
+                terrain_mesh = result.get("terrain_mesh")
+                terrain_vertex_manager = result.get("vertex_manager")
+                terrain_grid_bounds = result.get("grid_bounds_local")
+                vm_count = terrain_vertex_manager.get_count() if terrain_vertex_manager else 0
+                print(f"  [i] Terrain-Daten für Stitching: VM={vm_count} Vertices, Bounds={terrain_grid_bounds}")
 
             # Exportiere DAE
             tile_x = tile.get("tile_x", 0)
@@ -176,10 +189,24 @@ class BeamNGExporter:
         timer.begin("Horizon Export")
 
         # Phase 3: Horizon-Layer (optional)
+        stitching_faces = []
         if include_horizon:
-            # Übergebe Tile-Grenzen zum Filtern von Quads die über Terrain liegen
-            horizon_dae = self.horizon.generate_horizon(global_offset=global_offset, tile_bounds=tile_bounds_local)
-            stats["horizon_exported"] = horizon_dae is not None
+            # Übergebe Tile-Grenzen und Terrain-Daten für Boundary-Stitching
+            result = self.horizon.generate_horizon(
+                global_offset=global_offset,
+                tile_bounds=tile_bounds_local,
+                terrain_mesh=terrain_mesh,
+                terrain_vertex_manager=terrain_vertex_manager,
+                terrain_grid_bounds=terrain_grid_bounds,
+            )
+
+            if result is not None:
+                horizon_dae, stitching_faces = result
+                stats["horizon_exported"] = horizon_dae is not None
+                if stitching_faces:
+                    print(f"  [i] {len(stitching_faces)} Stitching-Faces für Horizon-Terrain-Verbindung")
+            else:
+                stats["horizon_exported"] = False
 
         timer.begin("Finalisierung")
 

@@ -426,7 +426,7 @@ def load_sentinel2_geotiff(sentinel2_dir, bbox_utm, tile_hash=None):
         return None
 
 
-def generate_horizon_mesh(height_points, height_elevations, local_offset, tile_bounds=None):
+def generate_horizon_mesh(height_points, height_elevations, local_offset, tile_bounds=None, vertex_manager=None):
     """
     Generiert Horizont-Mesh mit zentraler UV-Verwaltung (VertexManager + Mesh.uvs).
 
@@ -443,6 +443,8 @@ def generate_horizon_mesh(height_points, height_elevations, local_offset, tile_b
         local_offset: (ox, oy, oz) Transformation – hier nur noch für Konsistenz/Logging genutzt
         tile_bounds: Optional - Liste von (x_min, y_min, x_max, y_max) Tuples in lokalen Koordinaten
                      zum Überspringen von Quads die über Terrain liegen
+        vertex_manager: Optional - Bestehender VertexManager (z.B. vom Terrain)
+                        Falls None, wird ein neuer erstellt
 
     Returns:
         Tuple (mesh, nx, ny)
@@ -487,8 +489,11 @@ def generate_horizon_mesh(height_points, height_elevations, local_offset, tile_b
     # Erstelle 3D Vertices - Horizont 50m unter Z-Level für Kern-Mesh Separation
     vertices = np.column_stack([grid_points_flat, grid_elevations])
 
-    # Initialisiere Mesh mit VertexManager
-    vm = VertexManager(tolerance=0.001)
+    # Initialisiere Mesh mit VertexManager (oder nutze bestehenden)
+    if vertex_manager is None:
+        vm = VertexManager(tolerance=0.001)
+    else:
+        vm = vertex_manager
     mesh = Mesh(vm)
 
     # === OPTIMIERUNG 1: Vektorisierte UV-Berechnung ===
@@ -606,7 +611,11 @@ def generate_horizon_mesh(height_points, height_elevations, local_offset, tile_b
     print(f"  [OK] {face_count} Dreiecke generiert")
     print(f"  [OK] {len(mesh.uvs)} UVs (1 pro Vertex, ohne Deduplizierung)")
 
-    return mesh, nx, ny
+    # Gebe Mesh, Grid-Dimensionen UND Horizon-Vertex-Indizes zurück
+    # vertex_indices ist flaches Array - konvertiere zu Liste
+    horizon_vertex_indices = vertex_indices.tolist()
+
+    return mesh, nx, ny, horizon_vertex_indices
 
 
 def texture_horizon_mesh(vertices, horizon_image, nx, ny, bounds_utm, transform, global_offset):
