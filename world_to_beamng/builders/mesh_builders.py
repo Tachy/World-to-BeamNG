@@ -36,6 +36,7 @@ class TerrainMeshBuilder:
         self._road_mesh_data = (
             None  # Strukturierte Road-Daten: [{'vertices': [...], 'road_id': ..., 'uvs': {...}}, ...]
         )
+        self._road_material_map = None  # Material-Map: road_id -> (mat_name, props)
 
     def with_grid(self, grid: np.ndarray) -> "TerrainMeshBuilder":
         """
@@ -109,6 +110,20 @@ class TerrainMeshBuilder:
         self._road_data = road_polygons_2d  # Für OSM-Tag-Lookup
         return self
 
+    def with_road_material_map(self, road_material_map: dict) -> "TerrainMeshBuilder":
+        """
+        Setze vorgefertigte road_material_map (inkl. Junction-Materials).
+
+        Args:
+            road_material_map: Dict mit road_id -> (mat_name, props)
+                              Enthält auch negative IDs für Junctions!
+
+        Returns:
+            Self für Method-Chaining
+        """
+        self._road_material_map = road_material_map
+        return self
+
     def build(self) -> Mesh:
         """
         Baue Terrain-Mesh.
@@ -161,19 +176,23 @@ class TerrainMeshBuilder:
 
             # NEU: Füge Road-Faces MIT OSM-mapped Material hinzu
             if self._road_mesh_data is not None:
-                from ..config import OSM_MAPPER
-
                 print(f"  [DEBUG] Füge {len(self._road_mesh_data)} Road-Faces zu mesh_obj hinzu...")
 
-                # Baue Material-Map: road_id → material_name
-                road_material_map = {}
-                for poly in self._road_data:
-                    r_id = poly.get("road_id")
-                    if r_id is not None:
-                        osm_tags = poly.get("osm_tags", {})
-                        props = OSM_MAPPER.get_road_properties(osm_tags)
-                        mat_name = props.get("internal_name", "road_default")
-                        road_material_map[r_id] = mat_name
+                # Nutze übergebene road_material_map (falls vorhanden) oder baue neue
+                if self._road_material_map:
+                    # Verwende vorgefertigte Map (enthält auch Junction-Materials!)
+                    road_material_map = self._road_material_map
+                else:
+                    # Fallback: Baue Map aus road_polygons_2d (nur für Roads, OHNE Junctions)
+                    from ..config import OSM_MAPPER
+                    road_material_map = {}
+                    for poly in self._road_data:
+                        r_id = poly.get("road_id")
+                        if r_id is not None:
+                            osm_tags = poly.get("osm_tags", {})
+                            props = OSM_MAPPER.get_road_properties(osm_tags)
+                            mat_name = props.get("internal_name", "road_default")
+                            road_material_map[r_id] = (mat_name, props)
 
                 # Füge Road-Faces mit Material UND UV-Koordinaten hinzu
                 for road_face_data in self._road_mesh_data:
@@ -181,7 +200,9 @@ class TerrainMeshBuilder:
                     road_id = road_face_data["road_id"]
                     uv_coords = road_face_data["uvs"]  # {v0: (u,v), v1: (u,v), v2: (u,v)}
 
-                    mat_name = road_material_map.get(road_id, "road_default")
+                    # Material-Map enthält Tuple (mat_name, props)
+                    mat_tuple = road_material_map.get(road_id, ("road_default", {}))
+                    mat_name = mat_tuple[0] if isinstance(mat_tuple, tuple) else mat_tuple
                     mesh_obj.add_face(v0, v1, v2, material=mat_name, uv_coords=uv_coords)
 
                 print(f"  [DEBUG] mesh_obj hat jetzt {len(mesh_obj.faces)} Faces (nach Road-Faces)")

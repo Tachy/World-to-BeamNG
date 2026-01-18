@@ -208,12 +208,11 @@ class DAETileViewer:
         print(f"\nDAE geladen mit Tile-Geometrien")
         print("\nSteuerung:")
         print("  X = Toggle Texturen (Rendering ↔ Grid) - triggert Neuaufbau")
-        print("\nLayer ein-/ausblenden (funktioniert in beide Ansichten):")
+        print("\nLayer ein-/ausblenden OHNE Neuaufbau (in BEIDEN Ansichten verfügbar):")
         print("  T = Toggle Terrain")
         print("  S = Toggle Straßen")
         print("  H = Toggle Häuser")
-        print("  O = Toggle Horizont")
-        print("  D = Toggle Debug (Junctions, Centerlines, Boundaries, Labels)")
+        print("  D = Toggle Debug (Junctions, Centerlines, Boundaries)")
         print("\nAllgemein:")
         print("  K = Kamera laden | Shift+K = Kamera speichern")
         print("  L = DAE neu laden")
@@ -265,7 +264,7 @@ class DAETileViewer:
             # Debug-Layer bleiben dauerhaft geladen und ihre Sichtbarkeit wird beibehalten
 
         elif key_lower == "d":
-            # Toggle Debug in Grid- und Rendering-Ansicht
+            # Toggle Debug in BEIDEN Ansichten (Rendering und Grid)
             self.show_debug = not self.show_debug
             print(f"\n[Debug] {'AN' if self.show_debug else 'AUS'}")
             self._update_debug_visibility()

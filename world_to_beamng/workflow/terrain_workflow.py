@@ -287,6 +287,69 @@ class TerrainWorkflow:
             road_mesh[4],  # junction_fans (alt Index 5)
         )
 
+        # 10b. Junction-Material-Mapping (VOR TerrainMeshBuilder!)
+        # Baue road_material_map für Roads UND Junctions
+        from ..config import OSM_MAPPER
+
+        road_material_map = {}
+        junction_fans = road_mesh[4] if len(road_mesh) > 4 else {}
+
+        # Zuerst: Sammle Road-Materials
+        for poly in road_slope_polygons_2d:
+            r_id = poly.get("road_id")
+            if r_id is not None:
+                props = OSM_MAPPER.get_road_properties(poly.get("osm_tags", {}))
+                mat_name = props.get("internal_name", "road_default")
+                road_material_map[r_id] = (mat_name, props)
+
+        # Dann: Füge Junction-Materials hinzu (negative road_id)
+        default_props = OSM_MAPPER.get_road_properties({})
+        default_mat = default_props.get("internal_name", "road_default")
+
+        for junction_id, junction_data in junction_fans.items():
+            connected_road_ids = junction_data.get("connected_road_ids", [])
+
+            if not connected_road_ids:
+                # Keine angrenzenden Straßen: nutze Default
+                road_material_map[-(junction_id + 1)] = (default_mat, default_props)
+                continue
+
+            # Sammle alle Materialien der angrenzenden Straßen
+            material_counts = {}  # {material_name: count}
+            material_props = {}  # {material_name: properties}
+
+            for road_id in connected_road_ids:
+                if road_id in road_material_map:
+                    mat_name, props = road_material_map[road_id]
+                    material_counts[mat_name] = material_counts.get(mat_name, 0) + 1
+                    material_props[mat_name] = props
+
+            if not material_counts:
+                # Keine Materialien gefunden: nutze Default
+                road_material_map[-(junction_id + 1)] = (default_mat, default_props)
+                continue
+
+            # Finde das häufigste Material
+            max_count = max(material_counts.values())
+            candidates = [mat for mat, count in material_counts.items() if count == max_count]
+
+            if len(candidates) == 1:
+                # Eindeutiger Gewinner
+                mat_name = candidates[0]
+                road_material_map[-(junction_id + 1)] = (mat_name, material_props[mat_name])
+            else:
+                # Bei Gleichstand: nutze das Material mit höherer Priorität
+                best_mat = candidates[0]
+                best_priority = material_props[best_mat].get("priority", 0)
+
+                for mat in candidates[1:]:
+                    mat_priority = material_props[mat].get("priority", 0)
+                    if mat_priority > best_priority:
+                        best_mat = mat
+                        best_priority = mat_priority
+
+                road_material_map[-(junction_id + 1)] = (best_mat, material_props[best_mat])
+
         # 11. Terrain Mesh (mit Builder)
         from ..builders import TerrainMeshBuilder
 
@@ -296,6 +359,7 @@ class TerrainWorkflow:
             .with_vertex_states(vertex_states)
             .with_vertex_manager(vertex_manager)
             .with_road_mesh(road_mesh, road_slope_polygons_2d)  # NEU: Road-Faces mit Material-Mapping
+            .with_road_material_map(road_material_map)  # NEU: Übergebe komplette Material-Map (inkl. Junctions)
             .with_stitching(road_slope_polygons_2d, junctions)
             .build()
         )
@@ -308,6 +372,7 @@ class TerrainWorkflow:
             "vertex_manager": vertex_manager,
             "road_polygons": road_polygons,
             "road_slope_polygons_2d": road_slope_polygons_2d,  # Für Material-Mapping
+            "road_material_map": road_material_map,  # Material-Map inkl. Junction-Materials
             "grid_bounds_local": grid_bounds_local,
             "global_offset": global_offset,
             "buildings_data": buildings_data,  # Übergebe Gebäude-Daten
@@ -351,83 +416,80 @@ class TerrainWorkflow:
 
         # === Material-Mapping via OSM_MAPPER (wie im alten multitile.py) ===
         from ..config import OSM_MAPPER
+        from ..utils.debug_exporter import DebugNetworkExporter
 
-        # Baue Material-Map: road_id -> (material_name, properties)
-        # WICHTIG: Sammle Materials von ALLEN Roads, nicht nur den exportierten!
-        road_material_map = {}
+        debug_exporter = DebugNetworkExporter.get_instance()
+
+        # Hole vorgefertigte road_material_map (enthält Roads UND Junctions!)
+        road_material_map = mesh_data.get("road_material_map", {})
         unique_materials = {}  # ← Initialisiere hier schon, damit es auch leere Roads fängt
 
         for poly in road_slope_polygons_2d:
             r_id = poly.get("road_id")
             if r_id is None:
                 continue
-            props = OSM_MAPPER.get_road_properties(poly.get("osm_tags", {}))
-            mat_name = props.get("internal_name", "road_default")
-            road_material_map[r_id] = (mat_name, props)
-            # ← Füge auch hier zu unique_materials hinzu, um sicherzustellen, dass alle Materials dabei sind
+
+            # Hole Material aus vorgefertigter Map (wurde in process_tile() erstellt)
+            mat_tuple = road_material_map.get(r_id)
+            if mat_tuple:
+                mat_name = mat_tuple[0]
+                props = mat_tuple[1]
+            else:
+                # Fallback: Berechne Material neu (sollte nicht passieren)
+                props = OSM_MAPPER.get_road_properties(poly.get("osm_tags", {}))
+                mat_name = props.get("internal_name", "road_default")
+
+            # Schreibe Material direkt in die Road-Struktur
+            poly["material_name"] = mat_name
+
+            # Erstelle Road-Label an der Centerline-Mitte
+            trimmed_centerline = poly.get("trimmed_centerline", [])
+            if len(trimmed_centerline) >= 2:
+                mid_idx = len(trimmed_centerline) // 2
+                mid_point = trimmed_centerline[mid_idx]
+                debug_exporter.add_label(
+                    f"Road_{r_id} ({poly['material_name']})",
+                    position=[mid_point[0], mid_point[1], mid_point[2] if len(mid_point) > 2 else 0.0],
+                    color=[1.0, 0.5, 0.0],  # Orange
+                    size=12.0,
+                )
+
+            # Füge zu unique_materials hinzu
             unique_materials[mat_name] = props
 
+        # Default-Material für Junctions ohne angrenzende Straßen
         default_props = OSM_MAPPER.get_road_properties({})
         default_mat = default_props.get("internal_name", "road_default")
 
-        # unique_materials wurde schon oben initialisiert
-        if not unique_materials:
-            unique_materials = {}
+        # Extrahiere junction_fans aus road_mesh_tuple für Label-Erstellung
+        # (Material-Mapping wurde bereits in process_tile() durchgeführt!)
+        # Index: [0]=road_mesh_data, [1]=road_slope_polygons_2d, [2]=original_to_mesh_idx, [3]=all_road_polygons_2d, [4]=junction_fans
+        junction_fans = road_mesh_tuple[4] if len(road_mesh_tuple) > 4 else {}
 
-        # Extrahiere junction_fans aus road_mesh_tuple (falls vorhanden)
-        junction_fans = road_mesh_tuple[7] if len(road_mesh_tuple) > 7 else {}
+        # === Erstelle Junction-Labels (Material ist bereits in road_material_map!) ===
+        for junction_id, junction_data in junction_fans.items():
+            # Material wurde bereits in process_tile() zugewiesen
+            junction_road_id = -(junction_id + 1)  # Negative road_id für Junction-Faces
+            mat_tuple = road_material_map.get(junction_road_id, (default_mat, default_props))
+            mat_name = mat_tuple[0]
+            mat_props = mat_tuple[1]
 
-        # === Hilfsfunktion für Junction-Material-Selection ===
-        def _get_junction_material(junction_id, junction_fans, road_material_map):
-            """
-            Bestimme das Material für eine Junction basierend auf angrenzenden Straßen.
-            Logik:
-            1. Zähle welche Materialien an der Junction ankommen
-            2. Nutze das häufigste Material
-            3. Bei Gleichstand: nutze das Material mit höherer Priorität
-            """
-            junction_data = junction_fans.get(junction_id, {})
-            connected_road_ids = junction_data.get("connected_road_ids", [])
+            # Füge Material zu unique_materials hinzu
+            unique_materials[mat_name] = mat_props
 
-            if not connected_road_ids:
-                # Keine angrenzenden Straßen: nutze Default
-                return default_mat, default_props
+            # Hole Position aus vertex_manager via center_idx
+            center_idx = junction_data.get("center_idx")
+            if center_idx is not None:
+                # Hole Vertex-Position aus VertexManager
+                center_vertex = vertex_manager.vertices[center_idx]
+                position = [center_vertex[0], center_vertex[1], center_vertex[2]]
 
-            # Sammle alle Materialien der angrenzenden Straßen
-            material_counts = {}  # {material_name: count}
-            material_props = {}  # {material_name: properties}
-
-            for road_id in connected_road_ids:
-                if road_id in road_material_map:
-                    mat_name, props = road_material_map[road_id]
-                    material_counts[mat_name] = material_counts.get(mat_name, 0) + 1
-                    material_props[mat_name] = props
-
-            if not material_counts:
-                # Keine Materialien gefunden: nutze Default
-                return default_mat, default_props
-
-            # Finde das häufigste Material
-            max_count = max(material_counts.values())
-            candidates = [mat for mat, count in material_counts.items() if count == max_count]
-
-            if len(candidates) == 1:
-                # Eindeutiger Gewinner
-                mat_name = candidates[0]
-                return mat_name, material_props[mat_name]
-
-            # Bei Gleichstand: nutze das Material mit höherer Priorität
-            # Priorität ist in der Properties gespeichert
-            best_mat = candidates[0]
-            best_priority = material_props[best_mat].get("priority", 0)
-
-            for mat in candidates[1:]:
-                mat_priority = material_props[mat].get("priority", 0)
-                if mat_priority > best_priority:
-                    best_mat = mat
-                    best_priority = mat_priority
-
-            return best_mat, material_props[best_mat]
+                debug_exporter.add_label(
+                    f"Junction_{junction_id} ({mat_name})",
+                    position=position,
+                    color=[0.0, 0.0, 1.0],  # Blau
+                    size=14.0,
+                )
 
         # Kombiniere alle Faces mit Materials
         # WICHTIG: mesh_obj.faces enthält BEREITS alle Road-Faces + Terrain-Faces + Stitch-Faces!
