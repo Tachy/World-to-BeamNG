@@ -24,7 +24,7 @@ class OSMMapper:
         1. highway_defaults[highway-typ] → internal_name + width
         2. surface_types[internal_name] → Komplette Definition (priority, drivability, textures, groundModelName)
         3. surface_overrides[surface] oder [tracktype] → Optional: update internal_name
-        
+
         Tracktype-Mapping:
         - grade1 → asphalt (beste Qualität)
         """
@@ -36,7 +36,7 @@ class OSMMapper:
         base_type = hw_type.split("_")[0]  # 'primary_link' -> 'primary'
 
         highway_entry = self.defaults.get(base_type, self.defaults.get(hw_type, self.defaults.get("unclassified", {})))
-        
+
         if not highway_entry:
             # Fallback: verwende dirt_road
             highway_entry = {"width": 4.0, "internal_name": "dirt_road"}
@@ -47,7 +47,7 @@ class OSMMapper:
         # 2. Hole Surface-Type Definition (mit priority, drivability, textures, groundModelName)
         internal_name = props.get("internal_name", "dirt_road")
         surface_type_def = self.surface_types.get(internal_name, {})
-        
+
         # Merge: Surface-Type Definition (aber nicht width überschreiben)
         for key, value in surface_type_def.items():
             if key != "internal_name":  # internal_name sollte schon gesetzt sein
@@ -57,10 +57,10 @@ class OSMMapper:
         # Tracktype-Mapping: grade1 (bester Zustand) → asphalt
         tracktype_mapping = {
             "grade1": "asphalt",  # Beste Qualität → asphalt
-            "grade2": "gravel",   # Mittlere Qualität → gravel
-            "grade3": "gravel",   # Schlechtere Qualität → gravel
-            "grade4": "gravel",   # Noch schlechter → gravel
-            "grade5": "gravel",   # Schlechteste → gravel
+            "grade2": "gravel",  # Mittlere Qualität → gravel
+            "grade3": "gravel",  # Schlechtere Qualität → gravel
+            "grade4": "gravel",  # Noch schlechter → gravel
+            "grade5": "gravel",  # Schlechteste → gravel
         }
 
         # Prüfe zuerst Surface-Tag
@@ -85,7 +85,7 @@ class OSMMapper:
     def _apply_surface_override(self, props, override_entry):
         """
         Wendet einen Surface-Override an (aktualisiert internal_name und lädt surface_types).
-        
+
         Args:
             props: Dictionary mit aktuellen Eigenschaften (wird in-place modifiziert)
             override_entry: Dict mit Override-Daten (z.B. {"internal_name": "dirt_road"})
