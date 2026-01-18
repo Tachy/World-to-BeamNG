@@ -286,6 +286,100 @@ class MaterialManager:
         """
         return list(self.materials.keys())
 
+    def get_all_materials(self) -> Dict[str, Dict[str, Any]]:
+        """
+        Gebe alle Materials zurück (für DAE-Export).
+
+        Returns:
+            Dict {mat_name: mat_data}
+        """
+        return self.materials.copy()
+
+    def iter_materials(self):
+        """
+        Iterator über alle Materials.
+
+        Yields:
+            Tuple[str, Dict[str, Any]]: (mat_name, mat_data)
+        """
+        return iter(self.materials.items())
+
+    def get_material_texture(self, name: str) -> Optional[str]:
+        """
+        Gebe Textur-Pfad eines Materials zurück.
+
+        Args:
+            name: Material-Name
+
+        Returns:
+            Textur-Pfad (baseColorMap) oder None
+        """
+        mat = self.materials.get(name)
+        if not mat:
+            return None
+
+        stages = mat.get("Stages", [])
+        if stages and "baseColorMap" in stages[0]:
+            return stages[0]["baseColorMap"]
+        return None
+
+    def extract_textures(self) -> Dict[str, str]:
+        """
+        Extrahiere {mat_name: texture_path} für alle Materials mit Texturen.
+
+        Returns:
+            Dict mapping Material-Namen zu Textur-Pfaden
+        """
+        textures = {}
+        for mat_name, mat_data in self.materials.items():
+            stages = mat_data.get("Stages", [])
+            if stages and "baseColorMap" in stages[0]:
+                textures[mat_name] = stages[0]["baseColorMap"]
+        return textures
+
+    def get_materials_as_list(self) -> List[Dict[str, Any]]:
+        """
+        Gebe alle Materials als Liste zurück.
+
+        Returns:
+            Liste von Material-Dicts
+        """
+        return list(self.materials.values())
+
+    def create_material_dict(self, name: str, template: Optional[str] = None, **kwargs) -> Dict[str, Any]:
+        """
+        Erstelle Material-Dict OHNE es zu registrieren.
+
+        Nützlich wenn nur ein temporäres Material-Dict benötigt wird.
+
+        Args:
+            name: Material-Name
+            template: Template-Name ("terrain", "road", etc.)
+            **kwargs: Zusätzliche Properties
+
+        Returns:
+            Material-Dict
+        """
+        # Basis: Template oder leeres Dict
+        if template and template in self._templates:
+            material = self._templates[template].copy()
+            if "Stages" in material:
+                material["Stages"] = [stage.copy() for stage in material["Stages"]]
+        else:
+            material = {}
+
+        material["name"] = name
+        material["mapTo"] = name
+        material["persistentId"] = str(uuid.uuid4())
+
+        for key, value in kwargs.items():
+            if key == "Stages" and "Stages" in material:
+                material["Stages"][0].update(value if isinstance(value, dict) else {})
+            else:
+                material[key] = value
+
+        return material
+
     def save(self, filepath: Optional[str] = None) -> None:
         """
         Exportiere Materials als einzelnes JSON-Objekt (nicht JSONL).

@@ -476,6 +476,7 @@ class TerrainWorkflow:
         dae_files = export_separate_tile_daes(
             tiles_dict=tiles_dict,
             output_dir=shapes_dir,
+            material_manager=self.materials,  # Übergebe MaterialManager-Referenz
             tile_size=config.TILE_SIZE,
             mesh_obj=mesh_obj,  # Übergebe Mesh für direkte UV-Zugriff
         )
@@ -497,9 +498,10 @@ class TerrainWorkflow:
             OSM_MAPPER.generate_materials_json_entry(mat_name, props) for mat_name, props in unique_materials.items()
         ]
 
-        # Terrain-Materials generieren
+        # Terrain-Materials generieren (direkt in MaterialManager registrieren)
         terrain_materials = create_terrain_materials_json(
             tiles_dict=tiles_dict,
+            material_manager=self.materials,  # Übergebe MaterialManager-Referenz
             level_name=config.LEVEL_NAME,
             tile_size=config.TILE_SIZE,
         )

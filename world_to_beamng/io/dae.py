@@ -15,6 +15,7 @@ import os
 def export_separate_tile_daes(
     tiles_dict,
     output_dir,
+    material_manager,
     tile_size=400,
     mesh_obj=None,
 ):
@@ -28,19 +29,19 @@ def export_separate_tile_daes(
         tiles_dict: Dictionary von tile_slicer.slice_mesh_into_tiles()
                     Format: {(tile_x, tile_y): {"vertices": [...], "faces": [...], "materials": [...]}}
         output_dir: Ziel-Verzeichnis für DAE-Dateien
+        material_manager: MaterialManager-Instanz (Materials werden hier registriert)
         tile_size: Tile-Größe in Metern
         mesh_obj: Optional: Mesh-Objekt mit face_uvs für UV-Koordinaten
 
     Returns:
         Liste von exportierten DAE-Dateinamen
     """
-    from ..managers import DAEExporter, MaterialManager
+    from ..managers import DAEExporter
     from .. import config
 
     os.makedirs(output_dir, exist_ok=True)
 
     exported_files = []
-    material_manager = MaterialManager(beamng_dir="")
 
     # Exportiere jedes Tile als separate DAE
     for (tile_x, tile_y), tile_data in sorted(tiles_dict.items()):
@@ -139,12 +140,8 @@ def export_separate_tile_daes(
 
                 material_manager.add_road_material(mat_name, road_props)
 
-        # Extrahiere Textur-Pfade
-        material_textures = {}
-        for mat_name, mat_data in material_manager.materials.items():
-            stages = mat_data.get("Stages", [])
-            if stages and "baseColorMap" in stages[0]:
-                material_textures[mat_name] = stages[0]["baseColorMap"]
+        # Extrahiere Textur-Pfade aus MaterialManager
+        material_textures = material_manager.extract_textures()
 
         # Erstelle Mesh-Daten für DAEExporter
         mesh_data = {
@@ -160,7 +157,7 @@ def export_separate_tile_daes(
         }
 
         # Export mit DAEExporter (SINGLE Mesh!)
-        exporter = DAEExporter()
+        exporter = DAEExporter(material_manager=material_manager)
         exporter.export_multi_mesh(
             output_path=dae_path,
             meshes=[mesh_data],  # NUR DIESES EINE Tile!
@@ -181,6 +178,7 @@ def export_separate_tile_daes(
 def export_merged_dae(
     tiles_dict,
     output_path,
+    material_manager,
     tile_size=400,
     mesh_obj=None,
 ):
@@ -196,6 +194,7 @@ def export_merged_dae(
         tiles_dict: Dictionary von tile_slicer.slice_mesh_into_tiles()
                     Format: {(tile_x, tile_y): {"vertices": [...], "faces": [...], "materials": [...]}}
         output_path: Ziel-Dateipfad (wird als Vorlage verwendet, echte Datei nutzt Koordinaten)
+        material_manager: MaterialManager-Instanz (Materials werden hier registriert)
         tile_size: Tile-Größe in Metern (zur Koordinaten-Umrechnung)
         mesh_obj: Optional: Mesh-Objekt mit face_uvs für UV-Koordinaten
 
@@ -308,10 +307,10 @@ def export_merged_dae(
         actual_dae_filename = os.path.basename(output_path)
 
     # Erstelle Material-Textur-Mapping
-    from ..managers import MaterialManager
+    from ..managers import DAEExporter
     from .. import config
 
-    material_manager = MaterialManager(beamng_dir="")
+    # WICHTIG: material_manager wird als Parameter übergeben (kein lokaler Manager mehr!)
 
     # Sammle alle verwendeten Material-Namen
     all_material_names = set()
@@ -362,15 +361,11 @@ def export_merged_dae(
 
             material_manager.add_road_material(mat_name, road_props)
 
-    # Extrahiere Textur-Pfade aus Materials
-    material_textures = {}
-    for mat_name, mat_data in material_manager.materials.items():
-        stages = mat_data.get("Stages", [])
-        if stages and "baseColorMap" in stages[0]:
-            material_textures[mat_name] = stages[0]["baseColorMap"]
+    # Extrahiere Textur-Pfade aus MaterialManager
+    material_textures = material_manager.extract_textures()
 
     # Export mit DAEExporter
-    exporter = DAEExporter()
+    exporter = DAEExporter(material_manager=material_manager)
     exporter.export_multi_mesh(
         output_path=actual_output_path, meshes=meshes, with_uv=True, material_textures=material_textures
     )
@@ -384,22 +379,24 @@ def export_merged_dae(
     return actual_dae_filename
 
 
-def create_terrain_materials_json(tiles_dict, level_name="World_to_BeamNG", tile_size=400):
+def create_terrain_materials_json(tiles_dict, material_manager, level_name="World_to_BeamNG", tile_size=400):
     """
     Erstellt materials.json Einträge für Terrain-Tiles.
 
+    REFACTORED: Nutzt jetzt übergebenen MaterialManager statt lokale Instanz.
+
     Args:
         tiles_dict: Dictionary von tile_slicer.slice_mesh_into_tiles()
+        material_manager: MaterialManager-Instanz
         level_name: Name des BeamNG Levels (für Texturpfade)
         tile_size: Tile-Größe in Metern (zur Koordinaten-Umrechnung)
 
     Returns:
         Dict mit Material-Definitionen
     """
-    from ..managers import MaterialManager
     from .. import config
 
-    manager = MaterialManager(beamng_dir="")  # Nur für dict-Erstellung
+    # Registriere Materials direkt im übergebenen Manager (KEIN lokaler Manager mehr)
 
     for tile_x, tile_y in sorted(tiles_dict.keys()):
         if len(tiles_dict[(tile_x, tile_y)]["faces"]) == 0:
@@ -413,9 +410,9 @@ def create_terrain_materials_json(tiles_dict, level_name="World_to_BeamNG", tile
         texture_path = config.RELATIVE_DIR_TEXTURES + f"tile_{corner_x}_{corner_y}.dds"
 
         # Füge Material über Manager hinzu
-        manager.add_terrain_material(corner_x, corner_y, texture_path)
+        material_manager.add_terrain_material(corner_x, corner_y, texture_path)
 
-    return manager.materials
+    return material_manager.materials
 
 
 def create_terrain_items_json(dae_filename):

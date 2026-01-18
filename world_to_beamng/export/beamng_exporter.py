@@ -34,7 +34,7 @@ class BeamNGExporter:
         self.cache = CacheManager(Path(config.CACHE_DIR))
         self.materials = MaterialManager(config.BEAMNG_DIR)
         self.items = ItemManager(config.BEAMNG_DIR)
-        self.dae = DAEExporter()
+        self.dae = DAEExporter(material_manager=self.materials)  # Übergebe MaterialManager-Referenz
 
         # Workflows
         self.terrain = TerrainWorkflow(self.cache, self.materials, self.items, self.dae)

@@ -687,6 +687,7 @@ def export_buildings_to_dae(
     output_dir: str,
     tile_x: int,
     tile_y: int,
+    material_manager=None,
 ) -> Optional[str]:
     """
     Exportiert Gebäude als .dae-Datei (Simplified - mit expandierten Vertices).
@@ -701,6 +702,7 @@ def export_buildings_to_dae(
         buildings: Liste von Gebäude-Dicts
         output_dir: Ausgabeverzeichnis
         tile_x, tile_y: Tile-Koordinaten
+        material_manager: Optional MaterialManager-Instanz
 
     Returns:
         Pfad zur erzeugten .dae-Datei oder None
@@ -789,7 +791,7 @@ def export_buildings_to_dae(
         )
 
     # Export mit DAEExporter
-    exporter = DAEExporter()
+    exporter = DAEExporter(material_manager=material_manager)
     exporter.export_multi_mesh(output_path=str(dae_file), meshes=meshes, with_uv=True)
 
     print(f"  [✓] DAE exportiert: {dae_file.name} ({len(buildings)} Gebäude)")
@@ -797,23 +799,27 @@ def export_buildings_to_dae(
     return str(dae_file)
 
 
-def create_materials_json() -> Dict:
+def create_materials_json(material_manager) -> Dict:
     """
     Erstellt die main.materials.json Einträge für LoD2-Gebäude aus osm_to_beamng.json.
+
+    REFACTORED: Nutzt jetzt übergebenen MaterialManager statt lokale Instanz.
+
+    Args:
+        material_manager: MaterialManager-Instanz
 
     Returns:
         Dict mit Material-Definitionen
     """
-    from ..managers import MaterialManager
     from ..config import OSM_MAPPER
 
-    manager = MaterialManager(beamng_dir="")
+    # Registriere Materials direkt im übergebenen Manager (KEIN lokaler Manager mehr)
 
     # Wall-Material aus OSM_MAPPER Config
     wall_props = OSM_MAPPER.get_building_properties("wall")
     wall_name = wall_props.get("internal_name", "lod2_wall_white")
 
-    manager.add_building_material(
+    material_manager.add_building_material(
         wall_name,
         color=wall_props.get("diffuseColor"),  # Einfärbung der Textur
         textures=wall_props.get("textures"),
@@ -827,7 +833,7 @@ def create_materials_json() -> Dict:
     roof_props = OSM_MAPPER.get_building_properties("roof")
     roof_name = roof_props.get("internal_name", "lod2_roof_red")
 
-    manager.add_building_material(
+    material_manager.add_building_material(
         roof_name,
         color=roof_props.get("diffuseColor"),  # Einfärbung der Textur
         textures=roof_props.get("textures"),
@@ -837,15 +843,18 @@ def create_materials_json() -> Dict:
         materialTag1="Building",
     )
 
-    return manager.materials
+    return material_manager.materials
 
 
-def export_materials_json(output_dir: str) -> str:
+def export_materials_json(output_dir: str, material_manager) -> str:
     """
     Exportiert main.materials.json für LoD2-Gebäude.
 
+    DEPRECATED: Nutze stattdessen material_manager.save() nach create_materials_json().
+
     Args:
         output_dir: Ausgabeverzeichnis (BeamNG Level-Root)
+        material_manager: MaterialManager-Instanz
 
     Returns:
         Pfad zur erstellten Datei
@@ -855,7 +864,7 @@ def export_materials_json(output_dir: str) -> str:
     output_path = Path(output_dir)
     materials_file = output_path / "main.materials.json"
 
-    materials = create_materials_json()
+    materials = create_materials_json(material_manager)
 
     # Wenn Datei existiert, merge mit existing
     if materials_file.exists():

@@ -23,15 +23,18 @@ class DAEExporter:
     - Automatische UV-Generierung
     - Material-Binding
     - Optimierte NumPy-Integration
+    - Integration mit MaterialManager (keine lokalen Material-Kopien)
     """
 
-    def __init__(self, level_name: str = "World_to_BeamNG"):
+    def __init__(self, material_manager: Optional["MaterialManager"] = None, level_name: str = "World_to_BeamNG"):
         """
         Initialisiere DAE Exporter.
 
         Args:
+            material_manager: Referenz zum MaterialManager (optional für Kompatibilität)
             level_name: Name des BeamNG Levels
         """
+        self.material_manager = material_manager
         self.level_name = level_name
         self.timestamp = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
 
