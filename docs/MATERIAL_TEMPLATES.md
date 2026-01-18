@@ -277,6 +277,84 @@ Falls `data/material_templates.json` nicht existiert oder fehlerhaft ist:
 
 ---
 
+## Buildings Sektion
+
+Die `buildings` Sektion (Top-Level in JSON) enthält Konfigurationen für LoD2-Gebäude:
+
+```json
+{
+  "buildings": {
+    "wall": {
+      "description": "Gebäude-Wand Konfiguration",
+      "template": "building_wall",
+      "tiling_scale": 4.0,
+      "uv_mode": "wall",
+      "color_extraction": {
+        "method": "citygml_appearance",
+        "fallback_color": [0.9, 0.9, 0.9, 1.0]
+      },
+      "material_hints": {
+        "groundType": "concrete",
+        "materialTag0": "beamng",
+        "materialTag1": "Building"
+      }
+    },
+    "roof": {
+      "description": "Gebäude-Dach Konfiguration",
+      "template": "building_roof",
+      "tiling_scale": 2.0,
+      "uv_mode": "roof",
+      "color_extraction": {
+        "method": "citygml_appearance",
+        "fallback_color": [0.6, 0.2, 0.1, 1.0]
+      },
+      "material_hints": {
+        "groundType": "concrete",
+        "materialTag0": "beamng",
+        "materialTag1": "Building"
+      }
+    }
+  }
+}
+```
+
+### Buildings-Felder
+
+| Feld | Beschreibung |
+|------|---|
+| `template` | Verweis auf Basis-Template (`building_wall`, `building_roof`) |
+| `tiling_scale` | UV-Tiling-Faktor (4.0 = alle 4m Wiederholung) |
+| `uv_mode` | UV-Mapping-Modus (`wall` oder `roof`) |
+| `color_extraction.method` | Farb-Extraktions-Methode (`citygml_appearance` für CityGML) |
+| `color_extraction.fallback_color` | Fallback RGBA falls CityGML keine Farbe hat |
+| `material_hints.groundType` | Physik-Oberflächentyp (concrete, brick, etc.) |
+| `material_hints.materialTag0/1` | Kategorie-Tags für Fahrzeugverhalten |
+
+### Integration in lod2.py
+
+Die Konfigurationen werden in `lod2.py` in `create_materials_json()` geladen und mit OSM-Properties gemergt:
+
+```python
+def create_materials_json(material_manager):
+    # Hole alle Konfigurationen (templates + buildings section)
+    config = material_manager.get_templates()
+    buildings_config = config.get("buildings", {})
+    
+    # Wall-Material: Template + OSM-Properties
+    wall_template = buildings_config.get("wall", {})
+    wall_props = OSM_MAPPER.get_building_properties("wall")
+    
+    material_manager.add_building_material(
+        wall_name,
+        color=wall_props.get("diffuseColor"),  # Von OSM
+        tiling_scale=wall_template.get("tiling_scale", 4.0),  # Von Template JSON
+        groundType=wall_template.get("material_hints", {}).get("groundType"),
+        # ...
+    )
+```
+
+---
+
 ## Integration
 
 Der `MaterialManager` wird als Singleton initialisiert:
@@ -284,8 +362,13 @@ Der `MaterialManager` wird als Singleton initialisiert:
 ```python
 from world_to_beamng.managers.material_manager import MaterialManager
 
-# Erste Instanz lädt Templates
+# Erste Instanz lädt Templates + buildings Config
 materials = MaterialManager.get_instance(beamng_dir=config.BEAMNG_DIR)
+
+# Hole alle Konfigurationen
+config = materials.get_templates()
+buildings_config = config["buildings"]  # wall, roof Konfigurationen
+material_templates = config["templates"]  # building_wall, building_roof, etc.
 
 # Nachfolgende Aufrufe geben die gleiche Instanz
 materials = MaterialManager.get_instance()  # Kein beamng_dir nötig!

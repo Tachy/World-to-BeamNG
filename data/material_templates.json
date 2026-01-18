@@ -92,5 +92,41 @@
       "groundType": "dirt",
       "note": "Aktiviert, sobald Vegetation-Export implementiert ist"
     }
+  },
+  "buildings": {
+    "description": "LoD2 Gebäude-Konfigurationen (wall und roof)",
+    "wall": {
+      "description": "Gebäude-Wand Konfiguration",
+      "template": "building_wall",
+      "tiling_scale": 4.0,
+      "uv_mode": "wall",
+      "color_extraction": {
+        "method": "citygml_appearance",
+        "fallback_color": [0.9, 0.9, 0.9, 1.0],
+        "note": "Versucht CityGML-Erscheinungen zu extrahieren, fallback auf weiß"
+      },
+      "material_hints": {
+        "groundType": "concrete",
+        "materialTag0": "beamng",
+        "materialTag1": "Building"
+      }
+    },
+    "roof": {
+      "description": "Gebäude-Dach Konfiguration",
+      "template": "building_roof",
+      "tiling_scale": 2.0,
+      "uv_mode": "roof",
+      "color_extraction": {
+        "method": "citygml_appearance",
+        "fallback_color": [0.6, 0.2, 0.1, 1.0],
+        "note": "Versucht CityGML-Erscheinungen zu extrahieren, fallback auf rot"
+      },
+      "material_hints": {
+        "groundType": "concrete",
+        "materialTag0": "beamng",
+        "materialTag1": "Building"
+      }
+    }
   }
 }
+

@@ -270,10 +270,21 @@ class BeamNGExporter:
         return count
 
     def _add_lod2_materials(self):
-        """Füge LoD2-Gebäude-Materialien zu gemeinsamen Materials hinzu (aus osm_to_beamng.json)."""
+        """
+        Füge LoD2-Gebäude-Materialien hinzu (aus JSON-Templates und OSM_MAPPER Config).
+        
+        Diese Methode mergt:
+        - buildings wall/roof Konfigurationen aus material_templates.json
+        - Farben/Texturen aus osm_to_beamng.json (OSM_MAPPER)
+        """
         from ..config import OSM_MAPPER
 
-        # Wall-Material aus OSM_MAPPER Config
+        # Hole Template-Konfigurationen
+        config = self.materials.get_templates()
+        buildings_config = config.get("buildings", {})
+
+        # Wall-Material: Zusammenführung von Template + OSM-Properties
+        wall_template = buildings_config.get("wall", {})
         wall_props = OSM_MAPPER.get_building_properties("wall")
         wall_name = wall_props.get("internal_name", "lod2_wall_white")
 
@@ -281,13 +292,14 @@ class BeamNGExporter:
             wall_name,
             color=wall_props.get("diffuseColor"),
             textures=wall_props.get("textures"),
-            tiling_scale=wall_props.get("tiling_scale", 4.0),
-            groundType="concrete",
-            materialTag0="beamng",
-            materialTag1="Building",
+            tiling_scale=wall_template.get("tiling_scale", wall_props.get("tiling_scale", 4.0)),
+            groundType=wall_template.get("material_hints", {}).get("groundType", "concrete"),
+            materialTag0=wall_template.get("material_hints", {}).get("materialTag0", "beamng"),
+            materialTag1=wall_template.get("material_hints", {}).get("materialTag1", "Building"),
         )
 
-        # Roof-Material aus OSM_MAPPER Config
+        # Roof-Material: Zusammenführung von Template + OSM-Properties
+        roof_template = buildings_config.get("roof", {})
         roof_props = OSM_MAPPER.get_building_properties("roof")
         roof_name = roof_props.get("internal_name", "lod2_roof_red")
 
@@ -295,10 +307,10 @@ class BeamNGExporter:
             roof_name,
             color=roof_props.get("diffuseColor"),
             textures=roof_props.get("textures"),
-            tiling_scale=roof_props.get("tiling_scale", 2.0),
-            groundType="concrete",
-            materialTag0="beamng",
-            materialTag1="Building",
+            tiling_scale=roof_template.get("tiling_scale", roof_props.get("tiling_scale", 2.0)),
+            groundType=roof_template.get("material_hints", {}).get("groundType", "concrete"),
+            materialTag0=roof_template.get("material_hints", {}).get("materialTag0", "beamng"),
+            materialTag1=roof_template.get("material_hints", {}).get("materialTag1", "Building"),
         )
 
     def _finalize_export(self):

@@ -43,6 +43,7 @@ class MaterialManager:
         self.beamng_dir = beamng_dir
         self.materials: Dict[str, Dict[str, Any]] = {}
         self._templates = self._init_templates()
+        self._config = self._load_config()  # Ganze JSON für buildings, etc.
 
     @classmethod
     def get_instance(cls, beamng_dir: str = "") -> "MaterialManager":
@@ -60,6 +61,7 @@ class MaterialManager:
             cls._instance.beamng_dir = beamng_dir
             cls._instance.materials = {}
             cls._instance._templates = cls._instance._init_templates()
+            cls._instance._config = cls._instance._load_config()  # Ganze JSON laden
         return cls._instance
 
     @classmethod
@@ -69,79 +71,98 @@ class MaterialManager:
 
     def _init_templates(self) -> Dict[str, Dict[str, Any]]:
         """
-        Lade Material-Templates aus data/material_templates.json.
-        
-        Falls die Datei nicht existiert, nutze eingebaute Defaults.
+        Lade Material-Templates aus data/material_templates.json (ZWINGEND erforderlich).
 
         Returns:
             Dict mit Template-Namen und Definition
+
+        Raises:
+            FileNotFoundError: Wenn data/material_templates.json nicht existiert
         """
-        # Eingebaute Defaults (Fallback)
-        defaults = {
-            "terrain": {
-                "class": "Material",
-                "version": 2,
-                "Stages": [{"specularPower": 1, "pixelSpecular": True}],
-                "groundModelName": "grass",
-            },
-            "road": {
-                "class": "Material",
-                "version": 2,
-                "Stages": [{"specularPower": 1, "pixelSpecular": True}],
-            },
-            "building_wall": {
-                "class": "Material",
-                "version": 1.5,
-                "Stages": [{"specularPower": 1, "pixelSpecular": True}],
-                "groundType": "concrete",
-                "materialTag0": "beamng",
-                "materialTag1": "Building",
-            },
-            "building_roof": {
-                "class": "Material",
-                "version": 1.5,
-                "Stages": [{"specularPower": 1, "pixelSpecular": True}],
-                "groundType": "concrete",
-                "materialTag0": "beamng",
-                "materialTag1": "Building",
-            },
-            "horizon": {
-                "class": "Material",
-                "version": 1.5,
-                "Stages": [{"specularPower": 16, "pixelSpecular": True}],
-            },
-        }
-        
-        # Versuche, Templates aus JSON zu laden
         config_path = Path(__file__).parent.parent.parent / "data" / "material_templates.json"
+        
+        if not config_path.exists():
+            raise FileNotFoundError(
+                f"Material-Templates nicht gefunden: {config_path}\n"
+                "Die Datei data/material_templates.json ist erforderlich.\n"
+                "Stelle sicher, dass sie im Repository enthalten ist."
+            )
+        
+        try:
+            with open(config_path, "r", encoding="utf-8") as f:
+                config = json.load(f)
+                templates = config.get("templates", {})
+                
+                # Filtere aus: description, note, und andere Metadaten
+                cleaned_templates = {}
+                for name, template_def in templates.items():
+                    # Kopiere Template, entferne Meta-Felder
+                    cleaned = {k: v for k, v in template_def.items() 
+                             if k not in ("description", "note")}
+                    cleaned_templates[name] = cleaned
+                
+                num_templates = len(cleaned_templates)
+                print(f"  [✓] Material-Templates geladen: {num_templates} aus JSON")
+                
+                return cleaned_templates
+                
+        except json.JSONDecodeError as e:
+            raise ValueError(
+                f"Fehler beim Parsen von {config_path}: {e}\n"
+                "Die JSON-Datei ist ungültig."
+            )
+        except Exception as e:
+            raise RuntimeError(f"Fehler beim Laden von {config_path}: {e}")
+
+    def _load_config(self) -> Dict[str, Any]:
+        """
+        Lade die komplette material_templates.json Konfiguration.
+        
+        Diese Methode lädt die ganze JSON (mit buildings, version, description, etc).
+
+        Returns:
+            Dict mit allen Konfigurationen
+        """
+        config_path = Path(__file__).parent.parent.parent / "data" / "material_templates.json"
+        
+        # Fallback: Minimale Config
+        default_config = {
+            "version": "1.0",
+            "description": "Material Templates Configuration",
+            "templates": {},
+            "buildings": {
+                "wall": {
+                    "description": "Gebäude-Wand (fallback)",
+                    "template": "building_wall",
+                    "tiling_scale": 4.0,
+                    "material_hints": {
+                        "groundType": "concrete",
+                        "materialTag0": "beamng",
+                        "materialTag1": "Building"
+                    }
+                },
+                "roof": {
+                    "description": "Gebäude-Dach (fallback)",
+                    "template": "building_roof",
+                    "tiling_scale": 2.0,
+                    "material_hints": {
+                        "groundType": "concrete",
+                        "materialTag0": "beamng",
+                        "materialTag1": "Building"
+                    }
+                }
+            }
+        }
         
         if config_path.exists():
             try:
                 with open(config_path, "r", encoding="utf-8") as f:
-                    config = json.load(f)
-                    templates = config.get("templates", {})
-                    
-                    # Filtere aus: description, note, und andere Metadaten
-                    cleaned_templates = {}
-                    for name, template_def in templates.items():
-                        # Kopiere Template, entferne Meta-Felder
-                        cleaned = {k: v for k, v in template_def.items() 
-                                 if k not in ("description", "note")}
-                        cleaned_templates[name] = cleaned
-                    
-                    # Merge: Defaults werden überschrieben durch JSON-Templates
-                    defaults.update(cleaned_templates)
-                    
-                    num_custom = len(cleaned_templates)
-                    print(f"  [✓] Material-Templates geladen: {num_custom} aus JSON, {len(defaults)} gesamt")
-                    
+                    return json.load(f)
             except Exception as e:
-                print(f"  [!] Fehler beim Laden von {config_path}: {e}")
-                print(f"  [i] Nutze eingebaute Template-Defaults")
-        else:
-            print(f"  [i] {config_path} nicht gefunden. Nutze eingebaute Template-Defaults")
+                print(f"  [!] Fehler beim Laden der Config: {e}")
+                return default_config
         
-        return defaults
+        return default_config
 
     def add_material(self, name: str, template: Optional[str] = None, overwrite: bool = False, **kwargs) -> bool:
         """
@@ -404,6 +425,15 @@ class MaterialManager:
     def clear(self) -> None:
         """Lösche alle Materials."""
         self.materials.clear()
+
+    def get_templates(self) -> Dict[str, Any]:
+        """
+        Hole alle Konfigurationen inkl. Material-Templates und buildings section.
+        
+        Returns:
+            Dict mit Template-Definitionen, buildings Config, etc.
+        """
+        return self._config.copy()
 
     def __len__(self) -> int:
         """Anzahl der Materials."""

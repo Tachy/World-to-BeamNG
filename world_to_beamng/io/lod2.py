@@ -749,46 +749,52 @@ def export_buildings_to_dae(
 
 def create_materials_json(material_manager) -> Dict:
     """
-    Erstellt die main.materials.json Einträge für LoD2-Gebäude aus osm_to_beamng.json.
+    Erstellt die main.materials.json Einträge für LoD2-Gebäude.
 
-    REFACTORED: Nutzt jetzt übergebenen MaterialManager statt lokale Instanz.
+    REFACTORED: Nutzt jetzt Konfigurationen aus material_templates.json (buildings section).
+    Die Templates und OSM-Properties werden automatisch vom MaterialManager gemergt.
 
     Args:
-        material_manager: MaterialManager-Instanz
+        material_manager: MaterialManager-Instanz (bereits mit Templates aus JSON geladen)
 
     Returns:
         Dict mit Material-Definitionen
     """
     from ..config import OSM_MAPPER
 
-    # Registriere Materials direkt im übergebenen Manager (KEIN lokaler Manager mehr)
+    # Hole Gebäude-Konfigurationen aus den geladenen Templates
+    # MaterialManager.get_templates() gibt alle geladenen Templates zurück
+    all_templates = material_manager.get_templates()
+    buildings_config = all_templates.get("buildings", {})
 
-    # Wall-Material aus OSM_MAPPER Config
+    # Wall-Material: Zusammenführung von Template + OSM-Properties
+    wall_template = buildings_config.get("wall", {})
     wall_props = OSM_MAPPER.get_building_properties("wall")
     wall_name = wall_props.get("internal_name", "lod2_wall_white")
 
     material_manager.add_building_material(
         wall_name,
-        color=wall_props.get("diffuseColor"),  # Einfärbung der Textur
+        color=wall_props.get("diffuseColor"),
         textures=wall_props.get("textures"),
-        tiling_scale=wall_props.get("tiling_scale", 4.0),
-        groundType="concrete",
-        materialTag0="beamng",
-        materialTag1="Building",
+        tiling_scale=wall_template.get("tiling_scale", wall_props.get("tiling_scale", 4.0)),
+        groundType=wall_template.get("material_hints", {}).get("groundType", "concrete"),
+        materialTag0=wall_template.get("material_hints", {}).get("materialTag0", "beamng"),
+        materialTag1=wall_template.get("material_hints", {}).get("materialTag1", "Building"),
     )
 
-    # Roof-Material aus OSM_MAPPER Config
+    # Roof-Material: Zusammenführung von Template + OSM-Properties
+    roof_template = buildings_config.get("roof", {})
     roof_props = OSM_MAPPER.get_building_properties("roof")
     roof_name = roof_props.get("internal_name", "lod2_roof_red")
 
     material_manager.add_building_material(
         roof_name,
-        color=roof_props.get("diffuseColor"),  # Einfärbung der Textur
+        color=roof_props.get("diffuseColor"),
         textures=roof_props.get("textures"),
-        tiling_scale=roof_props.get("tiling_scale", 2.0),
-        groundType="concrete",
-        materialTag0="beamng",
-        materialTag1="Building",
+        tiling_scale=roof_template.get("tiling_scale", roof_props.get("tiling_scale", 2.0)),
+        groundType=roof_template.get("material_hints", {}).get("groundType", "concrete"),
+        materialTag0=roof_template.get("material_hints", {}).get("materialTag0", "beamng"),
+        materialTag1=roof_template.get("material_hints", {}).get("materialTag1", "Building"),
     )
 
     return material_manager.materials
