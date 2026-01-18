@@ -11,36 +11,93 @@ class OSMMapper:
                 self.config = json.load(f)
         except FileNotFoundError:
             print(f"Warnung: {config_path} nicht gefunden. Nutze leere Defaults.")
-            self.config = {"highway_defaults": {}, "surface_overrides": {}}
+            self.config = {"highway_defaults": {}, "surface_overrides": {}, "surface_types": {}}
 
         self.defaults = self.config.get("highway_defaults", {})
         self.overrides = self.config.get("surface_overrides", {})
+        self.surface_types = self.config.get("surface_types", {})
 
     def get_road_properties(self, tags):
         """
         Gibt ein Dictionary mit allen BeamNG-Parametern zurück.
-        Kaskade: highway-type -> width-tag -> lanes-tag -> surface-override
+        Neue Struktur:
+        1. highway_defaults[highway-typ] → internal_name + width
+        2. surface_types[internal_name] → Komplette Definition (priority, drivability, textures, groundModelName)
+        3. surface_overrides[surface] oder [tracktype] → Optional: update internal_name
+        
+        Tracktype-Mapping:
+        - grade1 → asphalt (beste Qualität)
         """
         if tags is None:
             tags = {}
 
-        # 1. Basis-Werte über Highway-Typ (z.B. residential)
+        # 1. Hole Highway-Type Default (mit internal_name + width)
         hw_type = tags.get("highway", "unclassified")
         base_type = hw_type.split("_")[0]  # 'primary_link' -> 'primary'
 
-        # Hole Default-Werte aus JSON (Fallback auf unclassified)
-        props = self.defaults.get(base_type, self.defaults.get(hw_type, self.defaults.get("unclassified", {}))).copy()
+        highway_entry = self.defaults.get(base_type, self.defaults.get(hw_type, self.defaults.get("unclassified", {})))
+        
+        if not highway_entry:
+            # Fallback: verwende dirt_road
+            highway_entry = {"width": 4.0, "internal_name": "dirt_road"}
 
-        # 2. Breite berechnen
-        props["width"] = self._calculate_width(tags, props.get("width", 4.0))
+        # Kopiere Highway-Entry
+        props = highway_entry.copy()
 
-        # 3. Surface-Override (wenn z.B. surface=gravel auf einer residential road steht)
+        # 2. Hole Surface-Type Definition (mit priority, drivability, textures, groundModelName)
+        internal_name = props.get("internal_name", "dirt_road")
+        surface_type_def = self.surface_types.get(internal_name, {})
+        
+        # Merge: Surface-Type Definition (aber nicht width überschreiben)
+        for key, value in surface_type_def.items():
+            if key != "internal_name":  # internal_name sollte schon gesetzt sein
+                props[key] = value
+
+        # 3. Prüfe Surface-Override oder Tracktype-Override
+        # Tracktype-Mapping: grade1 (bester Zustand) → asphalt
+        tracktype_mapping = {
+            "grade1": "asphalt",  # Beste Qualität → asphalt
+            "grade2": "gravel",   # Mittlere Qualität → gravel
+            "grade3": "gravel",   # Schlechtere Qualität → gravel
+            "grade4": "gravel",   # Noch schlechter → gravel
+            "grade5": "gravel",   # Schlechteste → gravel
+        }
+
+        # Prüfe zuerst Surface-Tag
         surface = tags.get("surface")
         if surface in self.overrides:
-            # Aktualisiere internal_name, groundModel, drivability und textures
-            props.update(self.overrides[surface])
+            override_entry = self.overrides[surface]
+            self._apply_surface_override(props, override_entry)
+        else:
+            # Falls kein Surface-Tag: Prüfe Tracktype-Tag
+            tracktype = tags.get("tracktype")
+            if tracktype in tracktype_mapping:
+                mapped_surface = tracktype_mapping[tracktype]
+                if mapped_surface in self.overrides:
+                    override_entry = self.overrides[mapped_surface]
+                    self._apply_surface_override(props, override_entry)
+
+        # 4. Breite berechnen (könnte von tags überschrieben werden)
+        props["width"] = self._calculate_width(tags, props.get("width", 4.0))
 
         return props
+
+    def _apply_surface_override(self, props, override_entry):
+        """
+        Wendet einen Surface-Override an (aktualisiert internal_name und lädt surface_types).
+        
+        Args:
+            props: Dictionary mit aktuellen Eigenschaften (wird in-place modifiziert)
+            override_entry: Dict mit Override-Daten (z.B. {"internal_name": "dirt_road"})
+        """
+        # Update internal_name (wenn vorhanden)
+        if "internal_name" in override_entry:
+            props["internal_name"] = override_entry["internal_name"]
+            # Hole neue Surface-Type Definition
+            new_surface_def = self.surface_types.get(props["internal_name"], {})
+            for key, value in new_surface_def.items():
+                if key != "internal_name":
+                    props[key] = value
 
     def get_building_properties(self, building_type="wall"):
         """

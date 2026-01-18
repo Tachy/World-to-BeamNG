@@ -185,6 +185,7 @@ class TerrainMeshBuilder:
                 else:
                     # Fallback: Baue Map aus road_polygons_2d (nur für Roads, OHNE Junctions)
                     from ..config import OSM_MAPPER
+
                     road_material_map = {}
                     for poly in self._road_data:
                         r_id = poly.get("road_id")

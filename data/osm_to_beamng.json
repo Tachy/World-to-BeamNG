@@ -1,8 +1,6 @@
 {
-    "highway_defaults": {
-        "secondary": {
-            "width": 7.0,
-            "internal_name": "asphalt_road_main",
+    "surface_types": {
+        "asphalt_road_standard": {
             "groundModelName": "asphalt",
             "priority": 8,
             "drivability": 0.9,
@@ -13,74 +11,7 @@
                 "roughnessMap": "levels/world_to_beamng/art/shapes/materials/decalroad/asphalt/asphalt_mesh_road/t_asphalt_meshroad_r.data.dds"
             }
         },
-        "tertiary": {
-            "width": 6.0,
-            "internal_name": "asphalt_road_standard",
-            "groundModelName": "asphalt",
-            "priority": 7,
-            "drivability": 0.8,
-            "textures": {
-                "baseColorMap": "levels/world_to_beamng/art/shapes/materials/decalroad/asphalt/asphalt_mesh_road/t_asphalt_meshroad_b.color.dds",
-                "normalMap": "levels/world_to_beamng/art/shapes/materials/decalroad/asphalt/asphalt_mesh_road/t_asphalt_meshroad_nm.normal.dds",
-                "ambientOcclusionMap": "levels/world_to_beamng/art/shapes/materials/decalroad/asphalt/asphalt_mesh_road/t_asphalt_meshroad_ao.data.dds",
-                "roughnessMap": "levels/world_to_beamng/art/shapes/materials/decalroad/asphalt/asphalt_mesh_road/t_asphalt_meshroad_r.data.dds"
-            }
-        },
-        "unclassified": {
-            "width": 5.0,
-            "internal_name": "asphalt_road_standard",
-            "groundModelName": "asphalt",
-            "priority": 6,
-            "drivability": 0.6,
-            "textures": {
-                "baseColorMap": "levels/world_to_beamng/art/shapes/materials/decalroad/asphalt/asphalt_mesh_road/t_asphalt_meshroad_b.color.dds",
-                "normalMap": "levels/world_to_beamng/art/shapes/materials/decalroad/asphalt/asphalt_mesh_road/t_asphalt_meshroad_nm.normal.dds",
-                "ambientOcclusionMap": "levels/world_to_beamng/art/shapes/materials/decalroad/asphalt/asphalt_mesh_road/t_asphalt_meshroad_ao.data.dds",
-                "roughnessMap": "levels/world_to_beamng/art/shapes/materials/decalroad/asphalt/asphalt_mesh_road/t_asphalt_meshroad_r.data.dds"
-            }
-        },
-        "residential": {
-            "width": 5.0,
-            "internal_name": "asphalt_road_standard",
-            "groundModelName": "asphalt",
-            "priority": 5,
-            "drivability": 0.6,
-            "textures": {
-                "baseColorMap": "levels/world_to_beamng/art/shapes/materials/decalroad/asphalt/asphalt_mesh_road/t_asphalt_meshroad_b.color.dds",
-                "normalMap": "levels/world_to_beamng/art/shapes/materials/decalroad/asphalt/asphalt_mesh_road/t_asphalt_meshroad_nm.normal.dds",
-                "ambientOcclusionMap": "levels/world_to_beamng/art/shapes/materials/decalroad/asphalt/asphalt_mesh_road/t_asphalt_meshroad_ao.data.dds",
-                "roughnessMap": "levels/world_to_beamng/art/shapes/materials/decalroad/asphalt/asphalt_mesh_road/t_asphalt_meshroad_r.data.dds"
-            }
-        },
-        "living_street": {
-            "width": 4.5,
-            "internal_name": "asphalt_road_standard",
-            "groundModelName": "cobblestone",
-            "priority": 4,
-            "drivability": 0.5,
-            "textures": {
-                "baseColorMap": "levels/world_to_beamng/art/shapes/materials/decalroad/asphalt/asphalt_mesh_road/t_asphalt_meshroad_b.color.dds",
-                "normalMap": "levels/world_to_beamng/art/shapes/materials/decalroad/asphalt/asphalt_mesh_road/t_asphalt_meshroad_nm.normal.dds",
-                "ambientOcclusionMap": "levels/world_to_beamng/art/shapes/materials/decalroad/asphalt/asphalt_mesh_road/t_asphalt_meshroad_ao.data.dds",
-                "roughnessMap": "levels/world_to_beamng/art/shapes/materials/decalroad/asphalt/asphalt_mesh_road/t_asphalt_meshroad_r.data.dds"
-            }
-        },
-        "service": {
-            "width": 3.5,
-            "internal_name": "asphalt_road_standard",
-            "groundModelName": "asphalt",
-            "priority": 3,
-            "drivability": 0.4,
-            "textures": {
-                "baseColorMap": "levels/world_to_beamng/art/shapes/materials/decalroad/asphalt/asphalt_mesh_road/t_asphalt_meshroad_b.color.dds",
-                "normalMap": "levels/world_to_beamng/art/shapes/materials/decalroad/asphalt/asphalt_mesh_road/t_asphalt_meshroad_nm.normal.dds",
-                "ambientOcclusionMap": "levels/world_to_beamng/art/shapes/materials/decalroad/asphalt/asphalt_mesh_road/t_asphalt_meshroad_ao.data.dds",
-                "roughnessMap": "levels/world_to_beamng/art/shapes/materials/decalroad/asphalt/asphalt_mesh_road/t_asphalt_meshroad_r.data.dds"
-            }
-        },
-        "track": {
-            "width": 3.0,
-            "internal_name": "dirt_road",
+        "dirt_road": {
             "groundModelName": "dirt",
             "priority": 2,
             "drivability": 0.3,
@@ -92,96 +23,74 @@
                 "opacityMap": "levels/world_to_beamng/art/shapes/materials/decalroad/dirt/m_asphalt_road_dirt_grass_edge_02/t_asphalt_dirt_moss_edge_02_o.data.dds"
             }
         },
+        "concrete": {
+            "groundModelName": "concrete",
+            "priority": 0,
+            "drivability": 0.0,
+            "textures": {
+                "baseColorMap": "levels/world_to_beamng/art/shapes/materials/decalroad/concrete/italy_road_edge_concrete/t_italy_road_edge_concrete_b.color.dds",
+                "normalMap": "levels/world_to_beamng/art/shapes/materials/decalroad/concrete/italy_road_edge_concrete/t_italy_road_edge_concrete_nm.normal.dds",
+                "ambientOcclusionMap": "levels/world_to_beamng/art/shapes/materials/decalroad/concrete/italy_road_edge_concrete/t_italy_road_edge_concrete_ao.data.dds",
+                "roughnessMap": "levels/world_to_beamng/art/shapes/materials/decalroad/concrete/italy_road_edge_concrete/t_italy_road_edge_concrete_r.data.dds",
+                "opacityMap": "levels/world_to_beamng/art/shapes/materials/decalroad/concrete/italy_road_edge_concrete/t_italy_road_edge_concrete_o.data.dds"
+            }
+        }
+    },
+    "highway_defaults": {
+        "secondary": {
+            "width": 7.0,
+            "internal_name": "asphalt_road_standard"
+        },
+        "tertiary": {
+            "width": 6.0,
+            "internal_name": "asphalt_road_standard"
+        },
+        "unclassified": {
+            "width": 5.0,
+            "internal_name": "asphalt_road_standard"
+        },
+        "residential": {
+            "width": 5.0,
+            "internal_name": "asphalt_road_standard"
+        },
+        "living_street": {
+            "width": 4.5,
+            "internal_name": "asphalt_road_standard"
+        },
+        "service": {
+            "width": 3.5,
+            "internal_name": "asphalt_road_standard"
+        },
+        "track": {
+            "width": 3.0,
+            "internal_name": "dirt_road"
+        },
         "path": {
             "width": 2.0,
-            "internal_name": "dirt_road",
-            "groundModelName": "dirt",
-            "priority": 1,
-            "drivability": 0.1,
-            "textures": {
-                "baseColorMap": "levels/world_to_beamng/art/shapes/materials/decalroad/dirt/m_asphalt_road_dirt_grass_edge_02/t_asphalt_dirt_moss_edge_02_b.color.dds",
-                "normalMap": "levels/world_to_beamng/art/shapes/materials/decalroad/dirt/m_asphalt_road_dirt_grass_edge_02/t_asphalt_dirt_moss_edge_02_nm.normal.dds",
-                "ambientOcclusionMap": "levels/world_to_beamng/art/shapes/materials/decalroad/dirt/m_asphalt_road_dirt_grass_edge_02/t_asphalt_dirt_moss_edge_02_ao.data.dds",
-                "roughnessMap": "levels/world_to_beamng/art/shapes/materials/decalroad/dirt/m_asphalt_road_dirt_grass_edge_02/t_asphalt_dirt_moss_edge_02_r.data.dds",
-                "opacityMap": "levels/world_to_beamng/art/shapes/materials/decalroad/dirt/m_asphalt_road_dirt_grass_edge_02/t_asphalt_dirt_moss_edge_02_o.data.dds"
-            }
+            "internal_name": "dirt_road"
         },
         "footway": {
             "width": 2.0,
-            "internal_name": "concrete",
-            "groundModelName": "concrete",
-            "priority": 0,
-            "drivability": 0.0,
-            "textures": {
-                "baseColorMap": "levels/world_to_beamng/art/shapes/materials/decalroad/concrete/italy_road_edge_concrete/t_italy_road_edge_concrete_b.color.dds",
-                "normalMap": "levels/world_to_beamng/art/shapes/materials/decalroad/concrete/italy_road_edge_concrete/t_italy_road_edge_concrete_nm.normal.dds",
-                "ambientOcclusionMap": "levels/world_to_beamng/art/shapes/materials/decalroad/concrete/italy_road_edge_concrete/t_italy_road_edge_concrete_ao.data.dds",
-                "roughnessMap": "levels/world_to_beamng/art/shapes/materials/decalroad/concrete/italy_road_edge_concrete/t_italy_road_edge_concrete_r.data.dds",
-                "opacityMap": "levels/world_to_beamng/art/shapes/materials/decalroad/concrete/italy_road_edge_concrete/t_italy_road_edge_concrete_o.data.dds"
-            }
+            "internal_name": "concrete"
         },
         "steps": {
             "width": 1.5,
-            "internal_name": "concrete",
-            "groundModelName": "concrete",
-            "priority": 0,
-            "drivability": 0.0,
-            "textures": {
-                "baseColorMap": "levels/world_to_beamng/art/shapes/materials/decalroad/concrete/italy_road_edge_concrete/t_italy_road_edge_concrete_b.color.dds",
-                "normalMap": "levels/world_to_beamng/art/shapes/materials/decalroad/concrete/italy_road_edge_concrete/t_italy_road_edge_concrete_nm.normal.dds",
-                "ambientOcclusionMap": "levels/world_to_beamng/art/shapes/materials/decalroad/concrete/italy_road_edge_concrete/t_italy_road_edge_concrete_ao.data.dds",
-                "roughnessMap": "levels/world_to_beamng/art/shapes/materials/decalroad/concrete/italy_road_edge_concrete/t_italy_road_edge_concrete_r.data.dds",
-                "opacityMap": "levels/world_to_beamng/art/shapes/materials/decalroad/concrete/italy_road_edge_concrete/t_italy_road_edge_concrete_o.data.dds"
-            }
+            "internal_name": "concrete"
         },
         "road_default": {
             "width": 2.0,
-            "internal_name": "dirt_road",
-            "groundModelName": "dirt",
-            "priority": 0,
-            "drivability": 0.0,
-            "textures": {
-                "baseColorMap": "levels/world_to_beamng/art/shapes/materials/decalroad/dirt/m_asphalt_road_dirt_grass_edge_02/t_asphalt_dirt_moss_edge_02_b.color.dds",
-                "normalMap": "levels/world_to_beamng/art/shapes/materials/decalroad/dirt/m_asphalt_road_dirt_grass_edge_02/t_asphalt_dirt_moss_edge_02_nm.normal.dds",
-                "ambientOcclusionMap": "levels/world_to_beamng/art/shapes/materials/decalroad/dirt/m_asphalt_road_dirt_grass_edge_02/t_asphalt_dirt_moss_edge_02_ao.data.dds",
-                "roughnessMap": "levels/world_to_beamng/art/shapes/materials/decalroad/dirt/m_asphalt_road_dirt_grass_edge_02/t_asphalt_dirt_moss_edge_02_r.data.dds",
-                "opacityMap": "levels/world_to_beamng/art/shapes/materials/decalroad/dirt/m_asphalt_road_dirt_grass_edge_02/t_asphalt_dirt_moss_edge_02_o.data.dds"
-            }
+            "internal_name": "dirt_road"
         }
     },
     "surface_overrides": {
         "gravel": {
-            "internal_name": "dirt_road",
-            "groundModelName": "dirt",
-            "drivability": 0.5,
-            "textures": {
-                "baseColorMap": "levels/world_to_beamng/art/shapes/materials/decalroad/dirt/m_asphalt_road_dirt_grass_edge_02/t_asphalt_dirt_moss_edge_02_b.color.dds",
-                "normalMap": "levels/world_to_beamng/art/shapes/materials/decalroad/dirt/m_asphalt_road_dirt_grass_edge_02/t_asphalt_dirt_moss_edge_02_nm.normal.dds",
-                "ambientOcclusionMap": "levels/world_to_beamng/art/shapes/materials/decalroad/dirt/m_asphalt_road_dirt_grass_edge_02/t_asphalt_dirt_moss_edge_02_ao.data.dds",
-                "roughnessMap": "levels/world_to_beamng/art/shapes/materials/decalroad/dirt/m_asphalt_road_dirt_grass_edge_02/t_asphalt_dirt_moss_edge_02_r.data.dds"
-            }
+            "internal_name": "dirt_road"
         },
         "paved": {
-            "internal_name": "asphalt_road_standard",
-            "groundModelName": "asphalt",
-            "drivability": 0.9,
-            "textures": {
-                "baseColorMap": "levels/world_to_beamng/art/shapes/materials/decalroad/asphalt/asphalt_mesh_road/t_asphalt_meshroad_b.color.dds",
-                "normalMap": "levels/world_to_beamng/art/shapes/materials/decalroad/asphalt/asphalt_mesh_road/t_asphalt_meshroad_nm.normal.dds",
-                "ambientOcclusionMap": "levels/world_to_beamng/art/shapes/materials/decalroad/asphalt/asphalt_mesh_road/t_asphalt_meshroad_ao.data.dds",
-                "roughnessMap": "levels/world_to_beamng/art/shapes/materials/decalroad/asphalt/asphalt_mesh_road/t_asphalt_meshroad_r.data.dds"
-            }
+            "internal_name": "asphalt_road_standard"
         },
         "asphalt": {
-            "internal_name": "asphalt_road_standard",
-            "groundModelName": "asphalt",
-            "drivability": 0.9,
-            "textures": {
-                "baseColorMap": "levels/world_to_beamng/art/shapes/materials/decalroad/asphalt/asphalt_mesh_road/t_asphalt_meshroad_b.color.dds",
-                "normalMap": "levels/world_to_beamng/art/shapes/materials/decalroad/asphalt/asphalt_mesh_road/t_asphalt_meshroad_nm.normal.dds",
-                "ambientOcclusionMap": "levels/world_to_beamng/art/shapes/materials/decalroad/asphalt/asphalt_mesh_road/t_asphalt_meshroad_ao.data.dds",
-                "roughnessMap": "levels/world_to_beamng/art/shapes/materials/decalroad/asphalt/asphalt_mesh_road/t_asphalt_meshroad_r.data.dds"
-            }
+            "internal_name": "asphalt_road_standard"
         }
     },
     "buildings": {
