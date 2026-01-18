@@ -18,7 +18,7 @@ from pathlib import Path
 
 class ItemManager:
     """
-    Zentrale Verwaltung aller BeamNG-Items.
+    Zentrale Verwaltung aller BeamNG-Items (Singleton).
 
     Features:
     - Automatisches Tracking von Items
@@ -27,7 +27,10 @@ class ItemManager:
     - Item-Templates (Terrain, Buildings, etc.)
     - Merge-Unterstützung für Multi-Tile-Workflows
     - Bounds-Berechnung für Terrain-Tiles
+    - Singleton: Nur eine Instanz pro Export (eine items.json)
     """
+
+    _instance: Optional["ItemManager"] = None
 
     # persistentId der MissionGroup (Hauptelement)
     MISSION_GROUP_ID = "6d21ca3b-3f81-4cd8-aeb9-0e780223c20e"
@@ -156,13 +159,38 @@ class ItemManager:
 
     def __init__(self, beamng_dir: str):
         """
-        Initialisiere ItemManager.
+        Private Constructor - verwende get_instance() stattdessen.
 
         Args:
             beamng_dir: Pfad zum BeamNG Level-Verzeichnis
         """
+        if ItemManager._instance is not None:
+            raise RuntimeError("ItemManager ist ein Singleton - verwende get_instance()")
+
         self.beamng_dir = beamng_dir
         self.items: Dict[str, Dict[str, Any]] = {}
+
+    @classmethod
+    def get_instance(cls, beamng_dir: str = "") -> "ItemManager":
+        """
+        Hole die Singleton-Instanz (erstellt sie bei Bedarf).
+
+        Args:
+            beamng_dir: Pfad zum BeamNG Level-Verzeichnis (nur beim ersten Aufruf)
+
+        Returns:
+            ItemManager Singleton-Instanz
+        """
+        if cls._instance is None:
+            cls._instance = cls.__new__(cls)
+            cls._instance.beamng_dir = beamng_dir
+            cls._instance.items = {}
+        return cls._instance
+
+    @classmethod
+    def reset_instance(cls) -> None:
+        """Setze Singleton-Instanz zurück (für neuen Export-Lauf)."""
+        cls._instance = None
 
     def add_item(
         self,
@@ -641,4 +669,4 @@ class ItemManager:
         return len(self.items)
 
     def __repr__(self) -> str:
-        return f"ItemManager({len(self.items)} items)"
+        return f"ItemManager({len(self.items)} items, singleton)"

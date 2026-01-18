@@ -415,25 +415,27 @@ def create_terrain_materials_json(tiles_dict, material_manager, level_name="Worl
     return material_manager.materials
 
 
-def create_terrain_items_json(dae_filename):
+def create_terrain_items_json(dae_filename, item_manager):
     """
     Erstellt items.json Eintrag für terrain.dae.
 
+    REFACTORED: Nutzt jetzt übergebenen ItemManager statt lokale Instanz.
+
     Args:
         dae_filename: Dateiname der Terrain-DAE (mit Koordinaten-Index, z.B. "terrain_0_0.dae")
+        item_manager: ItemManager-Instanz
 
     Returns:
         Dict mit TSStatic-Eintrag (Key und __name basierend auf dae_filename)
     """
-    from ..managers import ItemManager
     import os
 
-    manager = ItemManager(beamng_dir="")  # Nur für dict-Erstellung
+    # Registriere Item direkt im übergebenen Manager (KEIN lokaler Manager mehr)
     item_name = os.path.splitext(dae_filename)[0]
 
-    manager.add_terrain(item_name, dae_filename)
+    item_manager.add_terrain(item_name, dae_filename)
 
-    return manager.items[item_name]
+    return item_manager.items[item_name]
 
 
 def export_terrain_materials_json(tiles_dict, output_dir, level_name="World_to_BeamNG", tile_size=400):

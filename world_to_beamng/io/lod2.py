@@ -880,24 +880,26 @@ def export_materials_json(output_dir: str, material_manager) -> str:
     return str(materials_file)
 
 
-def create_items_json_entry(dae_path: str, tile_x: int, tile_y: int) -> Dict:
+def create_items_json_entry(dae_path: str, tile_x: int, tile_y: int, item_manager) -> Dict:
     """
     Erstellt einen items.json-Eintrag für ein Gebäude-Tile.
+
+    REFACTORED: Nutzt jetzt übergebenen ItemManager statt lokale Instanz.
 
     Args:
         dae_path: Relativer Pfad zur .dae-Datei
         tile_x, tile_y: Tile-Koordinaten (Welt-Koordinaten der oberen linken Ecke)
+        item_manager: ItemManager-Instanz
 
     Returns:
         Dict für items.json
     """
-    from ..managers import ItemManager
     import os
 
-    manager = ItemManager(beamng_dir="")
+    # Registriere Item direkt im übergebenen Manager (KEIN lokaler Manager mehr)
     dae_filename = os.path.basename(dae_path)
     item_name = f"buildings_tile_{tile_x}_{tile_y}"
 
-    manager.add_building(item_name, dae_filename, position=(0, 0, 0))
+    item_manager.add_building(item_name, dae_filename, position=(0, 0, 0))
 
-    return manager.items[item_name]
+    return item_manager.items[item_name]

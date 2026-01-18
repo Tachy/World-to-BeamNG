@@ -26,12 +26,11 @@ class HorizonWorkflow:
     def __init__(
         self,
         cache_manager: CacheManager,
-        item_manager: ItemManager,
         dae_exporter: DAEExporter,
     ):
         self.cache = cache_manager
         self.materials = MaterialManager.get_instance()  # Singleton
-        self.items = item_manager
+        self.items = ItemManager.get_instance()  # Singleton
         self.dae = dae_exporter
 
     def generate_horizon(

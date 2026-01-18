@@ -25,12 +25,11 @@ class BuildingWorkflow:
     def __init__(
         self,
         cache_manager: CacheManager,
-        item_manager: ItemManager,
         dae_exporter: DAEExporter,
     ):
         self.cache = cache_manager
         self.materials = MaterialManager.get_instance()  # Singleton
-        self.items = item_manager
+        self.items = ItemManager.get_instance()  # Singleton
         self.dae = dae_exporter
 
     def cache_buildings(self, bbox: tuple, global_offset: tuple) -> Optional[Dict]:
@@ -109,7 +108,7 @@ class BuildingWorkflow:
             return
 
         dae_filename = f"buildings/buildings_tile_{tile_x}_{tile_y}.dae"
-        item_entry = create_items_json_entry(dae_filename, tile_x, tile_y)
+        item_entry = create_items_json_entry(dae_filename, tile_x, tile_y, self.items)
 
         # Item-Name muss mit create_items_json_entry() übereinstimmen
         item_name = f"buildings_tile_{tile_x}_{tile_y}"

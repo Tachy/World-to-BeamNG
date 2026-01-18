@@ -496,7 +496,7 @@ class MaterialManager:
                 stats["by_template"]["other"] = stats["by_template"].get("other", 0) + 1
 
             # Zähle Texturen
-            if mat.get("Stages") and any("colorMap" in stage for stage in mat["Stages"]):
+            if mat.get("Stages") and any("baseColorMap" in stage for stage in mat["Stages"]):
                 stats["with_textures"] += 1
 
             # Zähle Colors
@@ -510,4 +510,4 @@ class MaterialManager:
         return len(self.materials)
 
     def __repr__(self) -> str:
-        return f"MaterialManager({len(self.materials)} materials)"
+        return f"MaterialManager({len(self.materials)} materials, singleton)"
