@@ -193,6 +193,21 @@ class MaterialManager:
         self.materials[name] = material
         return True
 
+    def remove_material(self, name: str) -> bool:
+        """
+        Entferne Material aus dem Manager.
+
+        Args:
+            name: Material-Name
+
+        Returns:
+            True wenn Material entfernt wurde, False wenn nicht vorhanden
+        """
+        if name in self.materials:
+            del self.materials[name]
+            return True
+        return False
+
     def add_terrain_material(self, tile_x: int, tile_y: int, texture_path: str, overwrite: bool = False) -> str:
         """
         Füge Terrain-Material für Tile hinzu (Convenience-Methode).

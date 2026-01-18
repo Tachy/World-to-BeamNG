@@ -3,16 +3,17 @@
     "description": "BeamNG Material-Templates für Terrain, Straßen, Gebäude und Horizont",
     "templates": {
         "terrain": {
-            "description": "Terrain-Tiles mit Texturen",
+            "description": "Terrain-Tiles mit Texturen (DOP20 - Orthofotos)",
             "class": "Material",
             "version": 2,
             "Stages": [
                 {
-                    "specularPower": 1,
-                    "pixelSpecular": true
+                    "specularPower": 0.5,
+                    "pixelSpecular": false
                 }
             ],
-            "groundModelName": "grass"
+            "groundModelName": "grass",
+            "note": "Matte, naturgetreue Texturen für Bodenorthofotos"
         },
         "road": {
             "description": "Standard-Straßen-Material (OSM-Mapping)",
@@ -54,15 +55,16 @@
             "materialTag1": "Building"
         },
         "horizon": {
-            "description": "Horizont-Layer (distant terrain)",
+            "description": "Horizont-Layer (Sentinel2 Satellitenbilder - distant terrain)",
             "class": "Material",
             "version": 1.5,
             "Stages": [
                 {
-                    "specularPower": 16,
-                    "pixelSpecular": true
+                    "specularPower": 0.3,
+                    "pixelSpecular": false
                 }
-            ]
+            ],
+            "note": "Matte Satellitenbilder (etwas matter als DOP20 Bodenaufnahmen)"
         },
         "water": {
             "description": "Wasser (Seen, Flüsse) - optional",

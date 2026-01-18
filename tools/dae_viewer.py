@@ -184,7 +184,7 @@ class DAETileViewer:
             # RTX 4090 Tuning: Maximale Shadow-Map Auflösung
             try:
                 for renderer in self.plotter.renderers:
-                    renderer.shadow_map_size = 8192  # Maximale Schärfe für High-End GPU!
+                    pv.set_new_attribute(renderer, 'shadow_map_size', 8192)  # Maximale Schärfe für High-End GPU!
             except Exception as shadow_e:
                 print(f"  [i] Shadow-Map Tuning fehlgeschlagen: {shadow_e}")
         except Exception as e:
@@ -208,11 +208,12 @@ class DAETileViewer:
         print(f"\nDAE geladen mit Tile-Geometrien")
         print("\nSteuerung:")
         print("  X = Toggle Texturen (Rendering ↔ Grid) - triggert Neuaufbau")
-        print("\nIn Grid-Ansicht (X=aus) - Layer ein-/ausblenden OHNE Neuaufbau:")
+        print("\nLayer ein-/ausblenden (funktioniert in beide Ansichten):")
         print("  T = Toggle Terrain")
         print("  S = Toggle Straßen")
         print("  H = Toggle Häuser")
-        print("  D = Toggle Debug (Junctions, Centerlines, Boundaries)")
+        print("  O = Toggle Horizont")
+        print("  D = Toggle Debug (Junctions, Centerlines, Boundaries, Labels)")
         print("\nAllgemein:")
         print("  K = Kamera laden | Shift+K = Kamera speichern")
         print("  L = DAE neu laden")
@@ -249,6 +250,7 @@ class DAETileViewer:
             # Toggle nur Häuser (kein Neuaufbau)
             self.show_buildings = not self.show_buildings
             print(f"\n[Häuser] {'AN' if self.show_buildings else 'AUS'}")
+            self._update_visibility()
 
         if key == "o":
             self.show_horizon = not self.show_horizon
@@ -263,13 +265,10 @@ class DAETileViewer:
             # Debug-Layer bleiben dauerhaft geladen und ihre Sichtbarkeit wird beibehalten
 
         elif key_lower == "d":
-            # Toggle Debug nur in Grid-Ansicht
-            if not self.use_textures:
-                self.show_debug = not self.show_debug
-                print(f"\n[Debug] {'AN' if self.show_debug else 'AUS'}")
-                self._update_debug_visibility()
-            else:
-                print("\n[Debug] Nur in Grid-Ansicht verfügbar (X drücken)")
+            # Toggle Debug in Grid- und Rendering-Ansicht
+            self.show_debug = not self.show_debug
+            print(f"\n[Debug] {'AN' if self.show_debug else 'AUS'}")
+            self._update_debug_visibility()
 
         elif key == "K":  # Shift+K (MUSS VOR "k" kommen!)
             self.save_camera_state()
@@ -418,7 +417,7 @@ class DAETileViewer:
 
         # Iteriere über alle geladenen DAE-Dateien
         for item_name, tile_data in self.tile_data:
-            print(f"\nRendere {item_name}...")
+            print(f"Rendere {item_name}...")
             self._render_single_dae(item_name, tile_data)
 
         # Statuszeilen
@@ -534,12 +533,6 @@ class DAETileViewer:
         is_horizon = "horizon" in item_name.lower()
         is_building = item_name.startswith("buildings_")
 
-        # DEBUG für Buildings
-        if is_building:
-            print(
-                f"  [DEBUG] {item_name}: is_building={is_building}, vertices={len(vertices)}, faces={len(faces)}, materials={len(materials)}"
-            )
-
         # Farben aus grid_colors
         face_colors = {
             "terrain": self.grid_colors.get("terrain", {}).get("face", [0.8, 0.95, 0.8]),
@@ -562,27 +555,29 @@ class DAETileViewer:
 
         for face_idx, material in enumerate(materials):
             mat_lower = material.lower()
-            if "road" in mat_lower:
-                # Sammle Road-Faces gruppiert nach Material
-                if material not in road_faces_by_material:
-                    road_faces_by_material[material] = []
-                road_faces_by_material[material].append(faces[face_idx])
-            elif "wall" in mat_lower:
+            # Kategorisierung basiert auf Material-Namen und Item-Kontext
+            # Priorität: wall > roof > road > terrain > building_default > fallback
+            if "wall" in mat_lower:
                 wall_faces.append(faces[face_idx])
             elif "roof" in mat_lower:
                 roof_faces.append(faces[face_idx])
-            elif "terrain" in mat_lower or "tile" in mat_lower:
+            elif "terrain" in mat_lower or "tile" in mat_lower or material == "terrain":
+                # Explizit "terrain" oder mit "terrain"/"tile" im Namen
                 terrain_faces.append(faces[face_idx])
+            elif "road" in mat_lower or (
+                not is_building and not "terrain" in mat_lower and not "tile" in mat_lower and material != "unknown"
+            ):
+                # Road: Hat "road" im Namen ODER (ist nicht Building und kein unbekanntes Material)
+                # Dies fängt auch stitch_gaps-eingefügte Faces, die als "terrain" Material exportiert aber in DAE als andere Namen auftauchen können
+                if material not in road_faces_by_material:
+                    road_faces_by_material[material] = []
+                road_faces_by_material[material].append(faces[face_idx])
+            elif is_building:
+                # In Buildings: Alles andere ist Wall
+                wall_faces.append(faces[face_idx])
             else:
-                # Fallback basierend auf item_name
-                if is_building:
-                    wall_faces.append(faces[face_idx])
-                else:
-                    terrain_faces.append(faces[face_idx])
-
-        # DEBUG für Buildings nach Kategorisierung
-        if is_building:
-            print(f"  [DEBUG] Nach Kategorisierung: wall_faces={len(wall_faces)}, roof_faces={len(roof_faces)}")
+                # In Terrain: Alles andere ist Terrain
+                terrain_faces.append(faces[face_idx])
 
         # Rendering mit Texturen (nur für Terrain)
         if self.use_textures and tiles_info and (is_terrain or is_horizon):
@@ -752,7 +747,6 @@ class DAETileViewer:
                 else:
                     # Grid-Ansicht oder keine UVs: Farbe mit Kanten
                     reason = "Grid-Ansicht" if not self.use_textures else "Keine UVs"
-                    print(f"  [○ Road] {road_material}: {reason}. Farbe-Rendering ({len(road_faces)} faces).")
                     actor = self.plotter.add_mesh(
                         road_mesh,
                         color=face_colors["road"],
@@ -771,8 +765,6 @@ class DAETileViewer:
 
         # Rendere Buildings (Walls + Roofs) - Vereinheitlicht mit Terrain-Rendering
         if is_building and (wall_faces or roof_faces):
-            print(f"  [DEBUG] Building-Rendering für {item_name}: {len(wall_faces)} walls, {len(roof_faces)} roofs")
-
             # Sammle UVs aus ALLEN Tiles (jedes Building ist ein separates Geometry/Tile im DAE)
             building_uvs = None
             if tiles_info:
@@ -838,8 +830,6 @@ class DAETileViewer:
                         diffuse=self.material_diffuse,
                         specular=self.material_specular,
                     )
-                    print(f"  [○ Walls] Grid-Ansicht ({len(wall_faces)} faces)")
-
                 self.building_actors.append(actor)
                 actor.SetVisibility(self.show_buildings)
 
@@ -893,8 +883,6 @@ class DAETileViewer:
                         diffuse=self.material_diffuse,
                         specular=self.material_specular,
                     )
-                    print(f"  [○ Roofs] Grid-Ansicht ({len(roof_faces)} faces)")
-
                 self.building_actors.append(actor)
                 actor.SetVisibility(self.show_buildings)
 
@@ -1233,7 +1221,6 @@ class DAETileViewer:
                         # Konvertiere RGBA zu RGB (entferne Alpha-Kanal für volle Opazität)
                         if img_array.ndim == 3 and img_array.shape[2] == 4:
                             img_array = img_array[:, :, :3]
-                        print(f"  [✓] Material-Textur geladen: {mat_name} -> {abs_texture_path.replace('/', os.sep)}")
                     except ImportError:
                         print(f"  [!] imageio nicht verfügbar, überspringe {mat_name} DDS Textur")
                         continue
@@ -1738,14 +1725,14 @@ class DAETileViewer:
             self._reload_actor = None
 
     def _load_debug_layer(self):
-        """Lade Debug-Layer mit Junctions und Centerlines (einmalig)."""
+        """Lade Debug-Layer aus Primitives (neues Format von DebugNetworkExporter)."""
         print("  [Debug] Lade Debug-Layer...")
 
-        # Lade Junction-Daten aus cache/debug_network.json (lokales Project-Verzeichnis)
+        # Lade Primitive-Daten aus cache/debug_network.json (lokales Project-Verzeichnis)
         debug_network_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "cache", "debug_network.json")
 
         if not os.path.exists(debug_network_path):
-            print(f"  [Debug] Keine Junction-Daten gefunden: {debug_network_path}")
+            print(f"  [Debug] Keine Debug-Daten gefunden: {debug_network_path}")
             return
 
         try:
@@ -1755,287 +1742,176 @@ class DAETileViewer:
             print(f"  [!] Fehler beim Laden der Debug-Daten: {e}")
             return
 
-        junctions = debug_data.get("junctions", [])
-        roads = debug_data.get("roads", [])
+        primitives = debug_data.get("primitives", [])
 
-        print(f"  [Debug] Lade {len(junctions)} Junctions, {len(roads)} Roads")
+        if not primitives:
+            print(f"  [Debug] Keine Primitives in Debug-Daten gefunden")
+            return
 
-        # === JUNCTIONS: Kombiniere alle Spheres in ein MultiBlock ===
-        junction_blocks = pv.MultiBlock()
-        label_positions = []
-        label_texts = []
+        print(f"  [Debug] Lade {len(primitives)} Primitives")
 
-        for j_idx, junction in enumerate(junctions):
-            pos = junction.get("position")
-            if not pos or len(pos) < 3:
-                continue
+        # Sammle Primitives nach Typ
+        lines = []
+        points = []
+        polygons = []
+        circles = []
+        labels = []
 
-            # Validiere Position (keine NaN/Inf)
-            try:
-                if not all(isinstance(v, (int, float)) and not (abs(v) == float("inf") or v != v) for v in pos):
-                    print(f"  [!] Junction[{j_idx}]: ungültige Position {pos}, überspringe")
-                    continue
-            except:
-                print(f"  [!] Junction[{j_idx}]: Position-Validierung fehlgeschlagen, überspringe")
-                continue
+        for prim in primitives:
+            prim_type = prim.get("type", "line")
+            coords = prim.get("coords", [])
+            color = prim.get("color", [0.0, 0.0, 1.0])
 
-            # Füge Sphere zum MultiBlock hinzu
-            sphere = pv.Sphere(radius=2.0, center=pos)
-            junction_blocks.append(sphere)
+            if prim_type == "line" and len(coords) >= 2:
+                lines.append((coords, color))
+            elif prim_type == "point" and len(coords) >= 1:
+                points.append((coords[0], color))
+            elif prim_type == "polygon" and len(coords) >= 3:
+                polygons.append((coords, color))
+            elif prim_type == "circle" and len(coords) >= 1:
+                circles.append((coords[0], prim.get("radius", 1.0), color))
+            elif prim_type == "label":
+                # Text-Label mit Position
+                text = prim.get("text", "Label")
+                position = prim.get("position", [0, 0, 0])
+                size = prim.get("size", 12.0)
+                labels.append((text, position, color, size))
 
-            # Sammle Label-Position und Text
-            label_positions.append([pos[0], pos[1], pos[2] + 3.0])
-            label_texts.append(str(j_idx))
+        actor_count = 0
 
-        # Rendere alle Junctions als EINEN Actor
-        if len(junction_blocks) > 0:
-            junction_color = self.grid_colors.get("junction", {}).get("color", [0.0, 0.0, 1.0])
-            junction_opacity = self.grid_colors.get("junction", {}).get("opacity", 0.5)
-            actor = self.plotter.add_mesh(
-                junction_blocks, color=junction_color, opacity=junction_opacity, label="Junctions"
-            )
-            self.debug_actors.append(actor)
+        # Rendere Lines (z.B. Centerlines)
+        if lines:
+            all_points = []
+            all_lines = []
+            point_offset = 0
 
-        # Rendere alle Labels als EINEN Actor
-        if len(label_positions) > 0:
-            try:
-                actor = self.plotter.add_point_labels(
-                    label_positions,
-                    label_texts,
-                    point_size=0,
-                    font_size=12,
-                    text_color="blue",
-                    shape_opacity=0.0,
+            for line_coords, color in lines:
+                coords_array = np.array(line_coords)
+                n = len(coords_array)
+                all_points.extend(coords_array)
+
+                for i in range(n - 1):
+                    all_lines.append([2, point_offset + i, point_offset + i + 1])
+                point_offset += n
+
+            if all_points:
+                all_points_array = np.array(all_points)
+                all_lines_array = np.array(all_lines)
+                centerlines_mesh = pv.PolyData(all_points_array, lines=all_lines_array)
+                actor = self.plotter.add_mesh(
+                    centerlines_mesh,
+                    color=lines[0][1],  # Nutze Farbe der ersten Line
+                    line_width=2.0,
+                    opacity=0.8,
+                    label="Centerlines",
                 )
                 self.debug_actors.append(actor)
-            except Exception as e:
-                print(f"  [!] Fehler beim Rendern der Junction-Labels: {e}")
+                actor_count += 1
 
-        # === CENTERLINES: Kombiniere alle Linien in ein PolyData ===
-        all_points = []
-        all_lines = []
-        point_offset = 0
-        road_label_positions = []
-        road_label_texts = []
+        # Rendere Points (z.B. Junctions)
+        if points:
+            point_coords = np.array([p[0] for p in points])
+            point_colors = [p[1] for p in points]
 
-        for road in roads:
-            coords = road.get("coords", [])
-            if len(coords) < 2:
-                continue
+            # Erstelle Spheres für Junctions
+            junction_blocks = pv.MultiBlock()
+            for coord, color in points:
+                sphere = pv.Sphere(radius=2.0, center=coord)
+                junction_blocks.append(sphere)
 
-            coords_array = np.array(coords)
-            n = len(coords_array)
-
-            # Füge Punkte hinzu
-            all_points.extend(coords_array)
-
-            # Erstelle Line-Connectivity
-            for i in range(n - 1):
-                all_lines.append([2, point_offset + i, point_offset + i + 1])
-
-            point_offset += n
-
-            # Berechne Mittelpunkt der Centerline für Label
-            mid_idx = n // 2
-            mid_point = coords_array[mid_idx]
-            road_label_positions.append([mid_point[0], mid_point[1], mid_point[2] + 2.0])  # 2m über Straße
-            # Sichere Konvertierung der road_id zu String
-            road_id = road.get("road_id")
-            road_label_texts.append(str(road_id) if road_id is not None else "?")
-
-        # Rendere alle Centerlines als EINEN Actor
-        if len(all_points) > 0:
-            all_points = np.array(all_points)
-            all_lines = np.array(all_lines)
-
-            centerline_color = self.grid_colors.get("centerline", {}).get("color", [0.0, 0.0, 1.0])
-            centerline_width = self.grid_colors.get("centerline", {}).get("line_width", 2.0)
-            centerline_opacity = self.grid_colors.get("centerline", {}).get("opacity", 1.0)
-
-            centerlines_mesh = pv.PolyData(all_points, lines=all_lines)
-            actor = self.plotter.add_mesh(
-                centerlines_mesh,
-                color=centerline_color,
-                line_width=centerline_width,
-                opacity=centerline_opacity,
-                label="Centerlines",
-            )
-            self.debug_actors.append(actor)
-
-        # Rendere Road-Labels
-        if len(road_label_positions) > 0:
-            try:
-                actor = self.plotter.add_point_labels(
-                    road_label_positions,
-                    road_label_texts,
-                    point_size=0,
-                    font_size=10,
-                    text_color="black",
-                    shape_opacity=0.0,
+            if len(junction_blocks) > 0:
+                actor = self.plotter.add_mesh(
+                    junction_blocks,
+                    color=points[0][1],  # Nutze Farbe des ersten Point
+                    opacity=0.5,
+                    label="Junctions",
                 )
                 self.debug_actors.append(actor)
+                actor_count += 1
+
+        # Rendere Circles (kombiniert in einen Actor)
+        if circles:
+            circles_blocks = pv.MultiBlock()
+            for center, radius, color in circles:
+                circle = pv.Sphere(radius=radius, center=center)
+                circles_blocks.append(circle)
+
+            if len(circles_blocks) > 0:
+                actor = self.plotter.add_mesh(
+                    circles_blocks,
+                    color=circles[0][2],  # Nutze Farbe des ersten Circle
+                    opacity=0.3,
+                    label="Circles",
+                )
+                self.debug_actors.append(actor)
+                actor_count += 1
+
+        # Rendere Polygons (kombiniert in einen Actor - als Linien-Outline)
+        if polygons:
+            all_poly_points = []
+            all_poly_lines = []
+            point_offset = 0
+
+            for poly_coords, color in polygons:
+                coords_array = np.array(poly_coords)
+                if len(coords_array) >= 3:
+                    n = len(coords_array)
+                    all_poly_points.extend(coords_array)
+
+                    # Erstelle geschlossenes Polygon als Linien (nicht als Faces)
+                    for i in range(n):
+                        next_i = (i + 1) % n  # Schließe Polygon
+                        all_poly_lines.append([2, point_offset + i, point_offset + next_i])
+                    point_offset += n
+
+            if all_poly_points:
+                all_poly_points_array = np.array(all_poly_points)
+                all_poly_lines_array = np.array(all_poly_lines)
+                polygons_mesh = pv.PolyData(all_poly_points_array, lines=all_poly_lines_array)
+                actor = self.plotter.add_mesh(
+                    polygons_mesh,
+                    color=polygons[0][1],  # Nutze Farbe des ersten Polygon
+                    line_width=2.0,
+                    opacity=1.0,
+                    label="Polygons",
+                    render_lines_as_tubes=False,
+                )
+                self.debug_actors.append(actor)
+                actor_count += 1
+
+        # Rendere Labels (Text an Positionen) - Batch-weise für Performance
+        if labels:
+            try:
+                positions = []
+                texts = []
+                for text, position, color, size in labels:
+                    pos = np.array(position) if not isinstance(position, np.ndarray) else position
+                    positions.append(pos)
+                    texts.append(str(text))
+
+                if positions:
+                    positions_array = np.array(positions)
+                    # Batch-Rendering mit add_point_labels (viel schneller!)
+                    label_actors = self.plotter.add_point_labels(
+                        positions_array,
+                        texts,
+                        font_size=10,
+                        text_color="white",
+                        render=False,  # render=False um Performance zu sparen
+                    )
+                    # Füge Label-Actors zu debug_actors hinzu (für D-Toggle)
+                    if label_actors is not None:
+                        if isinstance(label_actors, list):
+                            self.debug_actors.extend(label_actors)
+                        else:
+                            self.debug_actors.append(label_actors)
+                        actor_count += 1
             except Exception as e:
-                print(f"  [!] Fehler beim Rendern der Road-Labels: {e}")
+                print(f"  [!] Fehler beim Rendern von Labels: {e}")
 
         print(
-            f"  [Debug] {len(self.debug_actors)} Debug-Actors gerendert ({len(junctions)} Junctions, {len(roads)} Centerlines)"
+            f"  [Debug] {actor_count} Debug-Actors gerendert ({len(points)} Junctions, {len(lines)} Centerlines, {len(labels)} Labels)"
         )
-
-        # === BOUNDARY-POLYGONE aus debug_network.json ===
-        boundary_polygons = debug_data.get("boundary_polygons", [])
-
-        if boundary_polygons:
-            print(f"  [Debug] Lade {len(boundary_polygons)} Boundary-Polygone...")
-
-            # Kombiniere alle Boundary-Polygone in ein PolyData (wie Centerlines)
-            all_boundary_points = []
-            all_boundary_lines = []
-            boundary_point_offset = 0
-
-            for boundary in boundary_polygons:
-                poly_type = boundary.get("type", "unknown")
-                coords = boundary.get("coords", [])
-
-                if len(coords) < 2:
-                    continue
-
-                coords_array = np.array(coords)
-                n = len(coords_array)
-
-                # Füge Punkte hinzu
-                all_boundary_points.extend(coords_array)
-
-                # Erstelle Line-Connectivity
-                for i in range(n - 1):
-                    all_boundary_lines.append([2, boundary_point_offset + i, boundary_point_offset + i + 1])
-
-                # Schließe Polygon wenn es kein search_circle ist
-                if poly_type != "search_circle":
-                    all_boundary_lines.append([2, boundary_point_offset + n - 1, boundary_point_offset])
-
-                boundary_point_offset += n
-
-            # Rendere alle Boundary-Polygone als EINEN Actor
-            if len(all_boundary_points) > 0:
-                try:
-                    all_boundary_points = np.array(all_boundary_points)
-                    all_boundary_lines = np.array(all_boundary_lines)
-
-                    boundary_color = self.grid_colors.get("boundary", {}).get("color", [1.0, 0.0, 1.0])
-                    boundary_width = self.grid_colors.get("boundary", {}).get("line_width", 2.0)
-
-                    boundary_mesh = pv.PolyData(all_boundary_points, lines=all_boundary_lines)
-                    actor = self.plotter.add_mesh(
-                        boundary_mesh,
-                        color=boundary_color,
-                        line_width=boundary_width,
-                        opacity=1.0,
-                        label="Boundaries",
-                        render_lines_as_tubes=False,
-                    )
-                    self.debug_actors.append(actor)
-                    print(f"  [Debug] Boundary-Polygone kombiniert gerendert (1 Actor)")
-                except Exception as e:
-                    print(f"  [!] Fehler beim Rendern der Boundary-Polygone: {e}")
-
-        # === COMPONENT-LINIEN aus debug_network.json ===
-        component_lines = debug_data.get("component_lines", [])
-
-        if component_lines:
-            print(f"  [Debug] Lade {len(component_lines)} Component-Linien...")
-
-            # Gruppiere Components nach Typ (terrain/road)
-            terrain_components = []
-            road_components = []
-
-            for component in component_lines:
-                label = component.get("label", "component")
-                if "road" in label:
-                    road_components.append(component)
-                else:
-                    terrain_components.append(component)
-
-            # Rendere Terrain-Components (grün)
-            if terrain_components:
-                all_points = []
-                all_lines = []
-                point_offset = 0
-
-                for component in terrain_components:
-                    coords = component.get("coords", [])
-                    if len(coords) < 2:
-                        continue
-
-                    coords_array = np.array(coords)
-                    n = len(coords_array)
-                    all_points.extend(coords_array)
-
-                    for i in range(n - 1):
-                        all_lines.append([2, point_offset + i, point_offset + i + 1])
-                    point_offset += n
-
-                if len(all_points) > 0:
-                    try:
-                        all_points = np.array(all_points)
-                        all_lines = np.array(all_lines)
-
-                        terrain_color = self.grid_colors.get("component_terrain", {}).get("color", [0.2, 0.8, 0.2])
-                        terrain_width = self.grid_colors.get("component_terrain", {}).get("line_width", 3.0)
-
-                        terrain_mesh = pv.PolyData(all_points, lines=all_lines)
-                        actor = self.plotter.add_mesh(
-                            terrain_mesh,
-                            color=terrain_color,
-                            line_width=terrain_width,
-                            opacity=1.0,
-                            label="Terrain Component Lines",
-                            render_lines_as_tubes=False,
-                        )
-                        self.debug_actors.append(actor)
-                        print(f"  [Debug] {len(terrain_components)} Terrain-Component-Linien (grün)")
-                    except Exception as e:
-                        print(f"  [!] Fehler beim Rendern der Terrain-Component-Linien: {e}")
-
-            # Rendere Road-Components (rot)
-            if road_components:
-                all_points = []
-                all_lines = []
-                point_offset = 0
-
-                for component in road_components:
-                    coords = component.get("coords", [])
-                    if len(coords) < 2:
-                        continue
-
-                    coords_array = np.array(coords)
-                    n = len(coords_array)
-                    all_points.extend(coords_array)
-
-                    for i in range(n - 1):
-                        all_lines.append([2, point_offset + i, point_offset + i + 1])
-                    point_offset += n
-
-                if len(all_points) > 0:
-                    try:
-                        all_points = np.array(all_points)
-                        all_lines = np.array(all_lines)
-
-                        road_color = self.grid_colors.get("component_road", {}).get("color", [0.8, 0.2, 0.2])
-                        road_width = self.grid_colors.get("component_road", {}).get("line_width", 3.0)
-
-                        road_mesh = pv.PolyData(all_points, lines=all_lines)
-                        actor = self.plotter.add_mesh(
-                            road_mesh,
-                            color=road_color,
-                            line_width=road_width,
-                            opacity=1.0,
-                            label="Road Component Lines",
-                            render_lines_as_tubes=False,
-                        )
-                        self.debug_actors.append(actor)
-                        print(f"  [Debug] {len(road_components)} Road-Component-Linien (rot)")
-                    except Exception as e:
-                        print(f"  [!] Fehler beim Rendern der Road-Component-Linien: {e}")
 
     def _on_left_mouse_click(self, obj, event):
         """Handler für linken Doppel-Klick: Setze Kamera-Pivot auf angeklickten Punkt."""

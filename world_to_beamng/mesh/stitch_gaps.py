@@ -87,16 +87,31 @@ def stitch_all_gaps(
             centerline_sample = np.array([coords[0], coords[1], 0.0] if len(coords) == 2 else coords, dtype=float)
 
             debug_exporter = DebugNetworkExporter.get_instance()
-            debug_exporter.add_label(
-                f"Junction_{jp_idx}",
-                position=centerline_sample,
-                color=[0.0, 0.0, 1.0],
-                size=14.0,
-            )
             debug_exporter.add_point(
                 centerline_sample,
                 color=[0.0, 0.0, 1.0],
                 size=8.0,
+            )
+
+            # Finde Material der Junction (von nächstem Face)
+            junction_material = "terrain"
+            try:
+                if kdtree_cache is not None:
+                    _, nearest_vertex_idx = kdtree_cache.query(centerline_sample[:2], k=1)
+                    if nearest_vertex_idx in vertex_to_faces:
+                        connected_faces = vertex_to_faces[nearest_vertex_idx]
+                        if connected_faces:
+                            first_face_idx = list(connected_faces)[0]
+                            junction_material = face_materials.get(first_face_idx, "terrain") or "terrain"
+            except Exception:
+                junction_material = "terrain"
+
+            # Exportiere Junction-Label mit Material-Info
+            debug_exporter.add_label(
+                f"Junction_{jp_idx} ({junction_material})",
+                position=[coords[0], coords[1], coords[2] if len(coords) > 2 else 0.0],
+                color=[0.0, 0.0, 1.0],
+                size=14.0,
             )
 
             find_boundary_polygons_in_circle(
@@ -184,6 +199,30 @@ def stitch_all_gaps(
                 ):
                     print(f"  [DEBUG] Stoppe bei Straße #{valid_road_count}, Suchkreis #{circle_count}")
                     return []
+
+        # Exportiere Road-Label am Mittelpunkt der Centerline (mit Material-Info)
+        try:
+            mid_idx = len(centerline_3d) // 2
+            mid_point = centerline_3d[mid_idx]
+
+            # Finde Material der Road (von nächstem Face)
+            road_material = "terrain"
+            if kdtree_cache is not None:
+                _, nearest_vertex_idx = kdtree_cache.query(mid_point[:2], k=1)
+                if nearest_vertex_idx in vertex_to_faces:
+                    connected_faces = vertex_to_faces[nearest_vertex_idx]
+                    if connected_faces:
+                        first_face_idx = list(connected_faces)[0]
+                        road_material = face_materials.get(first_face_idx, "terrain") or "terrain"
+
+            debug_exporter.add_label(
+                f"Road_{road_id} ({road_material})",
+                position=[mid_point[0], mid_point[1], mid_point[2]],
+                color=[1.0, 0.5, 0.0],  # Orange
+                size=12.0,
+            )
+        except Exception:
+            pass  # Fallback: kein Label wenn etwas schiefgeht
 
     # === STEP 3: Schließe verbliebene Löcher (Inseln, etc.) ===
     holes_filled = 0

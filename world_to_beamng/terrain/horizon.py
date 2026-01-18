@@ -346,6 +346,45 @@ def _load_local_dgm30(dgm30_path, tile_hash=None, local_offset=None):
     return height_points, height_elevations
 
 
+def enhance_sentinel2_image(image, contrast_factor=1.25, brightness_factor=0.88, color_factor=1.18):
+    """
+    Verbessert Sentinel-2 Satellitenbilder um an DOP20 Bodenaufnahmen anzugleichen.
+
+    Sentinel-2 ist oft zu blass und zu hell gegenüber DOP20:
+    - Erhöht Kontrast stärker (1.25 vs 1.18 für DOP20)
+    - Reduziert Helligkeit stärker (0.88 vs 0.92 für DOP20)
+    - Erhöht Farnnättigung stärker (1.18 vs 1.12 für DOP20)
+
+    Args:
+        image: PIL Image (RGB)
+        contrast_factor: Kontrast-Multiplikator (1.25 = +25%, Standard)
+        brightness_factor: Helligkeit-Multiplikator (0.88 = -12%, Standard)
+        color_factor: Farnnättigung-Multiplikator (1.18 = +18%, Standard)
+
+    Returns:
+        Verbessertes PIL Image
+    """
+    from PIL import ImageEnhance
+
+    # Stelle sicher, dass Bild RGB ist
+    if image.mode != "RGB":
+        image = image.convert("RGB")
+
+    # Erhöhe Kontrast (stärker als DOP20)
+    enhancer = ImageEnhance.Contrast(image)
+    image = enhancer.enhance(contrast_factor)
+
+    # Reduziere Helligkeit stärker (dunkler, um an DOP20 zu passen)
+    enhancer = ImageEnhance.Brightness(image)
+    image = enhancer.enhance(brightness_factor)
+
+    # Erhöhe Farnnättigung stärker (lebendiger)
+    enhancer = ImageEnhance.Color(image)
+    image = enhancer.enhance(color_factor)
+
+    return image
+
+
 def load_sentinel2_geotiff(sentinel2_dir, bbox_utm, tile_hash=None):
     """
     Lädt Sentinel-2 RGB GeoTIFF Dateien mit Georeferenzierung.
@@ -416,6 +455,13 @@ def load_sentinel2_geotiff(sentinel2_dir, bbox_utm, tile_hash=None):
                 rgb_data = (rgb_data / rgb_data.max() * 255).astype(np.uint8)
             else:
                 rgb_data = rgb_data.astype(np.uint8)
+
+            # Verbessere Sentinel-2 Farben um an DOP20 anzugleichen
+            from PIL import Image, ImageEnhance
+
+            pil_image = Image.fromarray(rgb_data, "RGB")
+            pil_image = enhance_sentinel2_image(pil_image)
+            rgb_data = np.array(pil_image)
 
             print(f"  [OK] Sentinel-2 geladen: {rgb_data.shape}")
 

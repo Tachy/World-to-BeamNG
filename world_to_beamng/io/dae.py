@@ -194,8 +194,18 @@ def create_terrain_materials_json(tiles_dict, material_manager, level_name="Worl
 
     # Registriere Materials direkt im übergebenen Manager (KEIN lokaler Manager mehr)
 
+    min_faces_threshold = 10  # Gleicher Filter wie in export_separate_tile_daes
+
     for tile_x, tile_y in sorted(tiles_dict.keys()):
-        if len(tiles_dict[(tile_x, tile_y)]["faces"]) == 0:
+        tile_data = tiles_dict[(tile_x, tile_y)]
+        faces = tile_data.get("faces", [])
+
+        if len(faces) == 0:
+            continue
+
+        # === FILTER: Ignoriere Mini-Tiles (Stitch-Artefakte) ===
+        # Tiles mit weniger als 10 Faces sind wahrscheinlich Fehler beim Gap-Filling
+        if len(faces) < min_faces_threshold:
             continue
 
         # Berechne Welt-Koordinaten der Tile-Ecke

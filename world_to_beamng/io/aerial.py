@@ -5,7 +5,7 @@ Aerial image processing - Extrahiert und kachelt Luftbildaufnahmen.
 import zipfile
 import math
 from pathlib import Path
-from PIL import Image
+from PIL import Image, ImageEnhance
 from io import BytesIO
 
 
@@ -97,6 +97,43 @@ def extract_images_from_zips(aerial_dir="data/DOP20"):
             print(f"[!] Fehler beim Lesen von {zip_path.name}: {e}")
 
     return images
+
+
+def enhance_dop20_image(image, contrast_factor=1.18, brightness_factor=0.92, color_factor=1.12):
+    """
+    Verbessert DOP20-Bilder für naturgetreuere Darstellung in BeamNG.
+
+    DOP20 Bilder sind oft zu blass und zu hell - diese Funktion erhöht:
+    - Kontrast (mehr Dynamik)
+    - Farbnättigung (lebendiger)
+    - Reduziert Helligkeit (naturgetreuer)
+
+    Args:
+        image: PIL Image
+        contrast_factor: Kontrast-Multiplikator (1.18 = +18%, Standard)
+        brightness_factor: Helligkeit-Multiplikator (0.92 = -8%, Standard)
+        color_factor: Farbnättigung-Multiplikator (1.12 = +12%, Standard)
+
+    Returns:
+        Verbessertes PIL Image
+    """
+    # Stelle sicher, dass Bild RGB ist
+    if image.mode != "RGB":
+        image = image.convert("RGB")
+
+    # Erhöhe Kontrast
+    enhancer = ImageEnhance.Contrast(image)
+    image = enhancer.enhance(contrast_factor)
+
+    # Reduziere Helligkeit (dunkler)
+    enhancer = ImageEnhance.Brightness(image)
+    image = enhancer.enhance(brightness_factor)
+
+    # Erhöhe Farbnättigung
+    enhancer = ImageEnhance.Color(image)
+    image = enhancer.enhance(color_factor)
+
+    return image
 
 
 def tile_image(image, tile_size=1000):
@@ -213,6 +250,9 @@ def process_aerial_images(aerial_dir, output_dir, grid_bounds, global_offset, ti
             # Lade Bild
             image = Image.open(BytesIO(img_data))
             width, height = image.size
+
+            # Verbessere DOP20-Bild für naturgetreuere Darstellung
+            image = enhance_dop20_image(image)
 
             # Welt-Koordinaten des Luftbilds (UTM)
             img_utm_x = world_info["x_origin"]

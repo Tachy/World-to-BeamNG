@@ -259,23 +259,26 @@ def find_boundary_polygons_in_circle(
             debug=debug,
         )
         if polygon:
-            exporter.add_polygon(
-                polygon,
-                color=[1.0, 0.0, 1.0],
-                filled=False,
-                outline_width=2.0,
-            )
+            # NUR exportiere Polygons zum Debug wenn debug=True
+            if debug:
+                exporter.add_polygon(
+                    polygon,
+                    color=[1.0, 0.0, 1.0],
+                    filled=False,
+                    outline_width=2.0,
+                )
             polygons.append(polygon)
 
     # Trianguliere die Polygone und füge neue Faces hinzu
 
-    exporter.add_circle(
-        search_radius,
-        center=centerline_point,
-        color=[0.0, 0.0, 1.0],
-        filled=False,
-        segments=32,
-    )
+    if debug:
+        exporter.add_circle(
+            search_radius,
+            center=centerline_point,
+            color=[0.0, 0.0, 1.0],
+            filled=False,
+            segments=32,
+        )
 
     new_faces = []
     if polygons:
