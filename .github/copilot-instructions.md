@@ -13,4 +13,8 @@ Bitte dae_viewer.py nicht automatisch starten.
 Wenn Debug-Läufe notwendig sind: Bitte immer mit festen Dumps debuggen, die im Programmlauf erzeugt und in cache/ gespeichert werden.
 Möglichst Debug-Scripte schreiben, die in debug/ liegen sollen und dann diese Dumps analysieren. Diese Scripte mir dann zur Ausführung geben.
 
+# Git-Regeln
+NIEMALS automatisch `git commit` ausführen! Immer erst fragen, ob ich committen soll.
+Code-Änderungen direkt implementieren ist OK, aber Git-Commits nur auf explizite Anfrage.
+
 
