@@ -40,3 +40,4 @@ venv/
 # Documentation (internal only)
 REFACTORING.md
 report.html
+tools/dae_viewer.cfg
