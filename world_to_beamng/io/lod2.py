@@ -266,58 +266,6 @@ def snap_buildings_to_terrain_batch(
     return snapped_buildings
 
 
-def snap_building_to_terrain(building: Dict, height_points: np.ndarray, height_elevations: np.ndarray) -> Dict:
-    """
-    Setzt Gebäude auf das Terrain (Snap-to-Terrain).
-
-    Ermittelt den niedrigsten Punkt des Gebäudes und passt alle Vertices
-    so an, dass dieser Punkt auf dem Terrain liegt.
-
-    DEPRECATED: Verwende stattdessen snap_buildings_to_terrain_batch() für bessere Performance!
-
-    Args:
-        building: Gebäude-Dict mit 'walls' und 'roofs' Geometrien
-        height_points: (N, 2) Array mit XY-Koordinaten des Terrains (lokale Koordinaten)
-        height_elevations: (N,) Array mit Z-Werten des Terrains (normalisiert)
-
-    Returns:
-        Modifiziertes Gebäude-Dict mit Z-Koordinaten ans Terrain angepasst
-    """
-    from scipy.spatial import cKDTree
-
-    # Alle Vertices sammeln
-    all_verts = []
-    for verts, _ in building.get("walls", []):
-        all_verts.append(verts)
-    for verts, _ in building.get("roofs", []):
-        all_verts.append(verts)
-
-    if not all_verts:
-        return building
-
-    all_verts = np.vstack(all_verts)
-    min_z = np.min(all_verts[:, 2])
-
-    # Ermittle Terrain-Höhe am niedrigsten Punkt
-    min_point_xy = all_verts[np.argmin(all_verts[:, 2]), :2]
-
-    tree = cKDTree(height_points)
-    _, idx = tree.query(min_point_xy)
-    terrain_z = height_elevations[idx]
-
-    # Z-Offset berechnen
-    z_offset = terrain_z - min_z
-
-    # Alle Vertices anpassen
-    for i, (verts, faces) in enumerate(building.get("walls", [])):
-        building["walls"][i] = (verts + [0, 0, z_offset], faces)
-
-    for i, (verts, faces) in enumerate(building.get("roofs", [])):
-        building["roofs"][i] = (verts + [0, 0, z_offset], faces)
-
-    return building
-
-
 def normalize_buildings_full(
     buildings: List[Dict],
     local_offset: Tuple[float, float, float],

@@ -282,18 +282,6 @@ class MaterialManager:
         self.add_material(mat_name, template="horizon", overwrite=overwrite, Stages={"baseColorMap": texture_path})
         return mat_name
 
-    def get_material(self, name: str) -> Optional[Dict[str, Any]]:
-        """
-        Hole Material.
-
-        Args:
-            name: Material-Name
-
-        Returns:
-            Material-Dict oder None
-        """
-        return self.materials.get(name)
-
     def exists(self, name: str) -> bool:
         """
         Prüfe ob Material existiert.
@@ -305,15 +293,6 @@ class MaterialManager:
             True wenn Material existiert
         """
         return name in self.materials
-
-    def get_all_names(self) -> List[str]:
-        """
-        Gebe alle Material-Namen zurück.
-
-        Returns:
-            Liste von Material-Namen
-        """
-        return list(self.materials.keys())
 
     def get_all_materials(self) -> Dict[str, Dict[str, Any]]:
         """
@@ -333,25 +312,6 @@ class MaterialManager:
         """
         return iter(self.materials.items())
 
-    def get_material_texture(self, name: str) -> Optional[str]:
-        """
-        Gebe Textur-Pfad eines Materials zurück.
-
-        Args:
-            name: Material-Name
-
-        Returns:
-            Textur-Pfad (baseColorMap) oder None
-        """
-        mat = self.materials.get(name)
-        if not mat:
-            return None
-
-        stages = mat.get("Stages", [])
-        if stages and "baseColorMap" in stages[0]:
-            return stages[0]["baseColorMap"]
-        return None
-
     def extract_textures(self) -> Dict[str, str]:
         """
         Extrahiere {mat_name: texture_path} für alle Materials mit Texturen.
@@ -365,49 +325,6 @@ class MaterialManager:
             if stages and "baseColorMap" in stages[0]:
                 textures[mat_name] = stages[0]["baseColorMap"]
         return textures
-
-    def get_materials_as_list(self) -> List[Dict[str, Any]]:
-        """
-        Gebe alle Materials als Liste zurück.
-
-        Returns:
-            Liste von Material-Dicts
-        """
-        return list(self.materials.values())
-
-    def create_material_dict(self, name: str, template: Optional[str] = None, **kwargs) -> Dict[str, Any]:
-        """
-        Erstelle Material-Dict OHNE es zu registrieren.
-
-        Nützlich wenn nur ein temporäres Material-Dict benötigt wird.
-
-        Args:
-            name: Material-Name
-            template: Template-Name ("terrain", "road", etc.)
-            **kwargs: Zusätzliche Properties
-
-        Returns:
-            Material-Dict
-        """
-        # Basis: Template oder leeres Dict
-        if template and template in self._templates:
-            material = self._templates[template].copy()
-            if "Stages" in material:
-                material["Stages"] = [stage.copy() for stage in material["Stages"]]
-        else:
-            material = {}
-
-        material["name"] = name
-        material["mapTo"] = name
-        material["persistentId"] = str(uuid.uuid4())
-
-        for key, value in kwargs.items():
-            if key == "Stages" and "Stages" in material:
-                material["Stages"][0].update(value if isinstance(value, dict) else {})
-            else:
-                material[key] = value
-
-        return material
 
     def save(self, filepath: Optional[str] = None) -> None:
         """
@@ -450,60 +367,9 @@ class MaterialManager:
             except json.JSONDecodeError:
                 self.materials = {}
 
-    def merge(self, other: "MaterialManager", overwrite: bool = False) -> int:
-        """
-        Merge Materials von anderem MaterialManager.
-
-        Args:
-            other: Anderer MaterialManager
-            overwrite: Überschreibe existierende Materials
-
-        Returns:
-            Anzahl hinzugefügter Materials
-        """
-        count = 0
-        for name, material in other.materials.items():
-            if name not in self.materials or overwrite:
-                self.materials[name] = material
-                count += 1
-        return count
-
     def clear(self) -> None:
         """Lösche alle Materials."""
         self.materials.clear()
-
-    def get_statistics(self) -> Dict[str, Any]:
-        """
-        Gebe Statistiken zurück.
-
-        Returns:
-            Dict mit Statistiken
-        """
-        stats = {
-            "total": len(self.materials),
-            "by_template": {},
-            "with_textures": 0,
-            "with_colors": 0,
-        }
-
-        for mat in self.materials.values():
-            # Zähle nach Template-Typ (heuristisch), singleton
-            if "groundModelName" in mat:
-                stats["by_template"]["terrain"] = stats["by_template"].get("terrain", 0) + 1
-            elif "Building" in mat.get("materialTag1", ""):
-                stats["by_template"]["building"] = stats["by_template"].get("building", 0) + 1
-            else:
-                stats["by_template"]["other"] = stats["by_template"].get("other", 0) + 1
-
-            # Zähle Texturen
-            if mat.get("Stages") and any("baseColorMap" in stage for stage in mat["Stages"]):
-                stats["with_textures"] += 1
-
-            # Zähle Colors
-            if mat.get("Stages") and any("diffuseColor" in stage for stage in mat["Stages"]):
-                stats["with_colors"] += 1
-
-        return stats
 
     def __len__(self) -> int:
         """Anzahl der Materials."""
