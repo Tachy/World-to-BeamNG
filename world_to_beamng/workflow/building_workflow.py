@@ -25,12 +25,11 @@ class BuildingWorkflow:
     def __init__(
         self,
         cache_manager: CacheManager,
-        material_manager: MaterialManager,
         item_manager: ItemManager,
         dae_exporter: DAEExporter,
     ):
         self.cache = cache_manager
-        self.materials = material_manager
+        self.materials = MaterialManager.get_instance()  # Singleton
         self.items = item_manager
         self.dae = dae_exporter
 

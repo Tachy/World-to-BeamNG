@@ -40,10 +40,10 @@ class BeamNGExporter:
         self.items = ItemManager(config.BEAMNG_DIR)
         self.dae = DAEExporter(material_manager=self.materials)  # Übergebe MaterialManager-Referenz
 
-        # Workflows
-        self.terrain = TerrainWorkflow(self.cache, self.materials, self.items, self.dae)
-        self.buildings = BuildingWorkflow(self.cache, self.materials, self.items, self.dae)
-        self.horizon = HorizonWorkflow(self.cache, self.materials, self.items, self.dae)
+        # Workflows (nutzen MaterialManager.get_instance() intern)
+        self.terrain = TerrainWorkflow(self.cache, self.items, self.dae)
+        self.buildings = BuildingWorkflow(self.cache, self.items, self.dae)
+        self.horizon = HorizonWorkflow(self.cache, self.items, self.dae)
         self.tile_processor = TileProcessor(self.cache)
 
         # Debug-Exporter für Visualisierung (Singleton - reset für neuen Export)
@@ -340,7 +340,9 @@ class BeamNGExporter:
         if os.path.exists(items_path):
             os.remove(items_path)
 
-        self.materials = MaterialManager(config.BEAMNG_DIR)
+        # Reset Singleton-Instanzen
+        MaterialManager.reset_instance()
+        self.materials = MaterialManager.get_instance(config.BEAMNG_DIR)
         self.items = ItemManager(config.BEAMNG_DIR)
 
         print("[✓] Export zurückgesetzt")
