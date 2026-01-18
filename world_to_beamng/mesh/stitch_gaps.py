@@ -87,13 +87,16 @@ def stitch_all_gaps(
             centerline_sample = np.array([coords[0], coords[1], 0.0] if len(coords) == 2 else coords, dtype=float)
 
             debug_exporter = DebugNetworkExporter.get_instance()
-            debug_exporter.add_junction(
-                {
-                    "id": jp_idx,
-                    "position": centerline_sample.tolist(),
-                    "road_indices": [],
-                    "label": f"Junction_{jp_idx}",
-                }
+            debug_exporter.add_label(
+                f"Junction_{jp_idx}",
+                position=centerline_sample,
+                color=[0.0, 0.0, 1.0],
+                size=14.0,
+            )
+            debug_exporter.add_point(
+                centerline_sample,
+                color=[0.0, 0.0, 1.0],
+                size=8.0,
             )
 
             find_boundary_polygons_in_circle(

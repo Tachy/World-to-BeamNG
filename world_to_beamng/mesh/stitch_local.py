@@ -194,9 +194,7 @@ def find_boundary_polygons_in_circle(
         is_last_point=is_last_centerline_point,
     )
 
-    _export_component_lines_to_debug(
-        components, verts, centerline_point, edge_to_faces, terrain_face_set, sample_rate=1
-    )
+    exporter = DebugNetworkExporter.get_instance()
 
     if not components:
         return []
@@ -261,14 +259,23 @@ def find_boundary_polygons_in_circle(
             debug=debug,
         )
         if polygon:
+            exporter.add_polygon(
+                polygon,
+                color=[1.0, 0.0, 1.0],
+                filled=False,
+                outline_width=2.0,
+            )
             polygons.append(polygon)
 
-    # Export Boundary-Polygone vor Triangulation (für Debug)
-
-    # if polygons:
-    #     _export_boundary_polygons_to_debug(polygons, centerline_point, search_radius=search_radius, sample_rate=1)
     # Trianguliere die Polygone und füge neue Faces hinzu
-    _export_search_circle_to_debug(centerline_point, search_radius=search_radius, sample_rate=1)
+
+    exporter.add_circle(
+        search_radius,
+        center=centerline_point,
+        color=[0.0, 0.0, 1.0],
+        filled=False,
+        segments=32,
+    )
 
     new_faces = []
     if polygons:
@@ -874,160 +881,4 @@ def _triangulate_polygons(polygons, verts, mesh, debug=False):
     return new_faces
 
 
-def _export_search_circle_to_debug(centerline_point, search_radius, sample_rate=1):
-    """
-    Exportiert einen einzelnen Suchkreis zum Debug-Exporter (Singleton).
-
-    Zeichnet einen Kreis am centerline_point mit gegebenem radius.
-    Farbe: Gelb (unterscheidet sich von Component-Lines).
-
-    Args:
-        centerline_point: (x, y, z) - Mittelpunkt des Suchkreises
-        search_radius: Radius in Metern
-        sample_rate: Nur jeder N-te Sample wird exportiert (default: 1 = alle)
-    """
-    # Nutze Hash der Centerline-Koordinaten als Pseudo-Counter
-    cx, cy, cz = centerline_point
-    coord_hash = hash((round(cx, 2), round(cy, 2)))
-
-    # Nur jeden N-ten Sample exportieren
-    if coord_hash % sample_rate != 0:
-        return
-
-    exporter = DebugNetworkExporter.get_instance()
-
-    # Generiere Kreis-Punkte (32 Segmente für glatten Kreis)
-    segs = 32
-    circle_coords = []
-    for i in range(segs + 1):  # +1 um Kreis zu schließen
-        angle = 2.0 * np.pi * i / segs
-        x = cx + search_radius * np.cos(angle)
-        y = cy + search_radius * np.sin(angle)
-        circle_coords.append((float(x), float(y), float(cz)))
-
-    # Exportiere als Component-Line (gelbe Farbe)
-    exporter.add_component_line(
-        coords=circle_coords,
-        color=[0.0, 0.0, 1.0],  # Blau
-        label=f"search_circle_{cx:.1f}_{cy:.1f}",
-        line_width=2.0,
-    )
-
-
-def _export_boundary_polygons_to_debug(polygons, centerline_point, search_radius=None, sample_rate=100):
-    """
-    Exportiert Boundary-Polygone zum Debug-Exporter (Singleton).
-
-    Args:
-        polygons: Liste von Polygon-Dicts
-        centerline_point: (x, y, z) - Centerline-Sample-Punkt
-        search_radius: Optionaler Suchradius
-        sample_rate: Nur jeder N-te Sample wird exportiert (default: 100, sample_rate=1 exportiert alle)
-    """
-    # Nutze Hash der Centerline-Koordinaten als Pseudo-Counter
-    cx, cy, cz = centerline_point
-    coord_hash = hash((round(cx, 2), round(cy, 2)))
-
-    # Nur jeden N-ten Sample exportieren (wenn sample_rate > 1)
-    if sample_rate > 1 and coord_hash % sample_rate != 0:
-        return
-
-    exporter = DebugNetworkExporter.get_instance()
-
-    # Exportiere Boundary-Polygone
-    for poly_idx, poly in enumerate(polygons):
-        coords = poly.get("coords", [])
-        terrain_count = poly.get("terrain_count", 0)
-        slope_count = poly.get("slope_count", 0)
-
-        if len(coords) >= 3:
-            # Konvertiere zu Float-Listen (nicht NumPy)
-            coords_list = [[float(c[0]), float(c[1]), float(c[2])] for c in coords]
-
-            exporter.add_boundary(
-                {
-                    "type": "boundary",
-                    "coords": coords_list,
-                    "color": [1.0, 0.0, 0.0],  # Magenta
-                    "terrain_count": int(terrain_count),
-                    "slope_count": int(slope_count),
-                }
-            )
-
-    # Suchkreis wird separat über _export_search_circle_to_debug() exportiert (gelb)
-    # NICHT hier (verhindert Duplikation)
-
-
-def _export_component_lines_to_debug(
-    components_edges, verts, centerline_point, edge_to_faces, terrain_face_set, sample_rate=100
-):
-    """
-    Exportiert Connected Component Linien zum Debug-Exporter (Singleton).
-
-    Klassifizierung basiert auf angrenzenden Faces:
-    - Grün: Terrain-Edges (grenzen an Terrain-Faces)
-    - Rot: Road-Edges (grenzen an Non-Terrain-Faces)
-    - Synthetische Edges (ohne Faces) werden ignoriert
-
-    Args:
-        components_edges: Liste von Edge-Listen (eine pro Component)
-        verts: Vertex-Array
-        centerline_point: (x, y, z) - Centerline-Sample-Punkt (für Zähler)
-        edge_to_faces: Dict mapping edge (v1, v2) or (v2, v1) → face_list
-        terrain_face_set: Set von Terrain-Face-Indices
-        sample_rate: Nur jeder N-te Sample wird exportiert (default: 100)
-    """
-    cx, cy, cz = centerline_point
-    coord_hash = hash((round(cx, 2), round(cy, 2)))
-
-    if coord_hash % sample_rate != 0:
-        return
-
-    exporter = DebugNetworkExporter.get_instance()
-
-    # Für jede Component: Zeichne Terrain-Edges und Road-Edges separat
-    for comp_idx, comp_edges in enumerate(components_edges):
-        terrain_edges = []
-        road_edges = []
-
-        for v1, v2 in comp_edges:
-            edge_faces = edge_to_faces.get((v1, v2), []) or edge_to_faces.get((v2, v1), [])
-            if not edge_faces:
-                # Synthetische Edge - ignorieren
-                continue
-
-            # Klassifiziere diese Edge nach ihrem Face-Typ
-            is_terrain = any(f in terrain_face_set for f in edge_faces)
-
-            if is_terrain:
-                terrain_edges.append((v1, v2))
-            else:
-                road_edges.append((v1, v2))
-
-        # Exportiere Terrain-Edges (grün)
-        if terrain_edges:
-            ordered_path = _build_ordered_path_from_edges(terrain_edges)
-            if len(ordered_path) >= 2:
-                coords = [tuple(verts[v]) for v in ordered_path]
-                exporter.add_component_line(
-                    coords=coords,
-                    color=[0.2, 0.8, 0.2],  # Grün
-                    label=f"component_terrain_{comp_idx}",
-                    line_width=3.0,
-                )
-
-        # Exportiere Road-Edges (rot)
-        if road_edges:
-            ordered_path = _build_ordered_path_from_edges(road_edges)
-            if len(ordered_path) >= 2:
-                coords = [tuple(verts[v]) for v in ordered_path]
-                exporter.add_component_line(
-                    coords=coords,
-                    color=[0.8, 0.2, 0.2],  # Rot
-                    label=f"component_road_{comp_idx}",
-                    line_width=3.0,
-                )
-
-
-# UV-Berechnung wurde komplett entfernt - erfolgt jetzt per mesh.compute_terrain_uvs_batch()
-# am Ende der Mesh-Erstellung für maximale Performance (vektorisiert über alle Faces).
+"""UV-Berechnung wurde komplett entfernt - erfolgt jetzt per mesh.compute_terrain_uvs_batch() am Ende."""

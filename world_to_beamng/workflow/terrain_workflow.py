@@ -204,7 +204,7 @@ class TerrainWorkflow:
 
         road_slope_polygons_2d = []
         debug_exporter = DebugNetworkExporter.get_instance()
-        
+
         for road in road_polygons:
             coords = np.asarray(road.get("coords", []), dtype=float)
             if len(coords) < 2:
@@ -233,14 +233,14 @@ class TerrainWorkflow:
                     "osm_tags": osm_tags,
                 }
             )
-            
+
             # Exportiere Road zur Debug-Visualisierung
-            debug_exporter.add_road({
-                "road_id": road_id,
-                "coords": coords.tolist() if hasattr(coords, 'tolist') else coords,
-                "num_points": len(coords),
-                "label": f"Road_{road_id}",
-            })
+            debug_exporter.add_line(
+                coords,
+                color=[0.0, 0.0, 1.0],
+                width=2.0,
+                label=f"Road_{road_id}",
+            )
 
         # 8. Grid erstellen (mit Builder)
         from ..builders import GridBuilder
