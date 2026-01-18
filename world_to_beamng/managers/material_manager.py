@@ -69,12 +69,15 @@ class MaterialManager:
 
     def _init_templates(self) -> Dict[str, Dict[str, Any]]:
         """
-        Initialisiere Material-Templates.
+        Lade Material-Templates aus data/material_templates.json.
+        
+        Falls die Datei nicht existiert, nutze eingebaute Defaults.
 
         Returns:
-            Dict mit Template-Namen und Default-Werten
+            Dict mit Template-Namen und Definition
         """
-        return {
+        # Eingebaute Defaults (Fallback)
+        defaults = {
             "terrain": {
                 "class": "Material",
                 "version": 2,
@@ -108,6 +111,37 @@ class MaterialManager:
                 "Stages": [{"specularPower": 16, "pixelSpecular": True}],
             },
         }
+        
+        # Versuche, Templates aus JSON zu laden
+        config_path = Path(__file__).parent.parent.parent / "data" / "material_templates.json"
+        
+        if config_path.exists():
+            try:
+                with open(config_path, "r", encoding="utf-8") as f:
+                    config = json.load(f)
+                    templates = config.get("templates", {})
+                    
+                    # Filtere aus: description, note, und andere Metadaten
+                    cleaned_templates = {}
+                    for name, template_def in templates.items():
+                        # Kopiere Template, entferne Meta-Felder
+                        cleaned = {k: v for k, v in template_def.items() 
+                                 if k not in ("description", "note")}
+                        cleaned_templates[name] = cleaned
+                    
+                    # Merge: Defaults werden überschrieben durch JSON-Templates
+                    defaults.update(cleaned_templates)
+                    
+                    num_custom = len(cleaned_templates)
+                    print(f"  [✓] Material-Templates geladen: {num_custom} aus JSON, {len(defaults)} gesamt")
+                    
+            except Exception as e:
+                print(f"  [!] Fehler beim Laden von {config_path}: {e}")
+                print(f"  [i] Nutze eingebaute Template-Defaults")
+        else:
+            print(f"  [i] {config_path} nicht gefunden. Nutze eingebaute Template-Defaults")
+        
+        return defaults
 
     def add_material(self, name: str, template: Optional[str] = None, overwrite: bool = False, **kwargs) -> bool:
         """

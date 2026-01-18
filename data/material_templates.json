@@ -1,0 +1,96 @@
+{
+  "version": "1.0",
+  "description": "BeamNG Material-Templates für Terrain, Straßen, Gebäude und Horizont",
+  "templates": {
+    "terrain": {
+      "description": "Terrain-Tiles mit Texturen",
+      "class": "Material",
+      "version": 2,
+      "Stages": [
+        {
+          "specularPower": 1,
+          "pixelSpecular": true
+        }
+      ],
+      "groundModelName": "grass"
+    },
+    "road": {
+      "description": "Standard-Straßen-Material (OSM-Mapping)",
+      "class": "Material",
+      "version": 2,
+      "Stages": [
+        {
+          "specularPower": 1,
+          "pixelSpecular": true
+        }
+      ]
+    },
+    "building_wall": {
+      "description": "LoD2 Gebäude-Wände",
+      "class": "Material",
+      "version": 1.5,
+      "Stages": [
+        {
+          "specularPower": 1,
+          "pixelSpecular": true
+        }
+      ],
+      "groundType": "concrete",
+      "materialTag0": "beamng",
+      "materialTag1": "Building"
+    },
+    "building_roof": {
+      "description": "LoD2 Gebäude-Dächer",
+      "class": "Material",
+      "version": 1.5,
+      "Stages": [
+        {
+          "specularPower": 1,
+          "pixelSpecular": true
+        }
+      ],
+      "groundType": "concrete",
+      "materialTag0": "beamng",
+      "materialTag1": "Building"
+    },
+    "horizon": {
+      "description": "Horizont-Layer (distant terrain)",
+      "class": "Material",
+      "version": 1.5,
+      "Stages": [
+        {
+          "specularPower": 16,
+          "pixelSpecular": true
+        }
+      ]
+    },
+    "water": {
+      "description": "Wasser (Seen, Flüsse) - optional",
+      "class": "Material",
+      "version": 2,
+      "Stages": [
+        {
+          "specularPower": 4,
+          "pixelSpecular": true
+        }
+      ],
+      "groundModelName": "water",
+      "alpha": 0.3,
+      "note": "Aktiviert, sobald Wasser-Export implementiert ist"
+    },
+    "vegetation": {
+      "description": "Vegetation (Gras, Sträucher) - optional",
+      "class": "Material",
+      "version": 1.5,
+      "Stages": [
+        {
+          "specularPower": 0.2,
+          "pixelSpecular": true
+        }
+      ],
+      "groundModelName": "grass",
+      "groundType": "dirt",
+      "note": "Aktiviert, sobald Vegetation-Export implementiert ist"
+    }
+  }
+}
