@@ -17,7 +17,7 @@ from pathlib import Path
 
 class MaterialManager:
     """
-    Zentrale Verwaltung aller BeamNG-Materialien.
+    Zentrale Verwaltung aller BeamNG-Materialien (Singleton).
 
     Features:
     - Automatisches Tracking von Materialien
@@ -25,18 +25,47 @@ class MaterialManager:
     - JSON Export/Import
     - Material-Templates (Terrain, Road, Building, Horizon)
     - Merge-Unterstützung für Multi-Tile-Workflows
+    - Singleton: Nur eine Instanz pro Export (eine materials.json)
     """
+
+    _instance: Optional["MaterialManager"] = None
 
     def __init__(self, beamng_dir: str):
         """
-        Initialisiere MaterialManager.
+        Private Constructor - verwende get_instance() stattdessen.
 
         Args:
             beamng_dir: Pfad zum BeamNG Level-Verzeichnis
         """
+        if MaterialManager._instance is not None:
+            raise RuntimeError("MaterialManager ist ein Singleton - verwende get_instance()")
+
         self.beamng_dir = beamng_dir
         self.materials: Dict[str, Dict[str, Any]] = {}
         self._templates = self._init_templates()
+
+    @classmethod
+    def get_instance(cls, beamng_dir: str = "") -> "MaterialManager":
+        """
+        Hole die Singleton-Instanz (erstellt sie bei Bedarf).
+
+        Args:
+            beamng_dir: Pfad zum BeamNG Level-Verzeichnis (nur beim ersten Aufruf)
+
+        Returns:
+            MaterialManager Singleton-Instanz
+        """
+        if cls._instance is None:
+            cls._instance = cls.__new__(cls)
+            cls._instance.beamng_dir = beamng_dir
+            cls._instance.materials = {}
+            cls._instance._templates = cls._instance._init_templates()
+        return cls._instance
+
+    @classmethod
+    def reset_instance(cls) -> None:
+        """Setze Singleton-Instanz zurück (für neuen Export-Lauf)."""
+        cls._instance = None
 
     def _init_templates(self) -> Dict[str, Dict[str, Any]]:
         """
@@ -458,7 +487,7 @@ class MaterialManager:
         }
 
         for mat in self.materials.values():
-            # Zähle nach Template-Typ (heuristisch)
+            # Zähle nach Template-Typ (heuristisch), singleton
             if "groundModelName" in mat:
                 stats["by_template"]["terrain"] = stats["by_template"].get("terrain", 0) + 1
             elif "Building" in mat.get("materialTag1", ""):

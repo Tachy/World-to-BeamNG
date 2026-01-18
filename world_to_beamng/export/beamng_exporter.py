@@ -32,7 +32,11 @@ class BeamNGExporter:
         """
         # Core Components
         self.cache = CacheManager(Path(config.CACHE_DIR))
-        self.materials = MaterialManager(config.BEAMNG_DIR)
+        
+        # Singleton-Manager (reset für neuen Export)
+        MaterialManager.reset_instance()
+        self.materials = MaterialManager.get_instance(config.BEAMNG_DIR)
+        
         self.items = ItemManager(config.BEAMNG_DIR)
         self.dae = DAEExporter(material_manager=self.materials)  # Übergebe MaterialManager-Referenz
 
