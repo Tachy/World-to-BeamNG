@@ -1398,7 +1398,7 @@ def generate_road_mesh_strips(road_polygons, height_points, height_elevations, v
             # === RADIALSYMMETRISCHE UV-BERECHNUNG ===
             # Zentrum für radialsymmetrische Projektion
             pc = vertex_manager.vertices[center_idx]
-            
+
             # Tiling-Größe wie Straßen (10m pro Wiederholung)
             # V wird als physikalische Distanz / 10m berechnet
             tiling_scale = 10.0
@@ -1406,7 +1406,7 @@ def generate_road_mesh_strips(road_polygons, height_points, height_elevations, v
             # === PRE-BERECHNE U-KOORDINATEN FÜR ALLE RIM-VERTICES (KUMULATIV) ===
             # Dadurch wird garantiert, dass die Texturen kontinuierlich um die Junction gehen
             rim_vertex_indices = [bp[1] for bp in boundary_points]
-            
+
             # === SORTIERE BOUNDARY_POINTS NACH IHREM WINKEL UM DEN CENTER ===
             # Das ist der Schlüssel: Die Segmente selbst müssen räumlich sortiert sein!
             boundary_with_angles = []
@@ -1417,61 +1417,64 @@ def generate_road_mesh_strips(road_polygons, height_points, height_elevations, v
                 dp_xy = dp[:2]
                 angle = np.arctan2(dp_xy[1], dp_xy[0])
                 boundary_with_angles.append((angle, bp))
-            
+
             # Sortiere nach Winkel
             boundary_with_angles.sort(key=lambda x: x[0])
             boundary_points_sorted = [bp for angle, bp in boundary_with_angles]
-            
+
             # Extrahiere sortierte Vertex-Indices
             rim_vertex_indices_sorted = [bp[1] for bp in boundary_points_sorted]
-            
+
             rim_uv_map = {}  # {vertex_idx: (u, v)}
-            
+
             # === BERECHNE U-KOORDINATEN BASIEREND AUF SEQUENZIELLEM INDEX ===
             # Nach Sortierung sollte die Reihenfolge kontinuierlich sein
             for idx, vertex_idx in enumerate(rim_vertex_indices_sorted):
                 p = vertex_manager.vertices[vertex_idx]
                 dp = p - pc
                 dp_xy = dp[:2]
-                
+
                 # V-Koordinate: radialer Abstand (vom Center aus)
                 dp_xy_norm = np.linalg.norm(dp_xy)
                 v = dp_xy_norm / tiling_scale
-                
+
                 # U-Koordinate: sequenzielle Indizes werden proportional auf 0..1 verteilt
                 # Das garantiert konstante Texturdichte unabhängig von Segment-Anordnung
                 u = idx / len(rim_vertex_indices_sorted) if len(rim_vertex_indices_sorted) > 0 else 0.0
-                
+
                 rim_uv_map[vertex_idx] = (u, v)
-            
+
             # === DEBUG: Speichere Junction 129 Daten ===
             if j_id == 129:
                 import json
                 from pathlib import Path
+
                 debug_data = {
                     "junction_id": j_id,
                     "center_idx": center_idx,
                     "center_point": pc.tolist(),
                     "rim_vertex_count": len(rim_vertex_indices_sorted),
-                    "vertices_data": []
+                    "vertices_data": [],
                 }
                 for idx, vertex_idx in enumerate(rim_vertex_indices_sorted):
                     p = vertex_manager.vertices[vertex_idx]
                     dp = p - pc
                     u, v = rim_uv_map[vertex_idx]
-                    debug_data["vertices_data"].append({
-                        "idx": idx,
-                        "vertex_idx": int(vertex_idx),
-                        "pos": p.tolist(),
-                        "dp": dp.tolist(),
-                        "u": float(u),
-                        "v": float(v)
-                    })
-                
+                    debug_data["vertices_data"].append(
+                        {
+                            "idx": idx,
+                            "vertex_idx": int(vertex_idx),
+                            "pos": p.tolist(),
+                            "dp": dp.tolist(),
+                            "u": float(u),
+                            "v": float(v),
+                        }
+                    )
+
                 cache_dir = Path("cache")
                 cache_dir.mkdir(exist_ok=True)
                 debug_file = cache_dir / "junction_129_debug.json"
-                with open(debug_file, 'w') as f:
+                with open(debug_file, "w") as f:
                     json.dump(debug_data, f, indent=2)
                 print(f"✓ Debug-Daten für Junction 129 gespeichert: {debug_file}")
 
@@ -1484,7 +1487,7 @@ def generate_road_mesh_strips(road_polygons, height_points, height_elevations, v
                 # Hole pre-berechnete UVs für Rim-Vertices
                 u_a, v_a = rim_uv_map.get(a, (0.0, 0.0))
                 u_b, v_b = rim_uv_map.get(b, (0.0, 0.0))
-                
+
                 # Center hat V=0 und U=0.5 (beliebig, wird nicht sichtbar)
                 u_c = 0.5
                 v_c = 0.0
