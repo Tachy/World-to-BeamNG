@@ -80,51 +80,47 @@ class MaterialManager:
             FileNotFoundError: Wenn data/material_templates.json nicht existiert
         """
         config_path = Path(__file__).parent.parent.parent / "data" / "material_templates.json"
-        
+
         if not config_path.exists():
             raise FileNotFoundError(
                 f"Material-Templates nicht gefunden: {config_path}\n"
                 "Die Datei data/material_templates.json ist erforderlich.\n"
                 "Stelle sicher, dass sie im Repository enthalten ist."
             )
-        
+
         try:
             with open(config_path, "r", encoding="utf-8") as f:
                 config = json.load(f)
                 templates = config.get("templates", {})
-                
+
                 # Filtere aus: description, note, und andere Metadaten
                 cleaned_templates = {}
                 for name, template_def in templates.items():
                     # Kopiere Template, entferne Meta-Felder
-                    cleaned = {k: v for k, v in template_def.items() 
-                             if k not in ("description", "note")}
+                    cleaned = {k: v for k, v in template_def.items() if k not in ("description", "note")}
                     cleaned_templates[name] = cleaned
-                
+
                 num_templates = len(cleaned_templates)
                 print(f"  [✓] Material-Templates geladen: {num_templates} aus JSON")
-                
+
                 return cleaned_templates
-                
+
         except json.JSONDecodeError as e:
-            raise ValueError(
-                f"Fehler beim Parsen von {config_path}: {e}\n"
-                "Die JSON-Datei ist ungültig."
-            )
+            raise ValueError(f"Fehler beim Parsen von {config_path}: {e}\n" "Die JSON-Datei ist ungültig.")
         except Exception as e:
             raise RuntimeError(f"Fehler beim Laden von {config_path}: {e}")
 
     def _load_config(self) -> Dict[str, Any]:
         """
         Lade die komplette material_templates.json Konfiguration.
-        
+
         Diese Methode lädt die ganze JSON (mit buildings, version, description, etc).
 
         Returns:
             Dict mit allen Konfigurationen
         """
         config_path = Path(__file__).parent.parent.parent / "data" / "material_templates.json"
-        
+
         # Fallback: Minimale Config
         default_config = {
             "version": "1.0",
@@ -135,25 +131,17 @@ class MaterialManager:
                     "description": "Gebäude-Wand (fallback)",
                     "template": "building_wall",
                     "tiling_scale": 4.0,
-                    "material_hints": {
-                        "groundType": "concrete",
-                        "materialTag0": "beamng",
-                        "materialTag1": "Building"
-                    }
+                    "material_hints": {"groundType": "concrete", "materialTag0": "beamng", "materialTag1": "Building"},
                 },
                 "roof": {
                     "description": "Gebäude-Dach (fallback)",
                     "template": "building_roof",
                     "tiling_scale": 2.0,
-                    "material_hints": {
-                        "groundType": "concrete",
-                        "materialTag0": "beamng",
-                        "materialTag1": "Building"
-                    }
-                }
-            }
+                    "material_hints": {"groundType": "concrete", "materialTag0": "beamng", "materialTag1": "Building"},
+                },
+            },
         }
-        
+
         if config_path.exists():
             try:
                 with open(config_path, "r", encoding="utf-8") as f:
@@ -161,7 +149,7 @@ class MaterialManager:
             except Exception as e:
                 print(f"  [!] Fehler beim Laden der Config: {e}")
                 return default_config
-        
+
         return default_config
 
     def add_material(self, name: str, template: Optional[str] = None, overwrite: bool = False, **kwargs) -> bool:
@@ -429,7 +417,7 @@ class MaterialManager:
     def get_templates(self) -> Dict[str, Any]:
         """
         Hole alle Konfigurationen inkl. Material-Templates und buildings section.
-        
+
         Returns:
             Dict mit Template-Definitionen, buildings Config, etc.
         """

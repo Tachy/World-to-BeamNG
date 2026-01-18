@@ -1,132 +1,141 @@
 {
-  "version": "1.0",
-  "description": "BeamNG Material-Templates für Terrain, Straßen, Gebäude und Horizont",
-  "templates": {
-    "terrain": {
-      "description": "Terrain-Tiles mit Texturen",
-      "class": "Material",
-      "version": 2,
-      "Stages": [
-        {
-          "specularPower": 1,
-          "pixelSpecular": true
+    "version": "1.0",
+    "description": "BeamNG Material-Templates für Terrain, Straßen, Gebäude und Horizont",
+    "templates": {
+        "terrain": {
+            "description": "Terrain-Tiles mit Texturen",
+            "class": "Material",
+            "version": 2,
+            "Stages": [
+                {
+                    "specularPower": 1,
+                    "pixelSpecular": true
+                }
+            ],
+            "groundModelName": "grass"
+        },
+        "road": {
+            "description": "Standard-Straßen-Material (OSM-Mapping)",
+            "class": "Material",
+            "version": 2,
+            "Stages": [
+                {
+                    "specularPower": 1,
+                    "pixelSpecular": true
+                }
+            ]
+        },
+        "building_wall": {
+            "description": "LoD2 Gebäude-Wände",
+            "class": "Material",
+            "version": 1.5,
+            "Stages": [
+                {
+                    "specularPower": 1,
+                    "pixelSpecular": true
+                }
+            ],
+            "groundType": "concrete",
+            "materialTag0": "beamng",
+            "materialTag1": "Building"
+        },
+        "building_roof": {
+            "description": "LoD2 Gebäude-Dächer",
+            "class": "Material",
+            "version": 1.5,
+            "Stages": [
+                {
+                    "specularPower": 1,
+                    "pixelSpecular": true
+                }
+            ],
+            "groundType": "concrete",
+            "materialTag0": "beamng",
+            "materialTag1": "Building"
+        },
+        "horizon": {
+            "description": "Horizont-Layer (distant terrain)",
+            "class": "Material",
+            "version": 1.5,
+            "Stages": [
+                {
+                    "specularPower": 16,
+                    "pixelSpecular": true
+                }
+            ]
+        },
+        "water": {
+            "description": "Wasser (Seen, Flüsse) - optional",
+            "class": "Material",
+            "version": 2,
+            "Stages": [
+                {
+                    "specularPower": 4,
+                    "pixelSpecular": true
+                }
+            ],
+            "groundModelName": "water",
+            "alpha": 0.3,
+            "note": "Aktiviert, sobald Wasser-Export implementiert ist"
+        },
+        "vegetation": {
+            "description": "Vegetation (Gras, Sträucher) - optional",
+            "class": "Material",
+            "version": 1.5,
+            "Stages": [
+                {
+                    "specularPower": 0.2,
+                    "pixelSpecular": true
+                }
+            ],
+            "groundModelName": "grass",
+            "groundType": "dirt",
+            "note": "Aktiviert, sobald Vegetation-Export implementiert ist"
         }
-      ],
-      "groundModelName": "grass"
     },
-    "road": {
-      "description": "Standard-Straßen-Material (OSM-Mapping)",
-      "class": "Material",
-      "version": 2,
-      "Stages": [
-        {
-          "specularPower": 1,
-          "pixelSpecular": true
+    "buildings": {
+        "description": "LoD2 Gebäude-Konfigurationen (wall und roof)",
+        "wall": {
+            "description": "Gebäude-Wand Konfiguration",
+            "template": "building_wall",
+            "tiling_scale": 4.0,
+            "uv_mode": "wall",
+            "color_extraction": {
+                "method": "citygml_appearance",
+                "fallback_color": [
+                    0.9,
+                    0.9,
+                    0.9,
+                    1.0
+                ],
+                "note": "Versucht CityGML-Erscheinungen zu extrahieren, fallback auf weiß"
+            },
+            "material_hints": {
+                "groundType": "concrete",
+                "materialTag0": "beamng",
+                "materialTag1": "Building"
+            }
+        },
+        "roof": {
+            "description": "Gebäude-Dach Konfiguration",
+            "template": "building_roof",
+            "tiling_scale": 2.0,
+            "uv_mode": "roof",
+            "color_extraction": {
+                "method": "citygml_appearance",
+                "fallback_color": [
+                    0.6,
+                    0.2,
+                    0.1,
+                    1.0
+                ],
+                "note": "Versucht CityGML-Erscheinungen zu extrahieren, fallback auf rot"
+            },
+            "material_hints": {
+                "groundType": "concrete",
+                "materialTag0": "beamng",
+                "materialTag1": "Building"
+            }
         }
-      ]
-    },
-    "building_wall": {
-      "description": "LoD2 Gebäude-Wände",
-      "class": "Material",
-      "version": 1.5,
-      "Stages": [
-        {
-          "specularPower": 1,
-          "pixelSpecular": true
-        }
-      ],
-      "groundType": "concrete",
-      "materialTag0": "beamng",
-      "materialTag1": "Building"
-    },
-    "building_roof": {
-      "description": "LoD2 Gebäude-Dächer",
-      "class": "Material",
-      "version": 1.5,
-      "Stages": [
-        {
-          "specularPower": 1,
-          "pixelSpecular": true
-        }
-      ],
-      "groundType": "concrete",
-      "materialTag0": "beamng",
-      "materialTag1": "Building"
-    },
-    "horizon": {
-      "description": "Horizont-Layer (distant terrain)",
-      "class": "Material",
-      "version": 1.5,
-      "Stages": [
-        {
-          "specularPower": 16,
-          "pixelSpecular": true
-        }
-      ]
-    },
-    "water": {
-      "description": "Wasser (Seen, Flüsse) - optional",
-      "class": "Material",
-      "version": 2,
-      "Stages": [
-        {
-          "specularPower": 4,
-          "pixelSpecular": true
-        }
-      ],
-      "groundModelName": "water",
-      "alpha": 0.3,
-      "note": "Aktiviert, sobald Wasser-Export implementiert ist"
-    },
-    "vegetation": {
-      "description": "Vegetation (Gras, Sträucher) - optional",
-      "class": "Material",
-      "version": 1.5,
-      "Stages": [
-        {
-          "specularPower": 0.2,
-          "pixelSpecular": true
-        }
-      ],
-      "groundModelName": "grass",
-      "groundType": "dirt",
-      "note": "Aktiviert, sobald Vegetation-Export implementiert ist"
     }
-  },
-  "buildings": {
-    "description": "LoD2 Gebäude-Konfigurationen (wall und roof)",
-    "wall": {
-      "description": "Gebäude-Wand Konfiguration",
-      "template": "building_wall",
-      "tiling_scale": 4.0,
-      "uv_mode": "wall",
-      "color_extraction": {
-        "method": "citygml_appearance",
-        "fallback_color": [0.9, 0.9, 0.9, 1.0],
-        "note": "Versucht CityGML-Erscheinungen zu extrahieren, fallback auf weiß"
-      },
-      "material_hints": {
-        "groundType": "concrete",
-        "materialTag0": "beamng",
-        "materialTag1": "Building"
-      }
-    },
-    "roof": {
-      "description": "Gebäude-Dach Konfiguration",
-      "template": "building_roof",
-      "tiling_scale": 2.0,
-      "uv_mode": "roof",
-      "color_extraction": {
-        "method": "citygml_appearance",
-        "fallback_color": [0.6, 0.2, 0.1, 1.0],
-        "note": "Versucht CityGML-Erscheinungen zu extrahieren, fallback auf rot"
-      },
-      "material_hints": {
-        "groundType": "concrete",
-        "materialTag0": "beamng",
-        "materialTag1": "Building"
-      }
-    }
-  }
 }
-

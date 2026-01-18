@@ -272,7 +272,7 @@ class BeamNGExporter:
     def _add_lod2_materials(self):
         """
         Füge LoD2-Gebäude-Materialien hinzu (aus JSON-Templates und OSM_MAPPER Config).
-        
+
         Diese Methode mergt:
         - buildings wall/roof Konfigurationen aus material_templates.json
         - Farben/Texturen aus osm_to_beamng.json (OSM_MAPPER)
