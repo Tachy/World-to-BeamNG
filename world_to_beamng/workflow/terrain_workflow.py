@@ -6,6 +6,7 @@ Orchestriert den kompletten Terrain-Export-Prozess.
 
 from typing import Dict, List, Optional, Tuple
 import numpy as np
+from pathlib import Path
 
 from .. import config
 from ..core.cache_manager import CacheManager
@@ -98,12 +99,10 @@ class TerrainWorkflow:
 
         # 6. Road Polygons (konvertiert OSM-Daten zu coords)
         # WICHTIG: Übergebe LOKALE Koordinaten! Alle internen Berechnungen in lokal!
-        # Prüfe VORHER ob Elevation-Cache existiert
-        import os
         from ..io.cache import get_cache_path
 
         elevation_cache_path = get_cache_path(osm_bbox, "elevations", tile_hash)
-        elevation_was_cached = os.path.exists(elevation_cache_path)
+        elevation_was_cached = elevation_cache_path.exists()
 
         road_polygons = get_road_polygons(roads, osm_bbox, local_points, elevations, global_offset, tile_hash=tile_hash)
 
@@ -580,9 +579,8 @@ class TerrainWorkflow:
         print(f"  Erstelle {len(dae_files)} TSStatic-Items...")
         for dae_filename in dae_files:
             # Extrahiere Tile-Koordinaten: tile_-1000_-1000.dae → "-1000_-1000"
-            tile_coords = os.path.splitext(dae_filename)[0].replace("tile_", "")
+            tile_coords = Path(dae_filename).stem.replace("tile_", "")
             item_name = f"terrain_tile_{tile_coords}"  # z.B. "terrain_tile_-1000_-1000"
-
             # Nutze add_terrain() um persistentId und parentId automatisch zu erzeugen
             self.items.add_terrain(
                 name=item_name,

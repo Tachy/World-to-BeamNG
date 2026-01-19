@@ -74,7 +74,7 @@ def download_dgm30_from_opentopography(local_offset, tile_hash=None):
     print(f"      BBOX (lat/lon): N={lat_north:.4f} S={lat_south:.4f} E={lon_east:.4f} W={lon_west:.4f}")
 
     # Erstelle Zielverzeichnis
-    os.makedirs(config.DGM30_DATA_DIR, exist_ok=True)
+    config.DGM30_DATA_DIR.mkdir(parents=True, exist_ok=True)
 
     try:
         # Definiere Parameter mit explizitem Cache-Verzeichnis
@@ -90,27 +90,26 @@ def download_dgm30_from_opentopography(local_offset, tile_hash=None):
             "east": lon_east,
             "output_format": "GTiff",
             "api_key": config.OPENTOPOGRAPHY_API_KEY,
-            "cache_dir": cache_dir,
+            "cache_dir": str(cache_dir),  # API erwartet string
         }
 
         # Download starten
         print(f"  [i] Starte Download nach {cache_dir}...")
         topo = Topography(**params)
-        filepath = topo.fetch()
+        filepath_str = topo.fetch()
+        filepath = Path(filepath_str) if filepath_str else None
 
-        if not filepath or not os.path.exists(filepath):
+        if not filepath or not filepath.exists():
             print(f"  [!] Download fehlgeschlagen")
             return None, None
 
         # Verschiebe nach data/DGM30 falls nötig
-        target_path = os.path.join(config.DGM30_DATA_DIR, "dgm30_copernicus.tif")
+        target_path = config.DGM30_DATA_DIR / "dgm30_copernicus.tif"
         if filepath != target_path:
-            import shutil
-
-            shutil.move(filepath, target_path)
+            shutil.move(str(filepath), str(target_path))
             filepath = target_path
 
-        print(f"  [OK] DGM30 heruntergeladen: {os.path.basename(filepath)}")
+        print(f"  [OK] DGM30 heruntergeladen: {filepath.name}")
 
         # Konvertiere GeoTIFF zu 200m Grid
         return _load_geotiff_as_xyz(filepath, tile_hash, local_offset=local_offset)
@@ -235,10 +234,10 @@ def _load_geotiff_as_xyz(geotiff_path, tile_hash=None, local_offset=None):
 
             # Cache speichern
             if tile_hash:
-                cache_file = os.path.join(config.CACHE_DIR, f"dgm30_horizon_{tile_hash}.npz")
-                os.makedirs(config.CACHE_DIR, exist_ok=True)
+                cache_file = config.CACHE_DIR / f"dgm30_horizon_{tile_hash}.npz"
+                config.CACHE_DIR.mkdir(parents=True, exist_ok=True)
                 np.savez_compressed(cache_file, points=height_points, elevations=height_elevations)
-                print(f"  [OK] DGM30-Cache erstellt: {os.path.basename(cache_file)}")
+                print(f"  [OK] DGM30-Cache erstellt: {cache_file.name}")
 
             return height_points, height_elevations
 
@@ -269,9 +268,9 @@ def load_dgm30_tiles(dgm30_dir, bbox_utm, local_offset=None, tile_hash=None):
     """
     # Prüfe Cache zuerst (wir gehen davon aus, dass er bereits lokale Koordinaten enthält)
     if tile_hash:
-        cache_file = os.path.join(config.CACHE_DIR, f"dgm30_horizon_{tile_hash}.npz")
-        if os.path.exists(cache_file):
-            print(f"  [OK] DGM30-Cache gefunden: {os.path.basename(cache_file)} (bereits lokal)")
+        cache_file = config.CACHE_DIR / f"dgm30_horizon_{tile_hash}.npz"
+        if cache_file.exists():
+            print(f"  [OK] DGM30-Cache gefunden: {cache_file.name} (bereits lokal)")
             data = np.load(cache_file)
             return data["points"], data["elevations"]
 
@@ -338,10 +337,10 @@ def _load_local_dgm30(dgm30_path, tile_hash=None, local_offset=None):
 
     # Cache speichern
     if tile_hash:
-        os.makedirs(config.CACHE_DIR, exist_ok=True)
-        cache_file = os.path.join(config.CACHE_DIR, f"dgm30_horizon_{tile_hash}.npz")
+        config.CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        cache_file = config.CACHE_DIR / f"dgm30_horizon_{tile_hash}.npz"
         np.savez_compressed(cache_file, points=height_points, elevations=height_elevations)
-        print(f"  [OK] DGM30-Cache erstellt: {os.path.basename(cache_file)}")
+        print(f"  [OK] DGM30-Cache erstellt: {cache_file.name}")
 
     return height_points, height_elevations
 
@@ -686,7 +685,7 @@ def texture_horizon_mesh(vertices, horizon_image, nx, ny, bounds_utm, transform,
     if horizon_image is None:
         return {"texture_path": None, "uv_map": None}
 
-    os.makedirs(config.BEAMNG_DIR_TEXTURES, exist_ok=True)
+    config.BEAMNG_DIR_TEXTURES.mkdir(parents=True, exist_ok=True)
 
     # Konvertiere Mesh-Vertices zurück zu UTM für Koordinaten-Mapping
     ox, oy, oz = global_offset
@@ -714,16 +713,16 @@ def texture_horizon_mesh(vertices, horizon_image, nx, ny, bounds_utm, transform,
     import tempfile
     import subprocess
 
-    temp_tif = os.path.join(tempfile.gettempdir(), "horizon_temp.tif")
+    temp_tif = Path(tempfile.gettempdir()) / "horizon_temp.tif"
 
     img_pil = Image.fromarray(horizon_image.astype("uint8"), "RGB")
     img_pil.save(temp_tif, "TIFF")
 
     # Konvertiere mit texconv.exe zu DDS (BC1, 8192x8192, Mipmaps)
-    texconv_exe = "bin/texconv.exe"
-    dds_output = os.path.join(config.BEAMNG_DIR_TEXTURES, "horizon_sentinel2.dds")
+    texconv_exe = Path("bin/texconv.exe")
+    dds_output = config.BEAMNG_DIR_TEXTURES / "horizon_sentinel2.dds"
 
-    if not os.path.exists(texconv_exe):
+    if not texconv_exe.exists():
         raise FileNotFoundError(f"texconv.exe nicht gefunden: {texconv_exe}")
 
     # texconv Parameter:
@@ -733,7 +732,7 @@ def texture_horizon_mesh(vertices, horizon_image, nx, ny, bounds_utm, transform,
     # -o: Output-Verzeichnis
     # -y: Überschreiben ohne Rückfrage
     cmd = [
-        texconv_exe,
+        str(texconv_exe),
         "-f",
         "BC1_UNORM",
         "-w",
@@ -744,28 +743,28 @@ def texture_horizon_mesh(vertices, horizon_image, nx, ny, bounds_utm, transform,
         "0",
         "-y",
         "-o",
-        config.BEAMNG_DIR_TEXTURES,
-        temp_tif,
+        str(config.BEAMNG_DIR_TEXTURES),
+        str(temp_tif),
     ]
 
     print(f"  [i] Konvertiere zu DDS (BC1, 8192x8192, Mipmaps)...")
     subprocess.run(cmd, capture_output=True, text=True, check=True)
 
     # texconv benennt Output nach Input: horizon_temp.dds -> umbenennen
-    texconv_output = os.path.join(config.BEAMNG_DIR_TEXTURES, "horizon_temp.dds")
-    if os.path.exists(texconv_output):
-        if os.path.exists(dds_output):
-            os.remove(dds_output)
-        os.rename(texconv_output, dds_output)
+    texconv_output = config.BEAMNG_DIR_TEXTURES / "horizon_temp.dds"
+    if texconv_output.exists():
+        if dds_output.exists():
+            dds_output.unlink()
+        texconv_output.rename(dds_output)
 
     # Aufräumen
-    if os.path.exists(temp_tif):
-        os.remove(temp_tif)
+    if temp_tif.exists():
+        temp_tif.unlink()
 
     print(f"  [OK] Horizont-Textur (DDS) gespeichert: {dds_output}")
 
     # Relative Pfade für materials.json
-    relative_texture_path = config.RELATIVE_DIR_TEXTURES + "horizon_sentinel2.dds"
+    relative_texture_path = str(config.RELATIVE_DIR_TEXTURES / "horizon_sentinel2.dds")
 
     return {
         "texture_path": relative_texture_path,
@@ -796,8 +795,8 @@ def export_horizon_dae(mesh, texture_info, output_dir, level_name="default", glo
     # tile_bounds wird hier nicht mehr benötigt - Filterung erfolgt bereits im Mesh-Generieren!
     _ = tile_bounds  # Unbenutzt - Filterung erfolgt in generate_horizon_mesh()
 
-    dae_path = os.path.join(output_dir, "art", "shapes", "terrain_horizon.dae")
-    os.makedirs(os.path.dirname(dae_path), exist_ok=True)
+    dae_path = Path(output_dir) / "art" / "shapes" / "terrain_horizon.dae"
+    dae_path.parent.mkdir(parents=True, exist_ok=True)
 
     # Berechne UV-Offsets basierend auf Koordinaten-Mismatch
     bounds_utm = texture_info.get("bounds_utm", None)
@@ -1048,14 +1047,14 @@ def export_horizon_dae(mesh, texture_info, output_dir, level_name="default", glo
         file.write(buffer.getvalue())
     buffer.close()
 
-    print(f"  [OK] DAE exportiert mit deduplizierten UVs: {os.path.basename(dae_path)}")
+    print(f"  [OK] DAE exportiert mit deduplizierten UVs: {dae_path.name}")
     print(f"  [OK] UV-Statistik: {len(mesh.uvs)} deduplizierte UVs, {len(mesh.faces)} Faces")
 
     # Überprüfe ob Datei existiert
-    if os.path.exists(dae_path):
-        file_size = os.path.getsize(dae_path)
+    if dae_path.exists():
+        file_size = dae_path.stat().st_size
         print(f"      Dateigröße: {file_size:,} Bytes")
     else:
         print(f"      [WARNING] Datei existiert nicht!")
 
-    return os.path.basename(dae_path)
+    return dae_path.name

@@ -2,7 +2,6 @@
 Terrain-Grid Generierung.
 """
 
-import os
 import numpy as np
 from scipy.interpolate import NearestNDInterpolator
 
@@ -30,10 +29,10 @@ def create_terrain_grid(height_points, height_elevations, grid_spacing=10.0, til
     # Verwende übergebenes tile_hash oder fallback auf global hash
     effective_hash = tile_hash or get_height_data_hash()
     if effective_hash:
-        cache_file = os.path.join(config.CACHE_DIR, f"grid_v3_{effective_hash}_spacing{grid_spacing:.1f}m.npz")
+        cache_file = config.CACHE_DIR / f"grid_v3_{effective_hash}_spacing{grid_spacing:.1f}m.npz"
 
-        if os.path.exists(cache_file):
-            print(f"  [OK] Grid-Cache gefunden: {os.path.basename(cache_file)}")
+        if cache_file.exists():
+            print(f"  [OK] Grid-Cache gefunden: {cache_file.name}")
             data = np.load(cache_file)
             grid_points = data["grid_points"]
             grid_elevations = data["grid_elevations"]
@@ -77,9 +76,9 @@ def create_terrain_grid(height_points, height_elevations, grid_spacing=10.0, til
 
     # Cache das Grid fuer zukuenftige Verwendung (Version 3 mit korrekten Bounds!)
     if effective_hash:
-        cache_file = os.path.join(config.CACHE_DIR, f"grid_v3_{effective_hash}_spacing{grid_spacing:.1f}m.npz")
-        print(f"  Speichere Grid-Cache: {os.path.basename(cache_file)}")
-        os.makedirs(config.CACHE_DIR, exist_ok=True)
+        cache_file = config.CACHE_DIR / f"grid_v3_{effective_hash}_spacing{grid_spacing:.1f}m.npz"
+        print(f"  Speichere Grid-Cache: {cache_file.name}")
+        config.CACHE_DIR.mkdir(parents=True, exist_ok=True)
         np.savez_compressed(
             cache_file,
             grid_points=grid_points,

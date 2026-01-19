@@ -37,7 +37,7 @@ def main():
     print("WORLD-TO-BEAMNG - BeamNG Level Export")
     print("=" * 60)
 
-    tiles = scan_lgl_tiles(dgm1_dir="data/DGM1")
+    tiles = scan_lgl_tiles(dgm1_dir=config.HEIGHT_DATA_DIR)
 
     if not tiles:
         print("[!] Keine DGM1-Kacheln gefunden - Abbruch")

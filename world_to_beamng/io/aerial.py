@@ -318,11 +318,10 @@ def process_aerial_images(aerial_dir, output_dir, grid_bounds, global_offset, ti
 
                     # Konvertiere zu DDS (4096×4096, BC1, volle Mipmap-Kette) mit texconv
                     import subprocess
-                    import os
 
-                    texconv_exe = "bin/texconv.exe"
+                    texconv_exe = Path("bin/texconv.exe")
                     cmd = [
-                        texconv_exe,
+                        str(texconv_exe),
                         "-f",
                         "BC1_UNORM",  # BeamNG-kompatibel (nicht BC7!)
                         "-w",
@@ -339,7 +338,7 @@ def process_aerial_images(aerial_dir, output_dir, grid_bounds, global_offset, ti
                     subprocess.run(cmd, capture_output=True, text=True, check=True)
 
                     # texconv erstellt DDS mit gleichem Stammnamen
-                    texconv_output = output_path / png_filename.replace(".png", ".dds")
+                    texconv_output = png_filepath.with_suffix(".dds")
                     if texconv_output.exists() and texconv_output != dds_filepath:
                         texconv_output.rename(dds_filepath)
 

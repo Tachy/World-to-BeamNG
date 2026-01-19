@@ -73,13 +73,11 @@ class BuildingWorkflow:
             return None
 
         # Exportiere mit DAEExporter
-        import os
-
-        output_path = os.path.join(config.BEAMNG_DIR_BUILDINGS, f"buildings_tile_{tile_x}_{tile_y}.dae")
+        output_path = config.BEAMNG_DIR_BUILDINGS / f"buildings_tile_{tile_x}_{tile_y}.dae"
 
         self.dae.export_multi_mesh(output_path=output_path, meshes=meshes, with_uv=True)
 
-        print(f"  [✓] Buildings DAE: {os.path.basename(output_path)} ({len(meshes)} Gebäude)")
+        print(f"  [✓] Buildings DAE: {output_path.name} ({len(meshes)} Gebäude)")
 
         return output_path
 

@@ -1,30 +1,33 @@
 """
 Zentrale Konfiguration fuer World-to-BeamNG.
 """
+from pathlib import Path, PurePosixPath
 
 from .osm.osm_mapper import OSMMapper
 
 LEVEL_NAME = "world_to_beamng"  # Name des BeamNG Levels (muss mit BEAMNG_DIR übereinstimmen)
 
 # OSM Mapper Singleton (lädt data/osm_to_beamng.json)
-OSM_MAPPER = OSMMapper(config_path="data/osm_to_beamng.json")
+OSM_MAPPER = OSMMapper(config_path=Path("data/osm_to_beamng.json"))
 
 SPAWN_POINT = (47.842840, 7.684767)  # Standard-Spawn-Punkt (kann pro Level überschrieben werden)
 
 # BEAMNG Zielordner (Anpassbar)
-BEAMNG_DIR = "C:\\Users\\johan\\AppData\\Local\\BeamNG\\BeamNG.drive\\current\\levels\\world_to_beamng"
-BEAMNG_DIR_SHAPES = BEAMNG_DIR + "\\art\\shapes"
-BEAMNG_DIR_TEXTURES = BEAMNG_DIR_SHAPES + "\\textures"
-BEAMNG_DIR_BUILDINGS = BEAMNG_DIR_SHAPES + "\\buildings"
+BEAMNG_DIR = Path("C:/Users/johan/AppData/Local/BeamNG/BeamNG.drive/current/levels/world_to_beamng")
+BEAMNG_DIR_SHAPES = BEAMNG_DIR / "art" / "shapes"
+BEAMNG_DIR_TEXTURES = BEAMNG_DIR_SHAPES / "textures"
+BEAMNG_DIR_BUILDINGS = BEAMNG_DIR_SHAPES / "buildings"
 
-RELATIVE_DIR = "levels/world_to_beamng/"
-RELATIVE_DIR_SHAPES = RELATIVE_DIR + "art/shapes/"  # Mit levels/world_to_beamng/ Prefix für BeamNG!
-RELATIVE_DIR_TEXTURES = RELATIVE_DIR_SHAPES + "textures/"
-RELATIVE_DIR_BUILDINGS = RELATIVE_DIR_SHAPES + "buildings/"
+# In-Game relative paths (MUST use forward slashes for BeamNG)
+RELATIVE_DIR = PurePosixPath("levels") / LEVEL_NAME
+RELATIVE_DIR_SHAPES = RELATIVE_DIR / "art" / "shapes"
+RELATIVE_DIR_TEXTURES = RELATIVE_DIR_SHAPES / "textures"
+RELATIVE_DIR_BUILDINGS = RELATIVE_DIR_SHAPES / "buildings"
+
 
 # === BEAMNG LEVEL-STRUKTUR ===
-ITEMS_JSON = "main\\MissionGroup\\items.level.json"  # Items im MissionGroup-Verzeichnis
-MATERIALS_JSON = "main\\materials.json"  # Enthält Material-Definitionen
+ITEMS_JSON = Path("main") / "MissionGroup" / "items.level.json"  # Items im MissionGroup-Verzeichnis
+MATERIALS_JSON = Path("main") / "materials.json"  # Enthält Material-Definitionen
 
 # Ablaufsteuerung
 LOD2_ENABLED = True  # LoD2-Gebäude verarbeiten
@@ -81,11 +84,11 @@ TILE_SIZE = 500  # Größe pro DAE-Tile in Metern
 
 
 # === VERZEICHNISSE ===
-CACHE_DIR = "cache"  # Verzeichnis fuer Cache-Dateien
-HEIGHT_DATA_DIR = "data/DGM1"  # Verzeichnis mit Hoehendaten
-LOD2_DATA_DIR = "data/LOD2"  # Verzeichnis mit 3D-Gebäudemodellen (CityGML)
-DGM30_DATA_DIR = "data/DGM30"  # Verzeichnis mit 30m Höhendaten für Horizont
-DOP300_DATA_DIR = "data/DOP300"  # Verzeichnis mit Sentinel-2 RGB Bildern
+CACHE_DIR = Path("cache")  # Verzeichnis fuer Cache-Dateien
+HEIGHT_DATA_DIR = Path("data/DGM1")  # Verzeichnis mit Hoehendaten
+LOD2_DATA_DIR = Path("data/LOD2")  # Verzeichnis mit 3D-Gebäudemodellen (CityGML)
+DGM30_DATA_DIR = Path("data/DGM30")  # Verzeichnis mit 30m Höhendaten für Horizont
+DOP300_DATA_DIR = Path("data/DOP300")  # Verzeichnis mit Sentinel-2 RGB Bildern
 
 
 # === MULTIPROCESSING ===

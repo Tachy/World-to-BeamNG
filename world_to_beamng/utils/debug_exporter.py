@@ -25,9 +25,9 @@ Usage:
 """
 
 import json
-import os
 from typing import Dict, List, Optional, Any, Union, Tuple
 import numpy as np
+from pathlib import Path
 
 
 # ============================================================================
@@ -541,8 +541,8 @@ class DebugNetworkExporter:
             cache_dir: Zielverzeichnis für Export
             filename: Dateiname (default: debug_network.json)
         """
-        os.makedirs(cache_dir, exist_ok=True)
-        output_path = os.path.join(cache_dir, filename)
+        Path(cache_dir).mkdir(parents=True, exist_ok=True)
+        output_path = Path(cache_dir) / filename
 
         data = {
             "primitives": self.primitives,

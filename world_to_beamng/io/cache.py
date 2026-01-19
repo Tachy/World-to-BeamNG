@@ -6,9 +6,9 @@ Für Multi-Tile-Systeme:
 - Format: "filename: hash" (z.B. "dgm1_4658000_5394000.xyz.zip: abc123")
 """
 
-import os
 import json
 import hashlib
+from pathlib import Path
 
 from .. import config
 
@@ -30,16 +30,16 @@ def get_cache_path(bbox, data_type, height_hash=None):
     Wenn height_hash gegeben ist, wird dieser fuer osm_all und elevations verwendet
     fuer garantierte Konsistenz bei Height-Daten-Aenderungen.
     """
-    os.makedirs(config.CACHE_DIR, exist_ok=True)
+    config.CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
-    # Fuer osm_all und elevations: height_hash verwenden (wenn vorhanden)
+    # For osm_all and elevations: height_hash verwenden (wenn vorhanden)
     # Sonst: BBox-Hash verwenden (fallback fuer alte Caches)
     if height_hash and data_type in ["osm_all", "elevations"]:
         file_hash = height_hash
     else:
         file_hash = get_bbox_hash(bbox)
 
-    return os.path.join(config.CACHE_DIR, f"{data_type}_{file_hash}.json")
+    return config.CACHE_DIR / f"{data_type}_{file_hash}.json"
 
 
 def load_from_cache(bbox, data_type, height_hash=None):
@@ -61,7 +61,7 @@ def load_from_cache(bbox, data_type, height_hash=None):
     else:
         cache_path = get_cache_path(bbox, data_type)
 
-    if os.path.exists(cache_path):
+    if cache_path.exists():
         try:
             with open(cache_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
@@ -112,10 +112,10 @@ def load_height_hashes():
     Returns:
         Dict: {filename: hash_value} (enthält auch "__GLOBAL_TILES_HASH__" als Key)
     """
-    hash_file = os.path.join(config.CACHE_DIR, "height_data_hash.txt")
+    hash_file = config.CACHE_DIR / "height_data_hash.txt"
     hashes = {}
 
-    if os.path.exists(hash_file):
+    if hash_file.exists():
         try:
             with open(hash_file, "r", encoding="utf-8") as f:
                 for line in f:
@@ -138,8 +138,8 @@ def save_height_hashes(hashes):
     Args:
         hashes: Dict {filename: hash_value}
     """
-    os.makedirs(config.CACHE_DIR, exist_ok=True)
-    hash_file = os.path.join(config.CACHE_DIR, "height_data_hash.txt")
+    config.CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    hash_file = config.CACHE_DIR / "height_data_hash.txt"
 
     try:
         with open(hash_file, "w", encoding="utf-8") as f:
@@ -150,7 +150,7 @@ def save_height_hashes(hashes):
         print(f"  [!] Fehler beim Speichern von height_data_hash.txt: {e}")
 
 
-def calculate_file_hash(filepath, chunk_size=8192):
+def calculate_file_hash(filepath: Path, chunk_size=8192):
     """
     Berechnet MD5-Hash einer Datei.
 
@@ -164,7 +164,7 @@ def calculate_file_hash(filepath, chunk_size=8192):
     hash_obj = hashlib.md5()
 
     try:
-        with open(filepath, "rb") as f:
+        with open(filepath, "rb") as f: # open can take Path objects directly
             while True:
                 chunk = f.read(chunk_size)
                 if not chunk:
@@ -216,12 +216,12 @@ def clear_all_caches():
     Betroffen:
     - height_raw_*.npz
     - grid_v3_*.npz
+    - grid_v2_*.npz  # Alte Version
     - elevations_*.json
     - osm_all_*.json
     - lod2_*.pkl
     - lod2_normalized_*.pkl
     """
-    import glob
 
     patterns = [
         "height_raw_*.npz",
@@ -235,13 +235,12 @@ def clear_all_caches():
 
     deleted_count = 0
     for pattern in patterns:
-        cache_pattern = os.path.join(config.CACHE_DIR, pattern)
-        for cache_file in glob.glob(cache_pattern):
+        for cache_file_path in config.CACHE_DIR.glob(pattern):
             try:
-                os.remove(cache_file)
+                cache_file_path.unlink()
                 deleted_count += 1
             except Exception as e:
-                print(f"  [!] Fehler beim Löschen von {os.path.basename(cache_file)}: {e}")
+                print(f"  [!] Fehler beim Löschen von {cache_file_path.name}: {e}")
 
     if deleted_count > 0:
         print(f"  [OK] {deleted_count} Cache-Datei(en) gelöscht")

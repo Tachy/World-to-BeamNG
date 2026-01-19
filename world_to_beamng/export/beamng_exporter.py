@@ -6,7 +6,6 @@ Bietet eine einheitliche API für den gesamten Export-Workflow.
 
 from typing import List, Dict, Optional, Tuple
 from pathlib import Path
-import os
 import json
 
 from .. import config
@@ -94,10 +93,10 @@ class BeamNGExporter:
         self.global_offset = global_offset[:2]  # Nur (x, y)
 
         # Erstelle Verzeichnisse
-        os.makedirs(config.BEAMNG_DIR_SHAPES, exist_ok=True)
-        os.makedirs(config.BEAMNG_DIR_TEXTURES, exist_ok=True)
-        os.makedirs(config.BEAMNG_DIR_BUILDINGS, exist_ok=True)
-        os.makedirs(config.CACHE_DIR, exist_ok=True)
+        config.BEAMNG_DIR_SHAPES.mkdir(parents=True, exist_ok=True)
+        config.BEAMNG_DIR_TEXTURES.mkdir(parents=True, exist_ok=True)
+        config.BEAMNG_DIR_BUILDINGS.mkdir(parents=True, exist_ok=True)
+        config.CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
         # Sammle alle Gebäude über alle Tiles
         all_buildings = []
@@ -317,20 +316,20 @@ class BeamNGExporter:
         """Finalisiere Export: Speichere Materials/Items JSON und Debug-Daten."""
         # Materials (nutze config.MATERIALS_JSON)
         self.materials.save()  # nutzt automatisch config.MATERIALS_JSON
-        mat_path = os.path.join(config.BEAMNG_DIR, config.MATERIALS_JSON)
-        print(f"\n[✓] Materials: {os.path.basename(mat_path)}")
+        mat_path = config.BEAMNG_DIR / config.MATERIALS_JSON
+        print(f"\n[✓] Materials: {mat_path.name}")
 
         # Items mit Höhendaten für Spawn-Punkt-Berechnung
         self.items.save(
             height_points=self.height_points, height_elevations=self.height_elevations, global_offset=self.global_offset
         )
-        items_path = os.path.join(config.BEAMNG_DIR, config.ITEMS_JSON)
-        print(f"[✓] Items: {os.path.basename(items_path)}")
+        items_path = config.BEAMNG_DIR / config.ITEMS_JSON
+        print(f"[✓] Items: {items_path.name}")
 
         # info.json ins Level-Root-Verzeichnis schreiben
         self.items.save_info_json()
-        info_path = os.path.join(config.BEAMNG_DIR, "info.json")
-        print(f"[✓] Info: {os.path.basename(info_path)}")
+        info_path = config.BEAMNG_DIR / "info.json"
+        print(f"[✓] Info: {info_path.name}")
 
         # main.level.json ist NICHT nötig - BeamNG lädt automatisch main/items.level.json
 
@@ -345,14 +344,14 @@ class BeamNGExporter:
 
     def reset_export(self):
         """Reset: Lösche Materials/Items JSON."""
-        mat_path = os.path.join(config.BEAMNG_DIR, config.MATERIALS_JSON)
-        items_path = os.path.join(config.BEAMNG_DIR, config.ITEMS_JSON)
+        mat_path = config.BEAMNG_DIR / config.MATERIALS_JSON
+        items_path = config.BEAMNG_DIR / config.ITEMS_JSON
 
-        if os.path.exists(mat_path):
-            os.remove(mat_path)
+        if mat_path.exists():
+            mat_path.unlink()
 
-        if os.path.exists(items_path):
-            os.remove(items_path)
+        if items_path.exists():
+            items_path.unlink()
 
         # Reset Singleton-Instanzen
         MaterialManager.reset_instance()

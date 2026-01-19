@@ -7,7 +7,6 @@ Konsolidiert DAE-Export für:
 - Horizon (distant terrain)
 """
 
-import os
 import numpy as np
 from typing import List, Tuple, Dict, Any, Optional
 from datetime import datetime
@@ -425,7 +424,7 @@ class DAEExporter:
         Returns:
             output_path
         """
-        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
 
         with open(output_path, "w", encoding="utf-8") as f:
             self._write_header(f)
@@ -539,7 +538,7 @@ class DAEExporter:
         Returns:
             output_path
         """
-        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
 
         # Sammle alle Material-Namen
         material_names = set()

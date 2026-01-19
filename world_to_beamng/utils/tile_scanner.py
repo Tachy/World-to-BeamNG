@@ -7,7 +7,6 @@ Beispiel: dgm1_4658000_5394000.xyz.zip
 Diese Funktion scannet das data/DGM1-Verzeichnis und extrahiert die Koordinaten.
 """
 
-import os
 import re
 import numpy as np
 from pathlib import Path
@@ -33,7 +32,7 @@ def scan_lgl_tiles(dgm1_dir):
             }, ...]
     """
 
-    if not os.path.exists(dgm1_dir):
+    if not Path(dgm1_dir).exists():
         print(f"[WARNUNG] DGM1-Verzeichnis nicht gefunden: {dgm1_dir}")
         return []
 
@@ -43,37 +42,39 @@ def scan_lgl_tiles(dgm1_dir):
     pattern = re.compile(r"dgm1_(\d+)_(\d+)_(\d+)_\d+_bw\.zip$")
 
     # Scanne alle .zip Dateien im Verzeichnis
-    for filename in sorted(os.listdir(dgm1_dir)):
-        match = pattern.match(filename)
-        if match:
-            zone = int(match.group(1))  # Zone (z.B. 32)
-            grid_x = int(match.group(2))  # Gitter-X (z.B. 399)
-            grid_y = int(match.group(3))  # Gitter-Y (z.B. 5296)
+    for filepath in sorted(Path(dgm1_dir).iterdir()):
+        if filepath.suffix.lower() == ".zip": # Only process zip files
+            filename = filepath.name
+            match = pattern.match(filename)
+            if match:
+                zone = int(match.group(1))  # Zone (z.B. 32)
+                grid_x = int(match.group(2))  # Gitter-X (z.B. 399)
+                grid_y = int(match.group(3))  # Gitter-Y (z.B. 5296)
 
-            # DGM1 LGL: Gitter-Indizes zu UTM konvertieren
-            # Zone 32: Easting = 399 * 1000 + 160000 (Basis für Zone 32)
-            # Northing = 5296 * 1000 + 5000000 (Basis für UTM)
-            # Aber der einfachste Weg: jeder Gitter-Index ist 1000m x 1000m
-            # ABER: Jedes ZIP enthält 4 Kacheln (2x2), also 2000m x 2000m!
-            tile_size = 2000
+                # DGM1 LGL: Gitter-Indizes zu UTM konvertieren
+                # Zone 32: Easting = 399 * 1000 + 160000 (Basis für Zone 32)
+                # Northing = 5296 * 1000 + 5000000 (Basis für UTM)
+                # Aber der einfachste Weg: jeder Gitter-Index ist 1000m x 1000m
+                # ABER: Jedes ZIP enthält 4 Kacheln (2x2), also 2000m x 2000m!
+                tile_size = 2000
 
-            # Berechne UTM-Koordinaten (Index * 1000, da Grid in 1km-Schritten)
-            # Aber: ZIP deckt 2×2 Kacheln ab, also Grid-Index ist die untere linke Ecke
-            easting = grid_x * 1000
-            northing = grid_y * 1000
+                # Berechne UTM-Koordinaten (Index * 1000, da Grid in 1km-Schritten)
+                # Aber: ZIP deckt 2×2 Kacheln ab, also Grid-Index ist die untere linke Ecke
+                easting = grid_x * 1000
+                northing = grid_y * 1000
 
-            tiles.append(
-                {
-                    "filename": filename,
-                    "easting": easting,
-                    "northing": northing,
-                    "tile_x": easting,  # World-Koordinate
-                    "tile_y": northing,  # World-Koordinate
-                    "tile_size": tile_size,
-                    "bbox_utm": (easting, easting + tile_size, northing, northing + tile_size),
-                    "filepath": os.path.join(dgm1_dir, filename),
-                }
-            )
+                tiles.append(
+                    {
+                        "filename": filename,
+                        "easting": easting,
+                        "northing": northing,
+                        "tile_x": easting,  # World-Koordinate
+                        "tile_y": northing,  # World-Koordinate
+                        "tile_size": tile_size,
+                        "bbox_utm": (easting, easting + tile_size, northing, northing + tile_size),
+                        "filepath": Path(dgm1_dir) / filename,
+                    }
+                )
 
     if not tiles:
         print(f"[WARNUNG] Keine DGM1-Dateien gefunden in: {dgm1_dir}")

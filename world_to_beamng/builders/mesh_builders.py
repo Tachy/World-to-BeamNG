@@ -494,10 +494,8 @@ class GridBuilder:
 
         # Prüfe Cache BEVOR create_terrain_grid aufgerufen wird
         if tile_hash and self._cache_manager:
-            import os
-
-            cache_file = os.path.join(self._cache_manager.cache_dir, f"grid_v3_{tile_hash}_spacing{spacing:.1f}m.npz")
-            self._was_cached = os.path.exists(cache_file)
+            cache_file = self._cache_manager.cache_dir / f"grid_v3_{tile_hash}_spacing{spacing:.1f}m.npz"
+            self._was_cached = cache_file.exists()
 
         return create_terrain_grid(
             self._points,

@@ -9,7 +9,7 @@ NEUE ARCHITEKTUR:
 """
 
 import numpy as np
-import os
+from pathlib import Path
 
 
 def export_separate_tile_daes(
@@ -39,7 +39,7 @@ def export_separate_tile_daes(
     from ..managers import DAEExporter
     from .. import config
 
-    os.makedirs(output_dir, exist_ok=True)
+    Path(output_dir).mkdir(parents=True, exist_ok=True)
 
     exported_files = []
 
@@ -67,7 +67,7 @@ def export_separate_tile_daes(
         corner_y = tile_y * tile_size
         tile_name = f"tile_{corner_x}_{corner_y}"
         dae_filename = f"{tile_name}.dae"
-        dae_path = os.path.join(output_dir, dae_filename)
+        dae_path = Path(output_dir) / dae_filename
 
         # Nutze UV-Indizes direkt aus tile_data
         face_uv_indices = tile_data.get("uv_indices", {})
@@ -113,7 +113,7 @@ def export_separate_tile_daes(
         for mat_name in all_material_names:
             if mat_name.startswith("tile_"):
                 # Terrain-Material
-                texture_path = config.RELATIVE_DIR_TEXTURES + f"{mat_name}.dds"
+                texture_path = str(config.RELATIVE_DIR_TEXTURES / f"{mat_name}.dds")
                 material_manager.add_terrain_material(corner_x, corner_y, texture_path)
             else:
                 # Road-Material
@@ -213,7 +213,7 @@ def create_terrain_materials_json(tiles_dict, material_manager, level_name="Worl
         corner_y = tile_y * tile_size
 
         # Texturpfad
-        texture_path = config.RELATIVE_DIR_TEXTURES + f"tile_{corner_x}_{corner_y}.dds"
+        texture_path = str(config.RELATIVE_DIR_TEXTURES / f"tile_{corner_x}_{corner_y}.dds")
 
         # Füge Material über Manager hinzu
         material_manager.add_terrain_material(corner_x, corner_y, texture_path)

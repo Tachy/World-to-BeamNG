@@ -848,10 +848,8 @@ def create_items_json_entry(dae_path: str, tile_x: int, tile_y: int, item_manage
     Returns:
         Dict für items.json
     """
-    import os
-
     # Registriere Item direkt im übergebenen Manager (KEIN lokaler Manager mehr)
-    dae_filename = os.path.basename(dae_path)
+    dae_filename = Path(dae_path).name
     item_name = f"buildings_tile_{tile_x}_{tile_y}"
 
     item_manager.add_building(item_name, dae_filename, position=(0, 0, 0))

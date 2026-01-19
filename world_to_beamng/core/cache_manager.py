@@ -4,7 +4,6 @@ Zentraler Cache-Manager für alle Cache-Operationen.
 Vereinfacht und zentralisiert Cache-Zugriffe.
 """
 
-import os
 import json
 import pickle
 from pathlib import Path
@@ -206,7 +205,7 @@ class CacheManager:
         self.invalidate("*")
 
     @staticmethod
-    def hash_file(filepath: str) -> str:
+    def hash_file(filepath: Path) -> str:
         """
         Erstelle Hash von Datei.
 
@@ -216,7 +215,7 @@ class CacheManager:
         Returns:
             MD5-Hash
         """
-        if not os.path.exists(filepath):
+        if not filepath.exists():
             return ""
 
         md5 = hashlib.md5()

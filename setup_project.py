@@ -1,7 +1,7 @@
 import subprocess
 import sys
-import os
 import urllib.request
+from pathlib import Path
 
 
 def install_requirements():
@@ -11,14 +11,14 @@ def install_requirements():
 
 def download_texconv():
     bin_dir = "bin"
-    texconv_path = os.path.join(bin_dir, "texconv.exe")
+    texconv_path = Path(bin_dir) / "texconv.exe"
 
     # Offizieller Microsoft GitHub Release Link (64-bit)
     url = "https://github.com/microsoft/DirectXTex/releases/latest/download/texconv.exe"
 
-    if not os.path.exists(texconv_path):
+    if not texconv_path.exists():
         print("--- Lade texconv.exe herunter ---")
-        os.makedirs(bin_dir, exist_ok=True)
+        Path(bin_dir).mkdir(exist_ok=True)
         urllib.request.urlretrieve(url, texconv_path)
         print(f"Gespeichert in: {texconv_path}")
     else:

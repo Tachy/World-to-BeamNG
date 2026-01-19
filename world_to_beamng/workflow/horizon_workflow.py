@@ -188,7 +188,6 @@ class HorizonWorkflow:
 
         # === Export ===
         print("  [i] Exportiere Horizont DAE...")
-        import os
 
         dae_filename = export_horizon_dae(
             horizon_mesh,
@@ -202,18 +201,11 @@ class HorizonWorkflow:
 
         # === Materials & Items ===
         print("  [i] Registriere Materials & Items...")
-
-        # Material hinzufügen
-        if texture_info:
-            texture_path = texture_info.get("texture_path", "shapes/textures/white.png")
-        else:
-            texture_path = "shapes/textures/white.png"
-
+        texture_path = str(config.RELATIVE_DIR_TEXTURES / "horizon_sentinel2.dds")
         self.materials.add_horizon_material(texture_path)
+        self.items.add_horizon(
+            dae_filename=dae_filename,
+        )
+        print(f"  [i] {len(stitching_faces)} Stitching-Faces für Horizon-Terrain-Verbindung")
 
-        # Item hinzufügen
-        self.items.add_horizon(name="Horizon", dae_filename=dae_filename)
-
-        print(f"  [OK] Phase 5 abgeschlossen")
-
-        return os.path.join(config.BEAMNG_DIR_SHAPES, dae_filename), stitching_faces
+        return str(config.BEAMNG_DIR_SHAPES / dae_filename), stitching_faces

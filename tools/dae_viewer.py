@@ -42,16 +42,15 @@ Texture System:
 
 import pyvista as pv
 import numpy as np
-import os
 import sys
 import json
 import atexit
 import time
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from PIL import Image
 
 # Importiere config
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from world_to_beamng import config
 from tools.dae_loader import load_dae_tile, load_all_dae_files as load_dae_tile_all_from_items
 
@@ -61,39 +60,38 @@ def _resolve_beamng_path(path_str: str) -> str | None:
     if not path_str:
         return None
 
-    p = path_str.replace("\\", "/")
+    p_posix = PurePosixPath(path_str)  # Treat input as a Posix path
 
     # 1) Präfix /levels/<LEVEL_NAME>/...
-    level_prefix = f"/levels/{config.LEVEL_NAME}/"
-    if p.startswith(level_prefix):
-        rel = p[len(level_prefix) :]
-        return os.path.join(config.BEAMNG_DIR, rel.replace("/", os.sep))
+    level_prefix_posix = PurePosixPath("/levels") / config.LEVEL_NAME
+    if p_posix.is_relative_to(level_prefix_posix):
+        return str(config.BEAMNG_DIR / p_posix.relative_to(level_prefix_posix))
 
     # 2) Präfix aus config.RELATIVE_DIR (identisch, aber bereitgestellt)
-    if p.startswith(config.RELATIVE_DIR):
-        rel = p[len(config.RELATIVE_DIR) :]
-        return os.path.join(config.BEAMNG_DIR, rel.replace("/", os.sep))
+    # config.RELATIVE_DIR is already a PurePosixPath 'levels/world_to_beamng'
+    if p_posix.is_relative_to(config.RELATIVE_DIR):
+        return str(config.BEAMNG_DIR / p_posix.relative_to(config.RELATIVE_DIR))
 
-    # 3) art/… Präfix relativ zum Level-Root
-    if p.startswith("art/"):
-        return os.path.join(config.BEAMNG_DIR, p.replace("/", os.sep))
+    # 3) art/… Präfix relativ zum Level-Root (Path(path_str) will handle "art/...")
+    if p_posix.parts[0] == "art":  # check if first part is 'art'
+        return str(config.BEAMNG_DIR / p_posix)
 
     # 4) Fallback: behandle als relative Shape-Angabe
-    return os.path.join(config.BEAMNG_DIR_SHAPES, p)
+    return str(config.BEAMNG_DIR_SHAPES / p_posix)
 
 
 class DAETileViewer:
     def __init__(self):
         # Lade Items und Materialien aus JSON
-        items_path = os.path.join(config.BEAMNG_DIR, config.ITEMS_JSON)
+        items_path = config.BEAMNG_DIR / config.ITEMS_JSON
 
         # Suche materials.json in config.BEAMNG_DIR/main/
-        materials_path = os.path.join(config.BEAMNG_DIR, "main", "materials.json")
+        materials_path = config.BEAMNG_DIR / "main" / "materials.json"
 
         print(f"Lade Items aus: {items_path}")
 
         print(f"Lade Materialien aus: {materials_path}")
-        if os.path.exists(materials_path):
+        if materials_path.exists():
             with open(materials_path, "r", encoding="utf-8") as f:
                 self.materials = json.load(f)
                 print(f"  [✓] {len(self.materials)} Materialien geladen")
@@ -123,7 +121,7 @@ class DAETileViewer:
             return
 
         # Initialisiere config_path FRÜH (wird für _load_layers_state benötigt)
-        self.config_path = os.path.join(os.path.dirname(__file__), "dae_viewer.cfg")
+        self.config_path = Path(__file__).parent / "dae_viewer.cfg"
 
         # Sichtbarkeits-Flags (lade gespeicherte Werte)
         saved_layers = self._load_layers_state()
@@ -147,7 +145,7 @@ class DAETileViewer:
         self.grid_colors = self._load_grid_colors()
 
         # Lade Texturen
-        self.textures_dir = os.path.join(config.BEAMNG_DIR_SHAPES, "textures")
+        self.textures_dir = config.BEAMNG_DIR_SHAPES / "textures"
         self.textures = self._load_textures()
 
         # Lade Material-Texturen aus main.materials.json
@@ -1049,7 +1047,7 @@ class DAETileViewer:
 
     def _load_grid_colors(self):
         """Lade Grid-Farben aus debug_network.json."""
-        debug_network_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "cache", "debug_network.json")
+        debug_network_path = Path(__file__).parent.parent / "cache" / "debug_network.json"
 
         # Default Grid-Farben
         default_colors = {
@@ -1093,7 +1091,7 @@ class DAETileViewer:
             },
         }
 
-        if not os.path.exists(debug_network_path):
+        if not debug_network_path.exists():
             return default_colors
 
         try:
@@ -1108,7 +1106,7 @@ class DAETileViewer:
         """Lade alle Tile-Texturen aus dem textures-Verzeichnis."""
         textures = {}
 
-        if not os.path.exists(self.textures_dir):
+        if not self.textures_dir.exists():
             print(f"  [!] Textures-Verzeichnis nicht gefunden: {self.textures_dir}")
             return textures
 
@@ -1127,7 +1125,7 @@ class DAETileViewer:
                         import importlib
 
                         imageio = importlib.import_module("imageio.v2")
-                        img_array = imageio.imread(texture_path)
+                        img_array = imageio.imread(str(texture_path))
                     except ImportError:
                         print(f"  [!] imageio nicht verfügbar, überspringe DDS Textur {texture_path.name}")
                         continue
@@ -1194,29 +1192,29 @@ class DAETileViewer:
             if not abs_texture_path:
                 # Zeige den Pfad, der tatsächlich gesucht wurde
                 if texture_path.startswith("/assets/"):
-                    rel_path = texture_path[1:].replace("/", os.sep)
-                    data_dir = os.path.join(os.path.dirname(__file__), "..", "data")
-                    attempted_path = os.path.abspath(os.path.join(data_dir, rel_path))
-                    print(f"  [!] Material-Textur für {mat_name} nicht gefunden: {attempted_path}")
-                elif texture_path.startswith("/levels/") or texture_path.startswith(config.RELATIVE_DIR):
+                    rel_path_posix = PurePosixPath(texture_path[1:])
+                    data_dir = Path(__file__).parent.parent / "data"
+                    abs_path = (data_dir / rel_path_posix).resolve()
+                    print(f"  [!] Material-Textur für {mat_name} nicht gefunden: {abs_path}")
+                elif texture_path.startswith("/levels/") or texture_path.startswith(str(config.RELATIVE_DIR)):
                     attempted_path = _resolve_beamng_path(texture_path)
                     print(f"  [!] Material-Textur für {mat_name} nicht gefunden: {attempted_path or texture_path}")
                 else:
-                    print(f"  [!] Material-Textur für {mat_name} nicht auflösbar: {texture_path.replace('/', os.sep)}")
+                    print(f"  [!] Material-Textur für {mat_name} nicht auflösbar: {Path(texture_path).as_posix()}")
                 continue
 
-            if not os.path.exists(abs_texture_path):
+            if not Path(abs_texture_path).exists():
                 print(f"  [!] Material-Textur für {mat_name} nicht gefunden: {abs_texture_path}")
                 continue
 
             try:
                 # Lade Textur
-                if abs_texture_path.lower().endswith(".dds"):
+                if Path(abs_texture_path).suffix.lower() == ".dds":
                     try:
                         import importlib
 
                         imageio = importlib.import_module("imageio.v2")
-                        img_array = imageio.imread(abs_texture_path)
+                        img_array = imageio.imread(str(abs_texture_path))
                         # Konvertiere RGBA zu RGB (entferne Alpha-Kanal für volle Opazität)
                         if img_array.ndim == 3 and img_array.shape[2] == 4:
                             img_array = img_array[:, :, :3]
@@ -1286,17 +1284,17 @@ class DAETileViewer:
             return None
 
         # 1. Level-spezifische Pfade (/levels/World_to_BeamNG/...) -> nutze _resolve_beamng_path
-        if texture_path.startswith("/levels/") or texture_path.startswith(config.RELATIVE_DIR):
+        if texture_path.startswith("/levels/") or texture_path.startswith(str(config.RELATIVE_DIR)): # config.RELATIVE_DIR is PurePosixPath
             return _resolve_beamng_path(texture_path)
 
         # 2. Asset-Pfade (/assets/materials/...) -> suche in data/assets/
         if texture_path.startswith("/assets/"):
-            rel_path = texture_path[1:].replace("/", os.sep)  # Entferne nur führenden /, behalte "assets"
+            rel_path = Path(texture_path[1:]) # Convert to Path to use / operator
             # Suche relativ zum aktuellen Verzeichnis
-            data_dir = os.path.join(os.path.dirname(__file__), "..", "data")
-            abs_path = os.path.join(data_dir, rel_path)
-            abs_path = os.path.abspath(abs_path)  # Normalisiere Pfad
-            return abs_path if os.path.exists(abs_path) else None
+            data_dir = Path(__file__).parent.parent / "data"
+            abs_path = data_dir / rel_path
+            abs_path = abs_path.resolve()  # Normalisiere Pfad
+            return str(abs_path) if abs_path.exists() else None
 
         return None
 
@@ -1447,14 +1445,14 @@ class DAETileViewer:
 
     def _load_config(self):
         """Lade Config-Datei."""
-        if not os.path.exists(self.config_path):
+        if not self.config_path.exists():
             return {}
         with open(self.config_path, "r", encoding="utf-8") as f:
             return json.load(f)
 
     def _save_config(self, data):
         """Speichere Config-Datei."""
-        os.makedirs(os.path.dirname(self.config_path), exist_ok=True)
+        self.config_path.parent.mkdir(parents=True, exist_ok=True)
         with open(self.config_path, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2)
 
@@ -1638,7 +1636,7 @@ class DAETileViewer:
                 print(f"[!] Fehler beim Speichern der Kamera-Position: {e}")
 
             # Lade Items neu mit gemeinsamer Funktion aus dae_loader
-            items_path = os.path.join(config.BEAMNG_DIR, config.ITEMS_JSON)
+            items_path = config.BEAMNG_DIR / config.ITEMS_JSON
 
             try:
                 self.dae_files, self.tile_data = load_dae_tile_all_from_items(
@@ -1728,9 +1726,9 @@ class DAETileViewer:
         print("  [Debug] Lade Debug-Layer...")
 
         # Lade Primitive-Daten aus cache/debug_network.json (lokales Project-Verzeichnis)
-        debug_network_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "cache", "debug_network.json")
+        debug_network_path = Path(__file__).parent.parent / "cache" / "debug_network.json"
 
-        if not os.path.exists(debug_network_path):
+        if not debug_network_path.exists():
             print(f"  [Debug] Keine Debug-Daten gefunden: {debug_network_path}")
             return
 

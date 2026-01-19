@@ -13,9 +13,8 @@ Prüft:
 """
 
 import sys
-import os
 import io
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 # Setze UTF-8 Encoding für stdout
 if sys.stdout.encoding != "utf-8":
@@ -102,53 +101,50 @@ class ExportIntegrityTest:
         if self.items_json_path.exists():
             try:
                 with open(self.items_json_path, "r", encoding="utf-8") as f:
-                    self.items = json.load(f)
+                    for line in f:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        item = json.loads(line)
+                        if "name" in item:
+                            self.items[item["name"]] = item
 
                 # Prüfe auf Gebäude-Items und Horizon-Item
-                self.has_building_items = any(k.startswith(BUILDING_ITEMS_PREFIX) for k in self.items.keys())
+                self.has_building_item = any(k.startswith(BUILDING_ITEMS_PREFIX) for k in self.items.keys())
                 self.has_horizon_item = HORIZON_ITEM_NAME in self.items
             except Exception as e:
                 self.warning(f"Konnte items.json nicht laden: {e}")
 
-    def _resolve_relative_path(self, relative_path):
+    def _resolve_relative_path(self, relative_path: str) -> Path:
         r"""
-        Konvertiert einen relativen BeamNG-Pfad zu absolutem Windows-Pfad.
-
-        WICHTIG: BEAMNG_DIR ist bereits das Level-Verzeichnis
-        (z.B. C:\...\levels\world_to_beamng\)
-
-        Unterstützt Formate:
-        - 'levels/world_to_beamng/art/shapes/textures/file.dds' → art/shapes/textures/file.dds
-        - 'art/shapes/textures/file.dds' → art/shapes/textures/file.dds
-        - '\art\shapes\textures\file.dds' → art/shapes/textures/file.dds
+        Konvertiert einen relativen BeamNG-Pfad zu absolutem Dateisystempfad.
 
         Args:
-            relative_path: Pfad mit oder ohne 'levels/world_to_beamng/' Präfix
+            relative_path: Pfad, wie er in BeamNG-Konfigurationsdateien
+                           (materials.json, items.json) vorkommt.
+                           Kann Posix- oder Windows-Trenner enthalten.
 
         Returns:
-            Absoluter Path-Objekt
+            Absolutes Path-Objekt zum referenzierten Element.
         """
-        # Normalisiere Forward-Slashes zu Backslashes
-        normalized_path = relative_path.replace("/", "\\")
+        # Konvertiere den Eingabepfad in ein PurePosixPath für konsistente Handhabung
+        # BeamNG interne Pfade sind meist Posix-Stil, auch unter Windows
+        path_posix = PurePosixPath(relative_path.replace("\\", "/"))
 
-        # Entferne evtl. führenden Backslash
-        normalized_path = normalized_path.lstrip("\\")
+        # config.BEAMNG_DIR ist der absolute Pfad zum Level-Stammverzeichnis
+        # z.B. C:\Users\johan\AppData\Local\BeamNG\BeamNG.drive\current\levels\world_to_beamng
 
-        # Falls Pfad mit 'levels\world_to_beamng\' beginnt, entferne diesen Präfix
-        # (da BEAMNG_DIR bereits auf world_to_beamng zeigt)
-        if normalized_path.startswith("levels\\world_to_beamng\\"):
-            normalized_path = normalized_path.replace("levels\\world_to_beamng\\", "", 1)
-        elif normalized_path.startswith("levels\\"):
-            # Falls anderes Level-Verzeichnis: extrahiere den Level-Namen und nutze nur Rest
-            parts = normalized_path.split("\\", 2)
-            if len(parts) >= 3:
-                normalized_path = parts[2]
-            else:
-                normalized_path = normalized_path.replace("levels\\", "", 1)
-
-        # Kombiniere mit beamng_dir (das ist bereits levels/world_to_beamng)
-        full_path = Path(self.beamng_dir) / normalized_path
-        return full_path
+        # 1. Pfad beginnt mit 'levels/world_to_beamng/' (config.RELATIVE_DIR ist 'levels/world_to_beamng')
+        # In diesem Fall ist der Teil nach 'levels/world_to_beamng/' der relative Pfad vom Level-Root
+        if path_posix.is_relative_to(config.RELATIVE_DIR):
+            return self.beamng_dir / path_posix.relative_to(config.RELATIVE_DIR)
+        
+        # 2. Pfad beginnt mit 'art/', 'main/' oder direkt ein Dateiname
+        # Diese sind implizit relativ zum Level-Root
+        # Beispiel: 'art/shapes/textures/file.dds'
+        # Beispiel: 'main/materials.json'
+        # Beispiel: 'info.json'
+        return self.beamng_dir / path_posix
 
     def error(self, msg):
         """Registriere kritischen Fehler."""
@@ -1068,7 +1064,7 @@ class ExportIntegrityTest:
         except Exception as e:
             self.error(f"Fehler beim DDS/PBR-Test: {e}")
 
-    def _read_dds_header(self, dds_path):
+    def _read_dds_header(self, dds_path: Path):
         """Lese DDS-Header und extrahiere Metadaten."""
         with open(dds_path, "rb") as f:
             # DDS-Magic "DDS "
@@ -1451,7 +1447,7 @@ class ExportIntegrityTest:
         for dae_file in terrain_daes:
             try:
                 parser = lxml_etree.XMLParser(huge_tree=True)
-                tree = lxml_etree.parse(str(dae_file), parser)
+                tree = lxml_etree.parse(dae_file, parser)
                 root = tree.getroot()
                 ns = {"collada": "http://www.collada.org/2005/11/COLLADASchema"}
 
@@ -1503,7 +1499,7 @@ class ExportIntegrityTest:
 
         if terrain_dae.exists():
             try:
-                terrain_data = load_dae_tile(terrain_dae)
+                terrain_data = load_dae_tile(str(terrain_dae))
                 terrain_vertices = terrain_data.get("vertices", np.array([]))
 
                 if isinstance(terrain_vertices, np.ndarray) and len(terrain_vertices) > 0:
@@ -1637,7 +1633,7 @@ class ExportIntegrityTest:
 
         # Parse XML
         try:
-            tree = ET.parse(horizon_dae)
+            tree = ET.parse(str(horizon_dae))
             root = tree.getroot()
 
             # Definiere Namespace
@@ -1845,7 +1841,7 @@ class ExportIntegrityTest:
             return
 
         try:
-            tree = ET.parse(horizon_dae)
+            tree = ET.parse(str(horizon_dae))
             root = tree.getroot()
             ns = {"collada": "http://www.collada.org/2005/11/COLLADASchema"}
 
@@ -1903,7 +1899,7 @@ class ExportIntegrityTest:
             return
 
         try:
-            tree = ET.parse(horizon_dae)
+            tree = ET.parse(str(horizon_dae))
             root = tree.getroot()
             ns = {"collada": "http://www.collada.org/2005/11/COLLADASchema"}
 

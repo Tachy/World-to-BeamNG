@@ -9,7 +9,6 @@ Verwaltet Materials für:
 """
 
 import json
-import os
 import uuid
 from typing import Dict, Any, Optional, List
 from pathlib import Path
@@ -40,13 +39,13 @@ class MaterialManager:
         if MaterialManager._instance is not None:
             raise RuntimeError("MaterialManager ist ein Singleton - verwende get_instance()")
 
-        self.beamng_dir = beamng_dir
+        self.beamng_dir = Path(beamng_dir) # Convert to Path object
         self.materials: Dict[str, Dict[str, Any]] = {}
         self._templates = self._init_templates()
         self._config = self._load_config()  # Ganze JSON für buildings, etc.
 
     @classmethod
-    def get_instance(cls, beamng_dir: str = "") -> "MaterialManager":
+    def get_instance(cls, beamng_dir: Path = None) -> "MaterialManager":
         """
         Hole die Singleton-Instanz (erstellt sie bei Bedarf).
 
@@ -57,8 +56,10 @@ class MaterialManager:
             MaterialManager Singleton-Instanz
         """
         if cls._instance is None:
+            if beamng_dir is None: # Added check for None
+                raise ValueError("beamng_dir must be provided for the first call to get_instance")
             cls._instance = cls.__new__(cls)
-            cls._instance.beamng_dir = beamng_dir
+            cls._instance.beamng_dir = beamng_dir # Already a Path object
             cls._instance.materials = {}
             cls._instance._templates = cls._instance._init_templates()
             cls._instance._config = cls._instance._load_config()  # Ganze JSON laden
@@ -394,9 +395,9 @@ class MaterialManager:
         if filepath is None:
             from .. import config
 
-            filepath = os.path.join(self.beamng_dir, config.MATERIALS_JSON)
+            filepath = self.beamng_dir / config.MATERIALS_JSON
 
-        os.makedirs(os.path.dirname(filepath), exist_ok=True)
+        filepath.parent.mkdir(parents=True, exist_ok=True)
 
         # Schreibe als einzelnes JSON-Objekt (mit Indentation für Lesbarkeit)
         with open(filepath, "w", encoding="utf-8") as f:
@@ -412,9 +413,9 @@ class MaterialManager:
         if filepath is None:
             from .. import config
 
-            filepath = os.path.join(self.beamng_dir, config.MATERIALS_JSON)
+            filepath = self.beamng_dir / config.MATERIALS_JSON
 
-        if not os.path.exists(filepath):
+        if not filepath.exists():
             return
 
         with open(filepath, "r", encoding="utf-8") as f:

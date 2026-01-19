@@ -9,7 +9,6 @@ Verwaltet Items für:
 """
 
 import json
-import os
 import uuid
 import shutil
 from typing import Dict, Any, Optional, List, Tuple
@@ -157,7 +156,7 @@ class ItemManager:
         "spawnPointName": "PlayerDropPoints",  # BeamNG sucht nach dieser SimGroup
     }
 
-    def __init__(self, beamng_dir: str):
+    def __init__(self, beamng_dir: Path):
         """
         Private Constructor - verwende get_instance() stattdessen.
 
@@ -171,7 +170,7 @@ class ItemManager:
         self.items: Dict[str, Dict[str, Any]] = {}
 
     @classmethod
-    def get_instance(cls, beamng_dir: str = "") -> "ItemManager":
+    def get_instance(cls, beamng_dir: Path = None) -> "ItemManager":
         """
         Hole die Singleton-Instanz (erstellt sie bei Bedarf).
 
@@ -182,8 +181,10 @@ class ItemManager:
             ItemManager Singleton-Instanz
         """
         if cls._instance is None:
+            if not beamng_dir:
+                raise ValueError("beamng_dir must be provided for the first call to get_instance")
             cls._instance = cls.__new__(cls)
-            cls._instance.beamng_dir = beamng_dir
+            cls._instance.beamng_dir = Path(beamng_dir)
             cls._instance.items = {}
         return cls._instance
 
@@ -267,7 +268,7 @@ class ItemManager:
         # Konstruiere relativen Pfad
         from .. import config
 
-        shape_name = config.RELATIVE_DIR_SHAPES + dae_filename
+        shape_name = str(config.RELATIVE_DIR_SHAPES / dae_filename)
 
         self.add_item(
             name,
@@ -302,7 +303,7 @@ class ItemManager:
         """
         from .. import config
 
-        shape_name = config.RELATIVE_DIR_BUILDINGS + dae_filename
+        shape_name = str(config.RELATIVE_DIR_BUILDINGS / dae_filename)
 
         self.add_item(
             name,
@@ -336,7 +337,7 @@ class ItemManager:
         """
         from .. import config
 
-        shape_name = config.RELATIVE_DIR_SHAPES + dae_filename
+        shape_name = str(config.RELATIVE_DIR_SHAPES / dae_filename)
 
         self.add_item(
             name,
@@ -407,7 +408,7 @@ class ItemManager:
         return final_pos
 
     def save(
-        self, filepath: Optional[str] = None, height_points=None, height_elevations=None, global_offset=None
+        self, filepath: Optional[Path] = None, height_points=None, height_elevations=None, global_offset=None
     ) -> None:
         """
         Exportiere Items in die richtige BeamNG-Struktur.
@@ -423,21 +424,21 @@ class ItemManager:
             height_elevations: Z-Werte für Höheninterpolation (optional)
             global_offset: (origin_x, origin_y) für Koordinaten-Transformation (optional)
         """
-        if filepath is None:
-            from .. import config
-
-            filepath = os.path.join(self.beamng_dir, config.ITEMS_JSON)
+        from .. import config
 
         # BeamNG erwartet folgende Struktur:
         # 1. main/items.level.json - nur MissionGroup
         # 2. main/MissionGroup/items.level.json - LevelInfo, Sky, Sun + alle Terrain/Building Items
         # 3. main/MissionGroup/PlayerDropPoints/items.level.json - Spawn-Points
 
-        main_items = os.path.join(self.beamng_dir, "main", "items.level.json")
-        missiongroup_items = os.path.join(self.beamng_dir, "main", "MissionGroup", "items.level.json")
-        playerdroppoints_items = os.path.join(
-            self.beamng_dir, "main", "MissionGroup", "PlayerDropPoints", "items.level.json"
-        )
+        main_items_dir = self.beamng_dir / "main"
+        missiongroup_dir = main_items_dir / "MissionGroup"
+        playerdroppoints_dir = missiongroup_dir / "PlayerDropPoints"
+
+        main_items = main_items_dir / "items.level.json"
+        missiongroup_items = missiongroup_dir / "items.level.json"
+        playerdroppoints_items = playerdroppoints_dir / "items.level.json"
+
 
         # Berechne Spawn-Position mit Höhendaten falls verfügbar
         spawn_position = [0, 0, 400]  # Default
@@ -445,13 +446,13 @@ class ItemManager:
             spawn_position = self._get_spawn_position_with_height(height_points, height_elevations, global_offset)
 
         # Schreibe main/items.level.json im JSONL-Format (nur MissionGroup)
-        os.makedirs(os.path.dirname(main_items), exist_ok=True)
+        main_items_dir.mkdir(exist_ok=True)
         with open(main_items, "w", encoding="utf-8") as f:
             json.dump(self.MISSION_GROUP_LINE, f, ensure_ascii=False)
             f.write("\n")
 
         # Schreibe main/MissionGroup/items.level.json im JSONL-Format
-        os.makedirs(os.path.dirname(missiongroup_items), exist_ok=True)
+        missiongroup_dir.mkdir(exist_ok=True)
         with open(missiongroup_items, "w", encoding="utf-8") as f:
             # OTHER_BASE_LINES (the_level_info, the_sky, the_sun, PlayerDropPoints-SimGroup)
             for base_line in self.OTHER_BASE_LINES:
@@ -464,7 +465,7 @@ class ItemManager:
                 f.write("\n")
 
         # Schreibe main/MissionGroup/PlayerDropPoints/items.level.json im JSONL-Format
-        os.makedirs(os.path.dirname(playerdroppoints_items), exist_ok=True)
+        playerdroppoints_dir.mkdir(exist_ok=True)
         with open(playerdroppoints_items, "w", encoding="utf-8") as f:
             # PLAYER_DROPPOINTS_LINE mit berechneter Spawn-Position
             for spawn_line in self.PLAYER_DROPPOINTS_LINE:
@@ -482,16 +483,16 @@ class ItemManager:
         Diese Datei enthält Metadaten für BeamNG (Titel, Autor, Spawn-Point, etc.).
         Kopiert auch data/preview.jpg ins Level-Verzeichnis.
         """
-        info_path = os.path.join(self.beamng_dir, "info.json")
+        info_path = self.beamng_dir / "info.json"
 
         with open(info_path, "w", encoding="utf-8") as f:
             json.dump(self.LEVEL_INFO, f, ensure_ascii=False, indent=4)
 
         # Kopiere preview.jpg von data/ nach BEAMNG_DIR
-        preview_src = "data/preview.jpg"
-        preview_dst = os.path.join(self.beamng_dir, "preview.jpg")
+        preview_src = Path("data/preview.jpg")
+        preview_dst = self.beamng_dir / "preview.jpg"
 
-        if os.path.exists(preview_src):
+        if preview_src.exists():
             try:
                 shutil.copy2(preview_src, preview_dst)
                 print(f"  [OK] Preview-Bild kopiert: {preview_dst}")
@@ -500,19 +501,20 @@ class ItemManager:
         else:
             print(f"  [INFO] Keine Preview-Datei gefunden: {preview_src}")
 
-    def load(self, filepath: Optional[str] = None) -> None:
+    def load(self, filepath: Optional[Path] = None) -> None:
         """
         Lade Items aus items.json im JSONL-Format (Line-JSON).
 
         Args:
             filepath: Optionaler custom Pfad, ansonsten aus config.ITEMS_JSON
         """
-        if filepath is None:
-            from .. import config
+        from .. import config
+        
+        load_path = filepath
+        if load_path is None:
+            load_path = self.beamng_dir / config.ITEMS_JSON
 
-            filepath = os.path.join(self.beamng_dir, config.ITEMS_JSON)
-
-        if not os.path.exists(filepath):
+        if not load_path.exists():
             return
 
         self.items = {}
@@ -522,7 +524,7 @@ class ItemManager:
         base_line_names.add("PlayerDropPoint")  # Alter Name falls noch vorhanden
         base_line_names.add("spawn")  # Auch spawn überspringen (wird mit OTHER_BASE_LINES geschrieben)
 
-        with open(filepath, "r", encoding="utf-8") as f:
+        with open(load_path, "r", encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
                 if not line:

@@ -4,7 +4,6 @@ Tile-Processing Logik.
 Extrahiert die Tile-Lade und Verarbeitungslogik aus multitile.py.
 """
 
-import os
 import zipfile
 import numpy as np
 from pathlib import Path
@@ -41,7 +40,7 @@ class TileProcessor:
             Tuple (height_points, height_elevations) oder (None, None)
         """
         filepath = tile.get("filepath")
-        if not filepath or not os.path.exists(filepath):
+        if not filepath or not Path(filepath).exists():
             print(f"  [!] DGM1-Datei fehlt: {filepath}")
             return None, None
 

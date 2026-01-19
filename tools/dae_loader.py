@@ -10,7 +10,7 @@ Parsed .dae Dateien und extrahiert:
 # Nutze lxml für schnelleres XML-Parsing (2-3x schneller als xml.etree)
 from lxml import etree as ET
 import numpy as np
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 
 def load_dae_tile(filepath):
@@ -372,13 +372,12 @@ def load_all_dae_files(beamng_dir, items_json_path, resolve_path_func=None):
         - tile_data: Liste von (item_name, data) Tuples (geladen mit load_dae_tile)
     """
     import json
-    import os
 
     dae_files = []
     tile_data = []
 
     # Lade items.level.json
-    if not os.path.exists(items_json_path):
+    if not items_json_path.exists():
         print(f"  [!] items.level.json nicht gefunden: {items_json_path}")
         return dae_files, tile_data
 
@@ -419,10 +418,10 @@ def load_all_dae_files(beamng_dir, items_json_path, resolve_path_func=None):
             dae_path = resolve_path_func(shape_name)
         else:
             # Fallback: Einfache Pfad-Auflösung
-            dae_path = os.path.join(beamng_dir, shape_name.replace("/", os.sep))
+            dae_path = beamng_dir / PurePosixPath(shape_name)
 
         # Prüfe ob Datei existiert
-        if dae_path and os.path.exists(dae_path):
+        if dae_path and Path(dae_path).exists(): # dae_path can be str or Path. Path(dae_path) makes it always Path
             dae_files.append((item_name, dae_path))
             print(f"  [DAE Loader] ✓ {item_name}")
         else:
