@@ -16,6 +16,8 @@ class OSMMapper:
         self.defaults = self.config.get("highway_defaults", {})
         self.overrides = self.config.get("surface_overrides", {})
         self.surface_types = self.config.get("surface_types", {})
+        self.forest_types = self.config.get("forest_types", {})
+        self.forest_mappings = self.config.get("forest_mappings", {})
 
     def get_road_properties(self, tags):
         """
@@ -194,3 +196,75 @@ class OSMMapper:
             #            "materialTag1": "custom",  # Custom-Materialien mit BeamNG Standard-Texturen
             "persistentId": str(uuid.uuid4()),  # ← KRITISCH: BeamNG braucht eindeutige IDs für Material-Persistierung!
         }
+
+    def is_forest(self, tags):
+        """
+        Prüft, ob ein OSM-Element ein Wald ist.
+
+        Args:
+            tags: Dictionary mit OSM-Tags
+
+        Returns:
+            bool: True wenn Element als Wald klassifiziert ist
+        """
+        if tags is None:
+            return False
+
+        # Prüfe gegen alle definierten Forest-Mappings
+        for tag_key, tag_values_dict in self.forest_mappings.items():
+            tag_value = tags.get(tag_key)
+            if tag_value in tag_values_dict:
+                forest_type = tag_values_dict[tag_value]
+                return forest_type is not None and forest_type != "open_meadow"
+
+        return False
+
+    def get_forest_properties(self, tags):
+        """
+        Gibt Forest-Generierungs-Parameter basierend auf OSM-Tags zurück.
+
+        Funktion analog zu get_road_properties(), aber für Waldgebiete:
+        1. Finde Forest-Type aus forest_mappings[tag_key][tag_value]
+        2. Hole Forest-Definition aus forest_types
+        3. Merge mit optionalen Tag-Overrides
+
+        Args:
+            tags: Dictionary mit OSM-Tags
+
+        Returns:
+            Dict mit forest_type, tree_density, tree_species, etc.
+            oder None wenn Element kein Wald ist
+        """
+        if tags is None:
+            tags = {}
+
+        # 1. Finde passenden Forest-Type
+        forest_type = None
+        matching_tag_key = None
+
+        for tag_key, tag_values_dict in self.forest_mappings.items():
+            tag_value = tags.get(tag_key)
+            if tag_value in tag_values_dict:
+                forest_type = tag_values_dict[tag_value]
+                matching_tag_key = tag_key
+                break
+
+        # Falls kein Forest-Type gefunden oder open_meadow: return None
+        if forest_type is None or forest_type == "open_meadow":
+            return None
+
+        # 2. Hole Forest-Definition
+        forest_def = self.forest_types.get(forest_type, {})
+
+        # Kopiere Forest-Definition
+        props = forest_def.copy()
+        props["forest_type"] = forest_type
+
+        # 3. Optionale Tag-Overrides
+        # z.B. name, description aus OSM-Tags
+        if "name" in tags:
+            props["name"] = tags["name"]
+        if "description" in tags:
+            props["description"] = tags["description"]
+
+        return props

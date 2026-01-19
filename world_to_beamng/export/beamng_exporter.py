@@ -4,6 +4,7 @@ Zentrale BeamNG-Exporter-Fassade.
 Bietet eine einheitliche API für den gesamten Export-Workflow.
 """
 
+import logging
 from typing import List, Dict, Optional, Tuple
 from pathlib import Path
 import json
@@ -11,7 +12,9 @@ import json
 from .. import config
 from ..core.cache_manager import CacheManager
 from ..managers import MaterialManager, ItemManager, DAEExporter
-from ..workflow import TileProcessor, TerrainWorkflow, BuildingWorkflow, HorizonWorkflow
+from ..workflow import TileProcessor, TerrainWorkflow, BuildingWorkflow, HorizonWorkflow, ForestWorkflow
+
+logger = logging.getLogger(__name__)
 
 
 class BeamNGExporter:
@@ -41,11 +44,23 @@ class BeamNGExporter:
 
         self.dae = DAEExporter(material_manager=self.materials)  # Übergebe MaterialManager-Referenz
 
+        # Lade forest_config aus osm_to_beamng.json
+        osm_config_path = Path("data/osm_to_beamng.json")
+        self.forest_config = {}
+        if osm_config_path.exists():
+            with open(osm_config_path, "r", encoding="utf-8") as f:
+                osm_config = json.load(f)
+                self.forest_config = {
+                    "forest_types": osm_config.get("forest_types", {}),
+                    "forest_mappings": osm_config.get("forest_mappings", {}),
+                }
+
         # Workflows (nutzen MaterialManager/ItemManager.get_instance() intern)
         self.terrain = TerrainWorkflow(self.cache, self.dae)
         self.buildings = BuildingWorkflow(self.cache, self.dae)
         self.horizon = HorizonWorkflow(self.cache, self.dae)
         self.tile_processor = TileProcessor(self.cache)
+        self.forests = ForestWorkflow(config)  # Nur config, kein Asset Scanning
 
         # Debug-Exporter für Visualisierung (Singleton - reset für neuen Export)
         from ..utils.debug_exporter import DebugNetworkExporter
@@ -64,6 +79,7 @@ class BeamNGExporter:
         global_offset: Tuple[float, float, float],
         include_buildings: bool = True,
         include_horizon: bool = True,
+        include_forests: bool = True,  # NEU: Forest-Export
     ) -> Dict:
         """
         Exportiere komplettes BeamNG-Level.
@@ -73,6 +89,7 @@ class BeamNGExporter:
             global_offset: (origin_x, origin_y, origin_z)
             include_buildings: LoD2-Gebäude exportieren
             include_horizon: Horizon-Layer exportieren
+            include_forests: Wald-Vegetation exportieren (NEU)
 
         Returns:
             Dict mit Export-Statistiken
@@ -80,13 +97,21 @@ class BeamNGExporter:
         from ..utils.timing import StepTimer
 
         timer = StepTimer()
-        stats = {"tiles_processed": 0, "tiles_failed": 0, "buildings_exported": 0, "horizon_exported": False}
+        stats = {
+            "tiles_processed": 0,
+            "tiles_failed": 0,
+            "buildings_exported": 0,
+            "horizon_exported": False,
+            "forests_registered": 0,  # NEU
+            "trees_generated": 0,  # NEU
+        }
 
         print(f"\n{'='*60}")
         print(f"BEAMNG LEVEL EXPORT")
         print(f"{'='*60}")
         print(f"Tiles: {len(tiles)}")
         print(f"Global Offset: {global_offset}")
+        print(f"Forests: {'Yes' if include_forests else 'No'}")  # NEU
         print(f"{'='*60}\n")
 
         # Speichere global_offset für Spawn-Punkt-Berechnung
@@ -97,6 +122,29 @@ class BeamNGExporter:
         config.BEAMNG_DIR_TEXTURES.mkdir(parents=True, exist_ok=True)
         config.BEAMNG_DIR_BUILDINGS.mkdir(parents=True, exist_ok=True)
         config.CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
+        # NEU: Phase 0 - Forest Asset Initialization (DIREKT VOR Tile-Loop)
+        registered_trees = {}
+        if include_forests:
+            timer.begin("Forest Asset Scanning")
+
+            # Importiere und nutze Asset Scanner direkt
+            from ..forest.forest_asset_scanner import ForestAssetScanner
+
+            asset_scanner = ForestAssetScanner(
+                base_dir=Path(config.BEAMNG_DIR), material_manager=self.materials, item_manager=self.items
+            )
+            registered_trees = asset_scanner.scan_and_register_trees()
+            stats["forests_registered"] = len(registered_trees)
+
+            print(f"\n✓ {stats['forests_registered']} Baumarten registriert\n")
+
+            # Setze Forest-Konfiguration (initialisiert Normalizer, InstanceGenerator, JSONWriter)
+            self.forests.set_forest_config(
+                self.forest_config,
+                osm_mapper=config.OSM_MAPPER,
+                registered_trees=registered_trees,
+            )
 
         # Sammle alle Gebäude über alle Tiles
         all_buildings = []
@@ -158,6 +206,23 @@ class BeamNGExporter:
             y_max = tile_y_local + large_tile_size
             tile_bounds_local.append((x_min, y_min, x_max, y_max))
 
+            # Phase 1b: Forest Processing (pro Tile)
+            if include_forests:
+                forest_result = self.forests.process_tile(
+                    tile_bounds=(x_min, y_min, x_max, y_max),
+                    tile_name=f"T{tile_x:.0f}_{tile_y:.0f}",
+                    elevation_data=result.get("height_points"),
+                    height_grid_info={
+                        "origin": (x_min, y_min),
+                        "spacing": 1.0,
+                        "elevations": result.get("height_elevations"),
+                    },
+                    height_hash=result.get("height_hash"),  # Für Cache-Konsistenz
+                    global_offset=global_offset,  # NEU: Für WGS84-Transformation
+                )
+                if forest_result["status"] == "success":
+                    stats["trees_generated"] += forest_result.get("tree_count", 0)
+
             # Sammle Gebäude-Daten (werden später gruppiert nach Tiles exportiert)
             if include_buildings and result.get("buildings_data"):
                 all_buildings.extend(result["buildings_data"])
@@ -216,7 +281,7 @@ class BeamNGExporter:
         timer.begin("Finalisierung")
 
         # Phase 4: Finalisierung
-        self._finalize_export()
+        self._finalize_export(include_forests)
 
         timer.report()
 
@@ -312,8 +377,8 @@ class BeamNGExporter:
             materialTag1=roof_template.get("material_hints", {}).get("materialTag1", "Building"),
         )
 
-    def _finalize_export(self):
-        """Finalisiere Export: Speichere Materials/Items JSON und Debug-Daten."""
+    def _finalize_export(self, include_forests: bool = False):
+        """Finalisiere Export: Speichere Materials/Items/Forest JSON und Debug-Daten."""
         # Materials (nutze config.MATERIALS_JSON)
         self.materials.save()  # nutzt automatisch config.MATERIALS_JSON
         mat_path = config.BEAMNG_DIR / config.MATERIALS_JSON
@@ -330,6 +395,24 @@ class BeamNGExporter:
         self.items.save_info_json()
         info_path = config.BEAMNG_DIR / "info.json"
         print(f"[✓] Info: {info_path.name}")
+
+        # Forest.json (falls Forests aktiviert)
+        if include_forests:
+            forest_result = self.forests.finalize_forest_export()
+
+            if forest_result["status"] == "success":
+                print(f"[✓] Forest: forest.json ({forest_result['total_trees']} Bäume)")
+
+                # Detaillierte Statistiken
+                stats = forest_result["statistics"]
+                if stats.get("types"):
+                    print(f"    Baumarten:")
+                    for tree_type, count in sorted(stats["types"].items(), key=lambda x: x[1], reverse=True):
+                        print(f"      • {tree_type}: {count}")
+            elif forest_result["status"] == "no_forests":
+                logger.info("Keine Wälder generiert")
+            else:
+                logger.error(f"Forest-Export fehlgeschlagen: {forest_result.get('error')}")
 
         # main.level.json ist NICHT nötig - BeamNG lädt automatisch main/items.level.json
 

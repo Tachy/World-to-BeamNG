@@ -58,7 +58,7 @@ def load_dae_tile(filepath):
             source_id = source.get("id", "")
             float_array = source.find("collada:float_array", ns)
 
-            if float_array is None:
+            if float_array is None or float_array.text is None:
                 continue
 
             # Schnelleres Parsing mit np.fromstring()
@@ -421,7 +421,7 @@ def load_all_dae_files(beamng_dir, items_json_path, resolve_path_func=None):
             dae_path = beamng_dir / PurePosixPath(shape_name)
 
         # Prüfe ob Datei existiert
-        if dae_path and Path(dae_path).exists(): # dae_path can be str or Path. Path(dae_path) makes it always Path
+        if dae_path and Path(dae_path).exists():  # dae_path can be str or Path. Path(dae_path) makes it always Path
             dae_files.append((item_name, dae_path))
             print(f"  [DAE Loader] ✓ {item_name}")
         else:

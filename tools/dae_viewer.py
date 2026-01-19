@@ -129,6 +129,7 @@ class DAETileViewer:
         self.show_roads = saved_layers.get("roads", True)
         self.show_buildings = saved_layers.get("buildings", True)  # Häuser Toggle
         self.show_horizon = saved_layers.get("horizon", True)  # Horizont Toggle
+        self.show_forest = saved_layers.get("forest", True)  # Bäume Toggle
         self.use_textures = saved_layers.get("textures", True)  # Texturen standardmäßig an
         self.show_debug = saved_layers.get("debug", False)  # Debug-Layer (Junctions, Centerlines)
 
@@ -137,8 +138,10 @@ class DAETileViewer:
         self.road_actors = []  # Liste von Road-Mesh-Actors
         self.building_actors = []  # Liste von Building-Mesh-Actors
         self.horizon_actors = []  # Liste von Horizon-Mesh-Actors
+        self.forest_actors = []  # Liste von Forest-Punkt-Actors (Bäume)
         self.debug_actors = []  # Liste von Debug-Actors (Junctions, Centerlines)
         self.debug_loaded = False  # Flag: Debug-Layer bereits geladen?
+        self.forest_loaded = False  # Flag: Forest-Layer bereits geladen?
         self._first_update_view = True  # Flag: Erstes Mal update_view() aufgerufen?
 
         # Lade Grid-Farben aus debug_network.json (für Grid-Ansicht)
@@ -182,7 +185,7 @@ class DAETileViewer:
             # RTX 4090 Tuning: Maximale Shadow-Map Auflösung
             try:
                 for renderer in self.plotter.renderers:
-                    pv.set_new_attribute(renderer, 'shadow_map_size', 8192)  # Maximale Schärfe für High-End GPU!
+                    pv.set_new_attribute(renderer, "shadow_map_size", 8192)  # Maximale Schärfe für High-End GPU!
             except Exception as shadow_e:
                 print(f"  [i] Shadow-Map Tuning fehlgeschlagen: {shadow_e}")
         except Exception as e:
@@ -210,6 +213,7 @@ class DAETileViewer:
         print("  T = Toggle Terrain")
         print("  S = Toggle Straßen")
         print("  H = Toggle Häuser")
+        print("  F = Toggle Wälder (Bäume)")
         print("  D = Toggle Debug (Junctions, Centerlines, Boundaries)")
         print("\nAllgemein:")
         print("  K = Kamera laden | Shift+K = Kamera speichern")
@@ -249,6 +253,12 @@ class DAETileViewer:
             print(f"\n[Häuser] {'AN' if self.show_buildings else 'AUS'}")
             self._update_visibility()
 
+        elif key_lower == "f":
+            # Toggle nur Wälder/Bäume (mit Lazy-Loading beim ersten Toggle)
+            self.show_forest = not self.show_forest
+            print(f"\n[Wälder] {'AN' if self.show_forest else 'AUS'}")
+            self._update_forest_visibility()
+
         if key == "o":
             self.show_horizon = not self.show_horizon
             print(f"\n[Horizont] {'AN' if self.show_horizon else 'AUS'}")
@@ -281,7 +291,7 @@ class DAETileViewer:
             self.reload_dae_file()
 
     def _update_visibility(self):
-        """Aktualisiere Sichtbarkeit der Terrain/Road/Building Actors ohne Reload."""
+        """Aktualisiere Sichtbarkeit der Terrain/Road/Building/Forest Actors ohne Reload."""
         for actor in self.terrain_actors:
             actor.SetVisibility(self.show_terrain)
         for actor in self.road_actors:
@@ -290,6 +300,8 @@ class DAETileViewer:
             actor.SetVisibility(self.show_buildings)
         for actor in self.horizon_actors:
             actor.SetVisibility(self.show_horizon)
+        for actor in self.forest_actors:
+            actor.SetVisibility(self.show_forest)
 
         self._update_active_layers_text()
         self.plotter.render()
@@ -304,6 +316,20 @@ class DAETileViewer:
         # Toggle Visibility
         for actor in self.debug_actors:
             actor.SetVisibility(self.show_debug)
+
+        self._update_active_layers_text()
+        self.plotter.render()
+
+    def _update_forest_visibility(self):
+        """Aktualisiere Sichtbarkeit der Forest-Actors ohne Reload."""
+        if not self.forest_loaded:
+            # Forest-Layer erstmalig laden
+            self._load_forest_layer()
+            self.forest_loaded = True
+
+        # Toggle Visibility
+        for actor in self.forest_actors:
+            actor.SetVisibility(self.show_forest)
 
         self._update_active_layers_text()
         self.plotter.render()
@@ -419,7 +445,7 @@ class DAETileViewer:
 
         # Statuszeilen
         # Oben links: Bedienungsanleitung
-        bedienung = "S: Straßen | T: Terrain | H: Häuser | O: Horizont | D: Debug | X: Texturen | K: Cam | L: Reload | 2xLMB: Jump"
+        bedienung = "S: Straßen | T: Terrain | H: Häuser | F: Wälder | O: Horizont | D: Debug | X: Texturen | K: Cam | L: Reload | 2xLMB: Jump"
         self.plotter.add_text(
             bedienung,
             position="upper_left",
@@ -1284,12 +1310,14 @@ class DAETileViewer:
             return None
 
         # 1. Level-spezifische Pfade (/levels/World_to_BeamNG/...) -> nutze _resolve_beamng_path
-        if texture_path.startswith("/levels/") or texture_path.startswith(str(config.RELATIVE_DIR)): # config.RELATIVE_DIR is PurePosixPath
+        if texture_path.startswith("/levels/") or texture_path.startswith(
+            str(config.RELATIVE_DIR)
+        ):  # config.RELATIVE_DIR is PurePosixPath
             return _resolve_beamng_path(texture_path)
 
         # 2. Asset-Pfade (/assets/materials/...) -> suche in data/assets/
         if texture_path.startswith("/assets/"):
-            rel_path = Path(texture_path[1:]) # Convert to Path to use / operator
+            rel_path = Path(texture_path[1:])  # Convert to Path to use / operator
             # Suche relativ zum aktuellen Verzeichnis
             data_dir = Path(__file__).parent.parent / "data"
             abs_path = data_dir / rel_path
@@ -1307,6 +1335,8 @@ class DAETileViewer:
             active_items.append("S")  # S für Straßen
         if self.show_buildings:
             active_items.append("H")  # H für Häuser
+        if self.show_forest:
+            active_items.append("F")  # F für Forst/Bäume
         if self.show_horizon:
             active_items.append("O")  # O für Horizont
         if self.use_textures:
@@ -1909,6 +1939,33 @@ class DAETileViewer:
         print(
             f"  [Debug] {actor_count} Debug-Actors gerendert ({len(points)} Junctions, {len(lines)} Centerlines, {len(labels)} Labels)"
         )
+
+    def _load_forest_layer(self):
+        """Lade Forest-Layer aus forest.json."""
+        print("  [Forest] Lade Forest-Layer...")
+
+        # Suche forest.json im BEAMNG_DIR/main/ Verzeichnis
+        from forest_loader import load_forest_layer
+
+        forest_json_path = config.BEAMNG_DIR / "main" / "forest.json"
+
+        if not forest_json_path.exists():
+            print(f"  [!] Forest-JSON nicht gefunden: {forest_json_path}")
+            return
+
+        try:
+            # Lade forest.json und erstelle Punkt-Cloud
+            actor = load_forest_layer(self, forest_json_path)
+
+            if actor is not None:
+                print(f"  [✓] Forest-Layer geladen")
+                return
+
+        except Exception as e:
+            print(f"  [!] Fehler beim Laden des Forest-Layers: {e}")
+            import traceback
+
+            traceback.print_exc()
 
     def _on_left_mouse_click(self, obj, event):
         """Handler für linken Doppel-Klick: Setze Kamera-Pivot auf angeklickten Punkt."""

@@ -377,6 +377,7 @@ class TerrainWorkflow:
             "buildings_data": buildings_data,  # Übergebe Gebäude-Daten
             "height_points": local_points,  # Für Spawn-Punkt-Berechnung
             "height_elevations": elevations,  # Für Spawn-Punkt-Berechnung
+            "height_hash": tile_hash,  # Für Cache-Konsistenz in Forest-Workflow
         }
 
     def export_tile(self, tile_x: int, tile_y: int, mesh_data: Dict) -> str:

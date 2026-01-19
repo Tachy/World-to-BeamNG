@@ -138,6 +138,24 @@
                 "materialTag0": "beamng",
                 "materialTag1": "Building"
             }
+        },
+        "tree": {
+            "description": "Baum-Blätter mit Alpha-Test für Forest-System",
+            "class": "Material",
+            "version": 2,
+            "Stages": [
+                {
+                    "useAnisotropic": true,
+                    "specularPower": 0.5,
+                    "pixelSpecular": true
+                }
+            ],
+            "alphaTest": true,
+            "alphaRef": 128,
+            "translucent": false,
+            "doubleSided": true,
+            "groundModelName": "forest",
+            "note": "Für Baum-Instanzen im Forest-System. alphaTest für Blätter-Transparenz, doubleSided für beide Seiten sichtbar."
         }
     }
 }
