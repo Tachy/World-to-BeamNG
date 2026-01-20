@@ -9,6 +9,10 @@ from ..terrain.elevation import get_elevations_for_points
 from ..geometry.coordinates import transformer_to_utm
 from ..config import OSM_MAPPER
 from .. import config
+import logging
+from world_to_beamng.logging_config import LoggerConfig
+
+logger = LoggerConfig.get_logger()
 
 
 def clip_road_polygons(road_polygons, grid_bounds_local, margin=3.0):
@@ -102,7 +106,9 @@ def clip_road_polygons(road_polygons, grid_bounds_local, margin=3.0):
             removed_count += 1
 
     if removed_count > 0 or segment_count > 0:
-        print(f"  Clipping: {removed_count} Strassen entfernt, {segment_count} Punkte ausserhalb des Grids entfernt")
+        logger.info(
+            f"  Clipping: {removed_count} Strassen entfernt, {segment_count} Punkte ausserhalb des Grids entfernt"
+        )
 
     return clipped_roads
 
@@ -208,7 +214,7 @@ def get_road_polygons(roads, bbox, height_points, height_elevations, global_offs
         )
 
     # SCHRITT 2: XY-Resampling (verdichte Centerlines VOR Höhen-Sampling)
-    print(f"  Resample Centerlines auf XY-Ebene...")
+    logger.info(f"  Resample Centerlines auf XY-Ebene...")
     points_before_resampling = sum(len(r["xy_coords"]) for r in temp_roads_xy)
 
     for road in temp_roads_xy:
@@ -220,12 +226,12 @@ def get_road_polygons(roads, bbox, height_points, height_elevations, global_offs
         road["xy_coords"] = resampled_xy
 
     points_after_resampling = sum(len(r["xy_coords"]) for r in temp_roads_xy)
-    print(
+    logger.info(
         f"    -> {points_before_resampling} Punkte → {points_after_resampling} Punkte ({points_after_resampling - points_before_resampling:+d})"
     )
 
     # SCHRITT 3: Batch-Elevation-Lookup auf den resampleten XY-Punkten
-    print(f"  Lade Elevations für {points_after_resampling} resampelte Punkte...")
+    logger.info(f"  Lade Elevations für {points_after_resampling} resampelte Punkte...")
 
     # Sammle alle XY-Punkte für Batch-Lookup
     all_xy_flat = []
@@ -264,10 +270,10 @@ def get_road_polygons(roads, bbox, height_points, height_elevations, global_offs
 
     # SCHRITT 4: Optional - mildes XY-Smoothing (Z bleibt erhalten oder nur leicht geglättet)
     if config.ENABLE_ROAD_SMOOTHING:
-        print(f"  Mildes XY-Smoothing...")
+        logger.info(f"  Mildes XY-Smoothing...")
         road_polygons = smooth_roads_xy_only(road_polygons)
     else:
-        print(f"  Smoothing SKIP (config.ENABLE_ROAD_SMOOTHING=False)")
+        logger.info(f"  Smoothing SKIP (config.ENABLE_ROAD_SMOOTHING=False)")
 
     return road_polygons
 
@@ -439,7 +445,7 @@ def smooth_roads_with_spline(road_polygons):
         road["coords"] = smoothed_coords
         total_points_after += len(smoothed_coords)
 
-    print(
+    logger.info(
         f"    -> {total_points_before} Punkte -> {total_points_after} Punkte ({total_points_after - total_points_before:+d})"
     )
 
@@ -500,7 +506,7 @@ def smooth_roads_xy_only(road_polygons):
 
         road["coords"] = [(p[0], p[1], p[2]) for p in smoothed_arr]
 
-    print(f"    -> {total_points} Punkte geglättet (XY+Z, {iterations} Iter., Weight={weight_center:.2f})")
+    logger.info(f"    -> {total_points} Punkte geglättet (XY+Z, {iterations} Iter., Weight={weight_center:.2f})")
     return road_polygons
 
 
@@ -615,7 +621,7 @@ def smooth_roads_adaptive(road_polygons):
         road["coords"] = smoothed_coords
         total_points_after += len(smoothed_coords)
 
-    print(
+    logger.info(
         f"    -> {total_points_before} Punkte -> {total_points_after} Punkte ({total_points_after - total_points_before:+d})"
     )
 

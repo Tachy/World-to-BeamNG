@@ -7,11 +7,14 @@ Orchestriert den kompletten Terrain-Export-Prozess.
 from typing import Dict, List, Optional, Tuple
 import numpy as np
 from pathlib import Path
+import logging
 
 from .. import config
 from ..core.cache_manager import CacheManager
 from ..managers import MaterialManager, ItemManager, DAEExporter
 from .tile_processor import TileProcessor
+
+logger = logging.getLogger(__name__)
 
 
 class TerrainWorkflow:
@@ -91,7 +94,7 @@ class TerrainWorkflow:
         osm_data = get_osm_data(osm_bbox, height_hash=tile_hash)
 
         if not osm_data:
-            print("  [!] Keine OSM-Daten")
+            logger.warning("  [!] Keine OSM-Daten")
             return {"status": "failed", "reason": "no_osm_data"}
 
         # 5. Straßen extrahieren
@@ -113,7 +116,7 @@ class TerrainWorkflow:
             aerial_dir = Path("data/DOP20")
 
             if aerial_dir.exists() and any(aerial_dir.glob("*.zip")):
-                print("  [i] Verarbeite Luftbilder für dieses Tile...")
+                logger.info("  [i] Verarbeite Luftbilder für dieses Tile...")
                 try:
                     from ..io.aerial import process_aerial_images
                     from .. import config as legacy_config
@@ -136,11 +139,11 @@ class TerrainWorkflow:
                     )
 
                     if num_textures > 0:
-                        print(f"  [OK] {num_textures} Luftbild-Texturen für dieses Tile exportiert")
+                        logger.info(f"  [OK] {num_textures} Luftbild-Texturen für dieses Tile exportiert")
                 except Exception as e:
-                    print(f"  [!] Fehler bei Luftbild-Verarbeitung: {e}")
+                    logger.error(f"  [!] Fehler bei Luftbild-Verarbeitung: {e}")
         else:
-            print(f"  [i] Elevation-Cache vorhanden - Luftbilder werden übersprungen")
+            logger.info(f"  [i] Elevation-Cache vorhanden - Luftbilder werden übersprungen")
 
         # 6b. LoD2-Gebäude laden (wenn aktiviert und noch nicht übergeben)
         if buildings_data is None and config.LOD2_ENABLED:
@@ -167,10 +170,10 @@ class TerrainWorkflow:
             if buildings_cache_path:
                 buildings_data = load_buildings_from_cache(buildings_cache_path)
                 if buildings_data:
-                    print(f"  [OK] {len(buildings_data)} normalisierte Gebäude aus Cache geladen")
+                    logger.info(f"  [OK] {len(buildings_data)} normalisierte Gebäude aus Cache geladen")
 
             if not buildings_data:
-                print("  [i] Keine LoD2-Gebäude gefunden")
+                logger.info("  [i] Keine LoD2-Gebäude gefunden")
 
         # Berechne Grid-Bounds aus lokalen Punkten für Clipping
         grid_bounds_local = (
@@ -532,7 +535,7 @@ class TerrainWorkflow:
         import os
 
         shapes_dir = config.BEAMNG_DIR_SHAPES
-        print(f"  Exportiere {len(tiles_dict)} Tiles als separate DAE-Dateien...")
+        logger.info(f"  Exportiere {len(tiles_dict)} Tiles als separate DAE-Dateien...")
         dae_files = export_separate_tile_daes(
             tiles_dict=tiles_dict,
             output_dir=shapes_dir,
@@ -577,7 +580,7 @@ class TerrainWorkflow:
             self.materials.materials[mat_name] = mat_data
 
         # Erstelle TSStatic-Items für JEDES Tile (separate DAEs!)
-        print(f"  Erstelle {len(dae_files)} TSStatic-Items...")
+        logger.info(f"  Erstelle {len(dae_files)} TSStatic-Items...")
         for dae_filename in dae_files:
             # Extrahiere Tile-Koordinaten: tile_-1000_-1000.dae → "-1000_-1000"
             tile_coords = Path(dae_filename).stem.replace("tile_", "")
@@ -590,5 +593,5 @@ class TerrainWorkflow:
                 overwrite=True,
             )
 
-        print(f"  [OK] {len(dae_files)} Tile-DAEs exportiert")
+        logger.info(f"  [OK] {len(dae_files)} Tile-DAEs exportiert")
         return dae_files

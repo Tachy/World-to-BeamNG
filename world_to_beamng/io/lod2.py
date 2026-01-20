@@ -17,6 +17,9 @@ from typing import List, Dict, Tuple, Optional
 import numpy as np
 from lxml import etree
 import zipfile
+import logging
+from world_to_beamng.logging_config import LoggerConfig
+logger = LoggerConfig.get_logger()
 
 
 def load_citygml_from_zip(zip_path: Path) -> List[etree.Element]:
@@ -39,7 +42,7 @@ def load_citygml_from_zip(zip_path: Path) -> List[etree.Element]:
                         tree = etree.parse(gml_file)
                         buildings.append(tree.getroot())
     except Exception as e:
-        print(f"[!] Fehler beim Laden von {zip_path}: {e}")
+        logger.error(f"[!] Fehler beim Laden von {zip_path}: {e}")
 
     return buildings
 
@@ -214,9 +217,9 @@ def snap_buildings_to_terrain_batch(
     from scipy.spatial import cKDTree
 
     # Erstelle KDTree EINMAL (sehr teuer!)
-    print("  [i] Erstelle KDTree für Terrain-Abfragen...")
+    logger.debug("  [i] Erstelle KDTree für Terrain-Abfragen...")
     tree = cKDTree(height_points)
-    print(f"  [✓] KDTree erstellt ({len(height_points):,} Punkte)")
+    logger.info(f"  [✓] KDTree erstellt ({len(height_points):,} Punkte)")
 
     snapped_buildings = []
     for building_idx, building in enumerate(buildings):
@@ -261,7 +264,7 @@ def snap_buildings_to_terrain_batch(
 
         # Progress-Ausgabe alle 100 Gebäude
         if (building_idx + 1) % 100 == 0:
-            print(f"    {building_idx + 1}/{len(buildings)} Gebäude normalisiert")
+            logger.info(f"    {building_idx + 1}/{len(buildings)} Gebäude normalisiert")
 
     return snapped_buildings
 
@@ -380,23 +383,23 @@ def cache_lod2_buildings(
     cache_file = Path(cache_dir) / f"lod2_{height_hash}.pkl"
 
     if cache_file.exists():
-        print(f"  [i] LoD2-Cache gefunden: {cache_file.name}")
+        logger.debug(f"  [i] LoD2-Cache gefunden: {cache_file.name}")
         return str(cache_file)
 
-    print(f"[9] Lade LoD2-Gebäudedaten aus {lod2_dir}...")
+    logger.info(f"[9] Lade LoD2-Gebäudedaten aus {lod2_dir}...")
 
     lod2_path = Path(lod2_dir)
     if not lod2_path.exists():
-        print(f"  [!] LoD2-Verzeichnis nicht gefunden: {lod2_dir}")
+        logger.error(f"  [!] LoD2-Verzeichnis nicht gefunden: {lod2_dir}")
         return None
 
     # Sammle alle ZIP-Dateien
     zip_files = list(lod2_path.glob("*.zip"))
     if not zip_files:
-        print(f"  [!] Keine ZIP-Dateien in {lod2_dir} gefunden")
+        logger.error(f"  [!] Keine ZIP-Dateien in {lod2_dir} gefunden")
         return None
 
-    print(f"  [i] {len(zip_files)} ZIP-Archive gefunden")
+    logger.debug(f"  [i] {len(zip_files)} ZIP-Archive gefunden")
 
     # ZENTRALE PIPELINE: Parse → BBOX-Filter (UTM) → Normalisierung (EINMAL!)
     all_buildings_raw_utm = []  # RAW UTM-Gebäude vor Filterung
@@ -410,7 +413,7 @@ def cache_lod2_buildings(
             all_buildings_raw_utm.extend(buildings_raw)
             total_parsed += len(buildings_raw)
 
-    print(f"  [i] {total_parsed} Gebäude aus ZIPs geparst")
+    logger.debug(f"  [i] {total_parsed} Gebäude aus ZIPs geparst")
 
     # PHASE 2: BBOX-Filterung in UTM-Koordinaten (VOR Normalisierung!)
     buildings_in_bbox_utm = []
@@ -425,18 +428,18 @@ def cache_lod2_buildings(
         if bbox_utm[0] <= center_x <= bbox_utm[2] and bbox_utm[1] <= center_y <= bbox_utm[3]:
             buildings_in_bbox_utm.append(building)
 
-    print(f"  [i] {len(buildings_in_bbox_utm)} Gebäude in UTM-BBOX gefunden")
+    logger.debug(f"  [i] {len(buildings_in_bbox_utm)} Gebäude in UTM-BBOX gefunden")
 
     # PHASE 3: ZENTRALE Normalisierung EINMAL (danach NIE WIEDER!)
     all_buildings = normalize_buildings_full(buildings_in_bbox_utm, local_offset)
-    print(f"  [✓] {len(all_buildings)} Gebäude normalisiert")
+    logger.info(f"  [✓] {len(all_buildings)} Gebäude normalisiert")
 
     # Pickle-Cache schreiben
     cache_file.parent.mkdir(parents=True, exist_ok=True)
     with open(cache_file, "wb") as f:
         pickle.dump(all_buildings, f)
 
-    print(f"  [✓] {len(all_buildings)} Gebäude gecached")
+    logger.info(f"  [✓] {len(all_buildings)} Gebäude gecached")
 
     return str(cache_file)
 
@@ -476,7 +479,7 @@ def cache_normalized_buildings(
     cache_file = Path(cache_dir) / f"lod2_normalized_{tile_hash}.pkl"
 
     if cache_file.exists():
-        print(f"  [i] Normalisierte LoD2-Cache gefunden: {cache_file.name}")
+        logger.debug(f"  [i] Normalisierte LoD2-Cache gefunden: {cache_file.name}")
         return str(cache_file)
 
     # Normalisiere Gebäude
@@ -487,7 +490,7 @@ def cache_normalized_buildings(
     with open(cache_file, "wb") as f:
         pickle.dump(normalized_buildings, f)
 
-    print(f"  [✓] {len(normalized_buildings)} normalisierte Gebäude gecached")
+    logger.info(f"  [✓] {len(normalized_buildings)} normalisierte Gebäude gecached")
 
     return str(cache_file)
 
@@ -675,7 +678,7 @@ def export_buildings_to_dae(
                     buildings_in_bounds.append(building)
 
         if len(buildings) != len(buildings_in_bounds):
-            print(f"  [LoD2] {len(buildings) - len(buildings_in_bounds)} Gebäude außerhalb Grid-Bounds übersprungen")
+            logger.info(f"  [LoD2] {len(buildings) - len(buildings_in_bounds)} Gebäude außerhalb Grid-Bounds übersprungen")
 
         buildings = buildings_in_bounds
 
@@ -742,7 +745,7 @@ def export_buildings_to_dae(
     exporter = DAEExporter(material_manager=material_manager)
     exporter.export_multi_mesh(output_path=str(dae_file), meshes=meshes, with_uv=True)
 
-    print(f"  [✓] DAE exportiert: {dae_file.name} ({len(buildings)} Gebäude)")
+    logger.info(f"  [✓] DAE exportiert: {dae_file.name} ({len(buildings)} Gebäude)")
 
     return str(dae_file)
 
@@ -830,7 +833,7 @@ def export_materials_json(output_dir: str, material_manager) -> str:
     with open(materials_file, "w", encoding="utf-8") as f:
         json.dump(materials, f, indent=2)
 
-    print(f"  [✓] Materials JSON: {materials_file.name}")
+    logger.info(f"  [✓] Materials JSON: {materials_file.name}")
     return str(materials_file)
 
 

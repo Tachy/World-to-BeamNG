@@ -1,11 +1,13 @@
 """
 Forest Layer Loader für dae_viewer
 
-Lädt forest.json und erstellt Punkt-Instanzen für Bäume.
+Lädt forest.forest4.json und erstellt Punkt-Instanzen für Bäume.
 Alle Bäume werden in EINEM Actor gerendert (optimiert für 30k+ Instanzen).
 """
 
 import json
+from world_to_beamng.logging_config import LoggerConfig
+logger = LoggerConfig.get_logger()
 import numpy as np
 import pyvista as pv
 from pathlib import Path
@@ -25,37 +27,37 @@ TREE_TYPE_COLORS = {
 
 def load_forest_layer(viewer, forest_json_path: Path):
     """
-    Lade Forest-Daten aus forest.json und füge ALLE Bäume als einen einzigen Actor zur Scene hinzu.
+    Lade Forest-Daten aus forest.forest4.json und füge ALLE Bäume als einen einzigen Actor zur Scene hinzu.
 
     Optimiert für 30.000+ Instanzen: Alle Punkte in EINEM PolyData Mesh.
 
     Args:
         viewer: DAETileViewer Instanz
-        forest_json_path: Pfad zur forest.json
+        forest_json_path: Pfad zur forest.forest4.json
     """
 
     if not forest_json_path.exists():
-        print(f"  [!] Forest-JSON nicht gefunden: {forest_json_path}")
+        logger.error(f"  [!] Forest-JSON nicht gefunden: {forest_json_path}")
         return None
 
     try:
         with open(forest_json_path, "r", encoding="utf-8") as f:
             forest_data = json.load(f)
     except Exception as e:
-        print(f"  [!] Fehler beim Laden der Forest-JSON: {e}")
+        logger.error(f"  [!] Fehler beim Laden der Forest-JSON: {e}")
         return None
 
     # Forest.json Format: {"formatVersion": 1, "trees": [...]}
     if not forest_data or "trees" not in forest_data:
-        print(f"  [!] Keine trees in forest.json")
+        logger.error(f"  [!] Keine trees in forest.forest4.json")
         return None
 
     tree_instances = forest_data["trees"]
     if not tree_instances:
-        print(f"  [!] Baum-Instanzen sind leer")
+        logger.error(f"  [!] Baum-Instanzen sind leer")
         return None
 
-    print(f"  [Forest] Lade {len(tree_instances)} Baum-Instanzen in EINEM Actor...")
+    logger.info(f"  [Forest] Lade {len(tree_instances)} Baum-Instanzen in EINEM Actor...")
 
     try:
         # Extrahiere Positionen und Typen
@@ -75,7 +77,7 @@ def load_forest_layer(viewer, forest_json_path: Path):
                 colors.append(color)
 
         if not positions:
-            print(f"  [!] Keine gültigen Positionen gefunden")
+            logger.error(f"  [!] Keine gültigen Positionen gefunden")
             return None
 
         positions_array = np.array(positions, dtype=np.float32)
@@ -101,13 +103,13 @@ def load_forest_layer(viewer, forest_json_path: Path):
         # Speichere Actor-Referenz für Toggle
         viewer.forest_actors.append(actor)
 
-        print(f"  [✓] {len(tree_instances)} Bäume geladen in EINEM Actor")
-        print(f"      Typen: {tree_types}")
+        logger.info(f"  [✓] {len(tree_instances)} Bäume geladen in EINEM Actor")
+        logger.info(f"      Typen: {tree_types}")
 
         return actor
 
     except Exception as e:
-        print(f"  [!] Fehler beim Verarbeiten der Forest-Daten: {e}")
+        logger.error(f"  [!] Fehler beim Verarbeiten der Forest-Daten: {e}")
         import traceback
 
         traceback.print_exc()

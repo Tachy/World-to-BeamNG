@@ -21,6 +21,9 @@ from collections import defaultdict
 from scipy.spatial import cKDTree
 
 from .vertex_manager import VertexManager
+import logging
+from world_to_beamng.logging_config import LoggerConfig
+logger = LoggerConfig.get_logger()
 
 
 def find_all_boundary_loops(
@@ -42,7 +45,7 @@ def find_all_boundary_loops(
     Returns:
         Liste von Loop-Dicts (siehe fill_all_mesh_holes)
     """
-    print("  [Hole-Filling] Suche alle Boundary-Loops...")
+    logger.info("  [Hole-Filling] Suche alle Boundary-Loops...")
 
     if len(faces_list) == 0:
         return []
@@ -64,10 +67,10 @@ def find_all_boundary_loops(
     boundary_edges = set(e for e, count in edge_count_map.items() if count == 1)
 
     if len(boundary_edges) == 0:
-        print(f"    [i] Keine Boundary-Edges gefunden (Mesh ist geschlossen)")
+        logger.debug(f"    [i] Keine Boundary-Edges gefunden (Mesh ist geschlossen)")
         return []
 
-    print(f"    [i] {len(boundary_edges)} Boundary-Edges gefunden")
+    logger.debug(f"    [i] {len(boundary_edges)} Boundary-Edges gefunden")
 
     # === STEP 3: Baue Adjacency-Map nur für Boundary-Edges ===
     adjacency = defaultdict(list)
@@ -132,7 +135,7 @@ def find_all_boundary_loops(
             }
         )
 
-    print(f"    [i] {len(loops)} Loops gefunden")
+    logger.debug(f"    [i] {len(loops)} Loops gefunden")
     return loops
 
 
@@ -207,7 +210,7 @@ def fill_boundary_loop_holes(
         edge_length = np.linalg.norm(v1_pos - v2_pos)
 
         if edge_length > max_edge_length:
-            print(f"        [!] Sehr lange Edge: {edge_length:.1f}m (v{v1} → v{v2})")
+            logger.error(f"        [!] Sehr lange Edge: {edge_length:.1f}m (v{v1} → v{v2})")
 
         # === Vectorisierte Distanz-Berechnung ===
         if len(candidate_set) == 0:
@@ -287,7 +290,7 @@ def fill_all_mesh_holes(
     for loop_idx, loop_dict in enumerate(loops):
         loop_type = "OUTER" if loop_dict["is_outer"] else "ISLAND"
         vert_count = len(loop_dict["vertices"])
-        print(f"  [Loop {loop_idx}] ({loop_type}, {vert_count} Verts) - fülle Lücken...")
+        logger.info(f"  [Loop {loop_idx}] ({loop_type}, {vert_count} Verts) - fülle Lücken...")
 
         new_in_loop = fill_boundary_loop_holes(
             loop_dict,
@@ -298,7 +301,7 @@ def fill_all_mesh_holes(
         )
 
         if new_in_loop > 0:
-            print(f"    → {new_in_loop} Faces eingefügt")
+            logger.info(f"    → {new_in_loop} Faces eingefügt")
 
         total_faces += new_in_loop
 

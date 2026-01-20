@@ -14,6 +14,9 @@ from math import ceil, atan2, degrees
 
 from .. import config
 from ..config import OSM_MAPPER
+import logging
+from world_to_beamng.logging_config import LoggerConfig
+logger = LoggerConfig.get_logger()
 
 
 def smooth_junction_centers_z(junction_fans, vertex_manager):
@@ -113,7 +116,7 @@ def smooth_junction_centers_z(junction_fans, vertex_manager):
         smoothed_count += 1
 
     if smoothed_count > 0:
-        print(f"    -> {smoothed_count} Junctions bearbeitet (max Steigung {max_slope_deg}°)")
+        logger.info(f"    -> {smoothed_count} Junctions bearbeitet (max Steigung {max_slope_deg}°)")
 
 
 def compute_road_uv_coords(centerline_coords, tiling_distance=10.0):
@@ -969,10 +972,10 @@ def _process_road_batch(
 
         # Debug: Prüfe erste Straßen-Z-Werte
         if original_road_idx < 3:
-            print(
-                f"    [DEBUG road_mesh] Road {original_road_idx}: centerline_z_raw={z_vals[0]:.2f}, "
-                f"left_terrain={terrain_left_height[0]:.2f}, right_terrain={terrain_right_height[0]:.2f}"
-            )
+            logger.debug(
+    f"    [DEBUG road_mesh] Road {original_road_idx}: centerline_z_raw={z_vals[0]:.2f}, "
+                    f"left_terrain={terrain_left_height[0]:.2f}, right_terrain={terrain_right_height[0]:.2f}"
+)
 
         # Böschungs-Vertices nur erzeugen, wenn aktiviert
         if config.GENERATE_SLOPES:
@@ -1172,7 +1175,7 @@ def generate_road_mesh_strips(road_polygons, height_points, height_elevations, v
 
                 clipped_roads += clipped_local
 
-                print(f"  Batch {idx}/{len(batches)} fertig (Vertices: {len(batch_vertices):,})")
+                logger.info(f"  Batch {idx}/{len(batches)} fertig (Vertices: {len(batch_vertices):,})")
     else:
         # Single-thread fallback - AUCH mit Batching für Performance!
         max_roads_per_batch = config.MAX_ROADS_PER_BATCH or 500
@@ -1201,17 +1204,17 @@ def generate_road_mesh_strips(road_polygons, height_points, height_elevations, v
             per_road_data.extend(batch_per_road)
             clipped_roads += clipped_local
 
-            print(f"  Batch {idx}/{len(batches)} fertig (Vertices: {len(batch_vertices):,})")
+            logger.info(f"  Batch {idx}/{len(batches)} fertig (Vertices: {len(batch_vertices):,})")
 
     # === Globaler Insert in einem Rutsch ===
-    print(f"  Fuege {len(all_vertices_concat):,} Strassen/Boeschungs-Vertices in einem Rutsch hinzu...")
+    logger.info(f"  Fuege {len(all_vertices_concat):,} Strassen/Boeschungs-Vertices in einem Rutsch hinzu...")
     # WICHTIG: Keine globale Deduplizierung über Roads hinweg!
     # Jede Road hat ihre eigenen Vertices - sie dürfen nicht mit anderen Roads geteilt werden
     # Das würde zu falschen Verbindungen zwischen verschiedenen Roads führen
     # MEGA-OPTIMIZATION: Nutze add_vertices_bulk() statt Loop (100x schneller!)
     global_indices = vertex_manager.add_vertices_bulk(all_vertices_concat)
 
-    print(f"  [OK] VertexManager: {vertex_manager.get_count():,} Vertices nach Strassen")
+    logger.info(f"  [OK] VertexManager: {vertex_manager.get_count():,} Vertices nach Strassen")
 
     junction_fans = {}
     if junction_centers:
@@ -1476,7 +1479,7 @@ def generate_road_mesh_strips(road_polygons, height_points, height_elevations, v
                 debug_file = cache_dir / "junction_129_debug.json"
                 with open(debug_file, "w") as f:
                     json.dump(debug_data, f, indent=2)
-                print(f"✓ Debug-Daten für Junction 129 gespeichert: {debug_file}")
+                logger.debug(f"✓ Debug-Daten für Junction 129 gespeichert: {debug_file}")
 
             # === ERZEUGE FAN-DREIECKE MIT KONSISTENTEN UVS ===
             # WICHTIG: Nutze die sortierte Reihenfolge!
@@ -1504,21 +1507,21 @@ def generate_road_mesh_strips(road_polygons, height_points, height_elevations, v
                     }
                 )
 
-    print(f"  [OK] {len(road_mesh_data)} Strassen-Faces")
+    logger.info(f"  [OK] {len(road_mesh_data)} Strassen-Faces")
     if config.GENERATE_SLOPES:
-        print(f"  [OK] {len(all_slope_faces)} Boeschungs-Faces")
-        print(f"  [OK] Boeschungen OK")
+        logger.info(f"  [OK] {len(all_slope_faces)} Boeschungs-Faces")
+        logger.info(f"  [OK] Boeschungen OK")
     else:
-        print(f"  [i] Boeschungs-Generierung deaktiviert (config.GENERATE_SLOPES=False)")
+        logger.debug(f"  [i] Boeschungs-Generierung deaktiviert (config.GENERATE_SLOPES=False)")
 
     # === Junction Z-Glättung (nach Fan-Triangulation) ===
     if junction_fans:
-        print(f"  Glaette Junction-Zentralpunkte in Z-Richtung...")
+        logger.info(f"  Glaette Junction-Zentralpunkte in Z-Richtung...")
         smooth_junction_centers_z(junction_fans, vertex_manager)
 
-    print(f"  [OK] {len(road_slope_polygons_2d)} Road/Slope-Polygone fuer Grid-Ausschneiden (2D)")
+    logger.info(f"  [OK] {len(road_slope_polygons_2d)} Road/Slope-Polygone fuer Grid-Ausschneiden (2D)")
     if clipped_roads > 0:
-        print(f"  [i] {clipped_roads} Strassen komplett ausserhalb Grid (ignoriert)")
+        logger.debug(f"  [i] {clipped_roads} Strassen komplett ausserhalb Grid (ignoriert)")
 
     # Sammle alle Road-Polygone (2D) für Grid-Conforming
     all_road_polygons_2d = [poly_data["road_polygon"] for poly_data in road_slope_polygons_2d]

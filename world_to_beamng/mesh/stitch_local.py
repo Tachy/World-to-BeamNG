@@ -13,6 +13,9 @@ from collections import defaultdict
 from world_to_beamng import config
 
 from ..utils.debug_exporter import DebugNetworkExporter
+import logging
+from world_to_beamng.logging_config import LoggerConfig
+logger = LoggerConfig.get_logger()
 
 
 def find_boundary_polygons_in_circle(
@@ -874,11 +877,11 @@ def _triangulate_polygons(polygons, verts, mesh, debug=False):
                 new_faces.append(face_idx)
 
             if debug:
-                print(f"  [Triangulation] Polygon {poly_idx}: {len(indices) // 3} Dreiecke erzeugt (earcut)")
+                logger.info(f"  [Triangulation] Polygon {poly_idx}: {len(indices) // 3} Dreiecke erzeugt (earcut)")
 
         except Exception as e:
             if debug:
-                print(f"  [!] Triangulation Polygon {poly_idx} fehlgeschlagen: {e}")
+                logger.error(f"  [!] Triangulation Polygon {poly_idx} fehlgeschlagen: {e}")
             continue
 
     return new_faces

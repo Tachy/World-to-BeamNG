@@ -9,6 +9,9 @@ Output: Pro Tile separate Vertices + Faces + Material-Zuordnung.
 
 import numpy as np
 from collections import defaultdict
+import logging
+from world_to_beamng.logging_config import LoggerConfig
+logger = LoggerConfig.get_logger()
 
 
 def slice_mesh_into_tiles(
@@ -60,8 +63,8 @@ def slice_mesh_into_tiles(
     tile_y_min = int(np.floor(y_min / tile_size))
     tile_y_max = int(np.floor(y_max / tile_size))  # Nicht ceil()!
 
-    print(f"  Slicing Mesh in {tile_size}m Tiles...")
-    print(f"    Tile-Range: X [{tile_x_min}...{tile_x_max}], Y [{tile_y_min}...{tile_y_max}]")
+    logger.info(f"  Slicing Mesh in {tile_size}m Tiles...")
+    logger.info(f"    Tile-Range: X [{tile_x_min}...{tile_x_max}], Y [{tile_y_min}...{tile_y_max}]")
 
     # Sammle Faces pro Tile
     tiles_data = {}  # Verwende normales Dict statt defaultdict (schneller)
@@ -382,7 +385,7 @@ def slice_mesh_into_tiles(
                 ),
             }
 
-    print(f"  [OK] {len(result)} Tiles erstellt (mit Clipping)")
+    logger.info(f"  [OK] {len(result)} Tiles erstellt (mit Clipping)")
     return result
 
     return result

@@ -4,10 +4,11 @@ Forest Asset Scanner
 
 Scannt BeamNG's vorhandene Baum-Assets (DAE + DDS) und registriert:
 1. Tree-Materials in materials.json (via MaterialManager)
-2. ForestItemData in items.level.json (via ItemManager)
+2. ForestItemData in main/forestItemData.json (direkt als JSON Objekt)
 3. Forest-Objekt in items.level.json (via ItemManager)
 """
 
+import json
 import logging
 from pathlib import Path
 from typing import Dict, List, Tuple
@@ -37,7 +38,7 @@ class ForestAssetScanner:
 
     def scan_and_register_trees(self) -> Dict[str, Dict]:
         """
-        Scanne Assets und registriere Materials + Items.
+        Scanne Assets und registriere Materials + forestItemData.json.
 
         Returns:
             Dict[tree_name, tree_info] mit allen registrierten Bäumen
@@ -56,16 +57,30 @@ class ForestAssetScanner:
         combinations = self._find_tree_combinations(dae_files, textures_by_type)
         logger.info(f"Erstellt: {len(combinations)} Tree-Kombinationen")
 
-        # 4. Registriere Materials
+        # 4. Registriere Materials und sammle ForestItemData
         registered_trees = {}
+        forest_item_data = {}  # Objekt für forestItemData.json (Key: tree_name)
+
         for combo in combinations:
             tree_info = self._register_tree_complete(combo)
             if tree_info:
                 registered_trees[tree_info["name"]] = tree_info
 
+                # Sammle ForestItemData (Dictionary mit Baumnamen als Keys)
+                forest_item_data[tree_info["name"]] = {
+                    "name": tree_info["name"],
+                    "class": "TSForestItemData",
+                    "shapeFile": tree_info["dae_path"],
+                    "collidable": True,
+                    "radius": tree_info["radius"],
+                }
+
         logger.info(f"Registriert: {len(registered_trees)} Bäume")
 
-        # 5. Registriere zentrales Forest-Objekt
+        # 5. Schreibe forestItemData.json
+        self._write_forest_item_data(forest_item_data)
+
+        # 6. Registriere zentrales Forest-Objekt
         self._register_forest_object()
 
         logger.info("=== Forest Asset Scanner abgeschlossen ===")
@@ -186,7 +201,7 @@ class ForestAssetScanner:
 
     def _register_tree_complete(self, combo: Dict) -> Dict:
         """
-        Registriere Material + ForestItemData für einen Baum.
+        Registriere Material für einen Baum (ForestItemData wird separat gesammelt).
 
         Args:
             combo: Dict mit "name", "dae_path", "textures"
@@ -221,6 +236,7 @@ class ForestAssetScanner:
                 name=material_name,
                 template="tree",  # Nutzt Tree-Template
                 mapTo=material_name,
+                **{"class": "Material"},  # WICHTIG: BeamNG requires explicit class attribute!
                 Stages=[stages],
                 alphaTest=True,  # Wichtig für Blätter!
                 alphaRef=128,  # Schwellenwert
@@ -234,7 +250,7 @@ class ForestAssetScanner:
             logger.error(f"Fehler bei Material-Registrierung für {tree_name}: {e}")
             return None
 
-        # 2. Registriere ForestItemData
+        # 2. Präpariere DAE-Pfad für ForestItemData
         try:
             # Konvertiere DAE-Pfad zu relativem BeamNG-Pfad
             dae_rel_path = dae_path.relative_to(self.base_dir)
@@ -251,20 +267,10 @@ class ForestAssetScanner:
             elif "small" in dae_path.stem.lower():
                 radius = 1.0
 
-            # Registriere ForestItemData
-            self.item_manager.add_item(
-                name=tree_name,  # WICHTIG: Dieser Name wird in forest.json als "type" genutzt!
-                item_class="ForestItemData",
-                shape_name=dae_beamng_path,  # ShapeFile
-                collidable=True,
-                radius=radius,
-                overwrite=True,
-            )
-
-            logger.info(f"✓ ForestItemData registriert: {tree_name}")
+            logger.info(f"✓ ForestItemData vorbereitet: {tree_name}")
 
         except Exception as e:
-            logger.error(f"Fehler bei ForestItemData-Registrierung für {tree_name}: {e}")
+            logger.error(f"Fehler bei ForestItemData-Vorbereitung für {tree_name}: {e}")
             return None
 
         # Erfolg!
@@ -279,13 +285,39 @@ class ForestAssetScanner:
             "radius": radius,
         }
 
+    def _write_forest_item_data(self, forest_item_data: Dict[str, Dict]) -> None:
+        """
+        Schreibe ForestItemData in main/forestItemData.json (JSON Objekt-Format).
+
+        Args:
+            forest_item_data: Dict mit Baumnamen als Keys und TSForestItemData Objekten als Values
+        """
+        if not forest_item_data:
+            logger.warning("Keine ForestItemData zum Schreiben vorhanden")
+            return
+
+        try:
+            # Zielverzeichnis
+            output_file = self.base_dir / "main" / "forestItemData.json"
+            output_file.parent.mkdir(parents=True, exist_ok=True)
+
+            # Schreibe als JSON Objekt
+            with open(output_file, "w", encoding="utf-8") as f:
+                json.dump(forest_item_data, f, indent=2, ensure_ascii=False)
+
+            logger.info(f"✓ forestItemData.json geschrieben (JSON Objekt): {len(forest_item_data)} Einträge")
+            logger.debug(f"  Pfad: {output_file}")
+
+        except Exception as e:
+            logger.error(f"Fehler beim Schreiben von forestItemData.json: {e}")
+
     def _register_forest_object(self):
         """Registriere zentrales Forest-Objekt."""
         try:
             self.item_manager.add_item(
                 name="the_forest",
                 item_class="Forest",
-                dataFile="levels/world_to_beamng/main/forest.json",
+                dataFile="levels/world_to_beamng/main/forest.forest4.json",
                 lodScale=1.0,
                 overwrite=True,
             )

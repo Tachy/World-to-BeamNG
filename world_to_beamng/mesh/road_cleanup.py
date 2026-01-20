@@ -6,6 +6,9 @@ Clippt Road-Faces an Grid-Grenzen und retrianguliert überstehende Dreiecke.
 
 import numpy as np
 from shapely.geometry import Polygon, box
+import logging
+from world_to_beamng.logging_config import LoggerConfig
+logger = LoggerConfig.get_logger()
 
 
 def clip_road_mesh_data(road_mesh_data, vertex_manager, grid_bounds_local):
@@ -55,10 +58,10 @@ def clip_road_mesh_data(road_mesh_data, vertex_manager, grid_bounds_local):
             data_to_clip.append((face_data, (v0, v1, v2)))
 
     if not data_to_clip:
-        print(f"  [Road-Cleanup] Alle {len(data_to_keep)} Road-Faces innerhalb Grid")
+        logger.info(f"  [Road-Cleanup] Alle {len(data_to_keep)} Road-Faces innerhalb Grid")
         return data_to_keep
 
-    print(f"  [Road-Cleanup] Clippe {len(data_to_clip)} teilweise überstehende Road-Faces...")
+    logger.info(f"  [Road-Cleanup] Clippe {len(data_to_clip)} teilweise überstehende Road-Faces...")
 
     # Phase 2: Clippe überstehende Faces
     clipped_count = 0
@@ -118,7 +121,7 @@ def clip_road_mesh_data(road_mesh_data, vertex_manager, grid_bounds_local):
                 )
                 clipped_count += 1
 
-    print(f"  [Road-Cleanup] {clipped_count} neue Dreiecke nach Clipping, {len(data_to_keep)} total")
+    logger.info(f"  [Road-Cleanup] {clipped_count} neue Dreiecke nach Clipping, {len(data_to_keep)} total")
 
     return data_to_keep
 

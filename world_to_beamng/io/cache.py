@@ -11,6 +11,9 @@ import hashlib
 from pathlib import Path
 
 from .. import config
+import logging
+from world_to_beamng.logging_config import LoggerConfig
+logger = LoggerConfig.get_logger()
 
 
 def get_bbox_hash(bbox):
@@ -65,10 +68,10 @@ def load_from_cache(bbox, data_type, height_hash=None):
         try:
             with open(cache_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
-                print(f"  [OK] {data_type.upper()}-Daten aus Cache geladen ({cache_path})")
+                logger.info(f"  [OK] {data_type.upper()}-Daten aus Cache geladen ({cache_path})")
                 return data
         except Exception as e:
-            print(f"  [!] Fehler beim Laden des Caches: {e}")
+            logger.error(f"  [!] Fehler beim Laden des Caches: {e}")
     return None
 
 
@@ -95,9 +98,9 @@ def save_to_cache(bbox, data_type, data, height_hash=None):
     try:
         with open(cache_path, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2)
-        print(f"  [OK] {data_type.upper()}-Daten im Cache gespeichert ({cache_path})")
+        logger.info(f"  [OK] {data_type.upper()}-Daten im Cache gespeichert ({cache_path})")
     except Exception as e:
-        print(f"  [!] Fehler beim Speichern des Caches: {e}")
+        logger.error(f"  [!] Fehler beim Speichern des Caches: {e}")
 
 
 def load_height_hashes():
@@ -124,9 +127,9 @@ def load_height_hashes():
                         continue
                     filename, hash_value = line.split(":", 1)
                     hashes[filename.strip()] = hash_value.strip()
-            print(f"  [OK] {len(hashes)} Height-Data-Hashes geladen aus height_data_hash.txt")
+            logger.info(f"  [OK] {len(hashes)} Height-Data-Hashes geladen aus height_data_hash.txt")
         except Exception as e:
-            print(f"  [!] Fehler beim Laden von height_data_hash.txt: {e}")
+            logger.error(f"  [!] Fehler beim Laden von height_data_hash.txt: {e}")
 
     return hashes
 
@@ -145,9 +148,9 @@ def save_height_hashes(hashes):
         with open(hash_file, "w", encoding="utf-8") as f:
             for filename in sorted(hashes.keys()):
                 f.write(f"{filename}: {hashes[filename]}\n")
-        print(f"  [OK] {len(hashes)} Height-Data-Hashes in height_data_hash.txt gespeichert")
+        logger.info(f"  [OK] {len(hashes)} Height-Data-Hashes in height_data_hash.txt gespeichert")
     except Exception as e:
-        print(f"  [!] Fehler beim Speichern von height_data_hash.txt: {e}")
+        logger.error(f"  [!] Fehler beim Speichern von height_data_hash.txt: {e}")
 
 
 def calculate_file_hash(filepath: Path, chunk_size=8192):
@@ -172,7 +175,7 @@ def calculate_file_hash(filepath: Path, chunk_size=8192):
                 hash_obj.update(chunk)
         return hash_obj.hexdigest()[:12]
     except Exception as e:
-        print(f"  [!] Fehler beim Berechnen des File-Hash: {e}")
+        logger.error(f"  [!] Fehler beim Berechnen des File-Hash: {e}")
         return None
 
 
@@ -240,9 +243,9 @@ def clear_all_caches():
                 cache_file_path.unlink()
                 deleted_count += 1
             except Exception as e:
-                print(f"  [!] Fehler beim Löschen von {cache_file_path.name}: {e}")
+                logger.error(f"  [!] Fehler beim Löschen von {cache_file_path.name}: {e}")
 
     if deleted_count > 0:
-        print(f"  [OK] {deleted_count} Cache-Datei(en) gelöscht")
+        logger.info(f"  [OK] {deleted_count} Cache-Datei(en) gelöscht")
 
     return deleted_count

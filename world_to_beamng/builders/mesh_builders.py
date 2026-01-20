@@ -10,6 +10,9 @@ import numpy as np
 from .. import config
 from ..mesh.mesh import Mesh
 from ..mesh.vertex_manager import VertexManager
+import logging
+from world_to_beamng.logging_config import LoggerConfig
+logger = LoggerConfig.get_logger()
 
 
 class TerrainMeshBuilder:
@@ -167,16 +170,16 @@ class TerrainMeshBuilder:
 
             mesh_obj = Mesh(self._vertex_manager)
 
-            print(f"  [DEBUG] Füge {len(terrain_faces)} Terrain-Faces zu mesh_obj hinzu...")
+            logger.debug(f"  [DEBUG] Füge {len(terrain_faces)} Terrain-Faces zu mesh_obj hinzu...")
             # Füge Terrain-Faces MIT Material hinzu (UVs werden später via compute_terrain_uvs_batch() berechnet)
             for face_idx, face in enumerate(terrain_faces):
                 mesh_obj.add_face(face[0], face[1], face[2], material="terrain")
 
-            print(f"  [DEBUG] mesh_obj hat jetzt {len(mesh_obj.faces)} Faces")
+            logger.debug(f"  [DEBUG] mesh_obj hat jetzt {len(mesh_obj.faces)} Faces")
 
             # NEU: Füge Road-Faces MIT OSM-mapped Material hinzu
             if self._road_mesh_data is not None:
-                print(f"  [DEBUG] Füge {len(self._road_mesh_data)} Road-Faces zu mesh_obj hinzu...")
+                logger.debug(f"  [DEBUG] Füge {len(self._road_mesh_data)} Road-Faces zu mesh_obj hinzu...")
 
                 # Nutze übergebene road_material_map (falls vorhanden) oder baue neue
                 if self._road_material_map:
@@ -206,7 +209,7 @@ class TerrainMeshBuilder:
                     mat_name = mat_tuple[0] if isinstance(mat_tuple, tuple) else mat_tuple
                     mesh_obj.add_face(v0, v1, v2, material=mat_name, uv_coords=uv_coords)
 
-                print(f"  [DEBUG] mesh_obj hat jetzt {len(mesh_obj.faces)} Faces (nach Road-Faces)")
+                logger.debug(f"  [DEBUG] mesh_obj hat jetzt {len(mesh_obj.faces)} Faces (nach Road-Faces)")
 
             # Berechne Grid-Bounds aus grid_points (für tile_bounds)
             x_min = float(grid_points[:, 0].min())
@@ -216,7 +219,7 @@ class TerrainMeshBuilder:
             tile_bounds = (x_min, x_max, y_min, y_max)
 
             # === Verbinde offene Terrain↔Straßen-Grenzen (KRITISCH VOR stitch_gaps!) ===
-            print(f"  [i] Fülle offene Terrain↔Straßen-Grenzen an Tile-Grenze...")
+            logger.debug(f"  [i] Fülle offene Terrain↔Straßen-Grenzen an Tile-Grenze...")
             from ..mesh.stitch_terrain_roads import stitch_terrain_to_roads
 
             terrain_road_faces = stitch_terrain_to_roads(
@@ -238,19 +241,19 @@ class TerrainMeshBuilder:
             )
 
             # Update terrain_faces mit neuen Faces
-            print(f"  [DEBUG] mesh_obj hat nach Stitching {len(mesh_obj.faces)} Faces")
+            logger.debug(f"  [DEBUG] mesh_obj hat nach Stitching {len(mesh_obj.faces)} Faces")
 
             # KRITISCH: Entferne doppelte Faces (gleiches Set von Vertices)!
             # Stitching kann Faces erstellen die bereits als Road-Faces existieren!
-            print(f"  [DEBUG] Entferne doppelte Faces...")
+            logger.debug(f"  [DEBUG] Entferne doppelte Faces...")
             removed = mesh_obj.cleanup_duplicate_faces()
-            print(f"  [DEBUG] {removed} doppelte Faces entfernt, {len(mesh_obj.faces)} Faces verbleiben")
+            logger.debug(f"  [DEBUG] {removed} doppelte Faces entfernt, {len(mesh_obj.faces)} Faces verbleiben")
 
             terrain_faces = mesh_obj.faces
 
             # ZENTRALE UV-VERWALTUNG:
             # 1. Speichere Road-UV-Daten BEVOR Terrain-UVs berechnet werden
-            print("  Speichere Road-UV-Daten...")
+            logger.info("  Speichere Road-UV-Daten...")
             road_uv_data = mesh_obj.preserve_road_uvs()
 
             # 2. Berechne Terrain-UVs (respektiert Road-UVs)

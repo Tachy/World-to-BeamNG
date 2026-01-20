@@ -7,10 +7,13 @@ Orchestriert die Horizon-Layer-Generierung.
 from typing import Tuple, Optional
 from pathlib import Path
 import numpy as np
+import logging
 
 from .. import config
 from ..core.cache_manager import CacheManager
 from ..managers import MaterialManager, ItemManager, DAEExporter
+
+logger = logging.getLogger(__name__)
 
 
 class HorizonWorkflow:
@@ -67,7 +70,7 @@ class HorizonWorkflow:
 
         # Prüfe ob Phase 5 aktiviert ist
         if not config.PHASE5_ENABLED:
-            print("  [i] Phase 5 ist deaktiviert")
+            logger.info("  [i] Phase 5 ist deaktiviert")
             return None, []
 
         # Berechne Horizont-BBOX (±50km um Kerngebiet)
@@ -75,28 +78,28 @@ class HorizonWorkflow:
         horizon_bbox = (ox - 50000, ox + 50000, oy - 50000, oy + 50000)
         x_min, x_max, y_min, y_max = horizon_bbox
 
-        print(f"  [i] Horizont-BBOX: ±50km um ({ox:.0f}, {oy:.0f})")
-        print(f"      UTM (EPSG:25832): X=[{x_min:.0f}..{x_max:.0f}], Y=[{y_min:.0f}..{y_max:.0f}]")
-        print(f"      Breite: {x_max - x_min:.0f}m, Höhe: {y_max - y_min:.0f}m")
+        logger.info(f"  [i] Horizont-BBOX: ±50km um ({ox:.0f}, {oy:.0f})")
+        logger.info(f"      UTM (EPSG:25832): X=[{x_min:.0f}..{x_max:.0f}], Y=[{y_min:.0f}..{y_max:.0f}]")
+        logger.info(f"      Breite: {x_max - x_min:.0f}m, Höhe: {y_max - y_min:.0f}m")
 
         # === DGM30 laden ===
-        print("  [i] Lade DGM30-Daten (30m)...")
+        logger.info("  [i] Lade DGM30-Daten (30m)...")
         dgm30_dir = config.DGM30_DATA_DIR
         height_points, height_elevations = load_dgm30_tiles(
             dgm30_dir, horizon_bbox, local_offset=global_offset, tile_hash=tile_hash
         )
 
         if height_points is None:
-            print("  [!] DGM30-Daten nicht gefunden - Phase 5 übersprungen")
+            logger.warning("  [!] DGM30-Daten nicht gefunden - Phase 5 übersprungen")
             return None, []
 
         # === Mesh generieren ===
-        print("  [i] Generiere Horizont-Mesh...")
+        logger.info("  [i] Generiere Horizont-Mesh...")
 
         # Nutze GEMEINSAMEN VertexManager nur wenn Boundary-Stitching aktiviert ist
         # Sonst: Separater VertexManager für saubere Architektur
         # === STEP 1: Generiere Horizont-Mesh (separater VM, OHNE UVs noch) ===
-        print("  [i] Generiere Horizont-Mesh...")
+        logger.info("  [i] Generiere Horizont-Mesh...")
 
         # WICHTIG: IMMER separater VM!
         # Boundary-Stitching arbeitet NUR mit dem Horizon-VM
@@ -111,7 +114,7 @@ class HorizonWorkflow:
         # === STEP 2: Boundary-Stitching (falls aktiviert) ===
         stitching_faces = []
         if terrain_mesh is not None and terrain_vertex_manager is not None and config.HORIZON_BOUNDARY_STITCHING:
-            print(f"  [i] Generiere Boundary-Stitching zwischen Terrain und Horizon...")
+            logger.info(f"  [i] Generiere Boundary-Stitching zwischen Terrain und Horizon...")
 
             stitching_faces = stitch_terrain_horizon_boundary(
                 terrain_mesh,
@@ -124,7 +127,7 @@ class HorizonWorkflow:
 
             # Füge Stitching-Faces zum Horizon-Mesh hinzu
             if len(stitching_faces) > 0:
-                print(f"  [i] Füge {len(stitching_faces)} Stitching-Faces zu Horizon-Mesh hinzu...")
+                logger.info(f"  [i] Füge {len(stitching_faces)} Stitching-Faces zu Horizon-Mesh hinzu...")
                 for v0, v1, v2 in stitching_faces:
                     # === Füge Face hinzu ===
                     current_face_idx = len(horizon_mesh.faces)
@@ -135,18 +138,18 @@ class HorizonWorkflow:
                         horizon_mesh.face_props = {}
                     horizon_mesh.face_props[current_face_idx] = {"material": "horizon"}
 
-                print(f"  [✓] {len(stitching_faces)} Stitching-Faces integriert")
+                logger.info(f"  [✓] {len(stitching_faces)} Stitching-Faces integriert")
 
-            print(f"  [i] {len(stitching_faces)} Stitching-Faces generiert")
+            logger.info(f"  [i] {len(stitching_faces)} Stitching-Faces generiert")
 
         # === Sentinel-2 laden (optional) ===
-        print("  [i] Lade Sentinel-2 Satellitenbilder...")
+        logger.info("  [i] Lade Sentinel-2 Satellitenbilder...")
         sentinel2_dir = config.DOP300_DATA_DIR
         sentinel2_data = load_sentinel2_geotiff(sentinel2_dir, horizon_bbox, tile_hash=tile_hash)
 
         texture_info = None
         if sentinel2_data is None:
-            print("  [i] Sentinel-2 nicht vorhanden - Horizont ohne Textur")
+            logger.info("  [i] Sentinel-2 nicht vorhanden - Horizont ohne Textur")
         else:
             horizon_image, bounds_utm, transform = sentinel2_data
 
@@ -155,19 +158,19 @@ class HorizonWorkflow:
             mesh_x_min, mesh_x_max = vertices[:, 0].min(), vertices[:, 0].max()
             mesh_y_min, mesh_y_max = vertices[:, 1].min(), vertices[:, 1].max()
 
-            print(
+            logger.info(
                 f"      Mesh Bounds (lokal): X=[{mesh_x_min:.0f}..{mesh_x_max:.0f}], Y=[{mesh_y_min:.0f}..{mesh_y_max:.0f}]"
             )
-            print(
+            logger.info(
                 f"      Texture Bounds (UTM): X=[{bounds_utm[0]:.0f}..{bounds_utm[2]:.0f}], Y=[{bounds_utm[1]:.0f}..{bounds_utm[3]:.0f}]"
             )
 
             # === Texturierung ===
-            print("  [i] Texturiere Horizont-Mesh...")
+            logger.info("  [i] Texturiere Horizont-Mesh...")
             texture_info = texture_horizon_mesh(vertices, horizon_image, nx, ny, bounds_utm, transform, global_offset)
 
         # === STEP 3: UVs generieren NACH Stitching (für ALL Vertices + Faces!) ===
-        print("  [i] Generiere UVs für Horizont-Mesh (inklusive Stitching)...")
+        logger.info("  [i] Generiere UVs für Horizont-Mesh (inklusive Stitching)...")
         horizon_vertices = horizon_mesh.vertex_manager.vertices
         mesh_x_min = horizon_vertices[:, 0].min()
         mesh_x_max = horizon_vertices[:, 0].max()
@@ -184,10 +187,10 @@ class HorizonWorkflow:
             v = (vertex[1] - mesh_y_min) / max(mesh_height, 1e-10)
             horizon_mesh.uvs.append((u, v))
 
-        print(f"  [✓] {len(horizon_mesh.uvs)} UVs generiert für {len(horizon_vertices)} Vertices")
+        logger.info(f"  [✓] {len(horizon_mesh.uvs)} UVs generiert für {len(horizon_vertices)} Vertices")
 
         # === Export ===
-        print("  [i] Exportiere Horizont DAE...")
+        logger.info("  [i] Exportiere Horizont DAE...")
 
         dae_filename = export_horizon_dae(
             horizon_mesh,
@@ -197,15 +200,15 @@ class HorizonWorkflow:
             global_offset=global_offset,
         )
 
-        print(f"  [✓] Horizon DAE: {dae_filename}")
+        logger.info(f"  [✓] Horizon DAE: {dae_filename}")
 
         # === Materials & Items ===
-        print("  [i] Registriere Materials & Items...")
+        logger.info("  [i] Registriere Materials & Items...")
         texture_path = str(config.RELATIVE_DIR_TEXTURES / "horizon_sentinel2.dds")
         self.materials.add_horizon_material(texture_path)
         self.items.add_horizon(
             dae_filename=dae_filename,
         )
-        print(f"  [i] {len(stitching_faces)} Stitching-Faces für Horizon-Terrain-Verbindung")
+        logger.info(f"  [i] {len(stitching_faces)} Stitching-Faces für Horizon-Terrain-Verbindung")
 
         return str(config.BEAMNG_DIR_SHAPES / dae_filename), stitching_faces

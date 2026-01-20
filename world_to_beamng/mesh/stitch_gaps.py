@@ -12,6 +12,9 @@ from .fill_all_mesh_holes import fill_all_mesh_holes
 from ..config import OSM_MAPPER
 from .stitch_local import find_boundary_polygons_in_circle
 from ..utils.debug_exporter import DebugNetworkExporter
+import logging
+from world_to_beamng.logging_config import LoggerConfig
+logger = LoggerConfig.get_logger()
 
 
 def stitch_all_gaps(
@@ -36,13 +39,13 @@ def stitch_all_gaps(
         debug_stop_at_circle: Optional int - Stoppe nach diesem Suchkreis (1-basiert) bei debug_stop_at_road
                              Alle bis dahin gefundenen Polygone werden mit _export_boundary_polygons_to_debug geloggt
     """
-    print("  Stitche Terrain-Gaps entlang Centerlines...")
+    logger.info("  Stitche Terrain-Gaps entlang Centerlines...")
     if filter_road_id is not None:
-        print(f"  [Filter] Nur Straße mit road_id={filter_road_id}")
+        logger.info(f"  [Filter] Nur Straße mit road_id={filter_road_id}")
     if filter_junction_id is not None:
-        print(f"  [Filter] Nur Junction mit id={filter_junction_id}")
+        logger.info(f"  [Filter] Nur Junction mit id={filter_junction_id}")
     if debug_stop_at_road is not None:
-        print(f"  [DEBUG] Stoppe nach Straße #{debug_stop_at_road}, Suchkreis #{debug_stop_at_circle}")
+        logger.debug(f"  [DEBUG] Stoppe nach Straße #{debug_stop_at_road}, Suchkreis #{debug_stop_at_circle}")
 
     if not road_data_for_classification:
         return []
@@ -56,7 +59,7 @@ def stitch_all_gaps(
 
     # Junction-Punkte mit Suchkreis prüfen (ZUERST vor Straßen)
     if junction_points:
-        print(f"  Verarbeite {len(junction_points)} Junction-Punkte...")
+        logger.info(f"  Verarbeite {len(junction_points)} Junction-Punkte...")
         for jp_idx, jp in enumerate(junction_points):
             coords = None
             connected_road_tags = []
@@ -133,9 +136,9 @@ def stitch_all_gaps(
 
         valid_road_count += 1
         if debug_stop_at_road is not None:
-            print(f"  [DEBUG] Verarbeite gültige Straße #{valid_road_count}...")
+            logger.debug(f"  [DEBUG] Verarbeite gültige Straße #{valid_road_count}...")
         elif valid_road_count % 50 == 0:
-            print(f"  Verarbeite Straße #{valid_road_count}...")
+            logger.info(f"  Verarbeite Straße #{valid_road_count}...")
 
         total_length = centerline_linestring.length
         num_samples = max(2, int(np.ceil(total_length / dynamic_sample_spacing)) + 1)
@@ -145,7 +148,7 @@ def stitch_all_gaps(
         for distance in sample_distances:
             circle_count += 1
             if filter_road_id is not None or debug_stop_at_road is not None and valid_road_count == debug_stop_at_road:
-                print(f"  [DEBUG] Suchkreis #{circle_count}...")
+                logger.debug(f"  [DEBUG] Suchkreis #{circle_count}...")
 
             sample_pt_2d = centerline_linestring.interpolate(distance)
             distance_frac = distance / total_length if total_length > 0 else 0
@@ -176,21 +179,21 @@ def stitch_all_gaps(
                     or valid_road_count == debug_stop_at_road
                     and circle_count == debug_stop_at_circle
                 ):
-                    print(f"  [DEBUG] Stoppe bei Straße #{valid_road_count}, Suchkreis #{circle_count}")
+                    logger.debug(f"  [DEBUG] Stoppe bei Straße #{valid_road_count}, Suchkreis #{circle_count}")
                     return []
 
     # === STEP 3: Schließe verbliebene Löcher (Inseln, etc.) ===
     holes_filled = 0
     if config.FILL_ALL_MESH_HOLES:
-        print(f"\n  [Hole-Filling] Schließe alle verbliebenen Mesh-Holes...")
+        logger.info(f"\n  [Hole-Filling] Schließe alle verbliebenen Mesh-Holes...")
         holes_filled = fill_all_mesh_holes(
             mesh_obj=mesh,
             vertex_manager=vertex_manager,
             max_edge_length=config.FILL_HOLES_MAX_EDGE_LENGTH,
         )
-        print(f"  [✓] {holes_filled} Faces durch Hole-Filling eingefügt\n")
+        logger.info(f"  [✓] {holes_filled} Faces durch Hole-Filling eingefügt\n")
     else:
-        print(f"  [i] Hole-Filling deaktiviert (config.FILL_ALL_MESH_HOLES=False)")
+        logger.debug(f"  [i] Hole-Filling deaktiviert (config.FILL_ALL_MESH_HOLES=False)")
 
     return []
 

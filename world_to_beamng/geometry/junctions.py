@@ -11,6 +11,9 @@ from shapely.geometry import LineString, Point, MultiPoint, GeometryCollection, 
 from shapely.strtree import STRtree
 
 from .. import config
+import logging
+from world_to_beamng.logging_config import LoggerConfig
+logger = LoggerConfig.get_logger()
 
 
 def detect_junctions_in_centerlines(road_polygons, height_points=None, height_elevations=None):
@@ -863,14 +866,14 @@ def split_roads_at_mid_junctions(road_polygons, junctions, merge_tol=0.5):
 def junction_stats(junctions, road_polygons):
     """Gibt Statistik über erkannte Junctions aus (Produktiv-Einsatz)."""
     if not junctions:
-        print("  [i] Keine Junctions erkannt")
+        logger.debug("  [i] Keine Junctions erkannt")
         return
 
     stats = analyze_junction_types(junctions)
     total_roads = len(road_polygons)
 
-    print(f"  [i] {len(junctions)} Junctions erkannt:")
-    print(f"      - 2 Strassen (Endpunkte treffen):  {stats['two_roads']}")
-    print(f"      - 3 Strassen (T-Junctions):        {stats['three_roads']}")
-    print(f"      - 4 Strassen (X-Junctions):        {stats['four_roads']}")
-    print(f"      - 5+ Strassen:                     {stats['five_plus']}")
+    logger.debug(f"  [i] {len(junctions)} Junctions erkannt:")
+    logger.info(f"      - 2 Strassen (Endpunkte treffen):  {stats['two_roads']}")
+    logger.info(f"      - 3 Strassen (T-Junctions):        {stats['three_roads']}")
+    logger.info(f"      - 4 Strassen (X-Junctions):        {stats['four_roads']}")
+    logger.info(f"      - 5+ Strassen:                     {stats['five_plus']}")

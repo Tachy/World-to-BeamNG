@@ -9,6 +9,9 @@ Parsed .dae Dateien und extrahiert:
 
 # Nutze lxml für schnelleres XML-Parsing (2-3x schneller als xml.etree)
 from lxml import etree as ET
+from world_to_beamng.logging_config import LoggerConfig
+
+logger = LoggerConfig.get_logger()
 import numpy as np
 from pathlib import Path, PurePosixPath
 
@@ -67,12 +70,12 @@ def load_dae_tile(filepath):
 
             technique = source.find("collada:technique_common", ns)
             if technique is None:
-                print(f"[!] technique_common nicht gefunden in source {source_id}")
+                logger.error(f"[!] technique_common nicht gefunden in source {source_id}")
                 continue
 
             accessor = technique.find("collada:accessor", ns)
             if accessor is None:
-                print(f"[!] accessor nicht gefunden in source {source_id}")
+                logger.error(f"[!] accessor nicht gefunden in source {source_id}")
                 continue
 
             stride = int(accessor.get("stride", "3"))
@@ -100,11 +103,11 @@ def load_dae_tile(filepath):
             # Finde p (indices)
             p = triangles.find("collada:p", ns)
             if p is None:
-                print(f"[!] p (indices) nicht gefunden in triangles für tile {tile_name}")
+                logger.error(f"[!] p (indices) nicht gefunden in triangles für tile {tile_name}")
                 continue
 
             if p.text is None:
-                print(f"[!] p.text ist leer in triangles für tile {tile_name}")
+                logger.error(f"[!] p.text ist leer in triangles für tile {tile_name}")
                 continue
 
             # Schnelleres Parsing mit np.fromstring()
@@ -155,8 +158,9 @@ def load_dae_tile(filepath):
                                         tile_vertices_expanded.append(tile_vertices[v_idx])
                                         tile_uvs_expanded.append(tile_uvs[uv_idx])
                                     else:
-                                        print(
-                                            f"[!] Index out of range: v_idx={v_idx}/{len(tile_vertices)}, uv_idx={uv_idx}/{len(tile_uvs)}"
+                                        logger.error(
+                                            f"[!] Index out of range: v_idx={v_idx}/{len(tile_vertices
+)}, uv_idx={uv_idx}/{len(tile_uvs)}"
                                         )
                                         tile_vertices_expanded.append([0, 0, 0])
                                         tile_uvs_expanded.append([0, 0])
@@ -241,10 +245,11 @@ def load_dae_tile(filepath):
             degenerate_count += 1
 
     if degenerate_count > 0:
-        print(
-            f"  [!] WARNUNG: {degenerate_count} degenerierte Faces gefiltert ({100*degenerate_count/len(all_faces):.1f}%)"
+        logger.error(
+            f"  [!] WARNUNG: {degenerate_count} degenerierte Faces gefiltert ({100*degenerate_count/len(all_faces
+):.1f}%)"
         )
-        print(f"      Verbleibende valide Faces: {len(valid_faces)}")
+        logger.info(f"      Verbleibende valide Faces: {len(valid_faces)}")
 
     all_faces = valid_faces
     all_materials = valid_materials
@@ -280,7 +285,7 @@ def load_all_dae_tiles(tiles_dir="tiles_dae"):
     tiles_path = Path(tiles_dir)
 
     if not tiles_path.exists():
-        print(f"Verzeichnis nicht gefunden: {tiles_dir}")
+        logger.error(f"Verzeichnis nicht gefunden: {tiles_dir}")
         return tiles_data
 
     for dae_file in sorted(tiles_path.glob("tile_*.dae")):
@@ -290,10 +295,10 @@ def load_all_dae_tiles(tiles_dir="tiles_dae"):
 
             if len(data["vertices"]) > 0:
                 tiles_data[tile_id] = data
-                print(f"  Tile {tile_id}: {len(data['vertices'])} vertices, {len(data['faces'])} faces")
+                logger.info(f"  Tile {tile_id}: {len(data['vertices'])} vertices, {len(data['faces'])} faces")
 
         except Exception as e:
-            print(f"  Fehler beim Laden von {dae_file}: {e}")
+            logger.error(f"  Fehler beim Laden von {dae_file}: {e}")
 
     return tiles_data
 
@@ -378,7 +383,7 @@ def load_all_dae_files(beamng_dir, items_json_path, resolve_path_func=None):
 
     # Lade items.level.json
     if not items_json_path.exists():
-        print(f"  [!] items.level.json nicht gefunden: {items_json_path}")
+        logger.error(f"  [!] items.level.json nicht gefunden: {items_json_path}")
         return dae_files, tile_data
 
     try:
@@ -395,13 +400,13 @@ def load_all_dae_files(beamng_dir, items_json_path, resolve_path_func=None):
                     item_name = item_data.get("name") or item_data.get("id") or str(len(items))
                     items[item_name] = item_data
                 except json.JSONDecodeError as e:
-                    print(f"  [!] Fehler beim Parsen der Zeile: {e}")
+                    logger.error(f"  [!] Fehler beim Parsen der Zeile: {e}")
                     continue
 
-        print(f"  [DAE Loader] {len(items)} Items gefunden")
+        logger.info(f"  [DAE Loader] {len(items)} Items gefunden")
 
     except Exception as e:
-        print(f"  [!] Fehler beim Laden von items.level.json: {e}")
+        logger.error(f"  [!] Fehler beim Laden von items.level.json: {e}")
         return dae_files, tile_data
 
     # Extrahiere DAE-Pfade aus Items
@@ -423,11 +428,11 @@ def load_all_dae_files(beamng_dir, items_json_path, resolve_path_func=None):
         # Prüfe ob Datei existiert
         if dae_path and Path(dae_path).exists():  # dae_path can be str or Path. Path(dae_path) makes it always Path
             dae_files.append((item_name, dae_path))
-            print(f"  [DAE Loader] ✓ {item_name}")
+            logger.info(f"  [DAE Loader] ✓ {item_name}")
         else:
-            print(f"  [!] DAE nicht gefunden: {shape_name}")
+            logger.error(f"  [!] DAE nicht gefunden: {shape_name}")
 
-    print(f"  [DAE Loader] {len(dae_files)} DAE-Dateien gefunden")
+    logger.info(f"  [DAE Loader] {len(dae_files)} DAE-Dateien gefunden")
 
     # Lade alle DAE-Dateien
     for item_name, dae_path in dae_files:
@@ -435,19 +440,19 @@ def load_all_dae_files(beamng_dir, items_json_path, resolve_path_func=None):
             data = load_dae_tile(dae_path)
             if data:
                 tile_data.append((item_name, data))
-                print(f"  [DAE Loader] ✓ Geladen: {item_name}")
+                logger.info(f"  [DAE Loader] ✓ Geladen: {item_name}")
             else:
-                print(f"  [!] Keine Daten in {item_name}")
+                logger.error(f"  [!] Keine Daten in {item_name}")
         except Exception as e:
-            print(f"  [!] Fehler beim Laden von {item_name}: {e}")
+            logger.error(f"  [!] Fehler beim Laden von {item_name}: {e}")
 
-    print(f"  [DAE Loader] {len(tile_data)} DAE-Dateien erfolgreich geladen")
+    logger.info(f"  [DAE Loader] {len(tile_data)} DAE-Dateien erfolgreich geladen")
     return dae_files, tile_data
 
 
 def load_forest_data(beamng_dir):
     """
-    Lade forest.json zentral.
+    Lade forest.forest4.json zentral.
 
     Args:
         beamng_dir: BeamNG-Verzeichnis (config.BEAMNG_DIR)
@@ -457,19 +462,26 @@ def load_forest_data(beamng_dir):
     """
     import json
 
-    forest_json_path = Path(beamng_dir) / "main" / "forest.json"
+    forest_json_path = Path(beamng_dir) / "main" / "forest.forest4.json"
 
     if not forest_json_path.exists():
-        print(f"  [!] forest.json nicht gefunden: {forest_json_path}")
+        logger.error(f"  [!] forest.forest4.json nicht gefunden: {forest_json_path}")
         return None
 
     try:
+        trees = []
         with open(forest_json_path, "r", encoding="utf-8") as f:
-            forest_data = json.load(f)
-        print(f"  [DAE Loader] ✓ forest.json geladen: {len(forest_data.get('trees', []))} Instanzen")
+            # Lese JSONL-Format: jede Zeile ist ein separates JSON-Objekt
+            for line in f:
+                line = line.strip()
+                if line:  # Ignoriere leere Zeilen
+                    trees.append(json.loads(line))
+
+        forest_data = {"trees": trees}
+        logger.info(f"  [DAE Loader] ✓ forest.forest4.json (JSONL) geladen: {len(trees)} Instanzen")
         return forest_data
     except Exception as e:
-        print(f"  [!] Fehler beim Laden von forest.json: {e}")
+        logger.error(f"  [!] Fehler beim Laden von forest.forest4.json: {e}")
         return None
 
 
@@ -491,14 +503,14 @@ def load_all_viewer_data(beamng_dir, items_json_path, resolve_path_func=None):
         {
             "dae_files": Liste von (item_name, dae_path),
             "tile_data": Liste von (item_name, data),
-            "forest_data": Dict mit forest.json Inhalt oder None,
+            "forest_data": Dict mit forest.forest4.json Inhalt oder None,
             "status": "success" | "partial" | "error"
         }
     """
     result = {"dae_files": [], "tile_data": [], "forest_data": None, "status": "success"}
 
     # Lade DAE-Dateien
-    print("[Loader] Lade alle Viewer-Daten...")
+    logger.info("[Loader] Lade alle Viewer-Daten...")
     dae_files, tile_data = load_all_dae_files(beamng_dir, items_json_path, resolve_path_func)
     result["dae_files"] = dae_files
     result["tile_data"] = tile_data
@@ -513,5 +525,5 @@ def load_all_viewer_data(beamng_dir, items_json_path, resolve_path_func=None):
     if not forest_data:
         result["status"] = "partial"
 
-    print(f"[Loader] ✓ Alle Daten geladen")
+    logger.info(f"[Loader] ✓ Alle Daten geladen")
     return result

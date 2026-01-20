@@ -5,12 +5,16 @@ Extrahiert die Tile-Lade und Verarbeitungslogik aus multitile.py.
 """
 
 import zipfile
+import logging
+from world_to_beamng.logging_config import LoggerConfig
 import numpy as np
 from pathlib import Path
 from typing import Tuple, Optional, Dict, List
 
 from .. import config
 from ..core.cache_manager import CacheManager
+
+logger = LoggerConfig.get_logger()
 
 
 class TileProcessor:
@@ -41,7 +45,7 @@ class TileProcessor:
         """
         filepath = tile.get("filepath")
         if not filepath or not Path(filepath).exists():
-            print(f"  [!] DGM1-Datei fehlt: {filepath}")
+            logger.error(f"  [!] DGM1-Datei fehlt: {filepath}")
             return None, None
 
         # Hash berechnen
@@ -55,7 +59,7 @@ class TileProcessor:
             return cached["points"], cached["elevations"]
 
         # Lade Datei
-        print(f"  [→] Lade DGM1: {Path(filepath).name}")
+        logger.info(f"  [→] Lade DGM1: {Path(filepath).name}")
         points, elevations = self._load_from_zip(filepath)
 
         if points is None or elevations is None:
@@ -97,7 +101,7 @@ class TileProcessor:
                             all_elevations.append(elevations)
 
         except Exception as e:
-            print(f"  [!] Fehler beim Laden von {filepath}: {e}")
+            logger.error(f"  [!] Fehler beim Laden von {filepath}: {e}")
             return None, None
 
         if not all_points:

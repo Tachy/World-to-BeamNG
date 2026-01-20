@@ -6,10 +6,13 @@ Orchestriert den LoD2-Gebäude-Export.
 
 from typing import Dict, List, Optional
 from pathlib import Path
+import logging
 
 from .. import config
 from ..core.cache_manager import CacheManager
 from ..managers import MaterialManager, ItemManager, DAEExporter
+
+logger = logging.getLogger(__name__)
 
 
 class BuildingWorkflow:
@@ -77,7 +80,7 @@ class BuildingWorkflow:
 
         self.dae.export_multi_mesh(output_path=output_path, meshes=meshes, with_uv=True)
 
-        print(f"  [✓] Buildings DAE: {output_path.name} ({len(meshes)} Gebäude)")
+        logger.info(f"  [✓] Buildings DAE: {output_path.name} ({len(meshes)} Gebäude)")
 
         return output_path
 

@@ -10,8 +10,9 @@ import numpy as np
 from typing import List, Tuple, Dict, Optional
 from shapely.geometry import Point, Polygon, MultiPolygon
 from shapely.prepared import prep
+from world_to_beamng.logging_config import LoggerConfig
 
-logger = logging.getLogger(__name__)
+logger = LoggerConfig.get_logger()
 
 
 class ForestPointGenerator:
@@ -108,7 +109,7 @@ class ForestPointGenerator:
             points_before = len(points)
             points = self._filter_points_on_roads(points)
             points_after = len(points)
-            print(
+            logger.debug(
                 f"      [Road Filter] {points_before} → {points_after} Punkte ({points_before - points_after} gefiltert, {self.prep_road_buffer is not None})"
             )
             if points_before > points_after:
@@ -155,7 +156,9 @@ class ForestPointGenerator:
                 filtered.append(pt)
 
         if on_roads > 0:
-            print(f"        [Road Filter DEBUG] {on_roads} Punkte auf Straßen gefunden! Beispiel: {first_road_point}")
+            logger.debug(
+                f"        [Road Filter DEBUG] {on_roads} Punkte auf Straßen gefunden! Beispiel: {first_road_point}"
+            )
 
         return filtered
 

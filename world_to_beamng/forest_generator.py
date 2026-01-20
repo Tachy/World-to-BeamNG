@@ -9,8 +9,9 @@ Generiert zur Runtime forest_types basierend auf:
 
 from typing import Dict, List, Set, Any
 import logging
+from world_to_beamng.logging_config import LoggerConfig
 
-logger = logging.getLogger(__name__)
+logger = LoggerConfig.get_logger()
 
 
 class ForestGenerator:

@@ -12,6 +12,9 @@ import json
 import uuid
 from typing import Dict, Any, Optional, List
 from pathlib import Path
+import logging
+from world_to_beamng.logging_config import LoggerConfig
+logger = LoggerConfig.get_logger()
 
 
 class MaterialManager:
@@ -102,7 +105,7 @@ class MaterialManager:
                     cleaned_templates[name] = cleaned
 
                 num_templates = len(cleaned_templates)
-                print(f"  [✓] Material-Templates geladen: {num_templates} aus JSON")
+                logger.info(f"  [✓] Material-Templates geladen: {num_templates} aus JSON")
 
                 return cleaned_templates
 
@@ -148,7 +151,7 @@ class MaterialManager:
                 with open(config_path, "r", encoding="utf-8") as f:
                     return json.load(f)
             except Exception as e:
-                print(f"  [!] Fehler beim Laden der Config: {e}")
+                logger.error(f"  [!] Fehler beim Laden der Config: {e}")
                 return default_config
 
         return default_config

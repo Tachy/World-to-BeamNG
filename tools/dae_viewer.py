@@ -41,6 +41,8 @@ Texture System:
 """
 
 import pyvista as pv
+from world_to_beamng.logging_config import LoggerConfig
+logger = LoggerConfig.get_logger()
 import numpy as np
 import sys
 import json
@@ -88,23 +90,23 @@ class DAETileViewer:
         # Suche materials.json in config.BEAMNG_DIR/main/
         materials_path = config.BEAMNG_DIR / "main" / "materials.json"
 
-        print(f"Lade Items aus: {items_path}")
+        logger.info(f"Lade Items aus: {items_path}")
 
-        print(f"Lade Materialien aus: {materials_path}")
+        logger.info(f"Lade Materialien aus: {materials_path}")
         if materials_path.exists():
             with open(materials_path, "r", encoding="utf-8") as f:
                 self.materials = json.load(f)
-                print(f"  [✓] {len(self.materials)} Materialien geladen")
+                logger.info(f"  [✓] {len(self.materials)} Materialien geladen")
         else:
             # Generiere materials aus osm_to_beamng.json Config
-            print(f"  [!] {materials_path} nicht gefunden, generiere aus Config...")
+            logger.error(f"  [!] {materials_path} nicht gefunden, generiere aus Config...")
             try:
                 from world_to_beamng.io.lod2 import create_materials_json
 
                 self.materials = create_materials_json()
-                print(f"  [✓] Materials generiert aus Config")
+                logger.info(f"  [✓] Materials generiert aus Config")
             except Exception as e:
-                print(f"  [!] Fehler beim Generieren von Materials: {e}")
+                logger.error(f"  [!] Fehler beim Generieren von Materials: {e}")
                 self.materials = {}
 
         # Lade ALLE Viewer-Daten zentral (DAE + Forest)
@@ -115,11 +117,11 @@ class DAETileViewer:
         self.forest_data = loader_result["forest_data"]
 
         if not self.dae_files:
-            print("Keine DAE-Dateien in items.level.json gefunden!")
+            logger.info("Keine DAE-Dateien in items.level.json gefunden!")
             return
 
         if not self.tile_data:
-            print("Keine Geometrie in DAE-Dateien gefunden!")
+            logger.info("Keine Geometrie in DAE-Dateien gefunden!")
             return
 
         # Initialisiere config_path FRÜH (wird für _load_layers_state benötigt)
@@ -157,9 +159,9 @@ class DAETileViewer:
         self.material_textures = self._load_material_textures()
 
         if self.textures:
-            print(f"  -> {len(self.textures)} Tile-Texturen geladen")
+            logger.info(f"  -> {len(self.textures)} Tile-Texturen geladen")
         if self.material_textures:
-            print(f"  -> {len(self.material_textures)} Material-Texturen geladen")
+            logger.info(f"  -> {len(self.material_textures)} Material-Texturen geladen")
 
         # Debug: Zeige verfügbare Texturen und Material-Zuordnungen
         self._print_texture_debug_info()
@@ -191,9 +193,9 @@ class DAETileViewer:
                 for renderer in self.plotter.renderers:
                     pv.set_new_attribute(renderer, "shadow_map_size", 8192)  # Maximale Schärfe für High-End GPU!
             except Exception as shadow_e:
-                print(f"  [i] Shadow-Map Tuning fehlgeschlagen: {shadow_e}")
+                logger.error(f"  [i] Shadow-Map Tuning fehlgeschlagen: {shadow_e}")
         except Exception as e:
-            print(f"  [i] Lichter-Setup: {e}")
+            logger.debug(f"  [i] Lichter-Setup: {e}")
 
         # Stelle Fensterposition/-größe wieder her
         self._apply_saved_window_state()
@@ -210,20 +212,20 @@ class DAETileViewer:
         # Registriere atexit-Handler als Fallback (für sicheres Speichern beim Exit)
         atexit.register(self._on_close_save_window_state)
 
-        print(f"\nDAE geladen mit Tile-Geometrien")
-        print("\nSteuerung:")
-        print("  X = Toggle Texturen (Rendering ↔ Grid) - triggert Neuaufbau")
-        print("\nLayer ein-/ausblenden OHNE Neuaufbau (in BEIDEN Ansichten verfügbar):")
-        print("  T = Toggle Terrain")
-        print("  S = Toggle Straßen")
-        print("  H = Toggle Häuser")
-        print("  C = Toggle Wälder (Bäume)")
-        print("  D = Toggle Debug (Junctions, Centerlines, Boundaries)")
-        print("\nAllgemein:")
-        print("  K = Kamera laden | Shift+K = Kamera speichern")
-        print("  L = DAE neu laden")
-        print("  Up/Down = Zoom ändern")
-        print("  Doppel-Links-Klick = Kamera auf Punkt setzen (40m Entfernung)")
+        logger.info(f"\nDAE geladen mit Tile-Geometrien")
+        logger.info("\nSteuerung:")
+        logger.info("  X = Toggle Texturen (Rendering ↔ Grid) - triggert Neuaufbau")
+        logger.info("\nLayer ein-/ausblenden OHNE Neuaufbau (in BEIDEN Ansichten verfügbar):")
+        logger.info("  T = Toggle Terrain")
+        logger.info("  S = Toggle Straßen")
+        logger.info("  H = Toggle Häuser")
+        logger.info("  C = Toggle Wälder (Bäume)")
+        logger.debug("  D = Toggle Debug (Junctions, Centerlines, Boundaries)")
+        logger.info("\nAllgemein:")
+        logger.info("  K = Kamera laden | Shift+K = Kamera speichern")
+        logger.info("  L = DAE neu laden")
+        logger.info("  Up/Down = Zoom ändern")
+        logger.info("  Doppel-Links-Klick = Kamera auf Punkt setzen (40m Entfernung)")
 
         self.update_view()
         # Hinweis: _apply_saved_camera_state() wird NICHT beim Start aufgerufen
@@ -246,43 +248,43 @@ class DAETileViewer:
         if key_lower == "s":
             # Toggle nur Roads (kein Neuaufbau)
             self.show_roads = not self.show_roads
-            print(f"\n[Straßen] {'AN' if self.show_roads else 'AUS'}")
+            logger.info(f"\n[Straßen] {'AN' if self.show_roads else 'AUS'}")
             self._update_visibility()
 
         elif key_lower == "t":
             # Toggle nur Terrain (kein Neuaufbau)
             self.show_terrain = not self.show_terrain
-            print(f"\n[Terrain] {'AN' if self.show_terrain else 'AUS'}")
+            logger.info(f"\n[Terrain] {'AN' if self.show_terrain else 'AUS'}")
             self._update_visibility()
 
         elif key_lower == "h":
             # Toggle nur Häuser (kein Neuaufbau)
             self.show_buildings = not self.show_buildings
-            print(f"\n[Häuser] {'AN' if self.show_buildings else 'AUS'}")
+            logger.info(f"\n[Häuser] {'AN' if self.show_buildings else 'AUS'}")
             self._update_visibility()
 
         elif key_lower == "c":
             # Toggle nur Wälder/Bäume (mit Lazy-Loading beim ersten Toggle)
             self.show_forest = not self.show_forest
-            print(f"\n[Wälder] {'AN' if self.show_forest else 'AUS'}")
+            logger.info(f"\n[Wälder] {'AN' if self.show_forest else 'AUS'}")
             self._update_forest_visibility()
 
         if key == "o":
             self.show_horizon = not self.show_horizon
-            print(f"\n[Horizont] {'AN' if self.show_horizon else 'AUS'}")
+            logger.info(f"\n[Horizont] {'AN' if self.show_horizon else 'AUS'}")
             self._update_visibility()
 
         elif key_lower == "x":
             # Toggle Texturen (mit Neuaufbau!)
             self.use_textures = not self.use_textures
-            print(f"\n[{'Rendering' if self.use_textures else 'Grid'}-Ansicht]")
+            logger.info(f"\n[{'Rendering' if self.use_textures else 'Grid'}-Ansicht]")
             self.update_view()
             # Debug-Layer bleiben dauerhaft geladen und ihre Sichtbarkeit wird beibehalten
 
         elif key_lower == "d":
             # Toggle Debug in BEIDEN Ansichten (Rendering und Grid)
             self.show_debug = not self.show_debug
-            print(f"\n[Debug] {'AN' if self.show_debug else 'AUS'}")
+            logger.debug(f"\n[Debug] {'AN' if self.show_debug else 'AUS'}")
             self._update_debug_visibility()
 
         elif key == "K":  # Shift+K (MUSS VOR "k" kommen!)
@@ -368,34 +370,34 @@ class DAETileViewer:
             )
             self.plotter.add_light(fill_light)
         except Exception as e:
-            print(f"[!] Fehler beim Lichter-Setup: {e}")
+            logger.error(f"[!] Fehler beim Lichter-Setup: {e}")
 
     def _print_texture_debug_info(self):
         """Drucke Debug-Informationen über verfügbare Texturen und Material-Zuordnungen."""
-        print("\n[TEXTURE DEBUG INFO]")
-        print("=" * 80)
+        logger.debug("\n[TEXTURE DEBUG INFO]")
+        logger.info("=" * 80)
 
         # Tile-Texturen
         if self.textures:
-            print(f"\n[Tile-Texturen] {len(self.textures)} verfügbar:")
+            logger.info(f"\n[Tile-Texturen] {len(self.textures)} verfügbar:")
             for key in sorted(self.textures.keys())[:10]:  # Zeige erste 10
-                print(f"  • {key}")
+                logger.info(f"  • {key}")
             if len(self.textures) > 10:
-                print(f"  ... und {len(self.textures) - 10} weitere")
+                logger.info(f"  ... und {len(self.textures) - 10} weitere")
         else:
-            print("\n[Tile-Texturen] KEINE gefunden (textures/ Verzeichnis leer?)")
+            logger.info("\n[Tile-Texturen] KEINE gefunden (textures/ Verzeichnis leer?)")
 
         # Material-Texturen
         if self.material_textures:
-            print(f"\n[Material-Texturen] {len(self.material_textures)} gefunden:")
+            logger.info(f"\n[Material-Texturen] {len(self.material_textures)} gefunden:")
             for mat_name in sorted(self.material_textures.keys()):
-                print(f"  • {mat_name}")
+                logger.info(f"  • {mat_name}")
         else:
-            print("\n[Material-Texturen] KEINE gefunden (main.materials.json hat keine Texturen?)")
+            logger.warning("\n[Material-Texturen] KEINE gefunden (main.materials.json hat keine Texturen?)")
 
         # Material-Struktur
         if self.materials:
-            print(f"\n[Materials JSON] {len(self.materials)} Materialien definiert:")
+            logger.info(f"\n[Materials JSON] {len(self.materials)} Materialien definiert:")
             roads = [m for m in self.materials.keys() if "road" in m.lower()]
             buildings = [
                 m for m in self.materials.keys() if "build" in m.lower() or "wall" in m.lower() or "roof" in m.lower()
@@ -403,13 +405,13 @@ class DAETileViewer:
             other = [m for m in self.materials.keys() if m not in roads and m not in buildings]
 
             if roads:
-                print(f"  Roads ({len(roads)}): {', '.join(roads[:3])}")
+                logger.info(f"  Roads ({len(roads)}): {', '.join(roads[:3])}")
             if buildings:
-                print(f"  Buildings ({len(buildings)}): {', '.join(buildings[:3])}")
+                logger.info(f"  Buildings ({len(buildings)}): {', '.join(buildings[:3])}")
             if other:
-                print(f"  Sonstige ({len(other)}): {', '.join(other[:3])}")
+                logger.info(f"  Sonstige ({len(other)}): {', '.join(other[:3])}")
 
-        print("=" * 80 + "\n")
+        logger.info("=" * 80 + "\n")
 
     def update_view(self):
         """Aktualisiere 3D-View."""
@@ -427,7 +429,7 @@ class DAETileViewer:
                     camera_focal = list(cam.focal_point)
                     camera_up = list(cam.up)
             except Exception as e:
-                print(f"[!] Fehler beim Speichern der Kamera vor update_view: {e}")
+                logger.error(f"[!] Fehler beim Speichern der Kamera vor update_view: {e}")
         else:
             # Erster Aufruf - merke dass wir jetzt in den "Reload"-Modus sind
             self._first_update_view = False
@@ -451,12 +453,12 @@ class DAETileViewer:
         self.forest_actors = []
         # Debug-Actors und Forest-Actors wurden durch clear() gelöscht, aber wir laden sie danach wieder
 
-        # WICHTIG: Setze forest_loaded zurück, damit forest.json beim nächsten Zugriff neu geladen wird
+        # WICHTIG: Setze forest_loaded zurück, damit forest.forest4.json beim nächsten Zugriff neu geladen wird
         self.forest_loaded = False
 
         # Iteriere über alle geladenen DAE-Dateien
         for item_name, tile_data in self.tile_data:
-            print(f"Rendere {item_name}...")
+            logger.info(f"Rendere {item_name}...")
             self._render_single_dae(item_name, tile_data)
 
         # Statuszeilen
@@ -479,8 +481,8 @@ class DAETileViewer:
                 self.plotter.reset_camera_clipping_range()
                 self.plotter.render()
 
-                print(f"  [i] Kamera mit view_isometric() positioniert")
-                print(f"      Position: {self.plotter.camera.position}")
+                logger.debug(f"  [i] Kamera mit view_isometric() positioniert")
+                logger.info(f"      Position: {self.plotter.camera.position}")
 
                 # Versuche gespeicherte Kamera zu laden (überschreibt view_isometric)
                 saved_camera = self._load_camera_state()
@@ -495,13 +497,13 @@ class DAETileViewer:
                             self.plotter.camera.up = up
                             self.plotter.reset_camera_clipping_range()
                             self.plotter.render()
-                            print(f"  [✓] Gespeicherte Kamera geladen")
-                            print(f"      Position: {pos}")
+                            logger.info(f"  [✓] Gespeicherte Kamera geladen")
+                            logger.info(f"      Position: {pos}")
                     except Exception as e:
-                        print(f"  [!] Fehler beim Laden der gespeicherten Kamera: {e}")
+                        logger.error(f"  [!] Fehler beim Laden der gespeicherten Kamera: {e}")
 
             except Exception as e:
-                print(f"  [!] Fehler beim Initialisieren der Kamera: {e}")
+                logger.error(f"  [!] Fehler beim Initialisieren der Kamera: {e}")
         else:
             # Reload - stelle alte Kamera wieder her
             try:
@@ -512,7 +514,7 @@ class DAETileViewer:
                 self.plotter.reset_camera_clipping_range()
                 self.plotter.render()
             except Exception as e:
-                print(f"  [!] Fehler beim Wiederherstellen der Kamera: {e}")
+                logger.error(f"  [!] Fehler beim Wiederherstellen der Kamera: {e}")
 
         self._update_camera_status()
 
@@ -526,7 +528,7 @@ class DAETileViewer:
                     # Stelle Sichtbarkeit wieder her
                     actor.SetVisibility(saved_debug_visibility)
                 except Exception as e:
-                    print(f"[!] Fehler beim Wiederherstellen des Debug-Actors: {e}")
+                    logger.error(f"[!] Fehler beim Wiederherstellen des Debug-Actors: {e}")
 
         # Füge Forest-Actors wieder zum Plotter hinzu (falls sie existierten)
         if saved_forest_actors:
@@ -538,7 +540,7 @@ class DAETileViewer:
                     # Stelle Sichtbarkeit wieder her
                     actor.SetVisibility(saved_forest_visibility)
                 except Exception as e:
-                    print(f"[!] Fehler beim Wiederherstellen des Forest-Actors: {e}")
+                    logger.error(f"[!] Fehler beim Wiederherstellen des Forest-Actors: {e}")
 
     def _index_to_coords(self, item_name, tile_index_x, tile_index_y):
         """
@@ -576,7 +578,7 @@ class DAETileViewer:
         tiles_info = tile_data.get("tiles", {})
 
         if len(vertices) == 0:
-            print(f"  [!] {item_name}: Keine Vertices")
+            logger.error(f"  [!] {item_name}: Keine Vertices")
             return
 
         # Bestimme ob Terrain oder Building
@@ -675,7 +677,7 @@ class DAETileViewer:
                         actor.SetVisibility(visibility)
                         terrain_texture_log.append(f"✓ {tile_name} → {lookup_key}")
                     except Exception as e:
-                        print(f"  [!] Textur-Fehler für {tile_name}: {e}")
+                        logger.error(f"  [!] Textur-Fehler für {tile_name}: {e}")
                         terrain_texture_log.append(f"✗ {tile_name} → FEHLER: {str(e)[:40]}")
                         # Fallback zu Farbe
                         actor = self.plotter.add_mesh(
@@ -697,11 +699,11 @@ class DAETileViewer:
 
             # Debug-Output
             if terrain_texture_log:
-                print(f"\n[{item_name}] Terrain-Textur-Zuordnung:")
+                logger.info(f"\n[{item_name}] Terrain-Textur-Zuordnung:")
                 for entry in terrain_texture_log[:5]:  # Zeige erste 5
-                    print(f"  {entry}")
+                    logger.info(f"  {entry}")
                 if len(terrain_texture_log) > 5:
-                    print(f"  ... und {len(terrain_texture_log) - 5} weitere")
+                    logger.info(f"  ... und {len(terrain_texture_log) - 5} weitere")
         else:
             # Grid-Ansicht: Rendere Terrain mit Farben
             if terrain_faces:
@@ -757,9 +759,9 @@ class DAETileViewer:
                             )
                             self.road_actors.append(actor)
                             actor.SetVisibility(self.show_roads)
-                            print(f"  [✓ Road] {road_material}: Textur angewendet ({len(road_faces)} faces)")
+                            logger.info(f"  [✓ Road] {road_material}: Textur angewendet ({len(road_faces)} faces)")
                         except Exception as e:
-                            print(f"  [! Road] {road_material}: Textur-Fehler: {e}. Fallback zu Farbe.")
+                            logger.error(f"  [! Road] {road_material}: Textur-Fehler: {e}. Fallback zu Farbe.")
                             actor = self.plotter.add_mesh(
                                 road_mesh,
                                 color=face_colors["road"],
@@ -777,7 +779,7 @@ class DAETileViewer:
                             actor.SetVisibility(self.show_roads)
                     else:
                         # Fallback: Farbe
-                        print(
+                        logger.info(
                             f"  [○ Road] {road_material}: Textur nicht gefunden. Farbe-Fallback ({len(road_faces)} faces)."
                         )
                         actor = self.plotter.add_mesh(
@@ -828,7 +830,7 @@ class DAETileViewer:
                 if all_uvs:
                     building_uvs = np.vstack(all_uvs)
                     if len(building_uvs) != len(vertices):
-                        print(f"  [!] UV/Vertex Mismatch: {len(building_uvs)} UVs vs {len(vertices)} Vertices")
+                        logger.error(f"  [!] UV/Vertex Mismatch: {len(building_uvs)} UVs vs {len(vertices)} Vertices")
                         building_uvs = None
 
             # Rendere Walls
@@ -851,7 +853,7 @@ class DAETileViewer:
                             diffuse=self.material_diffuse,
                             specular=self.material_specular,
                         )
-                        print(f"  [✓ Walls] {wall_material} mit Textur")
+                        logger.info(f"  [✓ Walls] {wall_material} mit Textur")
                     else:
                         # Fallback: Weiße Farbe
                         actor = self.plotter.add_mesh(
@@ -865,7 +867,7 @@ class DAETileViewer:
                             diffuse=self.material_diffuse,
                             specular=self.material_specular,
                         )
-                        print(f"  [○ Walls] Farbe-Fallback (Material {wall_material} nicht gefunden)")
+                        logger.error(f"  [○ Walls] Farbe-Fallback (Material {wall_material} nicht gefunden)")
                 else:
                     # Grid-Ansicht: Farbe mit Kanten
                     actor = self.plotter.add_mesh(
@@ -904,7 +906,7 @@ class DAETileViewer:
                             diffuse=self.material_diffuse,
                             specular=self.material_specular,
                         )
-                        print(f"  [✓ Roofs] {roof_material} mit Textur")
+                        logger.info(f"  [✓ Roofs] {roof_material} mit Textur")
                     else:
                         # Fallback: Rote Farbe
                         actor = self.plotter.add_mesh(
@@ -918,7 +920,7 @@ class DAETileViewer:
                             diffuse=self.material_diffuse,
                             specular=self.material_specular,
                         )
-                        print(f"  [○ Roofs] Farbe-Fallback (Material {roof_material} nicht gefunden)")
+                        logger.error(f"  [○ Roofs] Farbe-Fallback (Material {roof_material} nicht gefunden)")
                 else:
                     # Grid-Ansicht: Farbe mit Kanten
                     actor = self.plotter.add_mesh(
@@ -1014,29 +1016,29 @@ class DAETileViewer:
             NumPy Array mit UV-Koordinaten (n, 2) oder leeres Array
         """
         if not tiles_info:
-            print(f"  [DEBUG] _extract_building_uvs: tiles_info ist leer")
+            logger.debug(f"  [DEBUG] _extract_building_uvs: tiles_info ist leer")
             return np.array([])
 
-        print(f"  [DEBUG] _extract_building_uvs: tiles_info keys = {list(tiles_info.keys())}")
+        logger.debug(f"  [DEBUG] _extract_building_uvs: tiles_info keys = {list(tiles_info.keys())}")
 
         # Sammle UVs von allen Building-Tiles (sie sind bereits in der richtigen Reihenfolge)
         all_uvs = []
         for tile_name, tile_data in tiles_info.items():
-            print(f"    Checking tile: {tile_name}")
+            logger.info(f"    Checking tile: {tile_name}")
             uvs = tile_data.get("uvs", np.array([]))
             if len(uvs) > 0:
-                print(f"      → Hat UVs: shape={uvs.shape}")
+                logger.info(f"      → Hat UVs: shape={uvs.shape}")
                 all_uvs.append(uvs)
             else:
-                print(f"      → Keine UVs")
+                logger.info(f"      → Keine UVs")
 
         # Kombiniere alle UVs
         if all_uvs:
             combined_uvs = np.vstack(all_uvs)
-            print(f"  [DEBUG] Combined UVs: shape={combined_uvs.shape}, vertices shape={vertices.shape}")
+            logger.debug(f"  [DEBUG] Combined UVs: shape={combined_uvs.shape}, vertices shape={vertices.shape}")
             return combined_uvs
 
-        print(f"  [DEBUG] Keine UVs gefunden!")
+        logger.debug(f"  [DEBUG] Keine UVs gefunden!")
         return np.array([])
 
     def _extract_global_uvs(self, tiles_info, num_vertices):
@@ -1072,7 +1074,7 @@ class DAETileViewer:
             if len(combined_uvs) == num_vertices:
                 return combined_uvs
             else:
-                print(f"  [!] UV-Array Größe stimmt nicht: {len(combined_uvs)} UVs vs {num_vertices} Vertices")
+                logger.error(f"  [!] UV-Array Größe stimmt nicht: {len(combined_uvs)} UVs vs {num_vertices} Vertices")
                 return None
 
         return None
@@ -1131,7 +1133,7 @@ class DAETileViewer:
                 debug_data = json.load(f)
             return debug_data.get("grid_colors", default_colors)
         except Exception as e:
-            print(f"  [!] Fehler beim Laden der Grid-Farben: {e}")
+            logger.error(f"  [!] Fehler beim Laden der Grid-Farben: {e}")
             return default_colors
 
     def _load_textures(self):
@@ -1139,7 +1141,7 @@ class DAETileViewer:
         textures = {}
 
         if not self.textures_dir.exists():
-            print(f"  [!] Textures-Verzeichnis nicht gefunden: {self.textures_dir}")
+            logger.error(f"  [!] Textures-Verzeichnis nicht gefunden: {self.textures_dir}")
             return textures
 
         patterns = ["*.jpg", "*.jpeg", "*.png", "*.dds"]
@@ -1159,7 +1161,7 @@ class DAETileViewer:
                         imageio = importlib.import_module("imageio.v2")
                         img_array = imageio.imread(str(texture_path))
                     except ImportError:
-                        print(f"  [!] imageio nicht verfügbar, überspringe DDS Textur {texture_path.name}")
+                        logger.error(f"  [!] imageio nicht verfügbar, überspringe DDS Textur {texture_path.name}")
                         continue
                 else:
                     img = Image.open(texture_path)
@@ -1171,7 +1173,7 @@ class DAETileViewer:
                 textures[texture_key] = pv.Texture(img_array)
 
             except Exception as e:
-                print(f"  [!] Fehler beim Laden von {texture_path.name}: {e}")
+                logger.error(f"  [!] Fehler beim Laden von {texture_path.name}: {e}")
 
         return textures
 
@@ -1210,9 +1212,9 @@ class DAETileViewer:
                     texture.mipmap = True
                     texture.interpolate = True
                     material_textures[mat_name] = texture
-                    print(f"  [✓] Material-Farbtextur generiert: {mat_name} (diffuseColor)")
+                    logger.info(f"  [✓] Material-Farbtextur generiert: {mat_name} (diffuseColor)")
                 except Exception as e:
-                    print(f"  [!] diffuseColor für {mat_name} konnte nicht erzeugt werden: {e}")
+                    logger.error(f"  [!] diffuseColor für {mat_name} konnte nicht erzeugt werden: {e}")
                 continue
 
             if not texture_path:
@@ -1227,16 +1229,20 @@ class DAETileViewer:
                     rel_path_posix = PurePosixPath(texture_path[1:])
                     data_dir = Path(__file__).parent.parent / "data"
                     abs_path = (data_dir / rel_path_posix).resolve()
-                    print(f"  [!] Material-Textur für {mat_name} nicht gefunden: {abs_path}")
+                    logger.error(f"  [!] Material-Textur für {mat_name} nicht gefunden: {abs_path}")
                 elif texture_path.startswith("/levels/") or texture_path.startswith(str(config.RELATIVE_DIR)):
                     attempted_path = _resolve_beamng_path(texture_path)
-                    print(f"  [!] Material-Textur für {mat_name} nicht gefunden: {attempted_path or texture_path}")
+                    logger.error(
+                        f"  [!] Material-Textur für {mat_name} nicht gefunden: {attempted_path or texture_path}"
+                    )
                 else:
-                    print(f"  [!] Material-Textur für {mat_name} nicht auflösbar: {Path(texture_path).as_posix()}")
+                    logger.error(
+                        f"  [!] Material-Textur für {mat_name} nicht auflösbar: {Path(texture_path).as_posix()}"
+                    )
                 continue
 
             if not Path(abs_texture_path).exists():
-                print(f"  [!] Material-Textur für {mat_name} nicht gefunden: {abs_texture_path}")
+                logger.error(f"  [!] Material-Textur für {mat_name} nicht gefunden: {abs_texture_path}")
                 continue
 
             try:
@@ -1251,12 +1257,12 @@ class DAETileViewer:
                         if img_array.ndim == 3 and img_array.shape[2] == 4:
                             img_array = img_array[:, :, :3]
                     except ImportError:
-                        print(f"  [!] imageio nicht verfügbar, überspringe {mat_name} DDS Textur")
+                        logger.error(f"  [!] imageio nicht verfügbar, überspringe {mat_name} DDS Textur")
                         continue
                 else:
                     img = Image.open(abs_texture_path)
                     img_array = np.array(img.convert("RGB"))
-                    print(f"  [✓] Material-Textur geladen: {mat_name} -> {abs_texture_path.replace('/', os.sep)}")
+                    logger.info(f"  [✓] Material-Textur geladen: {mat_name} -> {abs_texture_path.replace('/', os.sep)}")
 
                 if img_array.ndim == 2:  # Grauwerte -> RGB
                     img_array = np.stack([img_array] * 3, axis=-1)
@@ -1265,9 +1271,9 @@ class DAETileViewer:
                 if diffuse_color:
                     try:
                         img_array = self._apply_diffuse_tint(img_array, diffuse_color)
-                        print(f"  [✓] diffuseColor angewendet: {mat_name}")
+                        logger.info(f"  [✓] diffuseColor angewendet: {mat_name}")
                     except Exception as e:
-                        print(f"  [!] diffuseColor für {mat_name} konnte nicht angewendet werden: {e}")
+                        logger.error(f"  [!] diffuseColor für {mat_name} konnte nicht angewendet werden: {e}")
 
                 texture = pv.Texture(img_array)
                 # Aktiviere Mipmap und Interpolation für bessere Qualität
@@ -1276,7 +1282,7 @@ class DAETileViewer:
                 material_textures[mat_name] = texture
 
             except Exception as e:
-                print(f"  [!] Fehler beim Laden der Material-Textur {mat_name}: {e}")
+                logger.error(f"  [!] Fehler beim Laden der Material-Textur {mat_name}: {e}")
 
         return material_textures
 
@@ -1355,7 +1361,7 @@ class DAETileViewer:
         try:
             self.plotter.remove_actor("active_layers_text")
         except Exception as e:
-            print(f"[!] Fehler beim Entfernen des aktiven Layer-Textes: {e}")
+            logger.error(f"[!] Fehler beim Entfernen des aktiven Layer-Textes: {e}")
 
         try:
             self._active_layers_actor = self.plotter.add_text(
@@ -1365,7 +1371,7 @@ class DAETileViewer:
                 name="active_layers_text",
             )
         except Exception as e:
-            print(f"[!] Fehler beim Erstellen des aktiven Layer-Textes: {e}")
+            logger.error(f"[!] Fehler beim Erstellen des aktiven Layer-Textes: {e}")
             self._active_layers_actor = None
 
     def _update_camera_status(self):
@@ -1380,7 +1386,7 @@ class DAETileViewer:
                 cam.up = [0.0, 0.0, 1.0]
                 cam.view_angle = 30.0
             except Exception as e:
-                print(f"[!] Fehler beim Setzen der Kamera-Eigenschaften: {e}")
+                logger.error(f"[!] Fehler beim Setzen der Kamera-Eigenschaften: {e}")
 
             pos = np.array(cam.position, dtype=float)
             focal = np.array(cam.focal_point, dtype=float)
@@ -1389,7 +1395,7 @@ class DAETileViewer:
             try:
                 up = np.array(cam.up, dtype=float)
             except Exception as e:
-                print(f"[!] Fehler beim Lesen des up-Vektors: {e}")
+                logger.error(f"[!] Fehler beim Lesen des up-Vektors: {e}")
                 up = np.array([0.0, 0.0, 1.0], dtype=float)
 
             forward = focal - pos
@@ -1419,7 +1425,7 @@ class DAETileViewer:
             try:
                 zoom = cam.view_angle
             except Exception as e:
-                print(f"[!] Fehler beim Lesen des Zoom-Werts: {e}")
+                logger.error(f"[!] Fehler beim Lesen des Zoom-Werts: {e}")
                 zoom = 30.0
 
             text = (
@@ -1431,7 +1437,7 @@ class DAETileViewer:
             try:
                 self.plotter.remove_actor("camera_status_text")
             except Exception as e:
-                print(f"[!] Fehler beim Entfernen des Kamera-Status-Textes: {e}")
+                logger.error(f"[!] Fehler beim Entfernen des Kamera-Status-Textes: {e}")
 
             try:
                 self._camera_status_actor = self.plotter.add_text(
@@ -1443,17 +1449,17 @@ class DAETileViewer:
                     name="camera_status_text",
                 )
             except Exception as e:
-                print(f"[!] Fehler beim Erstellen des Kamera-Status-Textes: {e}")
+                logger.error(f"[!] Fehler beim Erstellen des Kamera-Status-Textes: {e}")
                 self._camera_status_actor = None
         except Exception as e:
-            print(f"[!] Fehler in _update_camera_status: {e}")
+            logger.error(f"[!] Fehler in _update_camera_status: {e}")
 
     def _on_camera_change(self, obj, event):
         """Update Statuszeile nach Kamera-Änderungen."""
         try:
             self._update_camera_status()
         except Exception as e:
-            print(f"[!] Fehler in _on_camera_change: {e}")
+            logger.error(f"[!] Fehler in _on_camera_change: {e}")
 
     def _on_render_event(self, obj, event):
         """Update Statuszeile bei RenderEvent mit Drosselung."""
@@ -1463,7 +1469,7 @@ class DAETileViewer:
                 self._render_update_counter = 0
                 self._update_camera_status()
         except Exception as e:
-            print(f"[!] Fehler in _on_render_event: {e}")
+            logger.error(f"[!] Fehler in _on_render_event: {e}")
 
     def _adjust_zoom(self, delta):
         """Ändere Zoom (view_angle) um delta Grad."""
@@ -1477,7 +1483,7 @@ class DAETileViewer:
             self._update_camera_status()
             self.plotter.render()
         except Exception as e:
-            print(f"[!] Fehler beim Ändern des Zoom: {e}")
+            logger.error(f"[!] Fehler beim Ändern des Zoom: {e}")
 
     def _load_config(self):
         """Lade Config-Datei."""
@@ -1506,11 +1512,11 @@ class DAETileViewer:
         """Lade gespeicherte Kamera-Position (K-Taste)."""
         state = self._load_camera_state()
         if not state:
-            print("[Kamera] Keine gespeicherte Kamera gefunden")
+            logger.info("[Kamera] Keine gespeicherte Kamera gefunden")
             return
         cam = self.plotter.camera
         if cam is None:
-            print("[Kamera] Kamera nicht verfügbar")
+            logger.info("[Kamera] Kamera nicht verfügbar")
             return
         try:
             pos = state.get("position")
@@ -1522,11 +1528,11 @@ class DAETileViewer:
                 cam.up = up
                 self.plotter.reset_camera_clipping_range()
                 self.plotter.render()
-                print("[Kamera] Geladen")
+                logger.info("[Kamera] Geladen")
             else:
-                print("[Kamera] Ungültiger Kamera-State")
+                logger.info("[Kamera] Ungültiger Kamera-State")
         except Exception as e:
-            print(f"[Kamera] Fehler beim Laden: {e}")
+            logger.error(f"[Kamera] Fehler beim Laden: {e}")
 
     def _apply_saved_camera_state(self):
         """Wende gespeicherte Kamera beim Start an."""
@@ -1547,13 +1553,13 @@ class DAETileViewer:
                 self.plotter.reset_camera_clipping_range()
                 self.plotter.render()
         except Exception as e:
-            print(f"[!] Fehler beim Anwenden der Kamera-State: {e}")
+            logger.error(f"[!] Fehler beim Anwenden der Kamera-State: {e}")
 
     def save_camera_state(self):
         """Speichere Kamera-Position (Shift+K)."""
         cam = self.plotter.camera
         if cam is None:
-            print("[Kamera] Kamera nicht verfügbar")
+            logger.info("[Kamera] Kamera nicht verfügbar")
             return
         try:
             state = {
@@ -1564,9 +1570,9 @@ class DAETileViewer:
             cfg = self._load_config()
             cfg["camera"] = state
             self._save_config(cfg)
-            print(f"[Kamera] Gespeichert nach {self.config_path}")
+            logger.info(f"[Kamera] Gespeichert nach {self.config_path}")
         except Exception as e:
-            print(f"[Kamera] Fehler beim Speichern: {e}")
+            logger.error(f"[Kamera] Fehler beim Speichern: {e}")
         self._save_window_state()
 
     def _load_window_state(self):
@@ -1585,7 +1591,7 @@ class DAETileViewer:
             w = int(state.get("w", 0))
             h = int(state.get("h", 0))
         except Exception as e:
-            print(f"[!] Fehler beim Konvertieren der Fenster-State-Werte: {e}")
+            logger.error(f"[!] Fehler beim Konvertieren der Fenster-State-Werte: {e}")
             return
 
         if w < 200 or h < 150:
@@ -1598,20 +1604,20 @@ class DAETileViewer:
             win.SetSize(w, h)
             win.SetPosition(x, y)
         except Exception as e:
-            print(f"[!] Fehler beim Anwenden der Fenster-Position/-Größe: {e}")
+            logger.error(f"[!] Fehler beim Anwenden der Fenster-Position/-Größe: {e}")
 
     def _save_window_state(self):
         """Speichere Fensterposition/-größe."""
         try:
             win = self.plotter.render_window
             if win is None:
-                print("[!] render_window ist None, kann Fenster-State nicht speichern")
+                logger.error("[!] render_window ist None, kann Fenster-State nicht speichern")
                 return
 
             pos = win.GetPosition()
             size = win.GetSize()
         except Exception as e:
-            print(f"[!] Fehler beim Auslesen der Fenster-State: {e}")
+            logger.error(f"[!] Fehler beim Auslesen der Fenster-State: {e}")
             return
 
         state = {
@@ -1648,15 +1654,15 @@ class DAETileViewer:
                 return
 
             self._save_window_state()
-            print(f"\n[Config] Fenster-State und Kamera-Position gespeichert")
+            logger.info(f"\n[Config] Fenster-State und Kamera-Position gespeichert")
         except Exception as e:
-            print(f"[!] Fehler beim Speichern der Config: {e}")
+            logger.error(f"[!] Fehler beim Speichern der Config: {e}")
 
     def reload_dae_file(self):
         """Lade alle DAE-Dateien neu (L-Taste)."""
         self._show_reload_overlay()
         try:
-            print(f"\n[Reload] Lade alle DAE-Dateien aus items.level.json...")
+            logger.info(f"\n[Reload] Lade alle DAE-Dateien aus items.level.json...")
 
             # Speichere Kamera UND Debug-Layer-Status
             camera_pos = None
@@ -1669,7 +1675,7 @@ class DAETileViewer:
                 camera_focal = self.plotter.camera.focal_point
                 camera_up = self.plotter.camera.up
             except Exception as e:
-                print(f"[!] Fehler beim Speichern der Kamera-Position: {e}")
+                logger.error(f"[!] Fehler beim Speichern der Kamera-Position: {e}")
 
             # Lade Items neu mit ZENTRAL-Funktion aus dae_loader
             items_path = config.BEAMNG_DIR / config.ITEMS_JSON
@@ -1680,7 +1686,7 @@ class DAETileViewer:
                 self.tile_data = loader_result["tile_data"]
                 self.forest_data = loader_result["forest_data"]
             except Exception as e:
-                print(f"  [!] Fehler beim Laden der Viewer-Daten: {e}")
+                logger.error(f"  [!] Fehler beim Laden der Viewer-Daten: {e}")
                 import traceback
 
                 traceback.print_exc()
@@ -1691,9 +1697,9 @@ class DAETileViewer:
             # Lade Texturen neu
             self.textures = self._load_textures()
 
-            print(f"  ✓ {len(self.tile_data)} DAE-Dateien neu geladen")
+            logger.info(f"  ✓ {len(self.tile_data)} DAE-Dateien neu geladen")
             if self.forest_data:
-                print(f"  ✓ forest.json neu geladen ({len(self.forest_data.get('instances', []))} Instanzen)")
+                logger.info(f"  ✓ forest.forest4.json neu geladen ({len(self.forest_data.get('instances', []))} Instanzen)")
 
             # Setze Debug-Layer-Status zurück (wird NACH update_view neu geladen)
             self.debug_loaded = False
@@ -1719,13 +1725,13 @@ class DAETileViewer:
                     self.plotter.camera.position = camera_pos
                     self.plotter.camera.focal_point = camera_focal
                     self.plotter.camera.up = camera_up
-                    print("  ✓ Kamera-Position beibehalten")
+                    logger.info("  ✓ Kamera-Position beibehalten")
                 except Exception as e:
-                    print(f"[!] Fehler beim Wiederherstellen der Kamera-Position: {e}")
+                    logger.error(f"[!] Fehler beim Wiederherstellen der Kamera-Position: {e}")
 
             return True
         except Exception as e:
-            print(f"  ✗ Fehler beim Reload: {e}")
+            logger.error(f"  ✗ Fehler beim Reload: {e}")
             import traceback
 
             traceback.print_exc()
@@ -1749,7 +1755,7 @@ class DAETileViewer:
             )
             self.plotter.render()
         except Exception as e:
-            print(f"[!] Fehler beim Anzeigen des Reload-Overlays: {e}")
+            logger.error(f"[!] Fehler beim Anzeigen des Reload-Overlays: {e}")
             self._reload_actor = None
 
     def _hide_reload_overlay(self):
@@ -1759,34 +1765,34 @@ class DAETileViewer:
                 self.plotter.remove_actor(self._reload_actor)
                 self.plotter.render()
             except Exception as e:
-                print(f"[!] Fehler beim Verstecken des Reload-Overlays: {e}")
+                logger.error(f"[!] Fehler beim Verstecken des Reload-Overlays: {e}")
             self._reload_actor = None
 
     def _load_debug_layer(self):
         """Lade Debug-Layer aus Primitives (neues Format von DebugNetworkExporter)."""
-        print("  [Debug] Lade Debug-Layer...")
+        logger.debug("  [Debug] Lade Debug-Layer...")
 
         # Lade Primitive-Daten aus cache/debug_network.json (lokales Project-Verzeichnis)
         debug_network_path = Path(__file__).parent.parent / "cache" / "debug_network.json"
 
         if not debug_network_path.exists():
-            print(f"  [Debug] Keine Debug-Daten gefunden: {debug_network_path}")
+            logger.debug(f"  [Debug] Keine Debug-Daten gefunden: {debug_network_path}")
             return
 
         try:
             with open(debug_network_path, "r", encoding="utf-8") as f:
                 debug_data = json.load(f)
         except Exception as e:
-            print(f"  [!] Fehler beim Laden der Debug-Daten: {e}")
+            logger.error(f"  [!] Fehler beim Laden der Debug-Daten: {e}")
             return
 
         primitives = debug_data.get("primitives", [])
 
         if not primitives:
-            print(f"  [Debug] Keine Primitives in Debug-Daten gefunden")
+            logger.debug(f"  [Debug] Keine Primitives in Debug-Daten gefunden")
             return
 
-        print(f"  [Debug] Lade {len(primitives)} Primitives")
+        logger.debug(f"  [Debug] Lade {len(primitives)} Primitives")
 
         # Sammle Primitives nach Typ
         lines = []
@@ -1945,19 +1951,19 @@ class DAETileViewer:
                             self.debug_actors.append(label_actors)
                         actor_count += 1
             except Exception as e:
-                print(f"  [!] Fehler beim Rendern von Labels: {e}")
+                logger.error(f"  [!] Fehler beim Rendern von Labels: {e}")
 
-        print(
+        logger.info(
             f"  [Debug] {actor_count} Debug-Actors gerendert ({len(points)} Junctions, {len(lines)} Centerlines, {len(labels)} Labels)"
         )
 
     def _load_forest_layer(self):
         """Lade Forest-Layer aus vorher geladenem forest_data."""
-        print("  [Forest] Lade Forest-Layer...")
+        logger.info("  [Forest] Lade Forest-Layer...")
 
         # Nutze bereits geladene forest_data (wurde in __init__ oder reload geladen)
         if not self.forest_data:
-            print(f"  [!] Keine Forest-Daten verfügbar (forest_data ist None)")
+            logger.error(f"  [!] Keine Forest-Daten verfügbar (forest_data ist None)")
             return
 
         # Nutze die zentrale forest_loader Funktion um Actors zu erstellen
@@ -1966,14 +1972,14 @@ class DAETileViewer:
         # Erstelle eine temporäre Pfad-Variable für forest_loader (wird dort nicht verwendet,
         # aber die Signatur benötigt sie). Alternativ könnte man forest_loader refaktorieren.
         try:
-            actor = load_forest_layer(self, config.BEAMNG_DIR / "main" / "forest.json")
+            actor = load_forest_layer(self, config.BEAMNG_DIR / "main" / "forest.forest4.json")
 
             if actor is not None:
-                print(f"  [✓] Forest-Layer Actors erstellt")
+                logger.info(f"  [✓] Forest-Layer Actors erstellt")
                 return
 
         except Exception as e:
-            print(f"  [!] Fehler beim Erstellen des Forest-Layers: {e}")
+            logger.error(f"  [!] Fehler beim Erstellen des Forest-Layers: {e}")
             import traceback
 
             traceback.print_exc()
@@ -2001,10 +2007,10 @@ class DAETileViewer:
             if hit_point is not None:
                 self._set_camera_to_point(hit_point)
             else:
-                print("[Raycast] Kein Mesh an dieser Position getroffen")
+                logger.info("[Raycast] Kein Mesh an dieser Position getroffen")
 
         except Exception as e:
-            print(f"[!] Fehler beim Mausklick-Raycasting: {e}")
+            logger.error(f"[!] Fehler beim Mausklick-Raycasting: {e}")
             import traceback
 
             traceback.print_exc()
@@ -2058,13 +2064,13 @@ class DAETileViewer:
             if result:
                 # Erfolgreicher Hit - hole Schnittpunkt
                 hit_point = np.array(picker.GetPickPosition())
-                print(f"[Raycast] Hit at: ({hit_point[0]:.1f}, {hit_point[1]:.1f}, {hit_point[2]:.1f})")
+                logger.info(f"[Raycast] Hit at: ({hit_point[0]:.1f}, {hit_point[1]:.1f}, {hit_point[2]:.1f})")
                 return hit_point
             else:
                 return None
 
         except Exception as e:
-            print(f"[!] Fehler beim Raycasting: {e}")
+            logger.error(f"[!] Fehler beim Raycasting: {e}")
             import traceback
 
             traceback.print_exc()
@@ -2110,12 +2116,12 @@ class DAETileViewer:
             # Aktualisiere Status-Anzeige
             self._update_camera_status()
 
-            print(f"[Kamera] Pivot: ({new_focal[0]:.1f}, {new_focal[1]:.1f}, {new_focal[2]:.1f})")
-            print(f"[Kamera] Position: ({new_position[0]:.1f}, {new_position[1]:.1f}, {new_position[2]:.1f})")
-            print(f"[Kamera] Distanz: {camera_distance:.1f}m")
+            logger.info(f"[Kamera] Pivot: ({new_focal[0]:.1f}, {new_focal[1]:.1f}, {new_focal[2]:.1f})")
+            logger.info(f"[Kamera] Position: ({new_position[0]:.1f}, {new_position[1]:.1f}, {new_position[2]:.1f})")
+            logger.info(f"[Kamera] Distanz: {camera_distance:.1f}m")
 
         except Exception as e:
-            print(f"[!] Fehler beim Setzen der Kamera: {e}")
+            logger.error(f"[!] Fehler beim Setzen der Kamera: {e}")
             import traceback
 
             traceback.print_exc()
@@ -2130,4 +2136,4 @@ if __name__ == "__main__":
     if hasattr(viewer, "plotter") and viewer.plotter is not None:
         viewer.show()
     else:
-        print("[!] Kein Plotter initialisiert (vermutlich keine DAE-Dateien geladen).")
+        logger.error("[!] Kein Plotter initialisiert (vermutlich keine DAE-Dateien geladen).")

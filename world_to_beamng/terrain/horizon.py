@@ -19,8 +19,12 @@ import zipfile
 import io
 from PIL import Image
 import json
+import logging
+from world_to_beamng.logging_config import LoggerConfig
 
 from .. import config
+
+logger = LoggerConfig.get_logger()
 
 
 def download_dgm30_from_opentopography(local_offset, tile_hash=None):
@@ -44,13 +48,13 @@ def download_dgm30_from_opentopography(local_offset, tile_hash=None):
         return None, None
 
     if not config.OPENTOPOGRAPHY_API_KEY or config.OPENTOPOGRAPHY_API_KEY == "YOUR_API_KEY_HERE":
-        print("  [!] OpenTopography API-Key nicht konfiguriert")
+        logger.error("  [!] OpenTopography API-Key nicht konfiguriert")
         return None, None
 
     try:
         from bmi_topography import Topography
     except ImportError:
-        print("  [!] bmi_topography nicht installiert. Install: pip install bmi-topography")
+        logger.error("  [!] bmi_topography nicht installiert. Install: pip install bmi-topography")
         return None, None
 
     ox, oy, oz = local_offset
@@ -70,8 +74,8 @@ def download_dgm30_from_opentopography(local_offset, tile_hash=None):
     lon_west, lat_south = transformer.transform(utm_west, utm_south)
     lon_east, lat_north = transformer.transform(utm_east, utm_north)
 
-    print(f"  [i] Lade DGM30 via OpenTopography API")
-    print(f"      BBOX (lat/lon): N={lat_north:.4f} S={lat_south:.4f} E={lon_east:.4f} W={lon_west:.4f}")
+    logger.info(f"  [i] Lade DGM30 via OpenTopography API")
+    logger.info(f"      BBOX (lat/lon): N={lat_north:.4f} S={lat_south:.4f} E={lon_east:.4f} W={lon_west:.4f}")
 
     # Erstelle Zielverzeichnis
     config.DGM30_DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -94,13 +98,13 @@ def download_dgm30_from_opentopography(local_offset, tile_hash=None):
         }
 
         # Download starten
-        print(f"  [i] Starte Download nach {cache_dir}...")
+        logger.info(f"  [i] Starte Download nach {cache_dir}...")
         topo = Topography(**params)
         filepath_str = topo.fetch()
         filepath = Path(filepath_str) if filepath_str else None
 
         if not filepath or not filepath.exists():
-            print(f"  [!] Download fehlgeschlagen")
+            logger.error(f"  [!] Download fehlgeschlagen")
             return None, None
 
         # Verschiebe nach data/DGM30 falls nötig
@@ -109,13 +113,13 @@ def download_dgm30_from_opentopography(local_offset, tile_hash=None):
             shutil.move(str(filepath), str(target_path))
             filepath = target_path
 
-        print(f"  [OK] DGM30 heruntergeladen: {filepath.name}")
+        logger.info(f"  [OK] DGM30 heruntergeladen: {filepath.name}")
 
         # Konvertiere GeoTIFF zu 200m Grid
         return _load_geotiff_as_xyz(filepath, tile_hash, local_offset=local_offset)
 
     except Exception as e:
-        print(f"  [!] OpenTopography API Fehler: {e}")
+        logger.error(f"  [!] OpenTopography API Fehler: {e}")
         return None, None
 
 
@@ -137,7 +141,7 @@ def _load_geotiff_as_xyz(geotiff_path, tile_hash=None, local_offset=None):
         import rasterio
         from rasterio.transform import Affine
     except ImportError:
-        print("  [!] rasterio nicht installiert. Install: pip install rasterio")
+        logger.error("  [!] rasterio nicht installiert. Install: pip install rasterio")
         return None, None
 
     try:
@@ -150,7 +154,7 @@ def _load_geotiff_as_xyz(geotiff_path, tile_hash=None, local_offset=None):
 
             # Wenn Quell-CRS nicht UTM ist, reprojiziere
             if src_crs and src_crs.to_string() != dst_crs:
-                print(f"  [i] Reprojiziere von {src_crs.to_string()} zu {dst_crs}")
+                logger.debug(f"  [i] Reprojiziere von {src_crs.to_string()} zu {dst_crs}")
 
                 from rasterio.warp import calculate_default_transform, reproject, Resampling
 
@@ -188,15 +192,15 @@ def _load_geotiff_as_xyz(geotiff_path, tile_hash=None, local_offset=None):
             rows, cols = dem_data.shape
 
             # DEBUG: Zeige Bounds
-            print(f"  [DEBUG] UTM Bounds: X=[{x_min:.2f}..{x_max:.2f}], Y=[{y_min:.2f}..{y_max:.2f}]")
-            print(f"  [DEBUG] Breite: {x_max - x_min:.2f}m, Höhe: {y_max - y_min:.2f}m")
+            logger.debug(f"  [DEBUG] UTM Bounds: X=[{x_min:.2f}..{x_max:.2f}], Y=[{y_min:.2f}..{y_max:.2f}]")
+            logger.debug(f"  [DEBUG] Breite: {x_max - x_min:.2f}m, Höhe: {y_max - y_min:.2f}m")
 
             # Erstelle 200m Grid
             grid_spacing = 200.0
             x_coords = np.arange(x_min, x_max + grid_spacing * 0.5, grid_spacing)
             y_coords = np.arange(y_min, y_max + grid_spacing * 0.5, grid_spacing)
 
-            print(f"  [i] Sample {rows}×{cols} GeoTIFF (30m) auf {len(x_coords)}×{len(y_coords)} Grid (200m)")
+            logger.debug(f"  [i] Sample {rows}×{cols} GeoTIFF (30m) auf {len(x_coords)}×{len(y_coords)} Grid (200m)")
 
             height_points = []
             height_elevations = []
@@ -218,13 +222,13 @@ def _load_geotiff_as_xyz(geotiff_path, tile_hash=None, local_offset=None):
                             height_elevations.append(z)
 
             if not height_points:
-                print("  [!] Keine gültigen Höhenpunkte im GeoTIFF")
+                logger.error("  [!] Keine gültigen Höhenpunkte im GeoTIFF")
                 return None, None
 
             height_points = np.array(height_points)
             height_elevations = np.array(height_elevations)
 
-            print(f"  [OK] {len(height_elevations)} Höhenpunkte (200m Grid) aus GeoTIFF geladen")
+            logger.info(f"  [OK] {len(height_elevations)} Höhenpunkte (200m Grid) aus GeoTIFF geladen")
 
             if local_offset is not None:
                 # Speichere direkt in lokalen Koordinaten, damit spätere Verbraucher nichts mehr umrechnen müssen
@@ -237,12 +241,12 @@ def _load_geotiff_as_xyz(geotiff_path, tile_hash=None, local_offset=None):
                 cache_file = config.CACHE_DIR / f"dgm30_horizon_{tile_hash}.npz"
                 config.CACHE_DIR.mkdir(parents=True, exist_ok=True)
                 np.savez_compressed(cache_file, points=height_points, elevations=height_elevations)
-                print(f"  [OK] DGM30-Cache erstellt: {cache_file.name}")
+                logger.info(f"  [OK] DGM30-Cache erstellt: {cache_file.name}")
 
             return height_points, height_elevations
 
     except Exception as e:
-        print(f"  [!] Fehler beim Laden des GeoTIFF: {e}")
+        logger.error(f"  [!] Fehler beim Laden des GeoTIFF: {e}")
         return None, None
 
 
@@ -270,7 +274,7 @@ def load_dgm30_tiles(dgm30_dir, bbox_utm, local_offset=None, tile_hash=None):
     if tile_hash:
         cache_file = config.CACHE_DIR / f"dgm30_horizon_{tile_hash}.npz"
         if cache_file.exists():
-            print(f"  [OK] DGM30-Cache gefunden: {cache_file.name} (bereits lokal)")
+            logger.info(f"  [OK] DGM30-Cache gefunden: {cache_file.name} (bereits lokal)")
             data = np.load(cache_file)
             return data["points"], data["elevations"]
 
@@ -288,7 +292,7 @@ def load_dgm30_tiles(dgm30_dir, bbox_utm, local_offset=None, tile_hash=None):
         if height_points is not None:
             return height_points, height_elevations
 
-    print(f"  [!] DGM30 nicht gefunden und OpenTopography nicht aktiviert")
+    logger.error(f"  [!] DGM30 nicht gefunden und OpenTopography nicht aktiviert")
     return None, None
 
 
@@ -308,17 +312,17 @@ def _load_local_dgm30(dgm30_path, tile_hash=None, local_offset=None):
     tif_files = list(dgm30_path.glob("*.tif")) + list(dgm30_path.glob("*.tiff"))
 
     if not tif_files:
-        print(f"  [i] Keine GeoTIFF Dateien in {dgm30_path} gefunden")
+        logger.debug(f"  [i] Keine GeoTIFF Dateien in {dgm30_path} gefunden")
         return None, None
 
-    print(f"  [i] Lade {len(tif_files)} GeoTIFF-Datei(en)...")
+    logger.debug(f"  [i] Lade {len(tif_files)} GeoTIFF-Datei(en)...")
 
     # Lade erstes GeoTIFF (mehrere werden kombiniert)
     all_points = []
     all_elevations = []
 
     for tif_file in tif_files:
-        print(f"    - {tif_file.name}")
+        logger.info(f"    - {tif_file.name}")
         points, elevations = _load_geotiff_as_xyz(str(tif_file), tile_hash=None, local_offset=local_offset)
 
         if points is not None:
@@ -326,21 +330,21 @@ def _load_local_dgm30(dgm30_path, tile_hash=None, local_offset=None):
             all_elevations.append(elevations)
 
     if not all_points:
-        print(f"  [!] Keine DGM30-Daten aus GeoTIFF geladen")
+        logger.error(f"  [!] Keine DGM30-Daten aus GeoTIFF geladen")
         return None, None
 
     # Kombiniere alle Daten
     height_points = np.vstack(all_points) if len(all_points) > 1 else all_points[0]
     height_elevations = np.concatenate(all_elevations) if len(all_elevations) > 1 else all_elevations[0]
 
-    print(f"  [OK] {len(height_elevations)} Punkte (200m Grid) aus {len(tif_files)} GeoTIFF(s) geladen")
+    logger.info(f"  [OK] {len(height_elevations)} Punkte (200m Grid) aus {len(tif_files)} GeoTIFF(s) geladen")
 
     # Cache speichern
     if tile_hash:
         config.CACHE_DIR.mkdir(parents=True, exist_ok=True)
         cache_file = config.CACHE_DIR / f"dgm30_horizon_{tile_hash}.npz"
         np.savez_compressed(cache_file, points=height_points, elevations=height_elevations)
-        print(f"  [OK] DGM30-Cache erstellt: {cache_file.name}")
+        logger.info(f"  [OK] DGM30-Cache erstellt: {cache_file.name}")
 
     return height_points, height_elevations
 
@@ -404,23 +408,23 @@ def load_sentinel2_geotiff(sentinel2_dir, bbox_utm, tile_hash=None):
     try:
         import rasterio
     except ImportError:
-        print("  [!] rasterio nicht installiert. Install: pip install rasterio")
+        logger.error("  [!] rasterio nicht installiert. Install: pip install rasterio")
         return None
 
     sentinel2_path = Path(sentinel2_dir)
 
     if not sentinel2_path.exists():
-        print(f"  [i] Sentinel-2 Verzeichnis nicht gefunden: {sentinel2_dir}")
+        logger.error(f"  [i] Sentinel-2 Verzeichnis nicht gefunden: {sentinel2_dir}")
         return None
 
     # Suche GeoTIFF Dateien
     tif_files = list(sentinel2_path.glob("*.tif")) + list(sentinel2_path.glob("*.tiff"))
 
     if not tif_files:
-        print(f"  [i] Keine GeoTIFF Dateien in {sentinel2_dir} gefunden")
+        logger.debug(f"  [i] Keine GeoTIFF Dateien in {sentinel2_dir} gefunden")
         return None
 
-    print(f"  [i] Lade {len(tif_files)} Sentinel-2 GeoTIFF Dateien...")
+    logger.debug(f"  [i] Lade {len(tif_files)} Sentinel-2 GeoTIFF Dateien...")
 
     # Lade erstes GeoTIFF mit Georeferenzierung
     tif_file = tif_files[0]
@@ -435,7 +439,7 @@ def load_sentinel2_geotiff(sentinel2_dir, bbox_utm, tile_hash=None):
                 band = src.read(1)
                 rgb_data = np.dstack([band, band, band])
             else:
-                print(f"    [!] Unerwartete Band-Anzahl: {src.count}")
+                logger.error(f"    [!] Unerwartete Band-Anzahl: {src.count}")
                 return None
 
             # Extrahiere Metadaten
@@ -443,11 +447,11 @@ def load_sentinel2_geotiff(sentinel2_dir, bbox_utm, tile_hash=None):
             bounds = src.bounds
             bounds_utm = (bounds.left, bounds.bottom, bounds.right, bounds.top)
 
-            print(f"    - {tif_file.name}: {src.width}×{src.height} ({src.crs})")
-            print(
+            logger.info(f"    - {tif_file.name}: {src.width}×{src.height} ({src.crs})")
+            logger.info(
                 f"      UTM Bounds: X=[{bounds.left:.0f}..{bounds.right:.0f}], Y=[{bounds.bottom:.0f}..{bounds.top:.0f}]"
             )
-            print(f"      Breite: {bounds.right - bounds.left:.0f}m, Höhe: {bounds.top - bounds.bottom:.0f}m")
+            logger.info(f"      Breite: {bounds.right - bounds.left:.0f}m, Höhe: {bounds.top - bounds.bottom:.0f}m")
 
             # Normalisiere auf 0-255 falls nötig
             if rgb_data.max() > 255:
@@ -462,12 +466,12 @@ def load_sentinel2_geotiff(sentinel2_dir, bbox_utm, tile_hash=None):
             pil_image = enhance_sentinel2_image(pil_image)
             rgb_data = np.array(pil_image)
 
-            print(f"  [OK] Sentinel-2 geladen: {rgb_data.shape}")
+            logger.info(f"  [OK] Sentinel-2 geladen: {rgb_data.shape}")
 
             return rgb_data, bounds_utm, transform
 
     except Exception as e:
-        print(f"    [!] Fehler beim Laden: {e}")
+        logger.error(f"    [!] Fehler beim Laden: {e}")
         return None
 
 
@@ -527,11 +531,11 @@ def generate_horizon_mesh(height_points, height_elevations, local_offset, tile_b
     nx = len(x_coords)
     ny = len(y_coords)
 
-    print(f"  [i] Erstelle Horizont-Mesh: {nx}×{ny} Grid")
+    logger.debug(f"  [i] Erstelle Horizont-Mesh: {nx}×{ny} Grid")
     if vertex_manager is None:
-        print(f"      Mit SEPARATEM VertexManager (saubere Architektur)")
+        logger.info(f"      Mit SEPARATEM VertexManager (saubere Architektur)")
     else:
-        print(f"      Mit GEMEINSAMEN VertexManager (für Boundary-Stitching)")
+        logger.info(f"      Mit GEMEINSAMEN VertexManager (für Boundary-Stitching)")
 
     # Erstelle Grid mit Nearest-Neighbor-Interpolation
     from scipy.spatial import cKDTree
@@ -568,7 +572,7 @@ def generate_horizon_mesh(height_points, height_elevations, local_offset, tile_b
     quads_mask = np.ones((ny - 1, nx - 1), dtype=bool)
 
     if tile_bounds:
-        print(f"  [i] Filtere {len(tile_bounds)} Terrain-Tiles (2x2 km) mit vektorisiertem Lookup...")
+        logger.debug(f"  [i] Filtere {len(tile_bounds)} Terrain-Tiles (2x2 km) mit vektorisiertem Lookup...")
 
         import time
 
@@ -619,7 +623,7 @@ def generate_horizon_mesh(height_points, height_elevations, local_offset, tile_b
 
         skipped_count = np.sum(~quads_mask)
         if skipped_count > 0:
-            print(f"  [OK] {skipped_count} Quads über Terrain gefiltert ({time.time() - t0:.2f}s)")
+            logger.info(f"  [OK] {skipped_count} Quads über Terrain gefiltert ({time.time() - t0:.2f}s)")
 
     # === OPTIMIERUNG 4: Batch-Insert direkter Arrays (KEINE Deduplizierung nötig) ===
     # Speichere Faces & UVs direkt ohne add_face() Overhead
@@ -627,7 +631,7 @@ def generate_horizon_mesh(height_points, height_elevations, local_offset, tile_b
     valid_quads = np.argwhere(quads_mask)  # (N, 2) Array mit (y, x) Indizes
 
     if len(valid_quads) == 0:
-        print("  [!] Keine Quads zu generieren (alle gefiltert)")
+        logger.error("  [!] Keine Quads zu generieren (alle gefiltert)")
         return mesh, nx, ny
 
     num_quads = len(valid_quads)
@@ -657,8 +661,8 @@ def generate_horizon_mesh(height_points, height_elevations, local_offset, tile_b
 
     face_count = len(mesh.faces)
 
-    print(f"  [OK] {face_count} Dreiecke generiert")
-    print(f"  [OK] {len(mesh.uvs)} UVs (1 pro Vertex, ohne Deduplizierung)")
+    logger.info(f"  [OK] {face_count} Dreiecke generiert")
+    logger.info(f"  [OK] {len(mesh.uvs)} UVs (1 pro Vertex, ohne Deduplizierung)")
 
     # Gebe Mesh, Grid-Dimensionen, Horizon-Vertex-Indizes UND Mapping zurück
     # vertex_indices ist flaches Array - konvertiere zu Liste
@@ -699,15 +703,15 @@ def texture_horizon_mesh(vertices, horizon_image, nx, ny, bounds_utm, transform,
 
     tex_x_min, tex_y_min, tex_x_max, tex_y_max = bounds_utm
 
-    print(f"  [i] Koordinaten-Check:")
-    print(f"      Mesh (UTM):    X=[{mesh_x_min:.0f}..{mesh_x_max:.0f}], Y=[{mesh_y_min:.0f}..{mesh_y_max:.0f}]")
-    print(f"      Texture (UTM): X=[{tex_x_min:.0f}..{tex_x_max:.0f}], Y=[{tex_y_min:.0f}..{tex_y_max:.0f}]")
+    logger.debug(f"  [i] Koordinaten-Check:")
+    logger.info(f"      Mesh (UTM):    X=[{mesh_x_min:.0f}..{mesh_x_max:.0f}], Y=[{mesh_y_min:.0f}..{mesh_y_max:.0f}]")
+    logger.info(f"      Texture (UTM): X=[{tex_x_min:.0f}..{tex_x_max:.0f}], Y=[{tex_y_min:.0f}..{tex_y_max:.0f}]")
 
     # Berechne Überlappung
     overlap_x = (min(mesh_x_max, tex_x_max) - max(mesh_x_min, tex_x_min)) / (mesh_x_max - mesh_x_min) * 100
     overlap_y = (min(mesh_y_max, tex_y_max) - max(mesh_y_min, tex_y_min)) / (mesh_y_max - mesh_y_min) * 100
 
-    print(f"      Überlappung: X={overlap_x:.1f}%, Y={overlap_y:.1f}%")
+    logger.info(f"      Überlappung: X={overlap_x:.1f}%, Y={overlap_y:.1f}%")
 
     # Speichere temporär als TIF für texconv
     import tempfile
@@ -747,7 +751,7 @@ def texture_horizon_mesh(vertices, horizon_image, nx, ny, bounds_utm, transform,
         str(temp_tif),
     ]
 
-    print(f"  [i] Konvertiere zu DDS (BC1, 8192x8192, Mipmaps)...")
+    logger.debug(f"  [i] Konvertiere zu DDS (BC1, 8192x8192, Mipmaps)...")
     subprocess.run(cmd, capture_output=True, text=True, check=True)
 
     # texconv benennt Output nach Input: horizon_temp.dds -> umbenennen
@@ -761,7 +765,7 @@ def texture_horizon_mesh(vertices, horizon_image, nx, ny, bounds_utm, transform,
     if temp_tif.exists():
         temp_tif.unlink()
 
-    print(f"  [OK] Horizont-Textur (DDS) gespeichert: {dds_output}")
+    logger.info(f"  [OK] Horizont-Textur (DDS) gespeichert: {dds_output}")
 
     # Relative Pfade für materials.json
     relative_texture_path = str(config.RELATIVE_DIR_TEXTURES / "horizon_sentinel2.dds")
@@ -803,7 +807,7 @@ def export_horizon_dae(mesh, texture_info, output_dir, level_name="default", glo
     vertices = mesh.vertex_manager.vertices
     faces = mesh.faces  # Extrahiere Faces aus dem Mesh
 
-    print(f"  [i] DAE-Export: {len(vertices)} Vertices, {len(faces)} Faces")
+    logger.debug(f"  [i] DAE-Export: {len(vertices)} Vertices, {len(faces)} Faces")
 
     if bounds_utm and global_offset:
         ox, oy, oz = global_offset
@@ -833,9 +837,9 @@ def export_horizon_dae(mesh, texture_info, output_dir, level_name="default", glo
         uv_scale_x = mesh_width_m / tex_width_m
         uv_scale_y = mesh_height_m / tex_height_m
 
-        print(f"  [i] UV-Mapping mit Offset:")
-        print(f"      UV-Offset: ({uv_offset_x:.4f}, {uv_offset_y:.4f})")
-        print(f"      UV-Skalierung: ({uv_scale_x:.4f}, {uv_scale_y:.4f})")
+        logger.debug(f"  [i] UV-Mapping mit Offset:")
+        logger.info(f"      UV-Offset: ({uv_offset_x:.4f}, {uv_offset_y:.4f})")
+        logger.info(f"      UV-Skalierung: ({uv_scale_x:.4f}, {uv_scale_y:.4f})")
     else:
         uv_offset_x, uv_offset_y = 0.0, 0.0
         uv_scale_x, uv_scale_y = 1.0, 1.0
@@ -1047,14 +1051,14 @@ def export_horizon_dae(mesh, texture_info, output_dir, level_name="default", glo
         file.write(buffer.getvalue())
     buffer.close()
 
-    print(f"  [OK] DAE exportiert mit deduplizierten UVs: {dae_path.name}")
-    print(f"  [OK] UV-Statistik: {len(mesh.uvs)} deduplizierte UVs, {len(mesh.faces)} Faces")
+    logger.info(f"  [OK] DAE exportiert mit deduplizierten UVs: {dae_path.name}")
+    logger.info(f"  [OK] UV-Statistik: {len(mesh.uvs)} deduplizierte UVs, {len(mesh.faces)} Faces")
 
     # Überprüfe ob Datei existiert
     if dae_path.exists():
         file_size = dae_path.stat().st_size
-        print(f"      Dateigröße: {file_size:,} Bytes")
+        logger.info(f"      Dateigröße: {file_size:,} Bytes")
     else:
-        print(f"      [WARNING] Datei existiert nicht!")
+        logger.info(f"      [WARNING] Datei existiert nicht!")
 
     return dae_path.name

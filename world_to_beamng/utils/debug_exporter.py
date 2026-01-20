@@ -28,6 +28,9 @@ import json
 from typing import Dict, List, Optional, Any, Union, Tuple
 import numpy as np
 from pathlib import Path
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 # ============================================================================
@@ -552,8 +555,8 @@ class DebugNetworkExporter:
         with open(output_path, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2)
 
-        print(f"  [Debug] Exportiert: {len(self.primitives)} Primitive")
-        print(f"  [Debug] Datei: {output_path}")
+        logger.debug(f"  [Debug] Exportiert: {len(self.primitives)} Primitive")
+        logger.debug(f"  [Debug] Datei: {output_path}")
 
     def clear(self) -> None:
         """Lösche alle gesammelten Daten."""

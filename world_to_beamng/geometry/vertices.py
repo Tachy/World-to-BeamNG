@@ -8,6 +8,9 @@ from scipy.spatial import cKDTree
 
 from ..config import OSM_MAPPER
 from .. import config
+import logging
+from world_to_beamng.logging_config import LoggerConfig
+logger = LoggerConfig.get_logger()
 
 
 def classify_grid_vertices(
@@ -22,7 +25,7 @@ def classify_grid_vertices(
     - Schrittweite = Suchradius
     - Markiere alle Punkte im Suchradius
     """
-    print("  Markiere Strassen-Bereiche im Grid (vereinfacht)...")
+    logger.info("  Markiere Strassen-Bereiche im Grid (vereinfacht)...")
 
     vertex_types = np.zeros(len(grid_points), dtype=int)
     modified_heights = grid_elevations.copy()
@@ -31,10 +34,10 @@ def classify_grid_vertices(
     grid_points_2d = grid_points[:, :2]
 
     # Baue KDTree über alle Grid-Punkte (EINMAL)
-    print(f"  Baue KDTree für {len(grid_points_2d)} Grid-Punkte...")
+    logger.info(f"  Baue KDTree für {len(grid_points_2d)} Grid-Punkte...")
     kdtree = cKDTree(grid_points_2d)
 
-    print(f"  Markiere {len(road_slope_polygons_2d)} Roads...")
+    logger.info(f"  Markiere {len(road_slope_polygons_2d)} Roads...")
 
     process_start = time_module.time()
 
@@ -92,6 +95,6 @@ def classify_grid_vertices(
     actual_marked = np.count_nonzero(vertex_types)
 
     elapsed_total = time_module.time() - process_start
-    print(f"  [OK] Klassifizierung abgeschlossen ({elapsed_total:.1f}s, {actual_marked} Punkte markiert)")
+    logger.info(f"  [OK] Klassifizierung abgeschlossen ({elapsed_total:.1f}s, {actual_marked} Punkte markiert)")
 
     return vertex_types, modified_heights

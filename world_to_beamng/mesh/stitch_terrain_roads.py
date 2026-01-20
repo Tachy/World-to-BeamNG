@@ -18,6 +18,9 @@ from typing import List, Tuple
 from collections import defaultdict
 
 from .vertex_manager import VertexManager
+import logging
+from world_to_beamng.logging_config import LoggerConfig
+logger = LoggerConfig.get_logger()
 
 
 def stitch_terrain_to_roads(
@@ -36,10 +39,10 @@ def stitch_terrain_to_roads(
     Returns:
         Anzahl neuer Faces
     """
-    print(f"  [Tile-Kante vervollständigen] Prüfe Umfang...")
+    logger.info(f"  [Tile-Kante vervollständigen] Prüfe Umfang...")
 
     if tile_bounds is None:
-        print(f"    [!] Keine tile_bounds angegeben")
+        logger.error(f"    [!] Keine tile_bounds angegeben")
         return 0
 
     x_min, x_max, y_min, y_max = tile_bounds
@@ -118,7 +121,7 @@ def stitch_terrain_to_roads(
 
         side_verts = get_side_vertices(side)
         if len(side_verts) < 2:
-            print(f"      Nur {len(side_verts)} Vertices - überspringe")
+            logger.warning(f"      Nur {len(side_verts)} Vertices - überspringe")
             continue
 
         sorted_verts = sort_side_vertices(side_verts, side)
@@ -192,13 +195,13 @@ def stitch_terrain_to_roads(
                 gaps_found += 1
 
         if gaps_found > 0:
-            print(f"      {gaps_found} Lücken gefüllt")
+            logger.info(f"      {gaps_found} Lücken gefüllt")
         else:
-            print(f"      ✓ Keine Lücken")
+            logger.info(f"      ✓ Keine Lücken")
 
-    print(f"  [✓] {new_faces} Dreiecke eingefügt (Tile-Kante vervollständigt)")
+    logger.info(f"  [✓] {new_faces} Dreiecke eingefügt (Tile-Kante vervollständigt)")
     # === VERIFIKATION: Prüfe dass Tile-Kante jetzt lückenlos verbunden ist ===
-    print(f"  [Verifikation] Prüfe Tile-Kanten-Durchgängigkeit...")
+    logger.info(f"  [Verifikation] Prüfe Tile-Kanten-Durchgängigkeit...")
 
     # Rebuild existing_edges mit neuen Faces
     existing_edges_new = set()
@@ -232,11 +235,11 @@ def stitch_terrain_to_roads(
                 all_verified = False
 
         if gaps_remaining > 0:
-            print(f"    [{side.upper()}] ✗ {gaps_remaining} Lücken NOCH VORHANDEN!")
+            logger.info(f"    [{side.upper()}] ✗ {gaps_remaining} Lücken NOCH VORHANDEN!")
 
     if all_verified:
-        print(f"  [✓✓] Alle Tile-Kanten lückenlos verbunden!\n")
+        logger.info(f"  [✓✓] Alle Tile-Kanten lückenlos verbunden!\n")
     else:
-        print(f"  [!] WARNUNG: Nicht alle Lücken gefüllt!\n")
+        logger.error(f"  [!] WARNUNG: Nicht alle Lücken gefüllt!\n")
 
     return new_faces

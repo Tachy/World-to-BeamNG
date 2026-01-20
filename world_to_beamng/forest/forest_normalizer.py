@@ -14,8 +14,10 @@ from shapely.geometry import box, Polygon, MultiPolygon
 
 from .. import config
 from ..osm.osm_mapper import OSMMapper
+import logging
+from world_to_beamng.logging_config import LoggerConfig
 
-logger = logging.getLogger(__name__)
+logger = LoggerConfig.get_logger()
 
 
 class ForestNormalizer:
@@ -101,10 +103,10 @@ class ForestNormalizer:
             # Extrahiere Waldpolygone aus OSM-Rohdaten (WGS84)
             osm_forests = self._extract_forests_from_osm(osm_data) if osm_data else []
             if not osm_forests:
-                print(f"  [→] Keine Wälder in {tile_name}")
+                logger.info(f"  [→] Keine Wälder in {tile_name}")
                 return result
 
-            print(f"  [→] Prüfe {len(osm_forests)} OSM-Waldpolygone...")
+            logger.info(f"  [→] Prüfe {len(osm_forests)} OSM-Waldpolygone...")
 
             # Jetzt: Alle Geometrien sind in lokalen Koordinaten (bereits transformiert in workflow!)
             # Iteriere über alle OSM-Waldpolygone
@@ -204,12 +206,12 @@ class ForestNormalizer:
         for element in osm_data:
             # Sicherheitscheck: element muss ein Dict sein
             if not isinstance(element, dict):
-                print(f"  [!] Element ist kein Dict: {type(element)}")
+                logger.error(f"  [!] Element ist kein Dict: {type(element)}")
                 continue
 
             tags = element.get("tags", {})
             if not isinstance(tags, dict):
-                print(f"  [!] Tags sind kein Dict: {type(tags)}")
+                logger.error(f"  [!] Tags sind kein Dict: {type(tags)}")
                 continue
 
             # Prüfe mit OSMMapper ob es ein Wald ist

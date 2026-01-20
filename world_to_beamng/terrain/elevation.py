@@ -11,6 +11,9 @@ import numpy as np
 from scipy.interpolate import NearestNDInterpolator
 
 from .. import config
+import logging
+from world_to_beamng.logging_config import LoggerConfig
+logger = LoggerConfig.get_logger()
 
 
 def get_height_data_hash():
@@ -48,9 +51,9 @@ def get_height_data_hash():
     # Wenn Hash sich geändert hat oder Datei fehlt: Cleanup
     if old_hash != new_hash:
         if old_hash is None:
-            print(f"  [i] height_data_hash.txt fehlt - loesche alte Cache-Dateien...")
+            logger.debug(f"  [i] height_data_hash.txt fehlt - loesche alte Cache-Dateien...")
         else:
-            print(f"  [i] Hoehendaten geaendert ({old_hash} -> {new_hash}) - loesche alte Cache-Dateien...")
+            logger.debug(f"  [i] Hoehendaten geaendert ({old_hash} -> {new_hash}) - loesche alte Cache-Dateien...")
 
         # Lösche alle alten Cache-Dateien (wenn old_hash bekannt ist)
         if old_hash:
@@ -63,50 +66,50 @@ def get_height_data_hash():
                 for old_file in config.CACHE_DIR.glob(pattern):
                     try:
                         old_file.unlink() # old_file is already a Path object from glob
-                        print(f"    • Geloescht: {old_file.name}")
+                        logger.info(f"    • Geloescht: {old_file.name}")
                     except Exception as e:
-                        print(f"    [!] Fehler beim Loeschen von {old_file.name}: {e}")
+                        logger.error(f"    [!] Fehler beim Loeschen von {old_file.name}: {e}")
         else:
             # Wenn old_hash leer/None: Lösche ALLE potentiellen alten Caches (Sicherheitsmaßnahme)
-            print(f"    Loeschen aller _*.npz und _*.json Cache-Dateien...")
+            logger.info(f"    Loeschen aller _*.npz und _*.json Cache-Dateien...")
             for pattern in ["height_raw_*.npz", "grid_v3_*.npz", "osm_all_*.json", "elevations_*.json"]:
                 for old_file in config.CACHE_DIR.glob(pattern):
                     try:
                         old_file.unlink()
-                        print(f"    • Geloescht: {old_file.name}")
+                        logger.info(f"    • Geloescht: {old_file.name}")
                     except Exception as e:
-                        print(f"    [!] Fehler beim Loeschen von {old_file.name}: {e}")
+                        logger.error(f"    [!] Fehler beim Loeschen von {old_file.name}: {e}")
 
         # Lösche auch die generierten DAE-Tiles im BeamNG-Verzeichnis
-        print(f"    Loeschen von Terrain-Tiles im BeamNG-Verzeichnis...")
+        logger.info(f"    Loeschen von Terrain-Tiles im BeamNG-Verzeichnis...")
         beamng_shapes = config.BEAMNG_DIR_SHAPES
         if beamng_shapes.exists():
             for file_path in beamng_shapes.glob("*.dae"):
                 try:
                     file_path.unlink()
-                    print(f"    • Geloescht: {file_path.name}")
+                    logger.info(f"    • Geloescht: {file_path.name}")
                 except Exception as e:
-                    print(f"    [!] Fehler beim Loeschen von {file_path.name}: {e}")
+                    logger.error(f"    [!] Fehler beim Loeschen von {file_path.name}: {e}")
             # Lösche auch DAE-Index-Datei falls vorhanden
             for meta_file_name in ["index.json", "manifest.json"]:
                 meta_path = beamng_shapes / meta_file_name
                 if meta_path.exists():
                     try:
                         meta_path.unlink()
-                        print(f"    • Geloescht: {meta_path.name}")
+                        logger.info(f"    • Geloescht: {meta_path.name}")
                     except Exception as e:
-                        print(f"    [!] Fehler beim Loeschen von {meta_path.name}: {e}")
+                        logger.error(f"    [!] Fehler beim Loeschen von {meta_path.name}: {e}")
 
         # Lösche auch Texture-Tiles
-        print(f"    Loeschen von Texture-Tiles im BeamNG-Verzeichnis...")
+        logger.info(f"    Loeschen von Texture-Tiles im BeamNG-Verzeichnis...")
         beamng_textures = config.BEAMNG_DIR_TEXTURES
         if beamng_textures.exists():
             for file_path in beamng_textures.glob("tile*"):
                 try:
                     file_path.unlink()
-                    print(f"    • Geloescht: {file_path.name}")
+                    logger.info(f"    • Geloescht: {file_path.name}")
                 except Exception as e:
-                    print(f"    [!] Fehler beim Loeschen von {file_path.name}: {e}")
+                    logger.error(f"    [!] Fehler beim Loeschen von {file_path.name}: {e}")
 
         # Speichere neuen Hash
         try:
@@ -131,16 +134,16 @@ def load_height_data():
         cache_file = config.CACHE_DIR / f"height_raw_{height_hash}.npz"
 
         if cache_file.exists():
-            print(f"  [OK] Cache gefunden: {cache_file.name}")
+            logger.info(f"  [OK] Cache gefunden: {cache_file.name}")
             data = np.load(cache_file)
             points = data["points"]
             elevations = data["elevations"]
-            print(f"  [OK] {len(elevations)} Hoehenpunkte aus Cache geladen")
+            logger.info(f"  [OK] {len(elevations)} Hoehenpunkte aus Cache geladen")
             loaded_from_cache = True
             # Rückgabe: needs_aerial_processing=False (aus Cache geladen)
             return points, elevations, False
         else:
-            print(f"  Cache nicht gefunden, lade aus Dateien...")
+            logger.error(f"  Cache nicht gefunden, lade aus Dateien...")
 
     # Lade aus Dateien
     xyz_files = list(config.HEIGHT_DATA_DIR.glob("*.xyz"))
@@ -149,25 +152,25 @@ def load_height_data():
     if not xyz_files and not zip_files:
         raise FileNotFoundError(f"Keine .xyz oder .zip Dateien in {config.HEIGHT_DATA_DIR} gefunden!")
 
-    print(f"  Lese {len(xyz_files)} XYZ + {len(zip_files)} ZIP Dateien...")
+    logger.info(f"  Lese {len(xyz_files)} XYZ + {len(zip_files)} ZIP Dateien...")
 
     all_points = []
     all_elevations = []
 
     # Lade .xyz Dateien
     for file in xyz_files:
-        print(f"    • {file.name}...")
+        logger.info(f"    • {file.name}...")
         data = np.loadtxt(file) # np.loadtxt can take Path objects directly
         all_points.append(data[:, :2])
         all_elevations.append(data[:, 2])
 
     # Lade .zip Dateien
     for zip_file in zip_files:
-        print(f"    • {zip_file.name}...")
+        logger.info(f"    • {zip_file.name}...")
         with zipfile.ZipFile(zip_file, "r") as z: # zipfile.ZipFile can take Path objects directly
             for name in z.namelist():
                 if name.endswith(".xyz"):
-                    print(f"      └─ {name}")
+                    logger.info(f"      └─ {name}")
                     with z.open(name) as f:
                         data = np.loadtxt(io.TextIOWrapper(f, encoding="utf-8"))
                         all_points.append(data[:, :2])
@@ -177,14 +180,14 @@ def load_height_data():
     points = np.vstack(all_points)
     elevations = np.hstack(all_elevations)
 
-    print(f"  [OK] {len(elevations)} Hoehenpunkte geladen")
+    logger.info(f"  [OK] {len(elevations)} Hoehenpunkte geladen")
 
     # Cache die Rohdaten (immer wenn wir frisch geladen haben)
     if height_hash:
         cache_file_path = config.CACHE_DIR / f"height_raw_{height_hash}.npz"
         config.CACHE_DIR.mkdir(parents=True, exist_ok=True)
         np.savez_compressed(cache_file_path, points=points, elevations=elevations)
-        print(f"  [OK] Cache erstellt: {cache_file_path.name}")
+        logger.info(f"  [OK] Cache erstellt: {cache_file_path.name}")
 
     # Rückgabe: (points, elevations, needs_aerial_processing)
     # needs_aerial_processing=True weil neu geladen (nicht aus Cache)
@@ -214,10 +217,10 @@ def get_elevation_cache(bbox, height_hash=None):
                 cache_data = json.load(f)
                 # Cache-Version prüfen (v2 = normalisierte Z-Werte)
                 if cache_data.get("_cache_version") == 2:
-                    print(f"  [OK] Elevation-Cache geladen: {len(cache_data)-1} Koordinaten")
+                    logger.info(f"  [OK] Elevation-Cache geladen: {len(cache_data)-1} Koordinaten")
                     return cache_data
                 else:
-                    print(f"  [i] Alter Cache-Format erkannt, wird ignoriert")
+                    logger.debug(f"  [i] Alter Cache-Format erkannt, wird ignoriert")
         except:
             pass
     return {"_cache_version": 2}
@@ -246,9 +249,9 @@ def save_elevation_cache(bbox, cache_data, height_hash=None):
         with open(cache_path, "w", encoding="utf-8") as f:
             json.dump(cache_data, f, indent=2)
         coord_count = len(cache_data) - 1  # -1 für _cache_version
-        print(f"  [OK] Elevation-Cache gespeichert: {coord_count} Koordinaten")
+        logger.info(f"  [OK] Elevation-Cache gespeichert: {coord_count} Koordinaten")
     except Exception as e:
-        print(f"  [!] Fehler beim Speichern des Elevation-Cache: {e}")
+        logger.error(f"  [!] Fehler beim Speichern des Elevation-Cache: {e}")
 
 
 def get_elevations_for_points(pts, bbox, height_points, height_elevations, global_offset, height_hash=None):
@@ -281,7 +284,7 @@ def get_elevations_for_points(pts, bbox, height_points, height_elevations, globa
 
     # Berechne fehlende Hoehen durch Interpolation
     if missing_pts:
-        print(f"  Interpoliere {len(missing_pts)} Hoehenwerte...")
+        logger.info(f"  Interpoliere {len(missing_pts)} Hoehenwerte...")
 
         # Konvertiere WGS84 zu UTM und dann zu lokal mit global_offset
         ox, oy = global_offset

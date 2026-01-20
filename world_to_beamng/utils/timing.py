@@ -1,4 +1,7 @@
 import time
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class StepTimer:
@@ -20,9 +23,9 @@ class StepTimer:
         label = str(self._counter)
         self.steps.append({"label": label, "title": title, "start": now, "duration": None})
 
-        print(f"\n{'='*60}")
-        print(f"[{label}] {title}...")
-        print(f"{'='*60}")
+        logger.info(f"\n{'='*60}")
+        logger.info(f"[{label}] {title}...")
+        logger.info(f"{'='*60}")
 
     def set_duration(self, duration: float):
         """Setze Dauer manuell (z.B. bei Skips nach begin)."""
@@ -36,17 +39,17 @@ class StepTimer:
         now = time.time()
         self._close_open(now)
         total_elapsed = now - self._global_start
-        print(f"\n{'=' * 60}")
-        print(f"ZEITMESSUNG (Gesamtzeit: {total_elapsed:.2f}s / {total_elapsed/60:.1f} min)")
-        print(f"{'=' * 60}")
+        logger.info(f"\n{'=' * 60}")
+        logger.info(f"ZEITMESSUNG (Gesamtzeit: {total_elapsed:.2f}s / {total_elapsed/60:.1f} min)")
+        logger.info(f"{'=' * 60}")
         for step in self.steps:
             step_time = step.get("duration") or 0.0
             percentage = (step_time / total_elapsed) * 100 if total_elapsed else 0
             step_display = f"{step['label']} {step['title']}"
             bar_length = int(percentage / 2)  # 50 chars = 100%
             bar = "█" * bar_length + "░" * (50 - bar_length)
-            print(f"  {step_display:.<35} {step_time:>6.2f}s ({percentage:>5.1f}%) {bar}")
-        print(f"{'=' * 60}")
+            logger.info(f"  {step_display:.<35} {step_time:>6.2f}s ({percentage:>5.1f}%) {bar}")
+        logger.info(f"{'=' * 60}")
 
     def results(self):
         """Gibt Liste der Schritte inkl. Dauer zurück."""

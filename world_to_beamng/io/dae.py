@@ -10,6 +10,9 @@ NEUE ARCHITEKTUR:
 
 import numpy as np
 from pathlib import Path
+import logging
+from world_to_beamng.logging_config import LoggerConfig
+logger = LoggerConfig.get_logger()
 
 
 def export_separate_tile_daes(
@@ -57,8 +60,9 @@ def export_separate_tile_daes(
         # Tiles mit weniger als 10 Faces sind wahrscheinlich Fehler beim Gap-Filling
         min_faces_threshold = 10
         if len(faces) < min_faces_threshold:
-            print(
-                f"      [Filter] Ignoriere Mini-Tile tile_{tile_x * tile_size}_{tile_y * tile_size}: nur {len(faces)} Faces"
+            logger.info(
+    f"      [Filter] Ignoriere Mini-Tile tile_{tile_x * tile_size}_{tile_y * tile_size}: nur {len(faces
+)} Faces"
             )
             continue
 
@@ -135,7 +139,7 @@ def export_separate_tile_daes(
                                 break
 
                     if not found:
-                        print(f"  ⚠ Material {mat_name} nicht in OSM_MAPPER gefunden")
+                        logger.info(f"  ⚠ Material {mat_name} nicht in OSM_MAPPER gefunden")
                         continue
 
                 material_manager.add_road_material(mat_name, road_props)
@@ -166,8 +170,9 @@ def export_separate_tile_daes(
         )
 
         total_faces = sum(len(f) for f in faces_by_material.values())
-        print(
-            f"    [OK] {dae_filename}: {len(vertices)} Vertices, {total_faces} Faces, {len(faces_by_material)} Materialien"
+        logger.info(
+    f"    [OK] {dae_filename}: {len(vertices
+)} Vertices, {total_faces} Faces, {len(faces_by_material)} Materialien"
         )
 
         exported_files.append(dae_filename)
@@ -252,5 +257,5 @@ def export_terrain_materials_json(tiles_dict, output_dir, level_name="World_to_B
     with open(materials_file, "w", encoding="utf-8") as f:
         json.dump(materials, f, indent=2)
 
-    print(f"  [✓] Materials JSON: {materials_file.name} ({len(materials)} Materialien)")
+    logger.info(f"  [✓] Materials JSON: {materials_file.name} ({len(materials)} Materialien)")
     return str(materials_file)

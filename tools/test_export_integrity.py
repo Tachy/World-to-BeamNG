@@ -27,6 +27,9 @@ from lxml import etree as lxml_etree
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from world_to_beamng import config
+import logging
+from world_to_beamng.logging_config import LoggerConfig
+logger = LoggerConfig.get_logger()
 
 # ============================================================================
 # GLOBALE KONSTANTEN FÜR EXPORT-INTEGRITÄT TESTS
@@ -138,7 +141,7 @@ class ExportIntegrityTest:
         # In diesem Fall ist der Teil nach 'levels/world_to_beamng/' der relative Pfad vom Level-Root
         if path_posix.is_relative_to(config.RELATIVE_DIR):
             return self.beamng_dir / path_posix.relative_to(config.RELATIVE_DIR)
-        
+
         # 2. Pfad beginnt mit 'art/', 'main/' oder direkt ein Dateiname
         # Diese sind implizit relativ zum Level-Root
         # Beispiel: 'art/shapes/textures/file.dds'
@@ -149,20 +152,20 @@ class ExportIntegrityTest:
     def error(self, msg):
         """Registriere kritischen Fehler."""
         self.errors.append(f"❌ {msg}")
-        print(f"  ❌ {msg}")
+        logger.info(f"  ❌ {msg}")
 
     def warning(self, msg):
         """Registriere Warnung."""
         self.warnings.append(f"⚠️ {msg}")
-        print(f"  ⚠️ {msg}")
+        logger.info(f"  ⚠️ {msg}")
 
     def success(self, msg):
         """Registriere Erfolg."""
-        print(f"  ✅ {msg}")
+        logger.info(f"  ✅ {msg}")
 
     def test_terrain_dae(self):
         """Teste terrain.dae Integrität."""
-        print("\n[1] Teste terrain.dae...")
+        logger.info("\n[1] Teste terrain.dae...")
 
         # Suche dynamisch nach terrain_<x>_<y>.dae
         terrain_daes = list(self.shapes_dir.glob("terrain_*.dae"))
@@ -223,7 +226,7 @@ class ExportIntegrityTest:
 
     def test_terrain_face_materials(self):
         """Teste dass JEDES Face in terrain_x_y.dae ein Material hat."""
-        print("\n[1b] Teste Terrain Face-Materialien...")
+        logger.info("\n[1b] Teste Terrain Face-Materialien...")
 
         # Suche dynamisch nach terrain_<x>_<y>.dae
         terrain_daes = list(self.shapes_dir.glob(TERRAIN_DAE_PATTERN))
@@ -311,7 +314,7 @@ class ExportIntegrityTest:
 
             # === Material-Statistik ===
             if material_face_count:
-                print("\n  [Material-Verteilung] Dreiecke pro Material:")
+                logger.info("\n  [Material-Verteilung] Dreiecke pro Material:")
 
                 # Sortiere nach Anzahl (absteigend)
                 sorted_materials = sorted(material_face_count.items(), key=lambda x: x[1], reverse=True)
@@ -325,7 +328,7 @@ class ExportIntegrityTest:
                     else:
                         mat_type = "Sonstiges"
 
-                    print(f"    • {material_name:30s} ({mat_type:15s}): {face_count:6d} Faces")
+                    logger.info(f"    • {material_name:30s} ({mat_type:15s}): {face_count:6d} Faces")
 
                 # Zusammenfassung
                 total_faces_counted = sum(material_face_count.values())
@@ -334,12 +337,12 @@ class ExportIntegrityTest:
                 )
                 road_faces = sum(c for m, c in material_face_count.items() if m.startswith(MATERIAL_PREFIX_ROAD))
 
-                print(f"\n  [Zusammenfassung]")
-                print(f"    Total:      {total_faces_counted:6d} Faces")
-                print(
+                logger.info(f"\n  [Zusammenfassung]")
+                logger.info(f"    Total:      {total_faces_counted:6d} Faces")
+                logger.info(
                     f"    Terrain:    {terrain_tile_faces:6d} Faces ({100*terrain_tile_faces/total_faces_counted:.1f}%)"
                 )
-                print(f"    Straßen:    {road_faces:6d} Faces ({100*road_faces/total_faces_counted:.1f}%)")
+                logger.info(f"    Straßen:    {road_faces:6d} Faces ({100*road_faces/total_faces_counted:.1f}%)")
 
         except ET.ParseError as e:
             self.error(f"XML-Parse-Fehler: {e}")
@@ -348,7 +351,7 @@ class ExportIntegrityTest:
 
     def test_building_daes(self):
         """Teste buildings/*.dae Integrität (nur wenn Gebäude-Items in items.json vorhanden sind)."""
-        print("\n[2] Teste buildings/*.dae...")
+        logger.info("\n[2] Teste buildings/*.dae...")
 
         # Überspringe Test, wenn keine Gebäude-Items registriert sind
         if not self.has_building_items:
@@ -402,7 +405,7 @@ class ExportIntegrityTest:
 
     def test_materials_json(self):
         """Teste materials.json Integrität."""
-        print("\n[3] Teste materials.json...")
+        logger.info("\n[3] Teste materials.json...")
 
         materials_json = self.beamng_dir / MAIN_DIR / MATERIALS_JSON
 
@@ -507,7 +510,7 @@ class ExportIntegrityTest:
 
     def test_material_chain_integrity(self):
         """Teste EXAKTE Material-Integrität der gesamten Chain: DAE → materials.json → Output-Verzeichnis."""
-        print("\n[3b] Teste Material-Chain-Integrität (DAE → JSON → Output)...")
+        logger.info("\n[3b] Teste Material-Chain-Integrität (DAE → JSON → Output)...")
 
         materials_json = self.beamng_dir / MAIN_DIR / MATERIALS_JSON
 
@@ -520,7 +523,7 @@ class ExportIntegrityTest:
                 materials = json.load(f)
 
             # === PHASE 1: Sammle alle Material-Referenzen aus DAE-Dateien ===
-            print("\n  [Phase 1] Sammle Material-Referenzen aus DAEs...")
+            logger.info("\n  [Phase 1] Sammle Material-Referenzen aus DAEs...")
 
             # Terrain DAE
             terrain_daes = list(self.shapes_dir.glob(TERRAIN_DAE_PATTERN))
@@ -597,7 +600,7 @@ class ExportIntegrityTest:
                 return
 
             # === PHASE 2: Validiere dass alle DAE-Material-Referenzen in JSON existieren ===
-            print("\n  [Phase 2] Validiere DAE-Material-Referenzen in JSON...")
+            logger.info("\n  [Phase 2] Validiere DAE-Material-Referenzen in JSON...")
 
             missing_in_json = []
             material_counts = {}
@@ -622,7 +625,7 @@ class ExportIntegrityTest:
                 self.success("✓ Alle DAE-Material-Referenzen existieren in materials.json")
 
             # === PHASE 3: Prüfe Material-Definitionen ===
-            print("\n  [Phase 3] Validiere Material-Definitionen...")
+            logger.info("\n  [Phase 3] Validiere Material-Definitionen...")
 
             invalid_definitions = []
 
@@ -658,7 +661,7 @@ class ExportIntegrityTest:
                 self.success("✓ Alle Material-Definitionen sind valide")
 
             # === PHASE 4: Prüfe Texture-Referenzen im Output-Verzeichnis ===
-            print("\n  [Phase 4] Validiere Texture-Referenzen im Output-Verzeichnis...")
+            logger.info("\n  [Phase 4] Validiere Texture-Referenzen im Output-Verzeichnis...")
 
             missing_textures = []
             texture_coverage = {}
@@ -759,7 +762,7 @@ class ExportIntegrityTest:
                 self.success(f"✓ Alle {len(texture_coverage)} Textur-Referenzen existieren im Output-Verzeichnis")
 
             # === PHASE 5: Statistik und Zusammenfassung ===
-            print("\n  [Phase 5] Material-Chain-Statistik:")
+            logger.info("\n  [Phase 5] Material-Chain-Statistik:")
 
             # Gruppiere Materialien nach Typ
             tile_materials = {m: c for m, c in material_counts.items() if m.startswith(MATERIAL_PREFIX_TERRAIN_TILE)}
@@ -773,24 +776,25 @@ class ExportIntegrityTest:
 
             if tile_materials:
                 total_tile_faces = sum(tile_materials.values())
-                print(f"    • Terrain-Tiles: {len(tile_materials)} Materialien, {total_tile_faces:,} Faces")
+                logger.info(f"    • Terrain-Tiles: {len(tile_materials)} Materialien, {total_tile_faces:,} Faces")
 
             if terrain_materials:
                 total_street_faces = sum(terrain_materials.values())
-                print(f"    • Straßen: {len(terrain_materials)} Materialien, {total_street_faces:,} Faces")
+                logger.info(f"    • Straßen: {len(terrain_materials)} Materialien, {total_street_faces:,} Faces")
 
             if lod2_materials:
                 total_lod2_faces = sum(lod2_materials.values())
-                print(f"    • Gebäude (LoD2): {len(lod2_materials)} Materialien, {total_lod2_faces:,} Faces")
+                logger.info(f"    • Gebäude (LoD2): {len(lod2_materials)} Materialien, {total_lod2_faces:,} Faces")
 
             if other_materials:
                 total_other_faces = sum(other_materials.values())
-                print(f"    • Sonstige: {len(other_materials)} Materialien, {total_other_faces:,} Faces")
+                logger.info(f"    • Sonstige: {len(other_materials)} Materialien, {total_other_faces:,} Faces")
 
             total_faces = sum(material_counts.values())
             total_textures = len(texture_coverage)
-            print(
-                f"\n    [SUMMARY] {len(material_counts)} referenzierte Materialien, {total_faces:,} Faces, {total_textures} Texturen"
+            logger.info(
+                f"\n    [SUMMARY] {len(material_counts
+)} referenzierte Materialien, {total_faces:,} Faces, {total_textures} Texturen"
             )
 
             # === FINAL: Bestimme Integrität-Status ===
@@ -808,7 +812,7 @@ class ExportIntegrityTest:
 
     def test_road_materials_debug(self):
         """Debugge Straßen-/andere-Materialien - analysiere was in DAE verwendet wird vs. materials.json."""
-        print("\n[3c] DEBUG: Material-Rendering-Analyse...")
+        logger.debug("\n[3c] DEBUG: Material-Rendering-Analyse...")
 
         materials_json = self.beamng_dir / MAIN_DIR / MATERIALS_JSON
 
@@ -821,7 +825,7 @@ class ExportIntegrityTest:
                 materials = json.load(f)
 
             # === PHASE 1: Sammle Materialien-Kategorien aus DAE ===
-            print("\n  [DAE-Material Kategorisierung]")
+            logger.info("\n  [DAE-Material Kategorisierung]")
 
             terrain_mats = set(
                 m for m in self.dae_materials | self.triangle_materials if m.startswith(MATERIAL_PREFIX_TERRAIN_TILE)
@@ -842,7 +846,7 @@ class ExportIntegrityTest:
                 return
 
             # === PHASE 2: Analysiere die "sonstigen" Materialien ===
-            print("\n  [Sonstige-Material Details (z.B. Straßen)]")
+            logger.info("\n  [Sonstige-Material Details (z.B. Straßen)]")
 
             for mat_name in sorted(other_mats)[:10]:  # Zeige erste 10
                 if mat_name not in materials:
@@ -850,15 +854,15 @@ class ExportIntegrityTest:
                     continue
 
                 mat_def = materials[mat_name]
-                print(f"\n    Material: {mat_name}")
-                print(f"      mapTo: {mat_def.get('mapTo', 'FEHLT')}")
-                print(f"      class: {mat_def.get('class', 'FEHLT')}")
+                logger.info(f"\n    Material: {mat_name}")
+                logger.info(f"      mapTo: {mat_def.get('mapTo', 'FEHLT')}")
+                logger.info(f"      class: {mat_def.get('class', 'FEHLT')}")
 
                 # Prüfe Stages
                 stages = mat_def.get("Stages", [])
                 if stages:
                     stage = stages[0]
-                    print(f"      Stages[0]:")
+                    logger.info(f"      Stages[0]:")
 
                     # Prüfe alle Texture-Felder (colorMap/baseColorMap sind austauschbar)
                     tex_fields = ["colorMap", "baseColorMap", "normalMap", "metallicMap", "roughnessMap"]
@@ -868,11 +872,11 @@ class ExportIntegrityTest:
                             tex_path = stage[tex_field]
                             resolved = self._resolve_relative_path(tex_path)
                             exists = "✓" if resolved.exists() else "✗"
-                            print(f"        {tex_field}: {exists} {tex_path}")
+                            logger.info(f"        {tex_field}: {exists} {tex_path}")
                             if resolved.exists():
                                 has_textures = True
                             if not resolved.exists():
-                                print(f"                 ✗ FEHLT: {resolved}")
+                                logger.info(f"                 ✗ FEHLT: {resolved}")
 
                     if not has_textures:
                         self.error(f"    ⚠️  Material '{mat_name}': KEINE Texturen definiert!")
@@ -880,10 +884,10 @@ class ExportIntegrityTest:
                     self.error(f"    ⚠️  Material '{mat_name}': Keine Stages definiert!")
 
             if len(other_mats) > 10:
-                print(f"\n    ... und {len(other_mats)-10} weitere")
+                logger.info(f"\n    ... und {len(other_mats)-10} weitere")
 
             # === PHASE 3: Texture-Pfade-Validierung ===
-            print("\n  [Texture-Pfade Validierung]")
+            logger.info("\n  [Texture-Pfade Validierung]")
 
             texture_issues = []
             valid_textures = 0
@@ -951,7 +955,7 @@ class ExportIntegrityTest:
 
     def test_dds_metadata_and_pbr_shader(self):
         """Teste DDS-Metadaten und PBR-Shader-Definitionen für Straßen-Materialien."""
-        print("\n[DDS & PBR] Teste DDS-Metadaten und Shader-Definitionen...")
+        logger.info("\n[DDS & PBR] Teste DDS-Metadaten und Shader-Definitionen...")
 
         materials_json = self.beamng_dir / MAIN_DIR / MATERIALS_JSON
         if not materials_json.exists():
@@ -962,7 +966,7 @@ class ExportIntegrityTest:
             with open(materials_json, "r", encoding="utf-8") as f:
                 materials = json.load(f)
 
-            print(f"\n  [Analysiere {len(materials)} Materialien]")
+            logger.info(f"\n  [Analysiere {len(materials)} Materialien]")
 
             dds_issues = []
             pbr_issues = []
@@ -974,17 +978,17 @@ class ExportIntegrityTest:
                 if mat_name.startswith(MATERIAL_PREFIX_TERRAIN_TILE) or mat_name.startswith(MATERIAL_PREFIX_LOD2):
                     continue
 
-                print(f"\n    Material: {mat_name}")
+                logger.info(f"\n    Material: {mat_name}")
 
                 # === PRÜFE PBR-SHADER ===
                 shader_type = mat_def.get("shader", "unknown")
-                print(f"      Shader: {shader_type}", end="")
+                logger.info(f"      Shader: {shader_type}", end="")
 
                 if shader_type == "PBR":
-                    print(" ✓")
+                    logger.info(" ✓")
                     valid_pbr.append(mat_name)
                 else:
-                    print(" ✗ (sollte PBR sein!)")
+                    logger.info(" ✗ (sollte PBR sein!)")
                     pbr_issues.append(f"{mat_name}: Shader ist '{shader_type}' (sollte PBR sein)")
 
                 # === PRÜFE DDS-METADATEN ===
@@ -1001,24 +1005,24 @@ class ExportIntegrityTest:
                     if resolved_path.exists() and resolved_path.suffix.lower() == ".dds":
                         try:
                             dds_info = self._read_dds_header(resolved_path)
-                            print(f"        colorMap: {resolved_path.name}")
-                            print(f"          Format: {dds_info.get('format', 'unknown')}")
-                            print(f"          Größe: {dds_info.get('width', '?')}x{dds_info.get('height', '?')}")
-                            print(f"          Mipmaps: {dds_info.get('mipmaps', 0)}")
+                            logger.info(f"        colorMap: {resolved_path.name}")
+                            logger.info(f"          Format: {dds_info.get('format', 'unknown')}")
+                            logger.info(f"          Größe: {dds_info.get('width', '?')}x{dds_info.get('height', '?')}")
+                            logger.info(f"          Mipmaps: {dds_info.get('mipmaps', 0)}")
 
                             # Validiere Format
                             if dds_info.get("format") in ["DXT1", "DXT3", "DXT5", "BC4", "BC5", "BC6H", "BC7"]:
                                 valid_dds.append(f"{mat_name}_colorMap")
-                                print(f"          ✓ Format OK")
+                                logger.info(f"          ✓ Format OK")
                             else:
                                 dds_issues.append(
                                     f"{mat_name}: colorMap hat unerwartetes Format '{dds_info.get('format')}'"
                                 )
-                                print(f"          ⚠️  Unerwartetes Format!")
+                                logger.info(f"          ⚠️  Unerwartetes Format!")
 
                         except Exception as e:
                             dds_issues.append(f"{mat_name}: Fehler beim Lesen von colorMap - {str(e)}")
-                            print(f"          ✗ Fehler: {e}")
+                            logger.error(f"          ✗ Fehler: {e}")
 
                 # Prüfe normalMap
                 if "normalMap" in stage:
@@ -1028,19 +1032,19 @@ class ExportIntegrityTest:
                     if resolved_path.exists() and resolved_path.suffix.lower() == ".dds":
                         try:
                             dds_info = self._read_dds_header(resolved_path)
-                            print(f"        normalMap: {resolved_path.name}")
-                            print(f"          Format: {dds_info.get('format', 'unknown')}")
-                            print(f"          Größe: {dds_info.get('width', '?')}x{dds_info.get('height', '?')}")
-                            print(f"          ✓ Format OK")
+                            logger.info(f"        normalMap: {resolved_path.name}")
+                            logger.info(f"          Format: {dds_info.get('format', 'unknown')}")
+                            logger.info(f"          Größe: {dds_info.get('width', '?')}x{dds_info.get('height', '?')}")
+                            logger.info(f"          ✓ Format OK")
                             valid_dds.append(f"{mat_name}_normalMap")
                         except Exception as e:
                             dds_issues.append(f"{mat_name}: Fehler beim Lesen von normalMap - {str(e)}")
-                            print(f"          ✗ Fehler: {e}")
+                            logger.error(f"          ✗ Fehler: {e}")
 
             # === ZUSAMMENFASSUNG ===
-            print(f"\n  [Zusammenfassung]")
-            print(f"    ✓ {len(valid_pbr)} Materialien mit PBR-Shader")
-            print(f"    ✓ {len(valid_dds)} DDS-Texturen validiert")
+            logger.info(f"\n  [Zusammenfassung]")
+            logger.info(f"    ✓ {len(valid_pbr)} Materialien mit PBR-Shader")
+            logger.info(f"    ✓ {len(valid_dds)} DDS-Texturen validiert")
 
             if pbr_issues:
                 self.error(f"  ✗ {len(pbr_issues)} PBR-Shader-Probleme:")
@@ -1125,7 +1129,7 @@ class ExportIntegrityTest:
 
     def test_road_material_binding_uv(self):
         """Teste Material-Binding und UV-Mapping für Straßen-Geometrien in DAE."""
-        print("\n[3d] DEBUG: Straßen-Material-Binding und UV-Mapping...")
+        logger.debug("\n[3d] DEBUG: Straßen-Material-Binding und UV-Mapping...")
 
         # Suche Terrain-DAEs
         terrain_daes = list(self.shapes_dir.glob(TERRAIN_DAE_PATTERN))
@@ -1134,7 +1138,7 @@ class ExportIntegrityTest:
             self.warning(f"Keine {TERRAIN_DAE_PATTERN} gefunden")
             return
 
-        print(f"\n  [Analyze {len(terrain_daes)} Terrain-DAEs]")
+        logger.info(f"\n  [Analyze {len(terrain_daes)} Terrain-DAEs]")
 
         for terrain_dae in terrain_daes:
             try:
@@ -1181,7 +1185,7 @@ class ExportIntegrityTest:
                 self.success(f"  {terrain_dae.name}: {len(road_geometries)} Straßen-Geometrien gefunden")
 
                 # === PHASE 2: Prüfe Material-Binding und UV-Mapping ===
-                print(f"\n    [Material-Binding Analyse] {len(road_geometries)} Straßen-Geometrien:")
+                logger.info(f"\n    [Material-Binding Analyse] {len(road_geometries)} Straßen-Geometrien:")
 
                 binding_issues = []
                 uv_issues = []
@@ -1190,9 +1194,9 @@ class ExportIntegrityTest:
                     mat_name = road_geom["material"]
                     geom_name = road_geom["geom_name"]
 
-                    print(f"\n      Geometrie: {geom_name}")
-                    print(f"        Material-Ref: {mat_name}")
-                    print(f"        Faces: {road_geom['count']}")
+                    logger.info(f"\n      Geometrie: {geom_name}")
+                    logger.info(f"        Material-Ref: {mat_name}")
+                    logger.info(f"        Faces: {road_geom['count']}")
 
                     # Prüfe ob Material in materials.json existiert
                     materials_json = self.beamng_dir / MAIN_DIR / MATERIALS_JSON
@@ -1201,10 +1205,10 @@ class ExportIntegrityTest:
                             materials = json.load(f)
 
                         if mat_name in materials:
-                            print(f"        ✓ Material '{mat_name}' in materials.json gefunden")
+                            logger.info(f"        ✓ Material '{mat_name}' in materials.json gefunden")
                         else:
                             binding_issues.append(f"{geom_name}: Material '{mat_name}' NICHT in materials.json")
-                            print(f"        ✗ Material '{mat_name}' NICHT in materials.json!")
+                            logger.info(f"        ✗ Material '{mat_name}' NICHT in materials.json!")
 
                     # === Prüfe UV-Mapping in dieser Geometrie ===
                     prim = road_geom["primitive"]
@@ -1222,24 +1226,26 @@ class ExportIntegrityTest:
                     has_normal = "NORMAL" in input_sources
                     has_texcoord = "TEXCOORD" in input_sources or any("TEXCOORD" in s for s in input_sources.keys())
 
-                    print(f"        Inputs: POSITION={has_position}, NORMAL={has_normal}, TEXCOORD={has_texcoord}")
+                    logger.info(
+                        f"        Inputs: POSITION={has_position}, NORMAL={has_normal}, TEXCOORD={has_texcoord}"
+                    )
 
                     if not has_texcoord:
                         uv_issues.append(f"{geom_name}: ✗ KEINE Texture-Koordinaten (TEXCOORD) definiert!")
-                        print(f"        ⚠️  WARNUNG: Keine UV-Koordinaten vorhanden!")
+                        logger.info(f"        ⚠️  WARNUNG: Keine UV-Koordinaten vorhanden!")
                     else:
                         # Versuche Texcoord-Daten zu extrahieren
                         texcoord_source = next(
                             (s for s in input_sources.values() if "TEXCOORD" in s or "uv" in s.lower()), None
                         )
                         if texcoord_source:
-                            print(f"        ✓ Texcoord-Source: {texcoord_source}")
+                            logger.info(f"        ✓ Texcoord-Source: {texcoord_source}")
 
                 if len(road_geometries) > 5:
-                    print(f"\n      ... und {len(road_geometries)-5} weitere")
+                    logger.info(f"\n      ... und {len(road_geometries)-5} weitere")
 
                 # === PHASE 3: Zusammenfassung ===
-                print(f"\n    [Binding Issues] {len(binding_issues)}")
+                logger.info(f"\n    [Binding Issues] {len(binding_issues)}")
                 for issue in binding_issues:
                     self.error(f"      - {issue}")
 
@@ -1261,7 +1267,7 @@ class ExportIntegrityTest:
 
     def test_items_json(self):
         """Teste items.json Integrität."""
-        print("\n[4] Teste items.json...")
+        logger.info("\n[4] Teste items.json...")
 
         items_json = self.beamng_dir / Path(config.ITEMS_JSON)
 
@@ -1366,7 +1372,7 @@ class ExportIntegrityTest:
 
     def test_textures(self):
         """Teste Texturen."""
-        print("\n[5] Teste Texturen...")
+        logger.info("\n[5] Teste Texturen...")
 
         if not self.textures_dir.exists():
             self.warning(f"Textures-Verzeichnis nicht gefunden: {self.textures_dir}")
@@ -1418,7 +1424,7 @@ class ExportIntegrityTest:
 
     def test_texture_mapping(self):
         """Teste Texture-Mapping: DAE Geometry-Namen zu Texturdateien."""
-        print("\n[5b] Teste Texture-Mapping (DAE <-> Texturen)...")
+        logger.info("\n[5b] Teste Texture-Mapping (DAE <-> Texturen)...")
 
         # Lade verfügbare Texturdateien
         if not self.textures_dir.exists():
@@ -1488,7 +1494,7 @@ class ExportIntegrityTest:
 
     def test_xyz_normalization(self):
         """Teste XYZ-Koordinaten-Normalisierung aller Objekte."""
-        print("\n[7] Teste XYZ-Koordinaten-Normalisierung...")
+        logger.info("\n[7] Teste XYZ-Koordinaten-Normalisierung...")
 
         import numpy as np
         from tools.dae_loader import load_dae_tile
@@ -1519,7 +1525,7 @@ class ExportIntegrityTest:
         building_z_ranges = {}
 
         if building_daes:
-            print(f"  [Gebäude] Analysiere {len(building_daes)} DAE-Dateien...")
+            logger.info(f"  [Gebäude] Analysiere {len(building_daes)} DAE-Dateien...")
 
             for dae_file in building_daes:
                 try:
@@ -1544,15 +1550,15 @@ class ExportIntegrityTest:
                 )
 
                 # Detaillierte Analyse
-                print(f"    Z-Range pro Gebäude:")
+                logger.info(f"    Z-Range pro Gebäude:")
                 sorted_buildings = sorted(building_z_ranges.items(), key=lambda x: x[1]["min"])
                 for name, zrange in sorted_buildings[:5]:
-                    print(f"      • {name}: [{zrange['min']:.2f}, {zrange['max']:.2f}] ({zrange['count']} Verts)")
+                    logger.info(f"      • {name}: [{zrange['min']:.2f}, {zrange['max']:.2f}] ({zrange['count']} Verts)")
                 if len(building_z_ranges) > 5:
-                    print(f"      ... und {len(building_z_ranges)-5} weitere")
+                    logger.info(f"      ... und {len(building_z_ranges)-5} weitere")
 
         # === KONSISTENZ-PRÜFUNG ===
-        print("\n  [Konsistenz] Vergleiche Z-Koordinaten zwischen Objekten:")
+        logger.info("\n  [Konsistenz] Vergleiche Z-Koordinaten zwischen Objekten:")
 
         all_z_values = terrain_z_values + building_z_values
 
@@ -1560,7 +1566,7 @@ class ExportIntegrityTest:
             z_min, z_max = min(all_z_values), max(all_z_values)
             z_range = z_max - z_min
 
-            print(f"    • Gesamt Z-Range: [{z_min:.2f}, {z_max:.2f}] (Spanne: {z_range:.2f}m)")
+            logger.info(f"    • Gesamt Z-Range: [{z_min:.2f}, {z_max:.2f}] (Spanne: {z_range:.2f}m)")
 
             # Prüfe ob Gebäude auf Terrain positioniert sind
             if terrain_z_values and building_z_values:
@@ -1577,9 +1583,9 @@ class ExportIntegrityTest:
 
                 if overlap_max > overlap_min:
                     self.success(f"Gebäude sind auf Terrain positioniert (Höhen überlappen)")
-                    print(f"      Terrain Z: [{terrain_min:.2f}, {terrain_max:.2f}]")
-                    print(f"      Gebäude Z: [{building_min:.2f}, {building_max:.2f}]")
-                    print(f"      Überlappung: [{overlap_min:.2f}, {overlap_max:.2f}]")
+                    logger.info(f"      Terrain Z: [{terrain_min:.2f}, {terrain_max:.2f}]")
+                    logger.info(f"      Gebäude Z: [{building_min:.2f}, {building_max:.2f}]")
+                    logger.info(f"      Überlappung: [{overlap_min:.2f}, {overlap_max:.2f}]")
                 else:
                     self.warning(f"Gebäude-Höhen und Terrain-Höhen überlappen nicht")
 
@@ -1616,7 +1622,7 @@ class ExportIntegrityTest:
 
     def test_horizon_dae(self):
         """Teste terrain_horizon.dae Integrität (nur wenn Horizon-Item in items.json vorhanden ist)."""
-        print("\n[Horizon] Teste terrain_horizon.dae...")
+        logger.info("\n[Horizon] Teste terrain_horizon.dae...")
 
         # Überspringe Test, wenn kein Horizon-Item registriert ist
         if not self.has_horizon_item:
@@ -1697,7 +1703,7 @@ class ExportIntegrityTest:
 
     def test_horizon_materials(self):
         """Teste Horizon-Material in materials.json (nur wenn Horizon-Item in items.json vorhanden ist)."""
-        print("\n[Horizon] Teste Horizon-Material...")
+        logger.info("\n[Horizon] Teste Horizon-Material...")
 
         # Überspringe Test, wenn kein Horizon-Item registriert ist
         if not self.has_horizon_item:
@@ -1750,7 +1756,7 @@ class ExportIntegrityTest:
 
     def test_horizon_items(self):
         """Teste Horizon-Item in items.json (nur wenn vorhanden)."""
-        print("\n[Horizon] Teste Horizon-Item...")
+        logger.info("\n[Horizon] Teste Horizon-Item...")
 
         # Überspringe Test, wenn kein Horizon-Item registriert ist
         if not self.has_horizon_item:
@@ -1827,7 +1833,7 @@ class ExportIntegrityTest:
 
     def test_horizon_uv_mapping(self):
         """Teste UV-Mapping Plausibilität in horizon DAE (nur wenn Horizon-Item vorhanden ist)."""
-        print("\n[Horizon] Teste UV-Mapping Plausibilität...")
+        logger.info("\n[Horizon] Teste UV-Mapping Plausibilität...")
 
         # Überspringe Test, wenn kein Horizon-Item registriert ist
         if not self.has_horizon_item:
@@ -1864,7 +1870,7 @@ class ExportIntegrityTest:
             uv_min = min(uv_values)
             uv_max = max(uv_values)
 
-            print(f"  [i] UV-Range: [{uv_min:.4f} .. {uv_max:.4f}]")
+            logger.debug(f"  [i] UV-Range: [{uv_min:.4f} .. {uv_max:.4f}]")
 
             # Prüfe ob UVs im erwarteten Bereich sind (mit Offset/Skalierung)
             # Normalerweise sollten sie zwischen -0.1 und 1.1 sein (mit kleinen Offsets)
@@ -1885,7 +1891,7 @@ class ExportIntegrityTest:
 
     def test_horizon_coordinates(self):
         """Teste Koordinaten-Plausibilität von Horizon-Mesh (nur wenn Horizon-Item vorhanden ist)."""
-        print("\n[Horizon] Teste Koordinaten-Plausibilität...")
+        logger.info("\n[Horizon] Teste Koordinaten-Plausibilität...")
 
         # Überspringe Test, wenn kein Horizon-Item registriert ist
         if not self.has_horizon_item:
@@ -1930,10 +1936,10 @@ class ExportIntegrityTest:
             y_min, y_max = min(ys), max(ys)
             z_min, z_max = min(zs), max(zs)
 
-            print(f"  [i] Mesh-Bounds:")
-            print(f"      X: [{x_min:.0f}..{x_max:.0f}] ({x_max - x_min:.0f}m)")
-            print(f"      Y: [{y_min:.0f}..{y_max:.0f}] ({y_max - y_min:.0f}m)")
-            print(f"      Z: [{z_min:.0f}..{z_max:.0f}] ({z_max - z_min:.0f}m)")
+            logger.debug(f"  [i] Mesh-Bounds:")
+            logger.info(f"      X: [{x_min:.0f}..{x_max:.0f}] ({x_max - x_min:.0f}m)")
+            logger.info(f"      Y: [{y_min:.0f}..{y_max:.0f}] ({y_max - y_min:.0f}m)")
+            logger.info(f"      Z: [{z_min:.0f}..{z_max:.0f}] ({z_max - z_min:.0f}m)")
 
             # Prüfe ob Mesh in lokalen Koordinaten ist (sollte um 0,0,0 sein)
             mesh_center_x = (x_min + x_max) / 2
@@ -1963,10 +1969,10 @@ class ExportIntegrityTest:
 
     def run_all_tests(self):
         """Führe alle Tests aus."""
-        print("=" * 60)
-        print("EXPORT INTEGRITY TEST")
-        print("=" * 60)
-        print(f"BeamNG-Verzeichnis: {self.beamng_dir}")
+        logger.info("=" * 60)
+        logger.info("EXPORT INTEGRITY TEST")
+        logger.info("=" * 60)
+        logger.info(f"BeamNG-Verzeichnis: {self.beamng_dir}")
 
         self.test_terrain_dae()
         self.test_terrain_face_materials()
@@ -1990,38 +1996,38 @@ class ExportIntegrityTest:
         self.test_horizon_coordinates()
 
         # Zusammenfassung
-        print("\n" + "=" * 60)
-        print("ZUSAMMENFASSUNG")
-        print("=" * 60)
+        logger.info("\n" + "=" * 60)
+        logger.info("ZUSAMMENFASSUNG")
+        logger.info("=" * 60)
 
         if self.errors:
-            print(f"\n❌ {len(self.errors)} FEHLER gefunden:")
+            logger.info(f"\n❌ {len(self.errors)} FEHLER gefunden:")
             for err in self.errors:
-                print(f"  {err}")
+                logger.info(f"  {err}")
         else:
-            print("\n✅ Keine kritischen Fehler!")
+            logger.error("\n✅ Keine kritischen Fehler!")
 
         if self.warnings:
-            print(f"\n⚠️  {len(self.warnings)} WARNUNGEN:")
+            logger.info(f"\n⚠️  {len(self.warnings)} WARNUNGEN:")
             for warn in self.warnings:
-                print(f"  {warn}")
+                logger.info(f"  {warn}")
         else:
-            print("\n✅ Keine Warnungen!")
+            logger.warning("\n✅ Keine Warnungen!")
 
         if not self.errors and not self.warnings:
-            print("\n" + "=" * 60)
-            print("🎉 ALLE TESTS BESTANDEN! Export ist valide.")
-            print("=" * 60)
+            logger.info("\n" + "=" * 60)
+            logger.info("🎉 ALLE TESTS BESTANDEN! Export ist valide.")
+            logger.info("=" * 60)
             return 0
         elif not self.errors:
-            print("\n" + "=" * 60)
-            print("[OK] Export ist funktionsfähig (mit Warnungen).")
-            print("=" * 60)
+            logger.info("\n" + "=" * 60)
+            logger.warning("[OK] Export ist funktionsfähig (mit Warnungen).")
+            logger.info("=" * 60)
             return 0
         else:
-            print("\n" + "=" * 60)
-            print("❌ Export hat kritische Fehler!")
-            print("=" * 60)
+            logger.info("\n" + "=" * 60)
+            logger.error("❌ Export hat kritische Fehler!")
+            logger.info("=" * 60)
             return 1
 
 

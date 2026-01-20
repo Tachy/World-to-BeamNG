@@ -28,6 +28,9 @@ import numpy as np
 from typing import List, Tuple, Dict, Set
 from collections import defaultdict
 from .vertex_manager import VertexManager
+import logging
+from world_to_beamng.logging_config import LoggerConfig
+logger = LoggerConfig.get_logger()
 
 
 def extract_terrain_boundary_edges(
@@ -85,7 +88,7 @@ def extract_terrain_boundary_edges(
         for edge in edges:
             edge_faces[edge].append(face_idx)
 
-    print(f"    [i] Terrain-Faces: {terrain_face_count}, Non-Terrain: {non_terrain_count}")
+    logger.debug(f"    [i] Terrain-Faces: {terrain_face_count}, Non-Terrain: {non_terrain_count}")
 
     # === OPTIMIERUNG 2: Set-basierte Boundary-Extraktion (statt Loop) ===
     boundary_vertices = set()
@@ -97,7 +100,7 @@ def extract_terrain_boundary_edges(
             boundary_vertices.add(v2_idx)
             boundary_edges.append((v1_idx, v2_idx))
 
-    print(f"    [i] Boundary-Edges gesamt: {len(boundary_edges)}, Boundary-Vertices gesamt: {len(boundary_vertices)}")
+    logger.debug(f"    [i] Boundary-Edges gesamt: {len(boundary_edges)}, Boundary-Vertices gesamt: {len(boundary_vertices)}")
 
     # === KRITISCH: Berechne TATSÄCHLICHE Bounds der Boundary-Vertices ===
     vertices = vertex_manager.vertices
@@ -136,8 +139,8 @@ def extract_terrain_boundary_edges(
             boundary_rim_vertices.add(v_idx)
 
     boundary_array = np.array(sorted(boundary_rim_vertices), dtype=np.int32)
-    print(f"    [i] Boundary-Rim-Vertices (nur Kanten): {len(boundary_array)}")
-    print(f"    [i] Boundary-Bounds (TATSÄCHLICH): X=[{x_min:.0f}..{x_max:.0f}], Y=[{y_min:.0f}..{y_max:.0f}]")
+    logger.debug(f"    [i] Boundary-Rim-Vertices (nur Kanten): {len(boundary_array)}")
+    logger.debug(f"    [i] Boundary-Bounds (TATSÄCHLICH): X=[{x_min:.0f}..{x_max:.0f}], Y=[{y_min:.0f}..{y_max:.0f}]")
 
     return boundary_array, actual_bounds
 
@@ -185,7 +188,7 @@ def extract_horizon_boundary_ring(
             boundary_vertices.add(v1_idx)
             boundary_vertices.add(v2_idx)
 
-    print(f"    [i] Horizon-Mesh Boundary-Vertices gesamt: {len(boundary_vertices)}")
+    logger.debug(f"    [i] Horizon-Mesh Boundary-Vertices gesamt: {len(boundary_vertices)}")
 
     # === Filtere innere vs. äußere Boundary ===
     # WICHTIG: Der Horizon hat ein LOCH in der Mitte (wo das Terrain ist).
@@ -223,10 +226,10 @@ def extract_horizon_boundary_ring(
 
     inner_boundary_array = np.array(sorted(inner_boundary), dtype=np.int32)
 
-    print(f"    [i] Horizon-Ring Extraktion:")
-    print(f"        Grid-Bounds: X=[{x_min:.0f}..{x_max:.0f}], Y=[{y_min:.0f}..{y_max:.0f}]")
-    print(f"        Innere Boundary-Vertices: {len(inner_boundary)}")
-    print(f"        Äußere Boundary-Vertices: {len(outer_boundary)}")
+    logger.debug(f"    [i] Horizon-Ring Extraktion:")
+    logger.info(f"        Grid-Bounds: X=[{x_min:.0f}..{x_max:.0f}], Y=[{y_min:.0f}..{y_max:.0f}]")
+    logger.info(f"        Innere Boundary-Vertices: {len(inner_boundary)}")
+    logger.info(f"        Äußere Boundary-Vertices: {len(outer_boundary)}")
 
     if len(inner_boundary_array) > 0:
         ring_vertices = vertices[inner_boundary_array]
@@ -234,7 +237,7 @@ def extract_horizon_boundary_ring(
         x_max_ring = ring_vertices[:, 0].max()
         y_min_ring = ring_vertices[:, 1].min()
         y_max_ring = ring_vertices[:, 1].max()
-        print(f"        Ring-Bounds: X=[{x_min_ring:.0f}..{x_max_ring:.0f}], Y=[{y_min_ring:.0f}..{y_max_ring:.0f}]")
+        logger.info(f"        Ring-Bounds: X=[{x_min_ring:.0f}..{x_max_ring:.0f}], Y=[{y_min_ring:.0f}..{y_max_ring:.0f}]")
 
     return inner_boundary_array
 
@@ -399,7 +402,7 @@ def stitch_ring_strip(
 
     horizon_no_side = len(horizon_vertices_idx) - len(all_horizon_assigned)
     if horizon_no_side > 0:
-        print(f"    [!] WARNUNG: {horizon_no_side} Horizon-Vertices OHNE Seite (von {len(horizon_vertices_idx)} total)")
+        logger.error(f"    [!] WARNUNG: {horizon_no_side} Horizon-Vertices OHNE Seite (von {len(horizon_vertices_idx)} total)")
 
     # === STEP 3: Verbinde Seite-zu-Seite mit sequenziellem Strip ===
     faces = []
@@ -409,8 +412,9 @@ def stitch_ring_strip(
         horizon_side_vertices = horizon_sides[side]
 
         if len(terrain_side_vertices) == 0 or len(horizon_side_vertices) == 0:
-            print(
-                f"    [!] FEHLER: Seite {side} hat keine Vertices (Terrain: {len(terrain_side_vertices)}, Horizon: {len(horizon_side_vertices)})"
+            logger.error(
+    f"    [!] FEHLER: Seite {side} hat keine Vertices (Terrain: {len(terrain_side_vertices
+)}, Horizon: {len(horizon_side_vertices)})"
             )
             continue
 
@@ -495,7 +499,7 @@ def stitch_ring_strip(
                 # Füll-Dreieck mit letztem Terrain-Vertex zur Ecke hin
                 faces.append((last_t_vertex, h_fill_prev, h_fill))
 
-    print(f"    [i] Ring-Strip Faces: {len(faces)}")
+    logger.debug(f"    [i] Ring-Strip Faces: {len(faces)}")
     return faces
 
 
@@ -535,14 +539,14 @@ def stitch_terrain_horizon_boundary(
     terrain_boundary_vertices, actual_bounds = extract_terrain_boundary_edges(terrain_mesh, terrain_vertex_manager)
 
     if len(terrain_boundary_vertices) == 0:
-        print(f"  [!] Keine Terrain-Boundaries gefunden")
+        logger.error(f"  [!] Keine Terrain-Boundaries gefunden")
         return [], np.array([])
 
     # WICHTIG: Nutze TATSÄCHLICHE Terrain-Bounds, nicht übergebene grid_bounds!
     horizon_ring_vertices_local = extract_horizon_boundary_ring(horizon_vertex_manager, horizon_mesh, actual_bounds)
 
     if len(horizon_ring_vertices_local) == 0:
-        print(f"  [!] Keine Horizon-Ring-Vertices gefunden")
+        logger.error(f"  [!] Keine Horizon-Ring-Vertices gefunden")
         return [], np.array([])
 
     # === SAUBERE LÖSUNG: Kopiere Terrain-Ring-Vertices in den HORIZON-VM ===
@@ -559,6 +563,6 @@ def stitch_terrain_horizon_boundary(
         max_distance=grid_spacing * 1.5,
     )
 
-    print(f"  [Boundary-Stitching] FERTIG: {len(faces)} Stitching-Faces")
+    logger.info(f"  [Boundary-Stitching] FERTIG: {len(faces)} Stitching-Faces")
 
     return faces

@@ -6,6 +6,9 @@ import numpy as np
 from shapely.geometry import Polygon, box
 from shapely.ops import triangulate
 from .. import config
+import logging
+from world_to_beamng.logging_config import LoggerConfig
+logger = LoggerConfig.get_logger()
 
 
 def remove_road_faces_outside_bounds(mesh, vertex_manager):
@@ -39,7 +42,7 @@ def remove_road_faces_outside_bounds(mesh, vertex_manager):
         if material != "terrain":
             road_faces.append(face_idx)
 
-    print(f"  [Cleanup] Überprüfe {len(road_faces)} Straßen-Dreiecke auf Bounds-Ausschluss...")
+    logger.info(f"  [Cleanup] Überprüfe {len(road_faces)} Straßen-Dreiecke auf Bounds-Ausschluss...")
 
     if not road_faces:
         return 0
@@ -66,7 +69,7 @@ def remove_road_faces_outside_bounds(mesh, vertex_manager):
 
     if faces_to_remove:
         removed_count = mesh.remove_faces(faces_to_remove)
-        print(f"  [Cleanup] {removed_count} Straßen-Dreiecke komplett außerhalb entfernt")
+        logger.info(f"  [Cleanup] {removed_count} Straßen-Dreiecke komplett außerhalb entfernt")
 
     # === TEIL 2: Clippe teilweise überstehende Dreiecke an Grid-Kante ===
     # Aktualisiere road_faces Liste (alte Indices sind ungültig nach remove_faces)
@@ -103,7 +106,7 @@ def remove_road_faces_outside_bounds(mesh, vertex_manager):
             faces_to_clip_props.append(mesh.face_props.get(face_idx, {}))
 
     if faces_to_clip:
-        print(f"  [Cleanup] Clippe {len(faces_to_clip)} teilweise überstehende Straßen-Dreiecke...")
+        logger.info(f"  [Cleanup] Clippe {len(faces_to_clip)} teilweise überstehende Straßen-Dreiecke...")
 
         new_faces_data = []  # [(v0_idx, v1_idx, v2_idx, props), ...]
 
@@ -160,7 +163,7 @@ def remove_road_faces_outside_bounds(mesh, vertex_manager):
         for v0, v1, v2, props in new_faces_data:
             mesh.add_face(v0, v1, v2, **props)
 
-        print(f"  [Cleanup] {len(new_faces_data)} neue Dreiecke nach Clipping eingefügt")
+        logger.info(f"  [Cleanup] {len(new_faces_data)} neue Dreiecke nach Clipping eingefügt")
 
     return removed_count
 

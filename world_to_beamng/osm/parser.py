@@ -5,6 +5,9 @@ OSM Daten Parser und Datenextraktion.
 import numpy as np
 
 from ..geometry.coordinates import transformer_to_wgs84, transformer_to_utm
+import logging
+from world_to_beamng.logging_config import LoggerConfig
+logger = LoggerConfig.get_logger()
 
 
 def calculate_bbox_from_height_data(points, margin=0.0):
@@ -32,7 +35,7 @@ def calculate_bbox_from_height_data(points, margin=0.0):
     max_lon, max_lat = transformer_to_wgs84.transform(max_x, max_y)
 
     bbox = [min_lat, min_lon, max_lat, max_lon]
-    print(f"  BBOX ermittelt: {bbox}")
+    logger.info(f"  BBOX ermittelt: {bbox}")
 
     return bbox
 
@@ -47,5 +50,5 @@ def extract_roads_from_osm(osm_elements):
         and "highway" in element["tags"]
         and element["tags"].get("area") != "yes"  # Filtere Flächen-Features (area=yes)
     ]
-    print(f"  [->] {len(roads)} Strassensegmente aus {len(osm_elements)} OSM-Elementen extrahiert")
+    logger.info(f"  [->] {len(roads)} Strassensegmente aus {len(osm_elements)} OSM-Elementen extrahiert")
     return roads

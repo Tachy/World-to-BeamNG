@@ -14,8 +14,10 @@ from ..core.cache_manager import CacheManager
 from ..managers import MaterialManager, ItemManager, DAEExporter
 from ..workflow import TileProcessor, TerrainWorkflow, BuildingWorkflow, HorizonWorkflow, ForestWorkflow
 from ..forest_generator import ForestGenerator
+import logging
+from world_to_beamng.logging_config import LoggerConfig
 
-logger = logging.getLogger(__name__)
+logger = LoggerConfig.get_logger()
 
 
 class BeamNGExporter:
@@ -107,13 +109,13 @@ class BeamNGExporter:
             "trees_generated": 0,  # NEU
         }
 
-        print(f"\n{'='*60}")
-        print(f"BEAMNG LEVEL EXPORT")
-        print(f"{'='*60}")
-        print(f"Tiles: {len(tiles)}")
-        print(f"Global Offset: {global_offset}")
-        print(f"Forests: {'Yes' if include_forests else 'No'}")  # NEU
-        print(f"{'='*60}\n")
+        logger.info(f"\n{'='*60}")
+        logger.info(f"BEAMNG LEVEL EXPORT")
+        logger.info(f"{'='*60}")
+        logger.info(f"Tiles: {len(tiles)}")
+        logger.info(f"Global Offset: {global_offset}")
+        logger.info(f"Forests: {'Yes' if include_forests else 'No'}")  # NEU
+        logger.info(f"{'='*60}\n")
 
         # Speichere global_offset für Spawn-Punkt-Berechnung
         self.global_offset = global_offset[:2]  # Nur (x, y)
@@ -138,10 +140,10 @@ class BeamNGExporter:
             registered_trees = asset_scanner.scan_and_register_trees()
             stats["forests_registered"] = len(registered_trees)
 
-            print(f"\n✓ {stats['forests_registered']} Baumarten registriert\n")
+            logger.info(f"\n✓ {stats['forests_registered']} Baumarten registriert\n")
 
             # LAZY: Generiere forest_types JETZT mit den registrierten Trees!
-            print(f"  [→] Generiere dynamische Forest-Types aus {len(registered_trees)} Baumarten...")
+            logger.info(f"  [→] Generiere dynamische Forest-Types aus {len(registered_trees)} Baumarten...")
             generator = ForestGenerator(
                 registered_trees=registered_trees, template_config=self.osm_config.get("forest_type_templates", {})
             )
@@ -179,8 +181,9 @@ class BeamNGExporter:
             if self.height_points is None and self.height_elevations is None:
                 self.height_points = result.get("height_points")
                 self.height_elevations = result.get("height_elevations")
-                print(
-                    f"  [i] Spawn-Höhendaten: {len(self.height_points) if self.height_points is not None else 0} Punkte"
+                logger.debug(
+    f"  [i] Spawn-Höhendaten: {len(self.height_points
+) if self.height_points is not None else 0} Punkte"
                 )
 
             # Speichere Terrain-Daten für Horizon-Stitching (vom letzten erfolgreichen Tile)
@@ -189,7 +192,7 @@ class BeamNGExporter:
                 terrain_vertex_manager = result.get("vertex_manager")
                 terrain_grid_bounds = result.get("grid_bounds_local")
                 vm_count = terrain_vertex_manager.get_count() if terrain_vertex_manager else 0
-                print(f"  [i] Terrain-Daten für Stitching: VM={vm_count} Vertices, Bounds={terrain_grid_bounds}")
+                logger.debug(f"  [i] Terrain-Daten für Stitching: VM={vm_count} Vertices, Bounds={terrain_grid_bounds}")
 
             # Exportiere DAE
             tile_x = tile.get("tile_x", 0)
@@ -282,7 +285,7 @@ class BeamNGExporter:
                 horizon_dae, stitching_faces = result
                 stats["horizon_exported"] = horizon_dae is not None
                 if stitching_faces:
-                    print(f"  [i] {len(stitching_faces)} Stitching-Faces für Horizon-Terrain-Verbindung")
+                    logger.debug(f"  [i] {len(stitching_faces)} Stitching-Faces für Horizon-Terrain-Verbindung")
             else:
                 stats["horizon_exported"] = False
 
@@ -390,33 +393,33 @@ class BeamNGExporter:
         # Materials (nutze config.MATERIALS_JSON)
         self.materials.save()  # nutzt automatisch config.MATERIALS_JSON
         mat_path = config.BEAMNG_DIR / config.MATERIALS_JSON
-        print(f"\n[✓] Materials: {mat_path.name}")
+        logger.info(f"\n[✓] Materials: {mat_path.name}")
 
         # Items mit Höhendaten für Spawn-Punkt-Berechnung
         self.items.save(
             height_points=self.height_points, height_elevations=self.height_elevations, global_offset=self.global_offset
         )
         items_path = config.BEAMNG_DIR / config.ITEMS_JSON
-        print(f"[✓] Items: {items_path.name}")
+        logger.info(f"[✓] Items: {items_path.name}")
 
         # info.json ins Level-Root-Verzeichnis schreiben
         self.items.save_info_json()
         info_path = config.BEAMNG_DIR / "info.json"
-        print(f"[✓] Info: {info_path.name}")
+        logger.debug(f"[✓] Info: {info_path.name}")
 
         # Forest.json (falls Forests aktiviert)
         if include_forests:
             forest_result = self.forests.finalize_forest_export()
 
             if forest_result["status"] == "success":
-                print(f"[✓] Forest: forest.json ({forest_result['total_trees']} Bäume)")
+                logger.info(f"[✓] Forest: forest.forest4.json ({forest_result['total_trees']} Bäume)")
 
                 # Detaillierte Statistiken
                 stats = forest_result["statistics"]
                 if stats.get("types"):
-                    print(f"    Baumarten:")
+                    logger.info(f"    Baumarten:")
                     for tree_type, count in sorted(stats["types"].items(), key=lambda x: x[1], reverse=True):
-                        print(f"      • {tree_type}: {count}")
+                        logger.info(f"      • {tree_type}: {count}")
             elif forest_result["status"] == "no_forests":
                 logger.info("Keine Wälder generiert")
             else:
@@ -431,7 +434,7 @@ class BeamNGExporter:
     def clear_cache(self):
         """Lösche gesamten Cache."""
         self.cache.clear_all()
-        print("[✓] Cache gelöscht")
+        logger.info("[✓] Cache gelöscht")
 
     def reset_export(self):
         """Reset: Lösche Materials/Items JSON."""
@@ -451,4 +454,4 @@ class BeamNGExporter:
         ItemManager.reset_instance()
         self.items = ItemManager.get_instance(config.BEAMNG_DIR)
 
-        print("[✓] Export zurückgesetzt")
+        logger.info("[✓] Export zurückgesetzt")

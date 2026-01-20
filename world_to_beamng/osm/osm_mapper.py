@@ -1,6 +1,9 @@
 import json
 import os
 import uuid
+import logging
+from world_to_beamng.logging_config import LoggerConfig
+logger = LoggerConfig.get_logger()
 
 
 class OSMMapper:
@@ -10,7 +13,7 @@ class OSMMapper:
             with open(config_path, "r", encoding="utf-8") as f:
                 self.config = json.load(f)
         except FileNotFoundError:
-            print(f"Warnung: {config_path} nicht gefunden. Nutze leere Defaults.")
+            logger.error(f"Warnung: {config_path} nicht gefunden. Nutze leere Defaults.")
             self.config = {"highway_defaults": {}, "surface_overrides": {}, "surface_types": {}}
 
         self.defaults = self.config.get("highway_defaults", {})

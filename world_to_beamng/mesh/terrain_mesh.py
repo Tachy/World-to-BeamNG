@@ -3,6 +3,9 @@ Terrain-Grid Mesh Generierung mit zentraler Vertex-Verwaltung.
 """
 
 import numpy as np
+import logging
+from world_to_beamng.logging_config import LoggerConfig
+logger = LoggerConfig.get_logger()
 
 
 def generate_full_grid_mesh(grid_points, modified_heights, vertex_types, nx, ny, vertex_manager, dedup=True):
@@ -24,7 +27,7 @@ def generate_full_grid_mesh(grid_points, modified_heights, vertex_types, nx, ny,
     HINWEIS: UVs werden NICHT hier berechnet, sondern am Ende per mesh.compute_terrain_uvs_batch()
     für maximale Performance (vektorisiert über alle Terrain-Faces).
     """
-    print("  Fuege Grid-Vertices zum VertexManager hinzu...")
+    logger.info("  Fuege Grid-Vertices zum VertexManager hinzu...")
 
     # Grid-Punkte sind bereits in lokalen Koordinaten - keine Transformation mehr noetig!
     # Fuege alle Vertices zum Manager hinzu und speichere Indices (vektorisiert)
@@ -36,9 +39,9 @@ def generate_full_grid_mesh(grid_points, modified_heights, vertex_types, nx, ny,
     else:
         vertex_indices = vertex_manager.add_vertices_batch_dedup_fast(coords)
 
-    print(f"  [OK] {len(vertex_indices)} Grid-Vertices hinzugefuegt (gesamt: {vertex_manager.get_count()})")
+    logger.info(f"  [OK] {len(vertex_indices)} Grid-Vertices hinzugefuegt (gesamt: {vertex_manager.get_count()})")
 
-    print("  Generiere Grid-Faces (vektorisiert)...")
+    logger.info("  Generiere Grid-Faces (vektorisiert)...")
 
     # Erstelle Index-Grid (0-basiert mit VertexManager-Indices)
     idx_grid = np.array(vertex_indices).reshape(ny, nx)
@@ -69,6 +72,6 @@ def generate_full_grid_mesh(grid_points, modified_heights, vertex_types, nx, ny,
     else:
         terrain_faces = []
 
-    print(f"  [OK] {len(terrain_faces)} Terrain-Faces (Strassen ausgeschnitten)")
+    logger.info(f"  [OK] {len(terrain_faces)} Terrain-Faces (Strassen ausgeschnitten)")
 
     return terrain_faces, vertex_indices

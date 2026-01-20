@@ -15,6 +15,9 @@ import time
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 from world_to_beamng import config
+from world_to_beamng.logging_config import LoggerConfig
+
+logger = LoggerConfig.get_logger()
 from world_to_beamng.export import BeamNGExporter
 from world_to_beamng.utils.tile_scanner import scan_lgl_tiles, compute_global_center
 
@@ -33,14 +36,14 @@ def main():
     exporter = BeamNGExporter()
 
     # 3. Tiles scannen
-    print("\n" + "=" * 60)
-    print("WORLD-TO-BEAMNG - BeamNG Level Export")
-    print("=" * 60)
+    logger.info("\n" + "=" * 60)
+    logger.info("WORLD-TO-BEAMNG - BeamNG Level Export")
+    logger.info("=" * 60)
 
     tiles = scan_lgl_tiles(dgm1_dir=config.HEIGHT_DATA_DIR)
 
     if not tiles:
-        print("[!] Keine DGM1-Kacheln gefunden - Abbruch")
+        logger.error("[!] Keine DGM1-Kacheln gefunden - Abbruch")
         return
 
     # 4. Globalen Offset berechnen
@@ -48,8 +51,8 @@ def main():
     # 3-Tupel: (x, y, z) - z ist der Mittelwert der Höhen oder 0
     global_offset = (global_center[0], global_center[1], global_center[2] if len(global_center) > 2 else 0.0)
 
-    print(f"Gefundene Tiles: {len(tiles)}")
-    print(f"Global Offset: {global_offset}")
+    logger.info(f"Gefundene Tiles: {len(tiles)}")
+    logger.info(f"Global Offset: {global_offset}")
 
     # 5. Export durchführen
     stats = exporter.export_complete_level(
@@ -61,15 +64,15 @@ def main():
 
     # 6. Statistiken
     elapsed = time.time() - start_time
-    print(f"\n{'='*60}")
-    print("EXPORT ABGESCHLOSSEN")
-    print(f"{'='*60}")
-    print(f"Tiles verarbeitet: {stats['tiles_processed']}")
-    print(f"Tiles fehlgeschlagen: {stats['tiles_failed']}")
-    print(f"Gebäude exportiert: {stats['buildings_exported']}")
-    print(f"Horizon exportiert: {'Ja' if stats['horizon_exported'] else 'Nein'}")
-    print(f"Gesamtzeit: {elapsed:.1f}s")
-    print(f"{'='*60}\n")
+    logger.info(f"\n{'='*60}")
+    logger.info("EXPORT ABGESCHLOSSEN")
+    logger.info(f"{'='*60}")
+    logger.info(f"Tiles verarbeitet: {stats['tiles_processed']}")
+    logger.info(f"Tiles fehlgeschlagen: {stats['tiles_failed']}")
+    logger.info(f"Gebäude exportiert: {stats['buildings_exported']}")
+    logger.info(f"Horizon exportiert: {'Ja' if stats['horizon_exported'] else 'Nein'}")
+    logger.info(f"Gesamtzeit: {elapsed:.1f}s")
+    logger.info(f"{'='*60}\n")
 
 
 if __name__ == "__main__":

@@ -13,6 +13,9 @@ import uuid
 import shutil
 from typing import Dict, Any, Optional, List, Tuple
 from pathlib import Path
+import logging
+from world_to_beamng.logging_config import LoggerConfig
+logger = LoggerConfig.get_logger()
 
 
 class ItemManager:
@@ -380,7 +383,7 @@ class ItemManager:
         x_local = x_utm - ox
         y_local = y_utm - oy
 
-        print(
+        logger.debug(
             f"  [i] Berechne Spawn-Punkt: WGS84({lat}, {lon}) -> UTM({x_utm}, {y_utm}) -> Lokal({x_local}, {y_local})"
         )
 
@@ -398,13 +401,13 @@ class ItemManager:
                 else:
                     z_height = 400  # Fallback: 400m über Grund
             except Exception as e:
-                print(f"[!] Fehler bei Höheninterpolation: {e}")
+                logger.error(f"[!] Fehler bei Höheninterpolation: {e}")
                 z_height = 400
         else:
             z_height = 400
 
         final_pos = [x_local, y_local, z_height + 10]  # +10m Sicherheitsabstand über Terrain
-        print(f"  [OK] Spawn-Position: {final_pos}")
+        logger.info(f"  [OK] Spawn-Position: {final_pos}")
         return final_pos
 
     def save(
@@ -438,7 +441,6 @@ class ItemManager:
         main_items = main_items_dir / "items.level.json"
         missiongroup_items = missiongroup_dir / "items.level.json"
         playerdroppoints_items = playerdroppoints_dir / "items.level.json"
-
 
         # Berechne Spawn-Position mit Höhendaten falls verfügbar
         spawn_position = [0, 0, 400]  # Default
@@ -495,11 +497,11 @@ class ItemManager:
         if preview_src.exists():
             try:
                 shutil.copy2(preview_src, preview_dst)
-                print(f"  [OK] Preview-Bild kopiert: {preview_dst}")
+                logger.info(f"  [OK] Preview-Bild kopiert: {preview_dst}")
             except Exception as e:
-                print(f"  [WARNUNG] Preview-Bild konnte nicht kopiert werden: {e}")
+                logger.info(f"  [WARNUNG] Preview-Bild konnte nicht kopiert werden: {e}")
         else:
-            print(f"  [INFO] Keine Preview-Datei gefunden: {preview_src}")
+            logger.info(f"  [INFO] Keine Preview-Datei gefunden: {preview_src}")
 
     def load(self, filepath: Optional[Path] = None) -> None:
         """
@@ -509,7 +511,7 @@ class ItemManager:
             filepath: Optionaler custom Pfad, ansonsten aus config.ITEMS_JSON
         """
         from .. import config
-        
+
         load_path = filepath
         if load_path is None:
             load_path = self.beamng_dir / config.ITEMS_JSON

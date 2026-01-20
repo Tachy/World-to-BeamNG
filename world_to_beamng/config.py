@@ -2,9 +2,11 @@
 Zentrale Konfiguration fuer World-to-BeamNG.
 """
 
+import logging
 from pathlib import Path, PurePosixPath
 
 from .osm.osm_mapper import OSMMapper
+from .logging_config import LoggerConfig
 
 LEVEL_NAME = "world_to_beamng"  # Name des BeamNG Levels (muss mit BEAMNG_DIR übereinstimmen)
 
@@ -71,6 +73,14 @@ TERRAIN_REDUCTION = 0  # Decimation bleibt aus; steuern wir ueber GRID_SPACING
 # DEBUG / EXPORTS
 DEBUG_EXPORTS = True  # Debug-Dumps (Netz, Grid) nur bei Bedarf aktivieren
 DEBUG_VERBOSE = False  # Zusätzliche Konsolen-Logs
+
+# === LOGGING ===
+LOGGING_ENABLED = True
+LOGGING_FILE = None  # Path("logs/world_to_beamng.log")  # Optional; None = nur stdout
+LOGGING_LEVEL = logging.DEBUG if DEBUG_VERBOSE else logging.INFO
+
+# Initialisiere zentrale Logger-Instanz
+LoggerConfig.get_instance(log_file=LOGGING_FILE, level=LOGGING_LEVEL, verbose=DEBUG_VERBOSE)
 
 # === STRASSENGLÄTTUNG / OPTIONEN ===
 ENABLE_ROAD_SMOOTHING = True  # False = Spline-Glättung komplett aus

@@ -15,13 +15,14 @@ import logging
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
+from world_to_beamng.logging_config import LoggerConfig
 from world_to_beamng.forest.forest_normalizer import ForestNormalizer
 from world_to_beamng.forest.forest_point_generator import ForestPointGenerator
 from world_to_beamng.forest.forest_height_calculator import ForestHeightCalculator
 from world_to_beamng.forest.forest_instance_generator import ForestInstanceGenerator
 from world_to_beamng.forest.forest_json_writer import ForestJSONWriter
 
-logger = logging.getLogger(__name__)
+logger = LoggerConfig.get_logger()
 
 
 class ForestWorkflow:
@@ -277,14 +278,14 @@ class ForestWorkflow:
             }
         """
         try:
-            print(f"\n[Forest Phase 1b] Starte für {tile_name} (bounds: {tile_bounds})")
+            logger.info(f"\n[Forest Phase 1b] Starte für {tile_name} (bounds: {tile_bounds})")
 
             # Initialisiere osm_data
             osm_data = None
 
             # Prüfe ob set_forest_config() aufgerufen wurde
             if not self.normalizer or not self.instance_generator:
-                print(f"[Forest ERROR] set_forest_config() nicht aufgerufen!")
+                logger.error(f"[Forest ERROR] set_forest_config() nicht aufgerufen!")
                 return {
                     "status": "error",
                     "tile_name": tile_name,
@@ -297,7 +298,7 @@ class ForestWorkflow:
 
             # Phase 1b: Normalisierung (mit bereits geladenen OSM-Daten)
             if not osm_data:
-                print(f"  [→] Lade OSM-Daten aus Cache...")
+                logger.info(f"  [→] Lade OSM-Daten aus Cache...")
                 from ..osm.downloader import get_osm_data
                 from ..geometry.coordinates import transformer_to_wgs84
 
@@ -321,10 +322,10 @@ class ForestWorkflow:
 
                 # Nutze height_hash für Cache-Konsistenz (wie Terrain-Workflow)
                 osm_data = get_osm_data(bbox_tuple, height_hash=height_hash)
-                print(f"  [→] {len(osm_data) if osm_data else 0} OSM-Elemente geladen")
+                logger.info(f"  [→] {len(osm_data) if osm_data else 0} OSM-Elemente geladen")
 
             if not osm_data:
-                print(f"  [→] Keine OSM-Daten verfügbar")
+                logger.warning(f"  [→] Keine OSM-Daten verfügbar")
                 return {
                     "status": "no_forests",
                     "tile_name": tile_name,
@@ -335,7 +336,7 @@ class ForestWorkflow:
                     "error": None,
                 }
 
-            print(f"  [→] Normalisiere OSM-Waldpolygone...")
+            logger.info(f"  [→] Normalisiere OSM-Waldpolygone...")
 
             # Berechne local_offset für Koordinaten-Transformation
             # global_offset kann (x, y) oder (x, y, z) sein - wir brauchen nur (x, y)
@@ -345,7 +346,7 @@ class ForestWorkflow:
                 ox, oy = 0, 0
 
             # ZENTRALE TRANSFORMATION: Konvertiere ALLE OSM-Geometrien einmalig zu lokalen Koordinaten
-            print(f"  [→] Transformiere OSM-Daten zu lokalen Koordinaten...")
+            logger.info(f"  [→] Transformiere OSM-Daten zu lokalen Koordinaten...")
             osm_data = self._transform_osm_to_local(osm_data, (ox, oy))
 
             # Ab jetzt: ALLE Geometrien in osm_data sind in lokalen Koordinaten!
@@ -357,7 +358,9 @@ class ForestWorkflow:
             normalized = self.normalizer.normalize_tile(
                 tile_bounds, tile_name, osm_data=osm_data, local_offset=forest_local_offset
             )
-            print(f"  [Forest] Normalisierung: {normalized.get('status')} - {normalized.get('forest_count')} Wälder")
+            logger.info(
+                f"  [Forest] Normalisierung: {normalized.get('status')} - {normalized.get('forest_count')} Wälder"
+            )
 
             # DEBUG: Speichere Dump wenn forest_count = 0
             if normalized.get("forest_count", 0) == 0:
@@ -377,10 +380,10 @@ class ForestWorkflow:
                 }
                 with open(dump_file, "w") as f:
                     json.dump(dump_data, f, indent=2)
-                print(f"  [DEBUG] Dump geschrieben: {dump_file}")
+                logger.debug(f"  [DEBUG] Dump geschrieben: {dump_file}")
 
             if normalized["status"] != "success" or normalized["forest_count"] == 0:
-                print(f"  [Forest] Keine Wälder gefunden: {normalized.get('error', 'unbekannter Fehler')}")
+                logger.error(f"  [Forest] Keine Wälder gefunden: {normalized.get('error', 'unbekannter Fehler')}")
                 return {
                     "status": "no_forests" if normalized["status"] == "success" else "error",
                     "tile_name": tile_name,
@@ -392,17 +395,19 @@ class ForestWorkflow:
                 }
 
             forests = normalized["forests"]
-            print(f"  [→] {len(forests)} Waldpolygone zu bearbeiten")
+            logger.info(f"  [→] {len(forests)} Waldpolygone zu bearbeiten")
 
             # Phase 2: Point Generation (Poisson-Disk-Sampling)
-            print(f"  [→] Generiere Tree-Positionen (Poisson-Disk)...")
+            logger.info(f"  [→] Generiere Tree-Positionen (Poisson-Disk)...")
 
             # Erstelle Road Buffer (OSM-Daten bereits in lokalen Koordinaten!)
             road_buffer = self._create_road_buffer(osm_data)
             if road_buffer:
-                print(f"  [Forest] Road Buffer erstellt - Bounds: {road_buffer.bounds}, Area: {road_buffer.area:.0f}m²")
+                logger.info(
+                    f"  [Forest] Road Buffer erstellt - Bounds: {road_buffer.bounds}, Area: {road_buffer.area:.0f}m²"
+                )
             else:
-                print(f"  [Forest] Road Buffer ist None!")
+                logger.info(f"  [Forest] Road Buffer ist None!")
             self.point_generator.set_road_buffer(road_buffer)
 
             forest_properties = {
@@ -415,10 +420,10 @@ class ForestWorkflow:
             )
 
             total_points = sum(len(pts) for pts in forest_points.values())
-            print(f"  [→] {total_points} Baumpositionen generiert")
+            logger.info(f"  [→] {total_points} Baumpositionen generiert")
 
             # Phase 3: Height Interpolation (Bilineare Interpolation)
-            print(f"  [→] Interpoliere Höhen...")
+            logger.info(f"  [→] Interpoliere Höhen...")
             forest_points_3d = self.height_calculator.calculate_heights_for_forest_points(
                 forest_points=forest_points,
                 height_points=elevation_data,
@@ -426,10 +431,10 @@ class ForestWorkflow:
                 grid_info=height_grid_info,
             )
 
-            print(f"  [→] Höhen für {total_points} Punkte interpoliert")
+            logger.info(f"  [→] Höhen für {total_points} Punkte interpoliert")
 
             # Phase 4: Instance Generation (Type, Rotation, Scale)
-            print(f"  [→] Generiere Baum-Instanzen...")
+            logger.info(f"  [→] Generiere Baum-Instanzen...")
             tree_instances = self.instance_generator.generate_instances_for_forests(
                 forest_points_3d=forest_points_3d,
                 forests=forests,
@@ -442,7 +447,7 @@ class ForestWorkflow:
             # Sammle Instances für finalen Export
             self.all_tree_instances.extend(tree_instances)
 
-            print(f"  [✓] {len(tree_instances)} Baum-Instanzen generiert für {tile_name}")
+            logger.info(f"  [✓] {len(tree_instances)} Baum-Instanzen generiert für {tile_name}")
 
             result = {
                 "status": "success",
@@ -457,7 +462,7 @@ class ForestWorkflow:
             return result
 
         except Exception as e:
-            print(f"[Forest ERROR] Exception in process_tile: {e}")
+            logger.info(f"[Forest ERROR] Exception in process_tile: {e}")
             import traceback
 
             traceback.print_exc()
@@ -474,9 +479,9 @@ class ForestWorkflow:
 
     def finalize_forest_export(self) -> Dict:
         """
-        FINALISIERUNG (nach Tile-Loop): Schreibe forest.json.
+        FINALISIERUNG (nach Tile-Loop): Schreibe forest.forest4.json.
 
-        Sammelt alle Tree-Instances aus process_tile() und schreibt forest.json.
+        Sammelt alle Tree-Instances aus process_tile() und schreibt forest.forest4.json.
 
         MUSS NACH dem Tile-Loop aufgerufen werden!
 
@@ -490,11 +495,11 @@ class ForestWorkflow:
             }
         """
         try:
-            print(f"[Forest] Finalisiere Export ({len(self.all_tree_instances)} Instanzen)...")
+            logger.info(f"[Forest] Finalisiere Export ({len(self.all_tree_instances)} Instanzen)...")
 
             # Prüfe ob Instanzen vorhanden
             if not self.all_tree_instances:
-                print("[Forest] Keine Baum-Instanzen generiert, überspringe forest.json")
+                logger.warning("[Forest] Keine Baum-Instanzen generiert, überspringe forest.forest4.json")
                 return {
                     "status": "no_forests",
                     "total_trees": 0,
@@ -505,7 +510,7 @@ class ForestWorkflow:
 
             # Prüfe ob JSON Writer initialisiert
             if not self.json_writer:
-                print("[Forest ERROR] ForestJSONWriter nicht initialisiert!")
+                logger.info("[Forest ERROR] ForestJSONWriter nicht initialisiert!")
                 return {
                     "status": "error",
                     "total_trees": 0,
@@ -514,9 +519,9 @@ class ForestWorkflow:
                     "error": "ForestJSONWriter not initialized",
                 }
 
-            # Schreibe forest.json
+            # Schreibe forest.forest4.json
             write_result = self.json_writer.write_forest_json(
-                tree_instances=self.all_tree_instances, filename="forest.json"
+                tree_instances=self.all_tree_instances, filename="forest.forest4.json"
             )
 
             if write_result["status"] != "success":
@@ -531,13 +536,13 @@ class ForestWorkflow:
             # Statistiken
             statistics = self.json_writer.get_statistics(self.all_tree_instances)
 
-            print(f"[✓] Forest-Export abgeschlossen:")
-            print(f"  - Gesamt Bäume: {statistics['total_trees']}")
-            print(f"  - Baumarten: {len(statistics['types'])}")
+            logger.info(f"[✓] Forest-Export abgeschlossen:")
+            logger.info(f"  - Gesamt Bäume: {statistics['total_trees']}")
+            logger.info(f"  - Baumarten: {len(statistics['types'])}")
             for tree_type, count in sorted(statistics["types"].items()):
-                print(f"    • {tree_type}: {count}")
-            print(f"  - Durchschn. Scale: {statistics['avg_scale']:.2f}")
-            print(f"  - Höhenbereich: {statistics['min_height']:.1f}m - {statistics['max_height']:.1f}m")
+                logger.info(f"    • {tree_type}: {count}")
+            logger.info(f"  - Durchschn. Scale: {statistics['avg_scale']:.2f}")
+            logger.info(f"  - Höhenbereich: {statistics['min_height']:.1f}m - {statistics['max_height']:.1f}m")
 
             return {
                 "status": "success",
@@ -548,7 +553,7 @@ class ForestWorkflow:
             }
 
         except Exception as e:
-            print(f"[Forest ERROR] Forest-Finalisierung: {e}")
+            logger.info(f"[Forest ERROR] Forest-Finalisierung: {e}")
             import traceback
 
             traceback.print_exc()

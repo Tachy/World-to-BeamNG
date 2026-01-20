@@ -8,8 +8,11 @@ Diese Funktion scannet das data/DGM1-Verzeichnis und extrahiert die Koordinaten.
 """
 
 import re
+import logging
 import numpy as np
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 
 def scan_lgl_tiles(dgm1_dir):
@@ -33,7 +36,7 @@ def scan_lgl_tiles(dgm1_dir):
     """
 
     if not Path(dgm1_dir).exists():
-        print(f"[WARNUNG] DGM1-Verzeichnis nicht gefunden: {dgm1_dir}")
+        logger.warning(f"[WARNUNG] DGM1-Verzeichnis nicht gefunden: {dgm1_dir}")
         return []
 
     tiles = []
@@ -43,7 +46,7 @@ def scan_lgl_tiles(dgm1_dir):
 
     # Scanne alle .zip Dateien im Verzeichnis
     for filepath in sorted(Path(dgm1_dir).iterdir()):
-        if filepath.suffix.lower() == ".zip": # Only process zip files
+        if filepath.suffix.lower() == ".zip":  # Only process zip files
             filename = filepath.name
             match = pattern.match(filename)
             if match:
@@ -77,11 +80,11 @@ def scan_lgl_tiles(dgm1_dir):
                 )
 
     if not tiles:
-        print(f"[WARNUNG] Keine DGM1-Dateien gefunden in: {dgm1_dir}")
+        logger.warning(f"[WARNUNG] Keine DGM1-Dateien gefunden in: {dgm1_dir}")
     else:
-        print(f"[INFO] {len(tiles)} DGM1-Kacheln gefunden")
+        logger.info(f"[INFO] {len(tiles)} DGM1-Kacheln gefunden")
         for tile in tiles:
-            print(f"  - {tile['filename']} → Easting={tile['easting']}, Northing={tile['northing']}")
+            logger.info(f"  - {tile['filename']} → Easting={tile['easting']}, Northing={tile['northing']}")
 
     return tiles
 
