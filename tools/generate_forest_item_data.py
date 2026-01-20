@@ -158,8 +158,15 @@ def generate_forest_item_data(dir_path: str, beamng_root: str) -> dict:
             # Falls nicht relativ, nutze absolute Path
             relative_dae = dae_file
 
-        # Konvertiere zu BeamNG forward-slash Pfad
-        shape_file_path = str(relative_dae).replace("\\", "/")
+        # Konvertiere zu BeamNG forward-slash Pfad und extrahiere ab "levels/"
+        full_path = str(relative_dae).replace("\\", "/")
+        
+        # Extrahiere nur den Teil ab "levels/"
+        if "levels/" in full_path:
+            shape_file_path = "levels/" + full_path.split("levels/")[1]
+        else:
+            # Fallback: Verwende den kompletten Pfad
+            shape_file_path = full_path
 
         # Bestimme Radius basierend auf Baumtyp (Default 1.5, größere für cork_oak)
         radius = 2.0 if tree_type in ["cork_oak", "holm_oak"] else 1.5
