@@ -13,13 +13,13 @@ from pathlib import Path
 
 # Farb-Zuordnung für Baum-Typen
 TREE_TYPE_COLORS = {
-    "oak": (0.2, 0.6, 0.2),          # Dunkelgrün
-    "birch": (0.8, 0.7, 0.5),        # Hellbraun
-    "spruce": (0.1, 0.4, 0.1),       # Dunkelgrün
-    "ash": (0.4, 0.6, 0.3),          # Mittleres Grün
-    "pine": (0.15, 0.45, 0.15),      # Tannengrün
-    "beech": (0.25, 0.55, 0.25),     # Dunkelgrün
-    "default": (0.3, 0.8, 0.3),      # Helles Grün
+    "oak": (0.2, 0.6, 0.2),  # Dunkelgrün
+    "birch": (0.8, 0.7, 0.5),  # Hellbraun
+    "spruce": (0.1, 0.4, 0.1),  # Dunkelgrün
+    "ash": (0.4, 0.6, 0.3),  # Mittleres Grün
+    "pine": (0.15, 0.45, 0.15),  # Tannengrün
+    "beech": (0.25, 0.55, 0.25),  # Dunkelgrün
+    "default": (0.3, 0.8, 0.3),  # Helles Grün
 }
 
 
@@ -61,13 +61,13 @@ def load_forest_layer(viewer, forest_json_path: Path):
         # Extrahiere Positionen und Typen
         positions = []
         colors = []
-        
+
         tree_types = {}
         for inst in tree_instances:
             pos = inst.get("pos")
             if pos and len(pos) >= 3:
                 positions.append(pos[:3])
-                
+
                 # Bestimme Farbe basierend auf Baum-Typ
                 tree_type = inst.get("type", "default")
                 tree_types[tree_type] = tree_types.get(tree_type, 0) + 1
@@ -83,7 +83,7 @@ def load_forest_layer(viewer, forest_json_path: Path):
 
         # Erstelle EINEN einzigen PolyData mit ALLEN Bäumen
         point_cloud = pv.PolyData(positions_array)
-        
+
         # Füge Farben zu den Punkten hinzu
         point_cloud["Colors"] = colors_array
 

@@ -108,10 +108,8 @@ class DAETileViewer:
                 self.materials = {}
 
         # Lade ALLE Viewer-Daten zentral (DAE + Forest)
-        loader_result = load_all_viewer_data(
-            config.BEAMNG_DIR, items_path, _resolve_beamng_path
-        )
-        
+        loader_result = load_all_viewer_data(config.BEAMNG_DIR, items_path, _resolve_beamng_path)
+
         self.dae_files = loader_result["dae_files"]
         self.tile_data = loader_result["tile_data"]
         self.forest_data = loader_result["forest_data"]
@@ -452,7 +450,7 @@ class DAETileViewer:
         self.horizon_actors = []
         self.forest_actors = []
         # Debug-Actors und Forest-Actors wurden durch clear() gelöscht, aber wir laden sie danach wieder
-        
+
         # WICHTIG: Setze forest_loaded zurück, damit forest.json beim nächsten Zugriff neu geladen wird
         self.forest_loaded = False
 
@@ -1677,9 +1675,7 @@ class DAETileViewer:
             items_path = config.BEAMNG_DIR / config.ITEMS_JSON
 
             try:
-                loader_result = load_all_viewer_data(
-                    config.BEAMNG_DIR, items_path, _resolve_beamng_path
-                )
+                loader_result = load_all_viewer_data(config.BEAMNG_DIR, items_path, _resolve_beamng_path)
                 self.dae_files = loader_result["dae_files"]
                 self.tile_data = loader_result["tile_data"]
                 self.forest_data = loader_result["forest_data"]
@@ -1981,7 +1977,6 @@ class DAETileViewer:
             import traceback
 
             traceback.print_exc()
-
 
     def _on_left_mouse_click(self, obj, event):
         """Handler für linken Doppel-Klick: Setze Kamera-Pivot auf angeklickten Punkt."""
