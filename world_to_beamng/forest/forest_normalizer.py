@@ -167,28 +167,6 @@ class ForestNormalizer:
                 "error": str(e),
             }
 
-    def _get_osm_forests(self) -> List[Dict]:
-        """
-        Extrahiere alle OSM-Waldpolygone aus geladenem OSM-Cache.
-
-        Sucht nach:
-        - landuse=forest
-        - landuse=wood
-        - natural=wood
-        - natural=forest
-
-        Returns:
-            Liste von Dicts mit "geometry", "tags"
-        """
-        forests = []
-
-        # OSM-Daten müssen über Tile-Kontext geladen werden (wird in normalize_tile() gemacht)
-        # Hier haben wir nur Zugriff auf den OSMMapper (für Konfiguration)
-        # Die echten OSM-Rohdaten müssen von außen übergeben werden!
-
-        print("[Forest WARNING] _get_osm_forests() benötigt OSM-Rohdaten von außen!")
-        return forests
-
     def _extract_forests_from_osm(self, osm_data: List[Dict]) -> List[Dict]:
         """
         Extrahiere Waldpolygone aus OSM-Rohdaten.
