@@ -160,7 +160,7 @@ def generate_forest_item_data(dir_path: str, beamng_root: str) -> dict:
 
         # Konvertiere zu BeamNG forward-slash Pfad und extrahiere ab "levels/"
         full_path = str(relative_dae).replace("\\", "/")
-        
+
         # Extrahiere nur den Teil ab "levels/"
         if "levels/" in full_path:
             shape_file_path = "levels/" + full_path.split("levels/")[1]
