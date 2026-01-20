@@ -93,17 +93,9 @@
             "internal_name": "asphalt_road_standard"
         }
     },
-    "forest_types": {
+    "forest_type_templates": {
         "deciduous_dense": {
             "tree_density": 1.0,
-            "tree_distribution": {
-                "oak": 0.35,
-                "beech": 0.25,
-                "birch": 0.20,
-                "aspen": 0.10,
-                "holm_oak": 0.05,
-                "weed": 0.05
-            },
             "average_height": [
                 18.0,
                 28.0
@@ -111,19 +103,19 @@
             "underground_material": "forest_floor",
             "lod_distance": 250.0,
             "collision_enabled": true,
+            "preferred_trees": [
+                "oak",
+                "beech",
+                "birch",
+                "aspen"
+            ],
+            "fallback_trees": [
+                "oak"
+            ],
             "comment": "Dichter Laubwald (Eichen, Buchen, Birken)"
         },
         "mixed_forest": {
             "tree_density": 0.9,
-            "tree_distribution": {
-                "oak": 0.25,
-                "scots_pine": 0.20,
-                "beech": 0.15,
-                "fir": 0.15,
-                "birch": 0.15,
-                "aspen": 0.05,
-                "juniper": 0.05
-            },
             "average_height": [
                 16.0,
                 24.0
@@ -131,33 +123,21 @@
             "underground_material": "forest_floor",
             "lod_distance": 200.0,
             "collision_enabled": true,
-            "comment": "Mischwald (Laub- und Nadelbäume)"
-        },
-        "coniferous_dense": {
-            "tree_density": 1.0,
-            "tree_distribution": {
-                "scots_pine": 0.40,
-                "fir": 0.35,
-                "spruce": 0.15,
-                "birch": 0.10
-            },
-            "average_height": [
-                20.0,
-                30.0
+            "preferred_trees": [
+                "oak",
+                "scots_pine",
+                "beech",
+                "fir",
+                "birch",
+                "aspen"
             ],
-            "underground_material": "forest_floor",
-            "lod_distance": 250.0,
-            "collision_enabled": true,
-            "comment": "Dichter Nadelwald (Fichten, Tannen, Kiefer)"
+            "fallback_trees": [
+                "birch"
+            ],
+            "comment": "Mischwald (Laub- und Nadelbäume)"
         },
         "sparse_deciduous": {
             "tree_density": 0.3,
-            "tree_distribution": {
-                "oak": 0.40,
-                "birch": 0.30,
-                "aspen": 0.20,
-                "beech": 0.10
-            },
             "average_height": [
                 12.0,
                 20.0
@@ -165,17 +145,19 @@
             "underground_material": "grassland",
             "lod_distance": 150.0,
             "collision_enabled": true,
+            "preferred_trees": [
+                "oak",
+                "birch",
+                "aspen",
+                "beech"
+            ],
+            "fallback_trees": [
+                "birch"
+            ],
             "comment": "Lichter Laubwald"
         },
         "mediterranean_forest": {
             "tree_density": 0.4,
-            "tree_distribution": {
-                "cork_oak": 0.30,
-                "holm_oak": 0.25,
-                "olive": 0.20,
-                "fan_palm": 0.15,
-                "juniper": 0.10
-            },
             "average_height": [
                 8.0,
                 16.0
@@ -183,79 +165,42 @@
             "underground_material": "dry_earth",
             "lod_distance": 180.0,
             "collision_enabled": true,
-            "comment": "Mediterraner Wald (Eichen, Olivenbäume, Palmen)"
-        },
-        "tropical_forest": {
-            "tree_density": 0.8,
-            "tree_distribution": {
-                "tropical": 0.40,
-                "eucalyptus": 0.30,
-                "palm": 0.20,
-                "fan_palm": 0.10
-            },
-            "average_height": [
-                15.0,
-                25.0
+            "preferred_trees": [
+                "cork_oak",
+                "holm_oak",
+                "olive"
             ],
-            "underground_material": "jungle_floor",
-            "lod_distance": 200.0,
-            "collision_enabled": true,
-            "comment": "Tropischer Wald"
-        },
-        "scrubland_sparse": {
-            "tree_density": 0.15,
-            "tree_distribution": {
-                "juniper": 0.40,
-                "weed": 0.35,
-                "scraggly": 0.15,
-                "fan_palm": 0.10
-            },
-            "average_height": [
-                2.0,
-                6.0
+            "fallback_trees": [
+                "cork_oak"
             ],
-            "underground_material": "grassland",
-            "lod_distance": 100.0,
-            "collision_enabled": false,
-            "comment": "Dünne Strauchvegetation"
-        },
-        "open_woodland": {
-            "tree_density": 0.0,
-            "tree_distribution": {},
-            "average_height": [
-                0.0,
-                0.0
-            ],
-            "underground_material": "grassland",
-            "lod_distance": 0.0,
-            "collision_enabled": false,
-            "comment": "Offene Fläche, keine Bäume"
+            "comment": "Mediterraner Wald (Eichen, Olivenbäume)"
         }
     },
     "forest_mappings": {
         "landuse": {
-            "forest": "deciduous_dense",
+            "forest": "mixed_forest",
             "wood": "mixed_forest",
-            "meadow": "open_woodland",
-            "grassland": "open_woodland",
-            "farmland": "open_woodland"
+            "orchard": "sparse_deciduous"
         },
         "natural": {
             "wood": "mixed_forest",
-            "forest": "deciduous_dense",
-            "scrub": "scrubland_sparse",
-            "grassland": "open_woodland",
-            "heath": "scrubland_sparse"
+            "forest": "mixed_forest",
+            "scrub": "sparse_deciduous",
+            "heath": "sparse_deciduous",
+            "tree_row": "sparse_deciduous",
+            "wetland": "mixed_forest"
         },
         "leisure": {
             "nature_reserve": "mixed_forest",
-            "park": "sparse_deciduous",
-            "garden": "open_woodland"
+            "park": "sparse_deciduous"
         },
         "tag_overrides": {
             "trees=conifer": "coniferous_dense",
             "trees=broadleaf": "deciduous_dense",
-            "trees=mixed": "mixed_forest"
+            "trees=mixed": "mixed_forest",
+            "leaf_type=needleleaf": "coniferous_dense",
+            "leaf_type=broadleaved": "deciduous_dense",
+            "leaf_type=mixed": "mixed_forest"
         }
     },
     "buildings": {

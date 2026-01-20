@@ -13,6 +13,7 @@ from .. import config
 from ..core.cache_manager import CacheManager
 from ..managers import MaterialManager, ItemManager, DAEExporter
 from ..workflow import TileProcessor, TerrainWorkflow, BuildingWorkflow, HorizonWorkflow, ForestWorkflow
+from ..forest_generator import ForestGenerator
 
 logger = logging.getLogger(__name__)
 
@@ -44,16 +45,16 @@ class BeamNGExporter:
 
         self.dae = DAEExporter(material_manager=self.materials)  # Übergebe MaterialManager-Referenz
 
-        # Lade forest_config aus osm_to_beamng.json
+        # Lade osm_to_beamng.json Config (Materials werden SPÄTER generiert!)
         osm_config_path = Path("data/osm_to_beamng.json")
-        self.forest_config = {}
+        self.osm_config = {}
+        self.forest_config = {"forest_types": {}, "forest_mappings": {}}
+
         if osm_config_path.exists():
             with open(osm_config_path, "r", encoding="utf-8") as f:
-                osm_config = json.load(f)
-                self.forest_config = {
-                    "forest_types": osm_config.get("forest_types", {}),
-                    "forest_mappings": osm_config.get("forest_mappings", {}),
-                }
+                self.osm_config = json.load(f)
+                # Nur Mappings laden - forest_types wird LAZY generiert!
+                self.forest_config["forest_mappings"] = self.osm_config.get("forest_mappings", {})
 
         # Workflows (nutzen MaterialManager/ItemManager.get_instance() intern)
         self.terrain = TerrainWorkflow(self.cache, self.dae)
@@ -138,6 +139,13 @@ class BeamNGExporter:
             stats["forests_registered"] = len(registered_trees)
 
             print(f"\n✓ {stats['forests_registered']} Baumarten registriert\n")
+
+            # LAZY: Generiere forest_types JETZT mit den registrierten Trees!
+            print(f"  [→] Generiere dynamische Forest-Types aus {len(registered_trees)} Baumarten...")
+            generator = ForestGenerator(
+                registered_trees=registered_trees, template_config=self.osm_config.get("forest_type_templates", {})
+            )
+            self.forest_config["forest_types"] = generator.generate_forest_types()
 
             # Setze Forest-Konfiguration (initialisiert Normalizer, InstanceGenerator, JSONWriter)
             self.forests.set_forest_config(

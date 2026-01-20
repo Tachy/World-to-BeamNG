@@ -9,6 +9,7 @@ import logging
 import numpy as np
 from typing import List, Tuple, Dict, Optional
 from shapely.geometry import Point, Polygon, MultiPolygon
+from shapely.prepared import prep
 
 logger = logging.getLogger(__name__)
 
@@ -84,7 +85,12 @@ class ForestPointGenerator:
         self, polygon: Polygon, min_distance: float, bounds: Tuple[float, float, float, float]
     ) -> List[Tuple[float, float]]:
         """
-        Poisson-Disk-Sampling-Algorithmus (Bridson's Algorithm).
+        Poisson-Disk-Sampling-Algorithmus (Bridson's Algorithm - OPTIMIERT).
+
+        Optimierungen:
+        - Prepared geometry für schnelle contains()-Abfragen
+        - Effizientere Active List Management
+        - Begrenzte Nachbarschaftssuche mit frühem Exit
 
         Args:
             polygon: Shapely Polygon
@@ -98,6 +104,9 @@ class ForestPointGenerator:
         width = maxx - minx
         height = maxy - miny
 
+        # OPTIMIERUNG: Prepared geometry für schnelle contains()-Abfragen
+        prep_polygon = prep(polygon)
+
         # Grid-Zellgröße (für schnelle Nachbarschaftssuche)
         cell_size = min_distance / np.sqrt(2)
         grid_width = int(np.ceil(width / cell_size))
@@ -109,17 +118,17 @@ class ForestPointGenerator:
         # Resultat
         points = []
 
-        # Active list für Kandidaten
-        active = []
+        # Active list für Kandidaten (verwendet Index für O(1) Removal)
+        active_indices = []
 
         # Startpunkt (zufällig innerhalb des Polygons)
-        start_point = self._random_point_in_polygon(polygon)
+        start_point = self._random_point_in_polygon(polygon, prep_polygon)
         if start_point is None:
             logger.warning("Konnte keinen Startpunkt im Polygon finden")
             return []
 
         points.append(start_point)
-        active.append(start_point)
+        active_indices.append(0)
 
         # Grid-Position
         gx = int((start_point[0] - minx) / cell_size)
@@ -128,10 +137,11 @@ class ForestPointGenerator:
             grid[gx][gy] = start_point
 
         # Hauptschleife
-        while active:
-            # Wähle zufälligen Punkt aus Active List
-            idx = np.random.randint(len(active))
-            point = active[idx]
+        while active_indices:
+            # OPTIMIERUNG: Wähle zufälligen Punkt aus Active List
+            idx_in_active = np.random.randint(len(active_indices))
+            point_idx = active_indices[idx_in_active]
+            point = points[point_idx]
 
             found = False
 
@@ -149,8 +159,8 @@ class ForestPointGenerator:
                 if not (minx <= new_x <= maxx and miny <= new_y <= maxy):
                     continue
 
-                # Prüfe ob innerhalb Polygon
-                if not polygon.contains(Point(new_x, new_y)):
+                # OPTIMIERUNG: Nutze prepared geometry für schnellere contains()
+                if not prep_polygon.contains(Point(new_x, new_y)):
                     continue
 
                 # Grid-Position
@@ -163,14 +173,14 @@ class ForestPointGenerator:
                 # Prüfe Nachbarschaft im Grid
                 if self._is_valid_point(new_point, grid, gx, gy, cell_size, min_distance, (minx, miny)):
                     points.append(new_point)
-                    active.append(new_point)
+                    active_indices.append(len(points) - 1)
                     grid[gx][gy] = new_point
                     found = True
                     break
 
             # Wenn kein neuer Punkt gefunden wurde, entferne aus Active List
             if not found:
-                active.pop(idx)
+                active_indices.pop(idx_in_active)
 
         return points
 
@@ -214,7 +224,7 @@ class ForestPointGenerator:
 
         return True
 
-    def _random_point_in_polygon(self, polygon: Polygon, max_tries: int = 100) -> Optional[Tuple[float, float]]:
+    def _random_point_in_polygon(self, polygon: Polygon, prep_polygon=None, max_tries: int = 100) -> Optional[Tuple[float, float]]:
         """
         Generiere zufälligen Punkt innerhalb eines Polygons.
 
@@ -222,6 +232,7 @@ class ForestPointGenerator:
 
         Args:
             polygon: Shapely Polygon
+            prep_polygon: Optional - prepared geometry für schnellere contains()
             max_tries: Maximale Versuche
 
         Returns:
@@ -229,11 +240,15 @@ class ForestPointGenerator:
         """
         minx, miny, maxx, maxy = polygon.bounds
 
+        # Nutze prepared geometry wenn vorhanden
+        if prep_polygon is None:
+            prep_polygon = prep(polygon)
+
         for _ in range(max_tries):
             x = np.random.uniform(minx, maxx)
             y = np.random.uniform(miny, maxy)
 
-            if polygon.contains(Point(x, y)):
+            if prep_polygon.contains(Point(x, y)):
                 return (x, y)
 
         logger.warning(f"Konnte keinen Punkt in Polygon finden nach {max_tries} Versuchen")
@@ -244,6 +259,9 @@ class ForestPointGenerator:
     ) -> Dict[int, List[Tuple[float, float]]]:
         """
         Generiere Punkte für mehrere Waldpolygone.
+
+        OPTIMIERUNG: Schneidet Wald-Polygon mit tile_box BEVOR Punkte generiert werden.
+        Dadurch wird nur die relevante Fläche bearbeitet, nicht die ganze Wald-Geometrie.
 
         Args:
             forests: Liste von Forest-Dicts aus ForestNormalizer
@@ -265,34 +283,54 @@ class ForestPointGenerator:
                 logger.warning(f"Waldpolygon {idx} ohne type/geometry, überspringe")
                 continue
 
+            # OPTIMIERUNG: Schneide Wald mit tile_box BEVOR Punkte generiert werden
+            if tile_box:
+                # Intersection mit tile_box - verwende das Ergebnis für Punkt-Generierung
+                clipped_geometry = geometry.intersection(tile_box)
+                
+                if clipped_geometry.is_empty:
+                    # Wald ist außerhalb der Tile
+                    result[idx] = []
+                    logger.debug(f"  Wald {idx}: Vollständig außerhalb Tile-Box, keine Punkte")
+                    continue
+                    
+                geometry_to_use = clipped_geometry
+                original_area = geometry.area if hasattr(geometry, 'area') else 0
+                clipped_area = clipped_geometry.area if hasattr(clipped_geometry, 'area') else 0
+            else:
+                # Keine tile_box - verwende Wald wie er ist
+                geometry_to_use = geometry
+                original_area = geometry.area if hasattr(geometry, 'area') else 0
+                clipped_area = original_area
+
             # Hole Properties
             props = forest_properties.get(forest_type, {})
             tree_density = props.get("tree_density", 0.5)
 
-            # Generiere Punkte
-            if isinstance(geometry, Polygon):
-                points = self.generate_points(geometry, tree_density)
-            elif isinstance(geometry, MultiPolygon):
+            # Generiere Punkte NUR auf der relevanten Geometrie
+            if isinstance(geometry_to_use, Polygon):
+                points = self.generate_points(geometry_to_use, tree_density)
+            elif isinstance(geometry_to_use, MultiPolygon):
                 # Für MultiPolygon: Generiere für jedes Teil-Polygon
                 points = []
-                for poly in geometry.geoms:
+                for poly in geometry_to_use.geoms:
                     points.extend(self.generate_points(poly, tree_density))
             else:
-                logger.warning(f"Unbekannter Geometrie-Typ: {type(geometry)}")
+                # Kann passieren wenn intersection ein Point/LineString zurückgibt
+                logger.debug(f"  Wald {idx}: Nach Tile-Schnitt kein Polygon ({type(geometry_to_use).__name__}), keine Punkte")
                 points = []
 
-            # WICHTIG: Filtere Punkte, die NICHT innerhalb der Tile-Box sind
-            # Das verhindert Wald-Verluste an Tile-Rändern
+            # Debug-Info
             if tile_box:
-                filtered_points = [pt for pt in points if tile_box.contains(Point(pt[0], pt[1]))]
+                clipped_pct = (clipped_area / original_area * 100) if original_area > 0 else 0
                 logger.debug(
-                    f"  Wald {idx}: {len(points)} Punkte generiert, "
-                    f"{len(filtered_points)} davon im Tile ({len(points) - len(filtered_points)} außerhalb gefiltert)"
+                    f"  Wald {idx}: {len(points)} Punkte "
+                    f"({clipped_pct:.0f}% im Tile, Fläche {clipped_area:.0f}m² von {original_area:.0f}m²)"
                 )
-                result[idx] = filtered_points
             else:
-                logger.debug(f"  Wald {idx} ({forest_type}): {len(points)} Punkte (keine Tile-Box für Filterung)")
-                result[idx] = points
+                logger.debug(f"  Wald {idx} ({forest_type}): {len(points)} Punkte (keine Tile-Box)")
+            
+            result[idx] = points
 
         total_points = sum(len(pts) for pts in result.values())
         logger.info(f"✓ {total_points} Baumpositionen für {len(forests)} Wälder generiert")

@@ -1,6 +1,7 @@
 """
 Zentrale Konfiguration fuer World-to-BeamNG.
 """
+
 from pathlib import Path, PurePosixPath
 
 from .osm.osm_mapper import OSMMapper
@@ -30,9 +31,9 @@ ITEMS_JSON = Path("main") / "MissionGroup" / "items.level.json"  # Items im Miss
 MATERIALS_JSON = Path("main") / "materials.json"  # Enthält Material-Definitionen
 
 # Ablaufsteuerung
-LOD2_ENABLED = True  # LoD2-Gebäude verarbeiten
-PHASE5_ENABLED = True  # Horizont-Layer aktivieren (erfordert DGM30 + DOP300 Daten)
-HORIZON_BOUNDARY_STITCHING = True  # Stitching zwischen Terrain und Horizon aktivieren
+LOD2_ENABLED = False  # LoD2-Gebäude verarbeiten
+PHASE5_ENABLED = False  # Horizont-Layer aktivieren (erfordert DGM30 + DOP300 Daten)
+HORIZON_BOUNDARY_STITCHING = False  # Stitching zwischen Terrain und Horizon aktivieren
 
 
 # === MATERIAL-EINSTELLUNGEN ===

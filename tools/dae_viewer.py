@@ -213,7 +213,7 @@ class DAETileViewer:
         print("  T = Toggle Terrain")
         print("  S = Toggle Straßen")
         print("  H = Toggle Häuser")
-        print("  F = Toggle Wälder (Bäume)")
+        print("  C = Toggle Wälder (Bäume)")
         print("  D = Toggle Debug (Junctions, Centerlines, Boundaries)")
         print("\nAllgemein:")
         print("  K = Kamera laden | Shift+K = Kamera speichern")
@@ -226,9 +226,13 @@ class DAETileViewer:
         # um sicherzustellen dass die Kamera auf die Geometrie passt!
         # Sie wird nur aufgerufen wenn der Viewer mit show() gestartet wird
 
-        # Wenn Debug-Layer aktiviert sein soll, lade ihn nach update_view()
+        # Lade Debug-Layer am Start wenn aktiviert
         if self.show_debug:
             self._update_debug_visibility()
+
+        # Lade Forest-Layer am Start wenn aktiviert
+        if self.show_forest:
+            self._update_forest_visibility()
 
     def _on_key_press(self, obj, event):
         """KeyPress Event Handler."""
@@ -253,7 +257,7 @@ class DAETileViewer:
             print(f"\n[Häuser] {'AN' if self.show_buildings else 'AUS'}")
             self._update_visibility()
 
-        elif key_lower == "f":
+        elif key_lower == "c":
             # Toggle nur Wälder/Bäume (mit Lazy-Loading beim ersten Toggle)
             self.show_forest = not self.show_forest
             print(f"\n[Wälder] {'AN' if self.show_forest else 'AUS'}")
@@ -428,15 +432,20 @@ class DAETileViewer:
         saved_debug_actors = self.debug_actors.copy() if self.debug_actors else []
         saved_debug_visibility = self.show_debug
 
+        # Speichere Forest-Actors VOR clear() - um sie zu bewahren
+        saved_forest_actors = self.forest_actors.copy() if self.forest_actors else []
+        saved_forest_visibility = self.show_forest
+
         self.plotter.clear()
         self._reinit_lights()
 
-        # Leere NUR Terrain/Road/Building/Horizon Actor-Listen
+        # Leere NUR Terrain/Road/Building/Horizon/Forest Actor-Listen
         self.terrain_actors = []
         self.road_actors = []
         self.building_actors = []
         self.horizon_actors = []
-        # Debug-Actors wurden durch clear() gelöscht, aber wir laden sie danach wieder
+        self.forest_actors = []
+        # Debug-Actors und Forest-Actors wurden durch clear() gelöscht, aber wir laden sie danach wieder
 
         # Iteriere über alle geladenen DAE-Dateien
         for item_name, tile_data in self.tile_data:
@@ -445,7 +454,7 @@ class DAETileViewer:
 
         # Statuszeilen
         # Oben links: Bedienungsanleitung
-        bedienung = "S: Straßen | T: Terrain | H: Häuser | F: Wälder | O: Horizont | D: Debug | X: Texturen | K: Cam | L: Reload | 2xLMB: Jump"
+        bedienung = "S: Straßen | T: Terrain | H: Häuser | C: Wälder | O: Horizont | D: Debug | X: Texturen | K: Cam | L: Reload | 2xLMB: Jump"
         self.plotter.add_text(
             bedienung,
             position="upper_left",
@@ -511,6 +520,18 @@ class DAETileViewer:
                     actor.SetVisibility(saved_debug_visibility)
                 except Exception as e:
                     print(f"[!] Fehler beim Wiederherstellen des Debug-Actors: {e}")
+
+        # Füge Forest-Actors wieder zum Plotter hinzu (falls sie existierten)
+        if saved_forest_actors:
+            self.forest_actors = []
+            for actor in saved_forest_actors:
+                try:
+                    self.plotter.add_actor(actor)
+                    self.forest_actors.append(actor)
+                    # Stelle Sichtbarkeit wieder her
+                    actor.SetVisibility(saved_forest_visibility)
+                except Exception as e:
+                    print(f"[!] Fehler beim Wiederherstellen des Forest-Actors: {e}")
 
     def _index_to_coords(self, item_name, tile_index_x, tile_index_y):
         """
@@ -1336,7 +1357,7 @@ class DAETileViewer:
         if self.show_buildings:
             active_items.append("H")  # H für Häuser
         if self.show_forest:
-            active_items.append("F")  # F für Forst/Bäume
+            active_items.append("C")  # C für Forst/Bäume
         if self.show_horizon:
             active_items.append("O")  # O für Horizont
         if self.use_textures:

@@ -35,9 +35,16 @@ class ForestNormalizer:
         self.forest_config = forest_config
         self.osm_mapper = osm_mapper
         self.forest_types = forest_config.get("forest_types", {})
-        self.forest_mappings = forest_config.get("forest_mappings", {})
 
-        logger.info(f"✓ ForestNormalizer initialisiert ({len(self.forest_types)} Waldtypen)")
+        # Fallback: Hole forest_mappings aus osm_mapper wenn nicht in forest_config
+        if "forest_mappings" in forest_config:
+            self.forest_mappings = forest_config.get("forest_mappings", {})
+        else:
+            self.forest_mappings = osm_mapper.forest_mappings
+
+        logger.info(
+            f"✓ ForestNormalizer initialisiert ({len(self.forest_types)} Waldtypen, {len(self.forest_mappings)} Mappings)"
+        )
 
     def normalize_tile(
         self,
@@ -201,15 +208,26 @@ class ForestNormalizer:
         - natural=wood
         - natural=forest
 
+        Verarbeitet:
+        - Einfache Ways mit Waldtags
+        - Multipolygon-Relations (type=multipolygon) mit Waldtags
+
         Args:
             osm_data: OSM-Elements mit tags und geometry (Overpass-Format!)
 
         Returns:
             Liste von Dicts mit "geometry" (Shapely Polygon), "tags"
         """
-        from shapely.geometry import Polygon
+        from shapely.geometry import Polygon, MultiPolygon, LineString
+        from shapely.ops import unary_union
 
         forests = []
+
+        # Erstelle Index: way_id → way_element (für Multipolygon-Assembly)
+        ways_by_id = {}
+        for element in osm_data:
+            if element.get("type") == "way":
+                ways_by_id[element.get("id")] = element
 
         for element in osm_data:
             # Sicherheitscheck: element muss ein Dict sein
@@ -226,37 +244,148 @@ class ForestNormalizer:
             if not self.osm_mapper.is_forest(tags):
                 continue
 
-            # Extrahiere Geometrie (Overpass-Format: Liste von {lat, lon} Dicts)
-            geom_data = element.get("geometry")
+            element_type = element.get("type", "way")
+
+            # === CASE 1: Relation (Multipolygon) ===
+            if element_type == "relation" and tags.get("type") == "multipolygon":
+                try:
+                    # Versuche Geometrie aus members zusammenzusetzen
+                    geom = self._build_multipolygon_from_members(element, ways_by_id)
+                    if geom and not geom.is_empty:
+                        forests.append(
+                            {"geometry": geom, "tags": tags, "osm_id": element.get("id"), "type": "relation"}
+                        )
+                except Exception as e:
+                    logger.debug(f"  [!] Fehler beim Multipolygon-Assembly: {e}")
+                    continue
+
+            # === CASE 2: Way (einfaches Polygon) ===
+            else:
+                # Extrahiere Geometrie (Overpass-Format: Liste von {lat, lon} Dicts)
+                geom_data = element.get("geometry")
+                if not geom_data:
+                    continue
+
+                try:
+                    # Konvertiere Overpass-Format zu Shapely Polygon
+                    # Overpass gibt [{'lat': x, 'lon': y}, ...] zurück
+                    # Shapely erwartet [(lon, lat), ...] (x, y) !
+
+                    if isinstance(geom_data, list) and len(geom_data) > 0:
+                        if isinstance(geom_data[0], dict) and "lat" in geom_data[0]:
+                            # Overpass-Format: Liste von {lat, lon} Dicts
+                            coords = [(pt["lon"], pt["lat"]) for pt in geom_data]
+                            if len(coords) >= 3:  # Polygon benötigt mind. 3 Punkte
+                                geom = Polygon(coords)
+
+                                if geom.is_valid:
+                                    forests.append(
+                                        {"geometry": geom, "tags": tags, "osm_id": element.get("id"), "type": "way"}
+                                    )
+                        elif isinstance(geom_data[0], (list, tuple)):
+                            # GeoJSON-Format: [[lon, lat], ...]
+                            coords = [tuple(pt[:2]) for pt in geom_data]
+                            if len(coords) >= 3:
+                                geom = Polygon(coords)
+                                if geom.is_valid:
+                                    forests.append(
+                                        {"geometry": geom, "tags": tags, "osm_id": element.get("id"), "type": "way"}
+                                    )
+                except Exception as e:
+                    logger.debug(f"  [!] Fehler beim Parsing von Waldgeometrie: {e}")
+                    continue
+
+        return forests
+
+    def _build_multipolygon_from_members(self, relation: Dict, ways_by_id: Dict):
+        """
+        Versuche Geometrie eines Multipolygon aus seinen Member-Ways zu bauen.
+
+        Args:
+            relation: Relation-Element mit members
+            ways_by_id: Index way_id → way_element
+
+        Returns:
+            Shapely Polygon/MultiPolygon oder None
+        """
+        from shapely.geometry import Polygon, LineString, MultiPolygon
+
+        members = relation.get("members", [])
+        if not members:
+            return None
+
+        # Sammle outer ways (diese ergeben die Außenkante)
+        outer_coords_list = []
+
+        for member in members:
+            if member.get("type") != "way":
+                continue
+
+            role = member.get("role", "")
+            if role != "outer":  # Wir interessieren uns nur für outer
+                continue
+
+            way_id = member.get("ref")
+
+            if way_id not in ways_by_id:
+                # Way nicht im Cache
+                continue
+
+            way = ways_by_id[way_id]
+            geom_data = way.get("geometry")
+
             if not geom_data:
                 continue
 
-            try:
-                # Konvertiere Overpass-Format zu Shapely Polygon
-                # Overpass gibt [{'lat': x, 'lon': y}, ...] zurück
-                # Shapely erwartet [(lon, lat), ...] (x, y) !
+            # Parse Way-Geometrie
+            coords = None
+            if isinstance(geom_data, list) and len(geom_data) > 0:
+                if isinstance(geom_data[0], dict) and "lat" in geom_data[0]:
+                    coords = [(pt["lon"], pt["lat"]) for pt in geom_data]
+                elif isinstance(geom_data[0], (list, tuple)):
+                    coords = [tuple(pt[:2]) for pt in geom_data]
 
-                if isinstance(geom_data, list) and len(geom_data) > 0:
-                    if isinstance(geom_data[0], dict) and "lat" in geom_data[0]:
-                        # Overpass-Format: Liste von {lat, lon} Dicts
-                        coords = [(pt["lon"], pt["lat"]) for pt in geom_data]
-                        if len(coords) >= 3:  # Polygon benötigt mind. 3 Punkte
-                            geom = Polygon(coords)
+            if coords and len(coords) >= 2:
+                outer_coords_list.append(coords)
 
-                            if geom.is_valid:
-                                forests.append({"geometry": geom, "tags": tags, "osm_id": element.get("id")})
-                    elif isinstance(geom_data[0], (list, tuple)):
-                        # GeoJSON-Format: [[lon, lat], ...]
-                        coords = [tuple(pt[:2]) for pt in geom_data]
-                        if len(coords) >= 3:
-                            geom = Polygon(coords)
-                            if geom.is_valid:
-                                forests.append({"geometry": geom, "tags": tags, "osm_id": element.get("id")})
-            except Exception as e:
-                print(f"  [!] Fehler beim Parsing von Waldgeometrie: {e}")
-                continue
+        if not outer_coords_list:
+            return None
 
-        return forests
+        try:
+            # Wenn wir nur einen outer haben, nimm ihn direkt
+            if len(outer_coords_list) == 1:
+                coords = outer_coords_list[0]
+                if len(coords) >= 3:
+                    # Stelle sicher dass Polygon geschlossen ist
+                    if coords[0] != coords[-1]:
+                        coords = coords + [coords[0]]
+
+                    poly = Polygon(coords)
+                    return poly if poly.is_valid else None
+
+            # Mehrere outer ways - versuche sie zu merger
+            else:
+                # Baue Ring aus jedem set of coords
+                rings = []
+                for coords in outer_coords_list:
+                    if len(coords) >= 3:
+                        if coords[0] != coords[-1]:
+                            coords = coords + [coords[0]]
+                        ring_poly = Polygon(coords)
+                        if ring_poly.is_valid:
+                            rings.append(ring_poly)
+
+                if not rings:
+                    return None
+                elif len(rings) == 1:
+                    return rings[0]
+                else:
+                    # Mehrere Polygone - als MultiPolygon zurückgeben
+                    return MultiPolygon(rings)
+
+        except Exception as e:
+            logger.debug(f"Fehler beim Multipolygon-Assembly: {e}")
+            return None
 
     def _map_to_forest_type(self, osm_tags: Dict) -> Optional[str]:
         """
@@ -343,33 +472,43 @@ class ForestNormalizer:
                 continue
 
             try:
-                # Transformiere Polygon
+                # Sammle alle Polygone (für MultiPolygon: ALLE Polygone, nicht nur das größte!)
+                polygons_to_process = []
+
                 if geom_wgs84.geom_type == "Polygon":
-                    coords_wgs84 = list(geom_wgs84.exterior.coords)
+                    polygons_to_process = [geom_wgs84]
                 elif geom_wgs84.geom_type == "MultiPolygon":
-                    # Für MultiPolygon: nutze das größte Polygon
-                    coords_wgs84 = list(max(geom_wgs84.geoms, key=lambda x: x.area).exterior.coords)
+                    # WICHTIG: MultiPolygon → alle einzelnen Polygone verarbeiten!
+                    # (z.B. Wald mit mehreren Inseln oder Lichtungen)
+                    polygons_to_process = list(geom_wgs84.geoms)
                 else:
                     continue
 
-                # Transformiere jeden Punkt (lon, lat) → (utm_x, utm_y) → (local_x, local_y)
-                local_coords = []
-                for lon, lat in coords_wgs84:
-                    # transformer_utm.transform(lon, lat) → (utm_x, utm_y)
-                    # WICHTIG: pyproj erwartet (x, y) = (lon, lat) für WGS84, gibt (x, y) = (utm_easting, utm_northing)
-                    utm_x, utm_y = transformer_utm.transform(lon, lat)
-                    local_x = utm_x - ox
-                    local_y = utm_y - oy
-                    local_coords.append((local_x, local_y))
+                # Transformiere JEDES Polygon einzeln
+                for poly_wgs84 in polygons_to_process:
+                    if not poly_wgs84 or poly_wgs84.is_empty:
+                        continue
 
-                # Erstelle transformiertes Polygon
-                if len(local_coords) >= 3:
-                    geom_local = Polygon(local_coords)
-                    if geom_local.is_valid:
-                        # Erstelle neuen Forest-Eintrag mit transformierter Geometrie
-                        forest_transformed = forest.copy()
-                        forest_transformed["geometry"] = geom_local
-                        transformed_forests.append(forest_transformed)
+                    coords_wgs84 = list(poly_wgs84.exterior.coords)
+
+                    # Transformiere jeden Punkt (lon, lat) → (utm_x, utm_y) → (local_x, local_y)
+                    local_coords = []
+                    for lon, lat in coords_wgs84:
+                        # transformer_utm.transform(lon, lat) → (utm_x, utm_y)
+                        # WICHTIG: pyproj erwartet (x, y) = (lon, lat) für WGS84, gibt (x, y) = (utm_easting, utm_northing)
+                        utm_x, utm_y = transformer_utm.transform(lon, lat)
+                        local_x = utm_x - ox
+                        local_y = utm_y - oy
+                        local_coords.append((local_x, local_y))
+
+                    # Erstelle transformiertes Polygon
+                    if len(local_coords) >= 3:
+                        geom_local = Polygon(local_coords)
+                        if geom_local.is_valid:
+                            # Erstelle neuen Forest-Eintrag mit transformierter Geometrie
+                            forest_transformed = forest.copy()
+                            forest_transformed["geometry"] = geom_local
+                            transformed_forests.append(forest_transformed)
 
             except Exception as e:
                 logger.debug(f"  [!] Fehler bei Transformation eines Waldpolygons: {e}")
