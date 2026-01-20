@@ -94,113 +94,228 @@
         }
     },
     "forest_type_templates": {
-        "deciduous_dense": {
+        "german_deciduous_dense": {
             "tree_density": 1.0,
             "average_height": [
-                18.0,
-                28.0
+                20.0,
+                30.0
             ],
             "underground_material": "forest_floor",
             "lod_distance": 250.0,
             "collision_enabled": true,
             "preferred_trees": [
-                "oak",
-                "beech",
-                "birch",
-                "aspen"
+                "cork_oak_bush_large",
+                "tree_aspen_forest_a",
+                "tree_aspen_forest_b",
+                "tree_aspen_forest_group",
+                "tree_aspen_large_a",
+                "tree_aspen_large_b",
+                "tree_beech_forest_a",
+                "tree_beech_forest_b",
+                "tree_beech_forest_group",
+                "tree_beech_large_b"
             ],
-            "fallback_trees": [
-                "oak"
-            ],
-            "comment": "Dichter Laubwald (Eichen, Buchen, Birken)"
+            "tree_distribution": {
+                "cork_oak_bush_large": 0.1,
+                "tree_aspen_forest_a": 0.1,
+                "tree_aspen_forest_b": 0.1,
+                "tree_aspen_forest_group": 0.1,
+                "tree_aspen_large_a": 0.1,
+                "tree_aspen_large_b": 0.1,
+                "tree_beech_forest_a": 0.1,
+                "tree_beech_forest_b": 0.1,
+                "tree_beech_forest_group": 0.1,
+                "tree_beech_large_b": 0.1
+            },
+            "comment": "Dichter Laubwald - Buchen und Eichen (klassischer deutscher Wald)"
         },
-        "mixed_forest": {
-            "tree_density": 0.9,
+        "german_mixed_forest": {
+            "tree_density": 0.85,
             "average_height": [
-                16.0,
-                24.0
+                18.0,
+                26.0
             ],
             "underground_material": "forest_floor",
-            "lod_distance": 200.0,
+            "lod_distance": 220.0,
             "collision_enabled": true,
             "preferred_trees": [
-                "oak",
-                "scots_pine",
-                "beech",
-                "fir",
-                "birch",
-                "aspen"
+                "tree_aspen_forest_a",
+                "tree_aspen_forest_b",
+                "tree_aspen_forest_group",
+                "tree_aspen_small_low_group",
+                "tree_beech_forest_a",
+                "tree_beech_forest_b",
+                "tree_beech_forest_group",
+                "tree_beech_small_forest_group",
+                "tree_douglasfir_group",
+                "tree_douglasfir_group_low"
             ],
-            "fallback_trees": [
-                "birch"
-            ],
-            "comment": "Mischwald (Laub- und Nadelbäume)"
+            "tree_distribution": {
+                "tree_aspen_forest_a": 0.1,
+                "tree_aspen_forest_b": 0.1,
+                "tree_aspen_forest_group": 0.1,
+                "tree_aspen_small_low_group": 0.1,
+                "tree_beech_forest_a": 0.1,
+                "tree_beech_forest_b": 0.1,
+                "tree_beech_forest_group": 0.1,
+                "tree_beech_small_forest_group": 0.1,
+                "tree_douglasfir_group": 0.1,
+                "tree_douglasfir_group_low": 0.1
+            },
+            "comment": "Mischwald - Buchen, Eichen und Espen (vielfältiger Bestand)"
         },
-        "sparse_deciduous": {
+        "german_sparse_deciduous": {
+            "tree_density": 0.4,
+            "average_height": [
+                15.0,
+                23.0
+            ],
+            "underground_material": "grassland",
+            "lod_distance": 180.0,
+            "collision_enabled": true,
+            "preferred_trees": [
+                "cork_oak_bush_large",
+                "cork_oak_bush_medium",
+                "generibush",
+                "generibush_small",
+                "maritime_pine_bush",
+                "tree_aspen_bush_a",
+                "tree_aspen_bush_b",
+                "tree_aspen_bush_c",
+                "tree_aspen_small_a",
+                "tree_aspen_small_b"
+            ],
+            "tree_distribution": {
+                "cork_oak_bush_large": 0.1,
+                "cork_oak_bush_medium": 0.1,
+                "generibush": 0.1,
+                "generibush_small": 0.1,
+                "maritime_pine_bush": 0.1,
+                "tree_aspen_bush_a": 0.1,
+                "tree_aspen_bush_b": 0.1,
+                "tree_aspen_bush_c": 0.1,
+                "tree_aspen_small_a": 0.1,
+                "tree_aspen_small_b": 0.1
+            },
+            "comment": "Lichter Laubwald - überwiegend Busch- und kleinere Bäume"
+        },
+        "orchard_area": {
             "tree_density": 0.3,
             "average_height": [
-                12.0,
-                20.0
+                8.0,
+                15.0
             ],
             "underground_material": "grassland",
             "lod_distance": 150.0,
             "collision_enabled": true,
             "preferred_trees": [
-                "oak",
-                "birch",
-                "aspen",
-                "beech"
+                "generibush_small",
+                "tree_aspen_small_a",
+                "tree_aspen_small_b",
+                "tree_aspen_small_c",
+                "tree_aspen_small_d",
+                "tree_aspen_small_low",
+                "tree_aspen_small_low_group",
+                "tree_beech_small_b",
+                "tree_beech_small_c",
+                "tree_beech_small_d"
             ],
-            "fallback_trees": [
-                "birch"
-            ],
-            "comment": "Lichter Laubwald"
+            "tree_distribution": {
+                "generibush_small": 0.1,
+                "tree_aspen_small_a": 0.1,
+                "tree_aspen_small_b": 0.1,
+                "tree_aspen_small_c": 0.1,
+                "tree_aspen_small_d": 0.1,
+                "tree_aspen_small_low": 0.1,
+                "tree_aspen_small_low_group": 0.1,
+                "tree_beech_small_b": 0.1,
+                "tree_beech_small_c": 0.1,
+                "tree_beech_small_d": 0.1
+            },
+            "comment": "Obstplantage - niedrige und kleine Bäume"
         },
-        "mediterranean_forest": {
-            "tree_density": 0.4,
+        "hedgerow": {
+            "tree_density": 0.2,
             "average_height": [
-                8.0,
-                16.0
+                10.0,
+                18.0
             ],
-            "underground_material": "dry_earth",
-            "lod_distance": 180.0,
+            "underground_material": "grassland",
+            "lod_distance": 120.0,
             "collision_enabled": true,
             "preferred_trees": [
-                "cork_oak",
-                "holm_oak",
-                "olive"
+                "oak_beech_wallblocker_long",
+                "tree_aspen_small_a",
+                "tree_aspen_small_b",
+                "tree_aspen_small_c",
+                "tree_aspen_small_d",
+                "tree_aspen_small_low"
             ],
-            "fallback_trees": [
-                "cork_oak"
+            "tree_distribution": {
+                "oak_beech_wallblocker_long": 0.16666666666666666,
+                "tree_aspen_small_a": 0.16666666666666666,
+                "tree_aspen_small_b": 0.16666666666666666,
+                "tree_aspen_small_c": 0.16666666666666666,
+                "tree_aspen_small_d": 0.16666666666666666,
+                "tree_aspen_small_low": 0.16666666666666666
+            },
+            "comment": "Hecke/Feldgehölz - dünne, lineare Bestände"
+        },
+        "dead_forest": {
+            "tree_density": 0.3,
+            "average_height": [
+                15.0,
+                25.0
             ],
-            "comment": "Mediterraner Wald (Eichen, Olivenbäume)"
+            "underground_material": "forest_floor",
+            "lod_distance": 200.0,
+            "collision_enabled": true,
+            "preferred_trees": [
+                "tree_beech_dead_a",
+                "tree_beech_dead_b",
+                "fir_dead_branches",
+                "tree_douglasfir_dead",
+                "tree_douglasfir_dead_02",
+                "tree_oak_dead_a",
+                "tree_oak_dead_b"
+            ],
+            "tree_distribution": {
+                "tree_beech_dead_a": 0.14285714285714285,
+                "tree_beech_dead_b": 0.14285714285714285,
+                "fir_dead_branches": 0.14285714285714285,
+                "tree_douglasfir_dead": 0.14285714285714285,
+                "tree_douglasfir_dead_02": 0.14285714285714285,
+                "tree_oak_dead_a": 0.14285714285714285,
+                "tree_oak_dead_b": 0.14285714285714285
+            },
+            "comment": "Totholz/Verfallender Wald - dürre, tote Bäume"
         }
     },
     "forest_mappings": {
         "landuse": {
-            "forest": "mixed_forest",
-            "wood": "mixed_forest",
-            "orchard": "sparse_deciduous"
+            "forest": "german_mixed_forest",
+            "wood": "german_mixed_forest",
+            "orchard": "orchard_area"
         },
         "natural": {
-            "wood": "mixed_forest",
-            "forest": "mixed_forest",
-            "scrub": "sparse_deciduous",
-            "heath": "sparse_deciduous",
-            "tree_row": "sparse_deciduous",
-            "wetland": "mixed_forest"
+            "wood": "german_mixed_forest",
+            "forest": "german_mixed_forest",
+            "scrub": "german_sparse_deciduous",
+            "heath": "german_sparse_deciduous",
+            "tree_row": "hedgerow",
+            "wetland": "german_mixed_forest"
         },
         "leisure": {
-            "nature_reserve": "mixed_forest",
-            "park": "sparse_deciduous"
+            "nature_reserve": "german_mixed_forest",
+            "park": "german_sparse_deciduous"
         },
         "tag_overrides": {
-            "trees=conifer": "coniferous_dense",
-            "trees=broadleaf": "deciduous_dense",
-            "trees=mixed": "mixed_forest",
-            "leaf_type=needleleaf": "coniferous_dense",
-            "leaf_type=broadleaved": "deciduous_dense",
-            "leaf_type=mixed": "mixed_forest"
+            "trees=conifer": "german_mixed_forest",
+            "trees=broadleaf": "german_deciduous_dense",
+            "trees=mixed": "german_mixed_forest",
+            "leaf_type=needleleaf": "german_mixed_forest",
+            "leaf_type=broadleaved": "german_deciduous_dense",
+            "leaf_type=mixed": "german_mixed_forest"
         }
     },
     "buildings": {

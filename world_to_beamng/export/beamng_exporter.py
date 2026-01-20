@@ -13,7 +13,6 @@ from .. import config
 from ..core.cache_manager import CacheManager
 from ..managers import MaterialManager, ItemManager, DAEExporter
 from ..workflow import TileProcessor, TerrainWorkflow, BuildingWorkflow, HorizonWorkflow, ForestWorkflow
-from ..forest_generator import ForestGenerator
 import logging
 from world_to_beamng.logging_config import LoggerConfig
 
@@ -44,6 +43,16 @@ class BeamNGExporter:
 
         ItemManager.reset_instance()
         self.items = ItemManager.get_instance(config.BEAMNG_DIR)
+
+        # Registriere zentrales Forest-Objekt in items.level.json
+        self.items.add_item(
+            name="the_forest",
+            item_class="Forest",
+            dataFile="levels/world_to_beamng/main/forest.forest4.json",
+            lodScale=1.0,
+            overwrite=True,
+        )
+        logger.debug("✓ Forest-Objekt registriert in ItemManager")
 
         self.dae = DAEExporter(material_manager=self.materials)  # Übergebe MaterialManager-Referenz
 
@@ -129,32 +138,43 @@ class BeamNGExporter:
         # NEU: Phase 0 - Forest Asset Initialization (DIREKT VOR Tile-Loop)
         registered_trees = {}
         if include_forests:
-            timer.begin("Forest Asset Scanning")
+            timer.begin("Forest Asset Initialization")
 
-            # Importiere und nutze Asset Scanner direkt
-            from ..forest.forest_asset_scanner import ForestAssetScanner
+            # Lade forestItemData.json (wird von generate_forest_item_data.py erzeugt)
+            forest_item_data_path = config.BEAMNG_DIR / "main" / "forestItemData.json"
 
-            asset_scanner = ForestAssetScanner(
-                base_dir=Path(config.BEAMNG_DIR), material_manager=self.materials, item_manager=self.items
-            )
-            registered_trees = asset_scanner.scan_and_register_trees()
+            if forest_item_data_path.exists():
+                try:
+                    with open(forest_item_data_path, "r", encoding="utf-8") as f:
+                        forest_item_data = json.load(f)
+
+                    # Konvertiere zu registered_trees Format
+                    for item_key, item_info in forest_item_data.items():
+                        tree_type = item_info.get("name", "tree")  # Name ist der Baum-Typ
+                        registered_trees[item_key] = {
+                            "name": item_key,
+                            "dae_path": item_info.get("shapeFile", ""),
+                            "radius": item_info.get("radius", 1.5),
+                        }
+
+                    logger.info(f"✓ {len(registered_trees)} Tree-Items aus forestItemData.json geladen")
+
+                except Exception as e:
+                    logger.error(f"Fehler beim Laden von forestItemData.json: {e}")
+                    registered_trees = {}
+            else:
+                logger.warning(f"forestItemData.json nicht gefunden: {forest_item_data_path}")
+                logger.warning("  Bitte führen Sie zuerst aus: python tools/generate_forest_item_data.py")
+
             stats["forests_registered"] = len(registered_trees)
 
-            logger.info(f"\n✓ {stats['forests_registered']} Baumarten registriert\n")
-
-            # LAZY: Generiere forest_types JETZT mit den registrierten Trees!
-            logger.info(f"  [→] Generiere dynamische Forest-Types aus {len(registered_trees)} Baumarten...")
-            generator = ForestGenerator(
-                registered_trees=registered_trees, template_config=self.osm_config.get("forest_type_templates", {})
-            )
-            self.forest_config["forest_types"] = generator.generate_forest_types()
-
             # Setze Forest-Konfiguration (initialisiert Normalizer, InstanceGenerator, JSONWriter)
-            self.forests.set_forest_config(
-                self.forest_config,
-                osm_mapper=config.OSM_MAPPER,
-                registered_trees=registered_trees,
-            )
+            if registered_trees:
+                self.forests.set_forest_config(
+                    self.forest_config,
+                    osm_mapper=config.OSM_MAPPER,
+                    registered_trees=registered_trees,
+                )
 
         # Sammle alle Gebäude über alle Tiles
         all_buildings = []
@@ -182,7 +202,7 @@ class BeamNGExporter:
                 self.height_points = result.get("height_points")
                 self.height_elevations = result.get("height_elevations")
                 logger.debug(
-    f"  [i] Spawn-Höhendaten: {len(self.height_points
+                    f"  [i] Spawn-Höhendaten: {len(self.height_points
 ) if self.height_points is not None else 0} Punkte"
                 )
 
