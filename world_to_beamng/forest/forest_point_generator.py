@@ -20,16 +20,36 @@ class ForestPointGenerator:
 
     Poisson-Disk-Sampling erzeugt eine gleichmäßige, natürlich wirkende
     Verteilung von Punkten mit einem Mindestabstand.
+
+    Optional können Punkte auf Straßen gefiltert werden durch
+    Übergabe einer road_buffer Geometrie.
     """
 
-    def __init__(self, min_distance: float = 1.5, max_attempts: int = 30):
+    def __init__(self, min_distance: float = 1.5, max_attempts: int = 30, road_buffer: Optional[Polygon] = None):
         """
         Args:
             min_distance: Mindestabstand zwischen Bäumen in Metern (default: 1.5m)
             max_attempts: Maximale Versuche pro Punkt (default: 30)
+            road_buffer: Optional - Shapely Polygon mit bufferten Straßen (zum Filtern von Bäumen)
         """
         self.min_distance = min_distance
         self.max_attempts = max_attempts
+
+        # Prepared geometry für schnelle Straßen-Abfragen
+        self.prep_road_buffer = prep(road_buffer) if road_buffer is not None else None
+        self.has_roads = road_buffer is not None
+
+    def set_road_buffer(self, road_buffer: Optional[Polygon]) -> None:
+        """
+        Setzt oder aktualisiert den Road Buffer.
+
+        Kann jederzeit aufgerufen werden (z.B. vor jedem Tile).
+
+        Args:
+            road_buffer: Shapely Polygon mit bufferten Straßen oder None
+        """
+        self.prep_road_buffer = prep(road_buffer) if road_buffer is not None else None
+        self.has_roads = road_buffer is not None
 
     def generate_points(
         self, polygon: Polygon, tree_density: float, min_distance_override: Optional[float] = None
@@ -69,10 +89,33 @@ class ForestPointGenerator:
             logger.warning(f"Polygon mit ungültiger Bounding Box: {polygon.bounds}")
             return []
 
+        # DEBUG: Prüfe Polygon-Validität
+        if polygon.is_empty:
+            logger.warning(f"Polygon ist leer (area={polygon.area:.2f}m²)")
+            return []
+
+        if polygon.area < 1.0:
+            logger.debug(f"Polygon zu klein für Bäume (area={polygon.area:.2f}m²)")
+            return []
+
         # Poisson-Disk-Sampling
         points = self._poisson_disk_sampling(
             polygon=polygon, min_distance=adjusted_distance, bounds=(minx, miny, maxx, maxy)
         )
+
+        # OPTIMIERUNG: Filtere Punkte auf Straßen (wenn road_buffer gesetzt)
+        if self.has_roads:
+            points_before = len(points)
+            points = self._filter_points_on_roads(points)
+            points_after = len(points)
+            print(
+                f"      [Road Filter] {points_before} → {points_after} Punkte ({points_before - points_after} gefiltert, {self.prep_road_buffer is not None})"
+            )
+            if points_before > points_after:
+                logger.debug(
+                    f"  Gefiltert: {points_before - points_after} Bäume auf Straßen entfernt "
+                    f"({points_after}/{points_before} übrig)"
+                )
 
         logger.debug(
             f"  Generiert: {len(points)} Punkte "
@@ -80,6 +123,41 @@ class ForestPointGenerator:
         )
 
         return points
+
+    def _filter_points_on_roads(self, points: List[Tuple[float, float]]) -> List[Tuple[float, float]]:
+        """
+        Filtert Punkte, die auf Straßen liegen (mit Puffer).
+
+        Nutzt prepared geometry für O(1) Spatial Index Abfragen.
+
+        Args:
+            points: Liste von (x, y) Punkt-Koordinaten
+
+        Returns:
+            Gefilterte Liste ohne Punkte auf Straßen
+        """
+        if not self.has_roads or self.prep_road_buffer is None:
+            return points
+
+        # Schnelle Filterung mit prepared geometry
+        filtered = []
+        on_roads = 0
+
+        # DEBUG: Sample ersten Punkt auf Straße
+        first_road_point = None
+
+        for pt in points:
+            if self.prep_road_buffer.intersects(Point(pt[0], pt[1])):
+                on_roads += 1
+                if first_road_point is None:
+                    first_road_point = pt
+            else:
+                filtered.append(pt)
+
+        if on_roads > 0:
+            print(f"        [Road Filter DEBUG] {on_roads} Punkte auf Straßen gefunden! Beispiel: {first_road_point}")
+
+        return filtered
 
     def _poisson_disk_sampling(
         self, polygon: Polygon, min_distance: float, bounds: Tuple[float, float, float, float]
@@ -124,7 +202,10 @@ class ForestPointGenerator:
         # Startpunkt (zufällig innerhalb des Polygons)
         start_point = self._random_point_in_polygon(polygon, prep_polygon)
         if start_point is None:
-            logger.warning("Konnte keinen Startpunkt im Polygon finden")
+            logger.warning(
+                f"Konnte keinen Startpunkt im Polygon finden "
+                f"(bounds={bounds}, area={polygon.area:.2f}m², is_valid={polygon.is_valid})"
+            )
             return []
 
         points.append(start_point)
@@ -224,7 +305,9 @@ class ForestPointGenerator:
 
         return True
 
-    def _random_point_in_polygon(self, polygon: Polygon, prep_polygon=None, max_tries: int = 100) -> Optional[Tuple[float, float]]:
+    def _random_point_in_polygon(
+        self, polygon: Polygon, prep_polygon=None, max_tries: int = 100
+    ) -> Optional[Tuple[float, float]]:
         """
         Generiere zufälligen Punkt innerhalb eines Polygons.
 
@@ -251,7 +334,11 @@ class ForestPointGenerator:
             if prep_polygon.contains(Point(x, y)):
                 return (x, y)
 
-        logger.warning(f"Konnte keinen Punkt in Polygon finden nach {max_tries} Versuchen")
+        logger.warning(
+            f"Konnte keinen Punkt in Polygon finden nach {max_tries} Versuchen "
+            f"(bounds={polygon.bounds}, area={polygon.area:.2f}m², "
+            f"geom_type={polygon.geom_type}, is_valid={polygon.is_valid})"
+        )
         return None
 
     def generate_points_for_forests(
@@ -287,20 +374,20 @@ class ForestPointGenerator:
             if tile_box:
                 # Intersection mit tile_box - verwende das Ergebnis für Punkt-Generierung
                 clipped_geometry = geometry.intersection(tile_box)
-                
+
                 if clipped_geometry.is_empty:
                     # Wald ist außerhalb der Tile
                     result[idx] = []
                     logger.debug(f"  Wald {idx}: Vollständig außerhalb Tile-Box, keine Punkte")
                     continue
-                    
+
                 geometry_to_use = clipped_geometry
-                original_area = geometry.area if hasattr(geometry, 'area') else 0
-                clipped_area = clipped_geometry.area if hasattr(clipped_geometry, 'area') else 0
+                original_area = geometry.area if hasattr(geometry, "area") else 0
+                clipped_area = clipped_geometry.area if hasattr(clipped_geometry, "area") else 0
             else:
                 # Keine tile_box - verwende Wald wie er ist
                 geometry_to_use = geometry
-                original_area = geometry.area if hasattr(geometry, 'area') else 0
+                original_area = geometry.area if hasattr(geometry, "area") else 0
                 clipped_area = original_area
 
             # Hole Properties
@@ -317,7 +404,9 @@ class ForestPointGenerator:
                     points.extend(self.generate_points(poly, tree_density))
             else:
                 # Kann passieren wenn intersection ein Point/LineString zurückgibt
-                logger.debug(f"  Wald {idx}: Nach Tile-Schnitt kein Polygon ({type(geometry_to_use).__name__}), keine Punkte")
+                logger.debug(
+                    f"  Wald {idx}: Nach Tile-Schnitt kein Polygon ({type(geometry_to_use).__name__}), keine Punkte"
+                )
                 points = []
 
             # Debug-Info
@@ -329,7 +418,7 @@ class ForestPointGenerator:
                 )
             else:
                 logger.debug(f"  Wald {idx} ({forest_type}): {len(points)} Punkte (keine Tile-Box)")
-            
+
             result[idx] = points
 
         total_points = sum(len(pts) for pts in result.values())

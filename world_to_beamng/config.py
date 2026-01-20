@@ -55,6 +55,10 @@ ROAD_WIDTH = 7.0
 JUNCTION_STOP_ANGLE_THRESHOLD = 90.0
 # Buffer-Abstand beim Stoppen vor Junctions (Meter)
 JUNCTION_STOP_BUFFER = 5.0
+
+# === FOREST GENERATION PARAMETERS ===
+FOREST_ROAD_MARGIN = 5.0  # Puffer um Straßen zur Baum-Filterung (in Metern, links & rechts)
+
 # Böschungs-Generierung (vorübergehend deaktiviert bis Remeshing stabil)
 GENERATE_SLOPES = False
 # Minimale Boeschungsbreite (Meter) unabhängig von Hoehenunterschieden

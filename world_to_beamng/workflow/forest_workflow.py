@@ -82,6 +82,151 @@ class ForestWorkflow:
         output_dir = config.BEAMNG_DIR / "main"
         self.json_writer = ForestJSONWriter(output_dir)
 
+    def _transform_osm_to_local(self, osm_data, global_offset: Tuple[float, float]):
+        """
+        ZENTRALE OSM-TRANSFORMATION: Transformiert ALLE OSM-Geometrien einmalig zu lokalen Koordinaten.
+
+        Transformiert alle 'geometry'-Felder von WGS84 (lat/lon) zu lokalen Koordinaten.
+        Nach diesem Aufruf sind ALLE Geometrien in lokalen Koordinaten!
+
+        Unterstützt multiple Formate:
+        - {"lat": ..., "lon": ...} (Overpass-Format)
+        - [lat, lon] oder [lon, lat] (Liste/Tuple-Format)
+
+        Args:
+            osm_data: Liste von OSM-Elementen mit 'geometry' in WGS84
+            global_offset: (utm_x_origin, utm_y_origin)
+
+        Returns:
+            OSM-Daten mit transformierten Geometrien (in-place Modifikation)
+        """
+        if not osm_data:
+            return osm_data
+
+        from ..geometry.coordinates import transformer_to_wgs84
+        from pyproj import Transformer
+
+        # Inverse Transformer: WGS84 → UTM
+        transformer_utm = Transformer.from_proj(
+            transformer_to_wgs84.target_crs,  # WGS84
+            transformer_to_wgs84.source_crs,  # UTM
+        )
+
+        ox, oy = global_offset[0], global_offset[1]
+
+        for element in osm_data:
+            if "geometry" not in element:
+                continue
+
+            geometry = element["geometry"]
+            if not isinstance(geometry, list):
+                continue
+
+            # Transformiere jedes Geometrie-Punkt
+            transformed_geometry = []
+            for point in geometry:
+                lat = None
+                lon = None
+
+                # Format 1: {"lat": ..., "lon": ...}
+                if isinstance(point, dict) and "lat" in point and "lon" in point:
+                    lat = point["lat"]
+                    lon = point["lon"]
+
+                # Format 2: [lat, lon] oder [lon, lat] oder (lat, lon) oder (lon, lat)
+                elif isinstance(point, (list, tuple)) and len(point) >= 2:
+                    # Heuristik: Wenn Wert in [-180, 180] → lon, wenn in [-90, 90] → lat
+                    val1, val2 = point[0], point[1]
+                    if -90 <= val1 <= 90 and -180 <= val2 <= 180:
+                        lat, lon = val1, val2  # [lat, lon]
+                    elif -180 <= val1 <= 180 and -90 <= val2 <= 90:
+                        lon, lat = val1, val2  # [lon, lat]
+                    else:
+                        continue
+
+                if lat is None or lon is None:
+                    continue
+
+                # WGS84 → UTM → lokal
+                utm_x, utm_y = transformer_utm.transform(lon, lat)
+                local_x = utm_x - ox
+                local_y = utm_y - oy
+
+                # Ersetze lat/lon durch x/y
+                transformed_geometry.append({"x": local_x, "y": local_y})
+
+            # Ersetze geometry in-place
+            element["geometry"] = transformed_geometry
+
+        return osm_data
+
+    def _create_road_buffer(self, osm_data, road_margin: float = None):
+        """
+        Erstellt einen gepufferten Road-Buffer aus OSM-Daten.
+
+        VORAUSSETZUNG: osm_data MUSS bereits in lokalen Koordinaten vorliegen!
+
+        Args:
+            osm_data: OSM-Elemente mit 'geometry' in LOKALEN Koordinaten (x, y)
+            road_margin: Puffer um Straßen (in Metern). Wenn None, wird config.FOREST_ROAD_MARGIN verwendet
+
+        Returns:
+            shapely.geometry.Polygon (gepufferte Vereinigung aller Straßen) oder None
+        """
+        if road_margin is None:
+            road_margin = self.config.FOREST_ROAD_MARGIN
+
+        if not osm_data:
+            return None
+
+        from ..osm.parser import extract_roads_from_osm
+        from shapely.geometry import LineString
+        from shapely.ops import unary_union
+
+        roads = extract_roads_from_osm(osm_data)
+
+        if not roads:
+            logger.debug(f"  [Forest] Keine Straßen gefunden für Road Buffer")
+            return None
+
+        # Konvertiere Straßen-Ways zu LineStrings (Koordinaten MÜSSEN lokal sein!)
+        road_lines = []
+
+        for road in roads:
+            if "geometry" not in road or len(road["geometry"]) < 2:
+                continue
+
+            # Geometrie MUSS in lokalen Koordinaten sein (x, y)
+            coords_local = [(pt["x"], pt["y"]) for pt in road["geometry"] if "x" in pt and "y" in pt]
+
+            if len(coords_local) >= 2:
+                road_lines.append(LineString(coords_local))
+
+        if not road_lines:
+            logger.debug(f"  [Forest] Keine validen Road Lines erstellt")
+            return None
+
+        # Vereinige alle Straßen und erstelle Puffer
+        if len(road_lines) == 1:
+            road_union = road_lines[0]
+        else:
+            road_union = unary_union(road_lines)
+
+        # Erstelle gepufferte Polygon
+        road_buffer = road_union.buffer(road_margin)
+
+        logger.debug(
+            f"  [Forest] Road Buffer erstellt: {len(roads)} Straßen, {len(road_lines)} Lines, Margin={road_margin}m, Buffer-Area={road_buffer.area:.0f}m²"
+        )
+
+        return road_buffer
+
+        # except Exception as e:
+        #     import traceback
+        #     logger.warning(f"  [Forest] Fehler beim Erstellen von Road Buffer: {e}")
+        #     logger.debug(f"  [Forest] Stack Trace: {traceback.format_exc()}")
+        #     return None
+
     def process_tile(
         self,
         tile_bounds: Tuple[float, float, float, float],
@@ -199,6 +344,13 @@ class ForestWorkflow:
             else:
                 ox, oy = 0, 0
 
+            # ZENTRALE TRANSFORMATION: Konvertiere ALLE OSM-Geometrien einmalig zu lokalen Koordinaten
+            print(f"  [→] Transformiere OSM-Daten zu lokalen Koordinaten...")
+            osm_data = self._transform_osm_to_local(osm_data, (ox, oy))
+
+            # Ab jetzt: ALLE Geometrien in osm_data sind in lokalen Koordinaten!
+            # WGS84 (lat/lon) existiert nicht mehr - nur noch lokale (x, y)!
+
             # Nutze den echten global_offset für Waldtransformation
             forest_local_offset = (ox, oy)
 
@@ -244,6 +396,15 @@ class ForestWorkflow:
 
             # Phase 2: Point Generation (Poisson-Disk-Sampling)
             print(f"  [→] Generiere Tree-Positionen (Poisson-Disk)...")
+
+            # Erstelle Road Buffer (OSM-Daten bereits in lokalen Koordinaten!)
+            road_buffer = self._create_road_buffer(osm_data)
+            if road_buffer:
+                print(f"  [Forest] Road Buffer erstellt - Bounds: {road_buffer.bounds}, Area: {road_buffer.area:.0f}m²")
+            else:
+                print(f"  [Forest] Road Buffer ist None!")
+            self.point_generator.set_road_buffer(road_buffer)
+
             forest_properties = {
                 ft: self.normalizer.get_forest_properties(ft)
                 for ft in self.forest_config.get("forest_types", {}).keys()

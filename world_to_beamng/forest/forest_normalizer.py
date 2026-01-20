@@ -106,16 +106,7 @@ class ForestNormalizer:
 
             print(f"  [→] Prüfe {len(osm_forests)} OSM-Waldpolygone...")
 
-            # ZENTRALE NORMALISIERUNG: Transformiere alle Waldpolygone zu lokalen Koordinaten
-            if local_offset:
-                from ..geometry.coordinates import transformer_to_wgs84
-
-                osm_forests = self._transform_forests_wgs84_to_local(osm_forests, local_offset, transformer_to_wgs84)
-                if not osm_forests:
-                    print(f"  [→] Fehler bei Koordinaten-Transformation, keine Wälder")
-                    return result
-
-            # Jetzt: Alle Geometrien sind in lokalen Koordinaten!
+            # Jetzt: Alle Geometrien sind in lokalen Koordinaten (bereits transformiert in workflow!)
             # Iteriere über alle OSM-Waldpolygone
             for osm_forest in osm_forests:
                 geom = osm_forest.get("geometry")  # In LOKALEN Koordinaten
@@ -212,8 +203,11 @@ class ForestNormalizer:
         - Einfache Ways mit Waldtags
         - Multipolygon-Relations (type=multipolygon) mit Waldtags
 
+        WICHTIG: Erwartet LOKALE Koordinaten {x, y}!
+        (Zentrale Transformation in ForestWorkflow._transform_osm_to_local() erfolgt VORHER!)
+
         Args:
-            osm_data: OSM-Elements mit tags und geometry (Overpass-Format!)
+            osm_data: OSM-Elements mit tags und geometry (Overpass-Format, bereits transformiert!)
 
         Returns:
             Liste von Dicts mit "geometry" (Shapely Polygon), "tags"
@@ -261,32 +255,21 @@ class ForestNormalizer:
 
             # === CASE 2: Way (einfaches Polygon) ===
             else:
-                # Extrahiere Geometrie (Overpass-Format: Liste von {lat, lon} Dicts)
+                # Extrahiere Geometrie (BEREITS in lokalen Koordinaten!)
                 geom_data = element.get("geometry")
                 if not geom_data:
                     continue
 
                 try:
-                    # Konvertiere Overpass-Format zu Shapely Polygon
-                    # Overpass gibt [{'lat': x, 'lon': y}, ...] zurück
-                    # Shapely erwartet [(lon, lat), ...] (x, y) !
-
+                    # Geometrie MUSS bereits transformiert sein: {x, y}
+                    # (Zentrale Transformation in ForestWorkflow._transform_osm_to_local() erfolgte VORHER!)
                     if isinstance(geom_data, list) and len(geom_data) > 0:
-                        if isinstance(geom_data[0], dict) and "lat" in geom_data[0]:
-                            # Overpass-Format: Liste von {lat, lon} Dicts
-                            coords = [(pt["lon"], pt["lat"]) for pt in geom_data]
+                        if isinstance(geom_data[0], dict) and "x" in geom_data[0] and "y" in geom_data[0]:
+                            # Lokale Koordinaten - CORRECT!
+                            coords = [(pt["x"], pt["y"]) for pt in geom_data]
                             if len(coords) >= 3:  # Polygon benötigt mind. 3 Punkte
                                 geom = Polygon(coords)
 
-                                if geom.is_valid:
-                                    forests.append(
-                                        {"geometry": geom, "tags": tags, "osm_id": element.get("id"), "type": "way"}
-                                    )
-                        elif isinstance(geom_data[0], (list, tuple)):
-                            # GeoJSON-Format: [[lon, lat], ...]
-                            coords = [tuple(pt[:2]) for pt in geom_data]
-                            if len(coords) >= 3:
-                                geom = Polygon(coords)
                                 if geom.is_valid:
                                     forests.append(
                                         {"geometry": geom, "tags": tags, "osm_id": element.get("id"), "type": "way"}
@@ -300,6 +283,9 @@ class ForestNormalizer:
     def _build_multipolygon_from_members(self, relation: Dict, ways_by_id: Dict):
         """
         Versuche Geometrie eines Multipolygon aus seinen Member-Ways zu bauen.
+
+        WICHTIG: Erwartet lokale Koordinaten {x, y}!
+        (Zentrale Transformation in ForestWorkflow._transform_osm_to_local() erfolgt VORHER)
 
         Args:
             relation: Relation-Element mit members
@@ -337,13 +323,12 @@ class ForestNormalizer:
             if not geom_data:
                 continue
 
-            # Parse Way-Geometrie
+            # Parse Way-Geometrie (MUSS bereits in lokalen Koordinaten {x, y} sein!)
             coords = None
             if isinstance(geom_data, list) and len(geom_data) > 0:
-                if isinstance(geom_data[0], dict) and "lat" in geom_data[0]:
-                    coords = [(pt["lon"], pt["lat"]) for pt in geom_data]
-                elif isinstance(geom_data[0], (list, tuple)):
-                    coords = [tuple(pt[:2]) for pt in geom_data]
+                if isinstance(geom_data[0], dict) and "x" in geom_data[0] and "y" in geom_data[0]:
+                    # Lokale Koordinaten - CORRECT!
+                    coords = [(pt["x"], pt["y"]) for pt in geom_data]
 
             if coords and len(coords) >= 2:
                 outer_coords_list.append(coords)
