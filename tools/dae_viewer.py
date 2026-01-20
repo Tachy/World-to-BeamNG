@@ -52,7 +52,7 @@ from PIL import Image
 # Importiere config
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from world_to_beamng import config
-from tools.dae_loader import load_dae_tile, load_all_dae_files as load_dae_tile_all_from_items
+from tools.dae_loader import load_all_viewer_data
 
 
 # BeamNG-Relative Pfade ("/levels/<Level>/...") nach absoluten Pfaden auflösen
@@ -107,10 +107,14 @@ class DAETileViewer:
                 print(f"  [!] Fehler beim Generieren von Materials: {e}")
                 self.materials = {}
 
-        # Lade alle DAE-Dateien aus gemeinsamer Funktion
-        self.dae_files, self.tile_data = load_dae_tile_all_from_items(
+        # Lade ALLE Viewer-Daten zentral (DAE + Forest)
+        loader_result = load_all_viewer_data(
             config.BEAMNG_DIR, items_path, _resolve_beamng_path
         )
+        
+        self.dae_files = loader_result["dae_files"]
+        self.tile_data = loader_result["tile_data"]
+        self.forest_data = loader_result["forest_data"]
 
         if not self.dae_files:
             print("Keine DAE-Dateien in items.level.json gefunden!")
@@ -161,6 +165,8 @@ class DAETileViewer:
 
         # Debug: Zeige verfügbare Texturen und Material-Zuordnungen
         self._print_texture_debug_info()
+
+        # forest_data wurde bereits in load_all_viewer_data() geladen
 
         # Status-Actors
         self._reload_actor = None
@@ -446,6 +452,9 @@ class DAETileViewer:
         self.horizon_actors = []
         self.forest_actors = []
         # Debug-Actors und Forest-Actors wurden durch clear() gelöscht, aber wir laden sie danach wieder
+        
+        # WICHTIG: Setze forest_loaded zurück, damit forest.json beim nächsten Zugriff neu geladen wird
+        self.forest_loaded = False
 
         # Iteriere über alle geladenen DAE-Dateien
         for item_name, tile_data in self.tile_data:
@@ -1070,28 +1079,6 @@ class DAETileViewer:
 
         return None
 
-    def _create_mesh_with_uvs(self, vertices, faces, uvs):
-        """Erstelle ein PyVista PolyData Mesh mit UV-Koordinaten."""
-        pyvista_faces = []
-        for face in faces:
-            pyvista_faces.extend([3, face[0], face[1], face[2]])
-
-        mesh = pv.PolyData(vertices, pyvista_faces)
-
-        # ÜBERLEBENSWICHTIG: split_sharp_edges auch hier für korrekte Terrain-Schattierung!
-        try:
-            mesh.compute_normals(inplace=True, cell_normals=True, point_normals=True, split_sharp_edges=True)
-        except TypeError:
-            # Fallback für ältere Versionen
-            mesh.compute_normals(inplace=True, cell_normals=True, point_normals=True)
-
-        # Füge UV-Koordinaten hinzu (als texture coordinates)
-        if len(uvs) > 0 and len(uvs) == len(vertices):
-            uv_array = np.array(uvs) if not isinstance(uvs, np.ndarray) else uvs
-            mesh.active_texture_coordinates = uv_array
-
-        return mesh
-
     def _load_grid_colors(self):
         """Lade Grid-Farben aus debug_network.json."""
         debug_network_path = Path(__file__).parent.parent / "cache" / "debug_network.json"
@@ -1686,31 +1673,38 @@ class DAETileViewer:
             except Exception as e:
                 print(f"[!] Fehler beim Speichern der Kamera-Position: {e}")
 
-            # Lade Items neu mit gemeinsamer Funktion aus dae_loader
+            # Lade Items neu mit ZENTRAL-Funktion aus dae_loader
             items_path = config.BEAMNG_DIR / config.ITEMS_JSON
 
             try:
-                self.dae_files, self.tile_data = load_dae_tile_all_from_items(
+                loader_result = load_all_viewer_data(
                     config.BEAMNG_DIR, items_path, _resolve_beamng_path
                 )
+                self.dae_files = loader_result["dae_files"]
+                self.tile_data = loader_result["tile_data"]
+                self.forest_data = loader_result["forest_data"]
             except Exception as e:
-                print(f"  [!] Fehler beim Laden von DAE-Dateien: {e}")
+                print(f"  [!] Fehler beim Laden der Viewer-Daten: {e}")
                 import traceback
 
                 traceback.print_exc()
                 self.dae_files = []
                 self.tile_data = []
+                self.forest_data = None
 
             # Lade Texturen neu
             self.textures = self._load_textures()
 
             print(f"  ✓ {len(self.tile_data)} DAE-Dateien neu geladen")
+            if self.forest_data:
+                print(f"  ✓ forest.json neu geladen ({len(self.forest_data.get('instances', []))} Instanzen)")
 
             # Setze Debug-Layer-Status zurück (wird NACH update_view neu geladen)
             self.debug_loaded = False
             self.debug_actors = []
-
-            # update_view() lädt Terrain/Road/Building actors
+            # Setze Forest-Layer-Status zurück (wird NACH update_view neu geladen)
+            self.forest_loaded = False
+            self.forest_actors = []
             self.update_view()
 
             # NACH update_view: Lade Debug-Layer neu (damit sie nicht von plotter.clear() gelöscht werden)
@@ -1962,31 +1956,32 @@ class DAETileViewer:
         )
 
     def _load_forest_layer(self):
-        """Lade Forest-Layer aus forest.json."""
+        """Lade Forest-Layer aus vorher geladenem forest_data."""
         print("  [Forest] Lade Forest-Layer...")
 
-        # Suche forest.json im BEAMNG_DIR/main/ Verzeichnis
-        from forest_loader import load_forest_layer
-
-        forest_json_path = config.BEAMNG_DIR / "main" / "forest.json"
-
-        if not forest_json_path.exists():
-            print(f"  [!] Forest-JSON nicht gefunden: {forest_json_path}")
+        # Nutze bereits geladene forest_data (wurde in __init__ oder reload geladen)
+        if not self.forest_data:
+            print(f"  [!] Keine Forest-Daten verfügbar (forest_data ist None)")
             return
 
+        # Nutze die zentrale forest_loader Funktion um Actors zu erstellen
+        from tools.forest_loader import load_forest_layer
+
+        # Erstelle eine temporäre Pfad-Variable für forest_loader (wird dort nicht verwendet,
+        # aber die Signatur benötigt sie). Alternativ könnte man forest_loader refaktorieren.
         try:
-            # Lade forest.json und erstelle Punkt-Cloud
-            actor = load_forest_layer(self, forest_json_path)
+            actor = load_forest_layer(self, config.BEAMNG_DIR / "main" / "forest.json")
 
             if actor is not None:
-                print(f"  [✓] Forest-Layer geladen")
+                print(f"  [✓] Forest-Layer Actors erstellt")
                 return
 
         except Exception as e:
-            print(f"  [!] Fehler beim Laden des Forest-Layers: {e}")
+            print(f"  [!] Fehler beim Erstellen des Forest-Layers: {e}")
             import traceback
 
             traceback.print_exc()
+
 
     def _on_left_mouse_click(self, obj, event):
         """Handler für linken Doppel-Klick: Setze Kamera-Pivot auf angeklickten Punkt."""

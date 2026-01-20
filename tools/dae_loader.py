@@ -443,3 +443,80 @@ def load_all_dae_files(beamng_dir, items_json_path, resolve_path_func=None):
 
     print(f"  [DAE Loader] {len(tile_data)} DAE-Dateien erfolgreich geladen")
     return dae_files, tile_data
+
+
+def load_forest_data(beamng_dir):
+    """
+    Lade forest.json zentral.
+    
+    Args:
+        beamng_dir: BeamNG-Verzeichnis (config.BEAMNG_DIR)
+    
+    Returns:
+        Dict mit forest-Daten oder None bei Fehler
+    """
+    import json
+    
+    forest_json_path = Path(beamng_dir) / "main" / "forest.json"
+    
+    if not forest_json_path.exists():
+        print(f"  [!] forest.json nicht gefunden: {forest_json_path}")
+        return None
+    
+    try:
+        with open(forest_json_path, "r", encoding="utf-8") as f:
+            forest_data = json.load(f)
+        print(f"  [DAE Loader] ✓ forest.json geladen: {len(forest_data.get('trees', []))} Instanzen")
+        return forest_data
+    except Exception as e:
+        print(f"  [!] Fehler beim Laden von forest.json: {e}")
+        return None
+
+
+def load_all_viewer_data(beamng_dir, items_json_path, resolve_path_func=None):
+    """
+    Zentrale Funktion: Lädt ALLE Viewer-Daten einmalig.
+    
+    Diese Funktion wird ZWEIMAL aufgerufen:
+    1. Initial Load in __init__
+    2. Reload (L-Taste) in reload_dae_file()
+    
+    Args:
+        beamng_dir: BeamNG-Verzeichnis (config.BEAMNG_DIR)
+        items_json_path: Vollständiger Pfad zu items.level.json
+        resolve_path_func: Funktion zum Auflösen von BeamNG-Pfaden
+    
+    Returns:
+        Dict mit allen geladenen Daten:
+        {
+            "dae_files": Liste von (item_name, dae_path),
+            "tile_data": Liste von (item_name, data),
+            "forest_data": Dict mit forest.json Inhalt oder None,
+            "status": "success" | "partial" | "error"
+        }
+    """
+    result = {
+        "dae_files": [],
+        "tile_data": [],
+        "forest_data": None,
+        "status": "success"
+    }
+    
+    # Lade DAE-Dateien
+    print("[Loader] Lade alle Viewer-Daten...")
+    dae_files, tile_data = load_all_dae_files(beamng_dir, items_json_path, resolve_path_func)
+    result["dae_files"] = dae_files
+    result["tile_data"] = tile_data
+    
+    if not tile_data:
+        result["status"] = "partial"
+    
+    # Lade Forest-Daten
+    forest_data = load_forest_data(beamng_dir)
+    result["forest_data"] = forest_data
+    
+    if not forest_data:
+        result["status"] = "partial"
+    
+    print(f"[Loader] ✓ Alle Daten geladen")
+    return result
