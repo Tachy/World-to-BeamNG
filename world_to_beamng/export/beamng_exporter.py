@@ -59,12 +59,13 @@ class BeamNGExporter:
         # Lade osm_to_beamng.json Config (Materials werden SPÄTER generiert!)
         osm_config_path = Path("data/osm_to_beamng.json")
         self.osm_config = {}
-        self.forest_config = {"forest_types": {}, "forest_mappings": {}}
+        self.forest_config = {"forest_type_templates": {}, "forest_mappings": {}}
 
         if osm_config_path.exists():
             with open(osm_config_path, "r", encoding="utf-8") as f:
                 self.osm_config = json.load(f)
-                # Nur Mappings laden - forest_types wird LAZY generiert!
+                # Lade forest_type_templates und forest_mappings
+                self.forest_config["forest_type_templates"] = self.osm_config.get("forest_type_templates", {})
                 self.forest_config["forest_mappings"] = self.osm_config.get("forest_mappings", {})
 
         # Workflows (nutzen MaterialManager/ItemManager.get_instance() intern)

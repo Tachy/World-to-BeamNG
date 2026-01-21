@@ -31,12 +31,12 @@ class ForestNormalizer:
     def __init__(self, forest_config: Dict, osm_mapper: OSMMapper):
         """
         Args:
-            forest_config: Dict aus osm_to_beamng.json["forest_types"] + ["forest_mappings"]
+            forest_config: Dict aus osm_to_beamng.json["forest_type_templates"] + ["forest_mappings"]
             osm_mapper: OSMMapper-Instance mit geladenen OSM-Daten
         """
         self.forest_config = forest_config
         self.osm_mapper = osm_mapper
-        self.forest_types = forest_config.get("forest_types", {})
+        self.forest_types = forest_config.get("forest_type_templates", {})
 
         # Fallback: Hole forest_mappings aus osm_mapper wenn nicht in forest_config
         if "forest_mappings" in forest_config:

@@ -53,10 +53,10 @@ class ForestInstanceGenerator:
 
         instances = []
 
-        # Tree Distribution (prozentuale Anteile)
-        tree_distribution = forest_properties.get("tree_distribution", {})
+        # Tree Distribution (prozentuale Anteile) - aus preferred_trees
+        tree_distribution = forest_properties.get("preferred_trees", {})
         if not tree_distribution:
-            logger.warning(f"Keine tree_distribution für {forest_type}, überspringe")
+            logger.warning(f"Keine preferred_trees für {forest_type}, überspringe")
             return []
 
         # Average Height Range

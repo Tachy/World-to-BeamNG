@@ -412,7 +412,7 @@ class ForestWorkflow:
 
             forest_properties = {
                 ft: self.normalizer.get_forest_properties(ft)
-                for ft in self.forest_config.get("forest_types", {}).keys()
+                for ft in self.forest_config.get("forest_type_templates", {}).keys()
             }
 
             forest_points = self.point_generator.generate_points_for_forests(
@@ -440,7 +440,7 @@ class ForestWorkflow:
                 forests=forests,
                 forest_properties_map={
                     ft: self.normalizer.get_forest_properties(ft)
-                    for ft in self.forest_config.get("forest_types", {}).keys()
+                    for ft in self.forest_config.get("forest_type_templates", {}).keys()
                 },
             )
 

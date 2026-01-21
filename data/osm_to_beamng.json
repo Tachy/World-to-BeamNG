@@ -103,19 +103,7 @@
             "underground_material": "forest_floor",
             "lod_distance": 250.0,
             "collision_enabled": true,
-            "preferred_trees": [
-                "cork_oak_bush_large",
-                "tree_aspen_forest_a",
-                "tree_aspen_forest_b",
-                "tree_aspen_forest_group",
-                "tree_aspen_large_a",
-                "tree_aspen_large_b",
-                "tree_beech_forest_a",
-                "tree_beech_forest_b",
-                "tree_beech_forest_group",
-                "tree_beech_large_b"
-            ],
-            "tree_distribution": {
+            "preferred_trees": {
                 "cork_oak_bush_large": 0.1,
                 "tree_aspen_forest_a": 0.1,
                 "tree_aspen_forest_b": 0.1,
@@ -138,19 +126,7 @@
             "underground_material": "forest_floor",
             "lod_distance": 220.0,
             "collision_enabled": true,
-            "preferred_trees": [
-                "tree_aspen_forest_a",
-                "tree_aspen_forest_b",
-                "tree_aspen_forest_group",
-                "tree_aspen_small_low_group",
-                "tree_beech_forest_a",
-                "tree_beech_forest_b",
-                "tree_beech_forest_group",
-                "tree_beech_small_forest_group",
-                "tree_douglasfir_group",
-                "tree_douglasfir_group_low"
-            ],
-            "tree_distribution": {
+            "preferred_trees": {
                 "tree_aspen_forest_a": 0.1,
                 "tree_aspen_forest_b": 0.1,
                 "tree_aspen_forest_group": 0.1,
@@ -173,19 +149,7 @@
             "underground_material": "grassland",
             "lod_distance": 180.0,
             "collision_enabled": true,
-            "preferred_trees": [
-                "cork_oak_bush_large",
-                "cork_oak_bush_medium",
-                "generibush",
-                "generibush_small",
-                "maritime_pine_bush",
-                "tree_aspen_bush_a",
-                "tree_aspen_bush_b",
-                "tree_aspen_bush_c",
-                "tree_aspen_small_a",
-                "tree_aspen_small_b"
-            ],
-            "tree_distribution": {
+            "preferred_trees": {
                 "cork_oak_bush_large": 0.1,
                 "cork_oak_bush_medium": 0.1,
                 "generibush": 0.1,
@@ -208,19 +172,7 @@
             "underground_material": "grassland",
             "lod_distance": 150.0,
             "collision_enabled": true,
-            "preferred_trees": [
-                "generibush_small",
-                "tree_aspen_small_a",
-                "tree_aspen_small_b",
-                "tree_aspen_small_c",
-                "tree_aspen_small_d",
-                "tree_aspen_small_low",
-                "tree_aspen_small_low_group",
-                "tree_beech_small_b",
-                "tree_beech_small_c",
-                "tree_beech_small_d"
-            ],
-            "tree_distribution": {
+            "preferred_trees": {
                 "generibush_small": 0.1,
                 "tree_aspen_small_a": 0.1,
                 "tree_aspen_small_b": 0.1,
@@ -243,15 +195,7 @@
             "underground_material": "grassland",
             "lod_distance": 120.0,
             "collision_enabled": true,
-            "preferred_trees": [
-                "oak_beech_wallblocker_long",
-                "tree_aspen_small_a",
-                "tree_aspen_small_b",
-                "tree_aspen_small_c",
-                "tree_aspen_small_d",
-                "tree_aspen_small_low"
-            ],
-            "tree_distribution": {
+            "preferred_trees": {
                 "oak_beech_wallblocker_long": 0.16666666666666666,
                 "tree_aspen_small_a": 0.16666666666666666,
                 "tree_aspen_small_b": 0.16666666666666666,
@@ -270,16 +214,7 @@
             "underground_material": "forest_floor",
             "lod_distance": 200.0,
             "collision_enabled": true,
-            "preferred_trees": [
-                "tree_beech_dead_a",
-                "tree_beech_dead_b",
-                "fir_dead_branches",
-                "tree_douglasfir_dead",
-                "tree_douglasfir_dead_02",
-                "tree_oak_dead_a",
-                "tree_oak_dead_b"
-            ],
-            "tree_distribution": {
+            "preferred_trees": {
                 "tree_beech_dead_a": 0.14285714285714285,
                 "tree_beech_dead_b": 0.14285714285714285,
                 "fir_dead_branches": 0.14285714285714285,
