@@ -102,7 +102,7 @@ class BeamNGExporter:
             global_offset: (origin_x, origin_y, origin_z)
             include_buildings: LoD2-Gebäude exportieren
             include_horizon: Horizon-Layer exportieren
-            include_forests: Wald-Vegetation exportieren (NEU)
+            include_forests: Wald-Vegetation exportieren (per Config überschreibbar)
 
         Returns:
             Dict mit Export-Statistiken
@@ -119,12 +119,18 @@ class BeamNGExporter:
             "trees_generated": 0,  # NEU
         }
 
+        forests_enabled = include_forests and config.FORESTS_ENABLED
+        if include_forests and not config.FORESTS_ENABLED:
+            logger.info("Forest-Export in Config deaktiviert (config.FORESTS_ENABLED=False)")
+
         logger.info(f"\n{'='*60}")
         logger.info(f"BEAMNG LEVEL EXPORT")
         logger.info(f"{'='*60}")
         logger.info(f"Tiles: {len(tiles)}")
         logger.info(f"Global Offset: {global_offset}")
-        logger.info(f"Forests: {'Yes' if include_forests else 'No'}")  # NEU
+        logger.info(
+            f"Forests: {'Yes' if forests_enabled else 'No'} | Config: {'on' if config.FORESTS_ENABLED else 'off'}"
+        )  # NEU
         logger.info(f"{'='*60}\n")
 
         # Speichere global_offset für Spawn-Punkt-Berechnung
@@ -138,7 +144,7 @@ class BeamNGExporter:
 
         # NEU: Phase 0 - Forest Asset Initialization (DIREKT VOR Tile-Loop)
         registered_trees = {}
-        if include_forests:
+        if forests_enabled:
             timer.begin("Forest Asset Initialization")
 
             # Lade forestItemData.json (wird von generate_forest_item_data.py erzeugt)
@@ -239,7 +245,7 @@ class BeamNGExporter:
             tile_bounds_local.append((x_min, y_min, x_max, y_max))
 
             # Phase 1b: Forest Processing (pro Tile)
-            if include_forests:
+            if forests_enabled:
                 forest_result = self.forests.process_tile(
                     tile_bounds=(x_min, y_min, x_max, y_max),
                     tile_name=f"T{tile_x:.0f}_{tile_y:.0f}",
@@ -313,7 +319,7 @@ class BeamNGExporter:
         timer.begin("Finalisierung")
 
         # Phase 4: Finalisierung
-        self._finalize_export(include_forests)
+        self._finalize_export(forests_enabled)
 
         timer.report()
 

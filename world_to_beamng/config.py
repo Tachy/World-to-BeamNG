@@ -36,6 +36,7 @@ MATERIALS_JSON = Path("main") / "materials.json"  # Enthält Material-Definition
 LOD2_ENABLED = False  # LoD2-Gebäude verarbeiten
 PHASE5_ENABLED = False  # Horizont-Layer aktivieren (erfordert DGM30 + DOP300 Daten)
 HORIZON_BOUNDARY_STITCHING = False  # Stitching zwischen Terrain und Horizon aktivieren
+FORESTS_ENABLED = False  # Wald-Export global aktivieren/deaktivieren
 
 
 # === MATERIAL-EINSTELLUNGEN ===

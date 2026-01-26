@@ -84,15 +84,17 @@ class LoggerConfig:
         logger_instance.setLevel(self.level)
         logger_instance.handlers.clear()  # Verhindere Duplikate bei mehrfachen Calls
 
-        # Format: [TIME] [LEVEL] [Module:Function] Message
-        formatter = logging.Formatter(
-            fmt="%(asctime)s | %(levelname)-8s | %(name)s:%(funcName)s() | %(message)s", datefmt="%H:%M:%S"
+        # Unterschiedliche Formatter: Konsole nur Message, File mit Zusatzinfos
+        console_formatter = logging.Formatter(fmt="%(message)s")
+        file_formatter = logging.Formatter(
+            fmt="%(asctime)s | %(levelname)-8s | %(name)s:%(funcName)s() | %(message)s",
+            datefmt="%H:%M:%S",
         )
 
-        # Console-Handler (immer aktiv, stdout)
+        # Console-Handler (immer aktiv, stdout) – nur Text ohne Meta-Infos
         console_handler = logging.StreamHandler(sys.stdout)
         console_handler.setLevel(self.level)
-        console_handler.setFormatter(formatter)
+        console_handler.setFormatter(console_formatter)
         logger_instance.addHandler(console_handler)
 
         # File-Handler (optional)
@@ -100,7 +102,7 @@ class LoggerConfig:
             self.log_file.parent.mkdir(parents=True, exist_ok=True)
             file_handler = logging.FileHandler(self.log_file, encoding="utf-8")
             file_handler.setLevel(self.level)
-            file_handler.setFormatter(formatter)
+            file_handler.setFormatter(file_formatter)
             logger_instance.addHandler(file_handler)
             logger_instance.info(
                 f"Logger initialisiert: Datei={self.log_file}, Level={logging.getLevelName(self.level)}"
