@@ -1862,9 +1862,51 @@ Nach dem bestehenden Export-Block (nach `dae_files = export_separate_tile_daes(.
         )
 ```
 
-- [ ] **Step 6: `add_terrain()`-Aufrufe für Terrain-Tiles entfernen**
+- [ ] **Step 6: `add_terrain()`-Aufrufe umbenennen — `dae_files` sind jetzt reine Straßen-Tiles**
 
-Entferne den kompletten Block "Erstelle TSStatic-Items für JEDES Tile" (der `self.items.add_terrain(...)`-Aufruf für DAE-Terrain-Tiles) — der bezog sich auf die alten Terrain-DAE-Tiles, die es nicht mehr gibt. Falls `dae_files` weiterhin für Straßen-DAEs existiert, muss geprüft werden, ob dafür ein anderer Registrierungs-Call nötig ist (Straßen-DAEs brauchen weiterhin ein `TSStatic`-Item, analog zu `add_terrain()`, aber mit anderem Namensschema z.B. `road_tile_<coords>` statt `terrain_tile_<coords>`).
+`dae_files` enthält nach Step 4 nur noch Straßen-DAEs (kein Terrain mehr gemischt). Die bestehende Registrierungs-Schleife am Ende von `export_tile()` bleibt FUNKTIONAL unverändert (Straßen-DAEs brauchen weiterhin ein `TSStatic`-Item mit `collisionType="Visible Mesh Final"`, genau wie `add_terrain()` es liefert) — nur der Namens-Präfix wird korrigiert, damit er nicht mit dem neuen `"theTerrain"`-`TerrainBlock`-Item verwechselt wird.
+
+Ersetze:
+```python
+        # Erstelle TSStatic-Items für JEDES Tile (separate DAEs!)
+        logger.info(f"  Erstelle {len(dae_files)} TSStatic-Items...")
+        for dae_filename in dae_files:
+            # Extrahiere Tile-Koordinaten: tile_-1000_-1000.dae → "-1000_-1000"
+            tile_coords = Path(dae_filename).stem.replace("tile_", "")
+            item_name = f"terrain_tile_{tile_coords}"  # z.B. "terrain_tile_-1000_-1000"
+            # Nutze add_terrain() um persistentId und parentId automatisch zu erzeugen
+            self.items.add_terrain(
+                name=item_name,
+                dae_filename=dae_filename,
+                position=(0, 0, 0),
+                overwrite=True,
+            )
+
+        logger.info(f"  [OK] {len(dae_files)} Tile-DAEs exportiert")
+        return dae_files
+```
+
+durch:
+```python
+        # Erstelle TSStatic-Items für JEDES Straßen-Tile (separate DAEs!)
+        # add_terrain() bleibt die richtige Convenience-Methode (TSStatic +
+        # "Visible Mesh Final"-Kollision) - dae_files enthält jetzt nur noch
+        # Straßen-Geometrie, kein Terrain mehr (siehe Step 4).
+        logger.info(f"  Erstelle {len(dae_files)} TSStatic-Items für Straßen-Tiles...")
+        for dae_filename in dae_files:
+            # Extrahiere Tile-Koordinaten: tile_-1000_-1000.dae → "-1000_-1000"
+            tile_coords = Path(dae_filename).stem.replace("tile_", "")
+            item_name = f"road_tile_{tile_coords}"  # z.B. "road_tile_-1000_-1000"
+            self.items.add_terrain(
+                name=item_name,
+                dae_filename=dae_filename,
+                position=(0, 0, 0),
+                overwrite=True,
+            )
+
+        logger.info(f"  [OK] {len(dae_files)} Straßen-Tile-DAEs exportiert")
+        return dae_files
+```
 
 - [ ] **Step 7: Vollständige Datei nochmal lesen und auf Konsistenz prüfen**
 
