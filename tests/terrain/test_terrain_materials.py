@@ -13,6 +13,7 @@ from world_to_beamng.terrain.terrain_materials import (
     build_photo_fallback_layer,
     paint_landuse_materials,
     build_terrain_material_entries,
+    build_terrain_material_texture_set,
 )
 
 LANDUSE_MAPPINGS_FIXTURE = {
@@ -33,8 +34,13 @@ def test_get_landuse_category_matches_active_only():
 
 def test_photo_fallback_layer_one_material_per_tile():
     # 10x10 Raster, 1m/Zelle, tile_size=5m -> 2x2 Kacheln im Bereich
+    # Kein Padding involviert: real_max_x/y = origin + (size-1)*square_size
+    size, origin_x, origin_y, square_size = 10, 0.0, 0.0, 1.0
+    real_max_x = origin_x + (size - 1) * square_size
+    real_max_y = origin_y + (size - 1) * square_size
     layer_map, names = build_photo_fallback_layer(
-        size=10, origin_x=0.0, origin_y=0.0, square_size=1.0, tile_size=5.0
+        size=size, origin_x=origin_x, origin_y=origin_y, square_size=square_size, tile_size=5.0,
+        real_max_x=real_max_x, real_max_y=real_max_y,
     )
     assert layer_map.shape == (10, 10)
     assert len(names) == 4  # 2x2 Kacheln
@@ -43,10 +49,35 @@ def test_photo_fallback_layer_one_material_per_tile():
     assert layer_map[0, 0] != layer_map[9, 9]
 
 
+def test_photo_fallback_layer_clamps_padding_to_real_bounds():
+    # Heightmap ist größer als die echten Höhendaten (Zweierpotenz-Padding,
+    # siehe heightmap.py:build_heightmap). Zellen jenseits der echten Bounds
+    # müssen dieselbe Kachel wie der echte Rand bekommen, nicht eine neue.
+    size, origin_x, origin_y, square_size, tile_size = 20, 0.0, 0.0, 1.0, 100.0
+    real_nx = 12  # echte Daten reichen nur bis Spalte 11 (0-indiziert)
+    real_max_x = origin_x + (real_nx - 1) * square_size  # = 11.0
+    real_max_y = origin_y + (size - 1) * square_size  # keine Padding in Y
+
+    layer_map, names = build_photo_fallback_layer(
+        size=size, origin_x=origin_x, origin_y=origin_y, square_size=square_size, tile_size=tile_size,
+        real_max_x=real_max_x, real_max_y=real_max_y,
+    )
+
+    # Alles liegt innerhalb einer einzigen 100m-Kachel -> nur ein Material,
+    # auch für Spalten jenseits von real_max_x (Padding-Bereich)
+    assert len(names) == 1
+    real_edge_material = layer_map[0, real_nx - 1]
+    padded_material = layer_map[0, size - 1]
+    assert padded_material == real_edge_material
+
+
 def test_paint_landuse_overwrites_photo_fallback():
     size = 20
+    real_max_x = 0.0 + (size - 1) * 1.0
+    real_max_y = 0.0 + (size - 1) * 1.0
     layer_map, names = build_photo_fallback_layer(
-        size=size, origin_x=0.0, origin_y=0.0, square_size=1.0, tile_size=100.0
+        size=size, origin_x=0.0, origin_y=0.0, square_size=1.0, tile_size=100.0,
+        real_max_x=real_max_x, real_max_y=real_max_y,
     )
     assert len(names) == 1  # ein Foto-Tile deckt alles ab
 
@@ -110,15 +141,26 @@ def test_build_terrain_material_entries():
     assert entries["mat_forest"]["baseColorBaseTex"] == "a/forest_b.png"
 
 
+def test_build_terrain_material_texture_set():
+    entries = build_terrain_material_texture_set("myTerrainTextureSet", base_tex_size=1024)
+    assert "myTerrainTextureSet" in entries
+    assert entries["myTerrainTextureSet"]["class"] == "TerrainMaterialTextureSet"
+    assert entries["myTerrainTextureSet"]["baseTexSize"] == [1024, 1024]
+
+
 if __name__ == "__main__":
     test_get_landuse_category_matches_active_only()
     print("[OK] test_get_landuse_category_matches_active_only")
     test_photo_fallback_layer_one_material_per_tile()
     print("[OK] test_photo_fallback_layer_one_material_per_tile")
+    test_photo_fallback_layer_clamps_padding_to_real_bounds()
+    print("[OK] test_photo_fallback_layer_clamps_padding_to_real_bounds")
     test_paint_landuse_overwrites_photo_fallback()
     print("[OK] test_paint_landuse_overwrites_photo_fallback")
     test_paint_landuse_priority_resolves_overlap()
     print("[OK] test_paint_landuse_priority_resolves_overlap")
     test_build_terrain_material_entries()
     print("[OK] test_build_terrain_material_entries")
+    test_build_terrain_material_texture_set()
+    print("[OK] test_build_terrain_material_texture_set")
     print("Alle Tests bestanden.")

@@ -68,7 +68,6 @@ class TerrainWorkflow:
         )
         from ..mesh.road_mesh import generate_road_mesh_strips
         from ..mesh.vertex_manager import VertexManager
-        from ..mesh.terrain_mesh import generate_full_grid_mesh
         from ..terrain.grid import create_terrain_grid
 
         # 1. Lade Höhendaten
@@ -123,7 +122,6 @@ class TerrainWorkflow:
                 logger.info("  [i] Verarbeite Luftbilder für dieses Tile...")
                 try:
                     from ..io.aerial import process_aerial_images
-                    from .. import config as legacy_config
 
                     # Berechne Grid-Bounds schon hier (für Luftbilder)
                     grid_bounds_local = (
@@ -293,7 +291,7 @@ class TerrainWorkflow:
             road_mesh[4],  # junction_fans (alt Index 5)
         )
 
-        # 10b. Junction-Material-Mapping (VOR TerrainMeshBuilder!)
+        # 10b. Junction-Material-Mapping
         # Baue road_material_map für Roads UND Junctions
         from ..config import OSM_MAPPER
 
@@ -359,7 +357,12 @@ class TerrainWorkflow:
         # 11. Terrain-Heightmap statt Mesh-Triangulierung (siehe Spec:
         # docs/superpowers/specs/2026-09-17-terrain-heightmap-migration-design.md)
         from ..terrain.heightmap import build_heightmap
-        from ..terrain.road_embedding import embed_roads_into_heightmap, road_mesh_to_arrays
+        from ..terrain.road_embedding import (
+            embed_roads_into_heightmap,
+            road_mesh_to_arrays,
+            build_road_embankment_profiles,
+            apply_embankment_blend,
+        )
         from ..terrain.terrain_materials import build_photo_fallback_layer, paint_landuse_materials
 
         heightmap_result = build_heightmap(
@@ -375,8 +378,6 @@ class TerrainWorkflow:
         # generiert keine Böschungs-Geometrie mehr - siehe Spec Abschnitt 4b).
         # WICHTIG: muss auf den noch UNVERÄNDERTEN heights laufen, damit
         # "natürliche Höhe" wirklich natürlich ist (vor embed_roads_into_heightmap).
-        from ..terrain.road_embedding import build_road_embankment_profiles, apply_embankment_blend
-
         embankment_profiles = build_road_embankment_profiles(
             road_slope_polygons_2d,
             heights,
@@ -386,6 +387,7 @@ class TerrainWorkflow:
             OSM_MAPPER,
             config.SLOPE_ANGLE,
             config.MIN_SLOPE_WIDTH,
+            max_slope_width=config.MAX_SLOPE_WIDTH,
         )
         heights = apply_embankment_blend(heights, terrain_origin_x, terrain_origin_y, config.TERRAIN_SQUARE_SIZE, embankment_profiles)
 
@@ -406,8 +408,20 @@ class TerrainWorkflow:
         )
 
         # Layer-Map: Foto-Fallback pro Tile, dann OSM-Landnutzung obenauf
+        # real_max_x/real_max_y: Ende der ECHTEN (nicht gepaddeten) Höhendaten -
+        # Zellen jenseits davon (Zweierpotenz-Padding, siehe heightmap.py) werden
+        # auf die letzte echte Kachel geklemmt statt eine nicht-existente
+        # Foto-Textur zu referenzieren.
+        real_max_x = terrain_origin_x + (nx - 1) * config.TERRAIN_SQUARE_SIZE
+        real_max_y = terrain_origin_y + (ny - 1) * config.TERRAIN_SQUARE_SIZE
         layer_map, photo_tile_names = build_photo_fallback_layer(
-            terrain_size, terrain_origin_x, terrain_origin_y, config.TERRAIN_SQUARE_SIZE, config.TILE_SIZE
+            terrain_size,
+            terrain_origin_x,
+            terrain_origin_y,
+            config.TERRAIN_SQUARE_SIZE,
+            config.TILE_SIZE,
+            real_max_x,
+            real_max_y,
         )
 
         from shapely.geometry import shape as shapely_shape
@@ -501,7 +515,6 @@ class TerrainWorkflow:
         """
         from ..io.dae import export_separate_tile_daes
         from ..mesh.tile_slicer import slice_mesh_into_tiles
-        from .. import config as legacy_config
 
         # Extrahiere Daten
         road_mesh_tuple = mesh_data["road_mesh"]
@@ -511,10 +524,6 @@ class TerrainWorkflow:
         # Entpacke strukturierte Road-Daten
         # Format: [{'vertices': [v0,v1,v2], 'road_id': id, 'uvs': {...}}, ...]
         road_mesh_data = road_mesh_tuple[0]
-
-        # Konvertiere zurück in die beiden Arrays für diese Funktion (zur Kompatibilität)
-        all_road_faces = [rd["vertices"] for rd in road_mesh_data]
-        road_face_to_idx = [rd["road_id"] for rd in road_mesh_data]
 
         # === Material-Mapping via OSM_MAPPER (wie im alten multitile.py) ===
         from ..config import OSM_MAPPER
@@ -669,7 +678,7 @@ class TerrainWorkflow:
 
         # Terrain als .ter exportieren (natives BeamNG-Heightmap statt Mesh)
         from ..terrain.ter_writer import write_ter, encode_heights_to_u16
-        from ..terrain.terrain_materials import build_terrain_material_entries
+        from ..terrain.terrain_materials import build_terrain_material_entries, build_terrain_material_texture_set
 
         heights = mesh_data["heightmap"]
         z_min = mesh_data["z_min"]
@@ -691,22 +700,25 @@ class TerrainWorkflow:
             config.LEVEL_NAME,
             config.TILE_SIZE,
         )
+        texture_set_name = f"{config.LEVEL_NAME}TerrainMaterialTextureSet"
+        terrain_material_entries.update(
+            build_terrain_material_texture_set(texture_set_name, base_tex_size=int(config.TILE_SIZE) * 8)
+        )
         self.materials.add_terrain_materials(terrain_material_entries)
 
         self.items.add_terrain_block(
             name="theTerrain",
             terrain_filename=ter_filename,
-            material_texture_set=f"{config.LEVEL_NAME}TerrainMaterialTextureSet",
+            material_texture_set=texture_set_name,
             max_height=max_height,
             z_min=z_min,
             origin_x=mesh_data["terrain_origin_x"],
             origin_y=mesh_data["terrain_origin_y"],
+            square_size=config.TERRAIN_SQUARE_SIZE,
             overwrite=True,
         )
 
         # Generiere und füge Materials hinzu
-        from ..io.dae import create_terrain_materials_json
-
         # WICHTIG: Sammle auch alle Materials, die tatsächlich in materials_per_face sind
         # Manche Materials könnten in den Faces sein, aber nicht in unique_materials
         for mat in materials_per_face:
@@ -721,23 +733,11 @@ class TerrainWorkflow:
             OSM_MAPPER.generate_materials_json_entry(mat_name, props) for mat_name, props in unique_materials.items()
         ]
 
-        # Terrain-Materials generieren (direkt in MaterialManager registrieren)
-        terrain_materials = create_terrain_materials_json(
-            tiles_dict=tiles_dict,
-            material_manager=self.materials,  # Übergebe MaterialManager-Referenz
-            level_name=config.LEVEL_NAME,
-            tile_size=config.TILE_SIZE,
-        )
-
         # Füge Road-Materials hinzu
         for mat_entry in road_material_entries:
             mat_name = mat_entry.pop("__name", None)
             if mat_name:
                 self.materials.materials[mat_name] = mat_entry
-
-        # Füge Terrain-Materials zum MaterialManager hinzu
-        for mat_name, mat_data in terrain_materials.items():
-            self.materials.materials[mat_name] = mat_data
 
         # Erstelle TSStatic-Items für JEDES Straßen-Tile (separate DAEs!)
         # add_terrain() bleibt die richtige Convenience-Methode (TSStatic +

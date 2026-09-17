@@ -15,6 +15,8 @@ from typing import Dict, List, Tuple
 import numpy as np
 from scipy.spatial import cKDTree
 
+from .. import config
+
 
 def road_mesh_to_arrays(
     road_mesh_data: List[Dict], all_vertices: np.ndarray
@@ -183,7 +185,7 @@ def build_road_embankment_profiles(
     osm_mapper,
     slope_angle_deg: float,
     min_slope_width: float,
-    max_slope_width: float = 30.0,
+    max_slope_width: float = config.MAX_SLOPE_WIDTH,
 ) -> list:
     """
     Baut pro Straße die Kanten-/Böschungs-Profildaten für apply_embankment_blend().

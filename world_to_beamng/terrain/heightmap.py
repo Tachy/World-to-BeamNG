@@ -52,6 +52,20 @@ def build_heightmap(
     if len(grid_elevations) != nx * ny:
         raise ValueError(f"grid_elevations hat {len(grid_elevations)} Werte, erwartet nx*ny={nx * ny}")
 
+    # square_size muss dem tatsächlichen Grid-Abstand entsprechen (siehe Spec:
+    # TERRAIN_SQUARE_SIZE muss gleich GRID_SPACING sein) - build_heightmap()
+    # nimmt das stillschweigend an und würde sonst ein Heightmap erzeugen, das
+    # räumlich nicht zu den echten Höhendaten passt.
+    if nx >= 2:
+        actual_spacing = float(grid_points[1, 0] - grid_points[0, 0])
+        if not np.isclose(actual_spacing, square_size, rtol=0.01):
+            raise ValueError(
+                f"square_size ({square_size}) passt nicht zum tatsächlichen Grid-Abstand "
+                f"({actual_spacing:.3f}) - build_heightmap() nimmt an, dass beide identisch sind "
+                f"(siehe Spec: TERRAIN_SQUARE_SIZE muss gleich GRID_SPACING sein). Falls "
+                f"absichtlich unterschiedlich, muss build_heightmap() um echtes Resampling erweitert werden."
+            )
+
     source_heights = grid_elevations.reshape(ny, nx)
 
     size = next_power_of_two_size(max(nx, ny))

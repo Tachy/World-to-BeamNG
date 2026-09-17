@@ -194,6 +194,14 @@ class BeamNGExporter:
         terrain_grid_bounds = None
 
         # Phase 1: Terrain-Tiles
+        if len(tiles) > 1:
+            logger.error(
+                f"[!] {len(tiles)} Höhendaten-Tiles gefunden, aber der native .terrain-Export "
+                f"unterstützt aktuell nur EIN zusammenhängendes Heightmap pro Level - nur das "
+                f"letzte verarbeitete Tile würde im Terrain landen, alle anderen gehen verloren. "
+                f"Multi-Tile-Terrain-Export ist noch nicht implementiert (siehe Spec Abschnitt 10)."
+            )
+
         for tile_idx, tile in enumerate(tiles):
 
             timer.begin(f"[Tile {tile_idx + 1}/{len(tiles)}]")

@@ -66,6 +66,17 @@ def test_build_heightmap_pads_edges_without_cliff():
     assert np.allclose(last_real_col, first_padded_col)
 
 
+def test_build_heightmap_rejects_mismatched_square_size():
+    nx, ny, spacing = 10, 10, 2.0
+    grid_points, grid_elevations, nx, ny = _make_regular_grid(nx, ny, spacing)
+
+    try:
+        build_heightmap(grid_points, grid_elevations, nx, ny, square_size=5.0)  # wrong, doesn't match spacing=2.0
+        assert False, "sollte ValueError werfen (square_size != tatsächlicher Grid-Abstand)"
+    except ValueError as e:
+        assert "square_size" in str(e)
+
+
 if __name__ == "__main__":
     test_next_power_of_two_size()
     print("[OK] test_next_power_of_two_size")
@@ -75,4 +86,6 @@ if __name__ == "__main__":
     print("[OK] test_build_heightmap_preserves_real_data")
     test_build_heightmap_pads_edges_without_cliff()
     print("[OK] test_build_heightmap_pads_edges_without_cliff")
+    test_build_heightmap_rejects_mismatched_square_size()
+    print("[OK] test_build_heightmap_rejects_mismatched_square_size")
     print("Alle Tests bestanden.")

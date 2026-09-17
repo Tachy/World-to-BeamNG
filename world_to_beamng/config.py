@@ -66,6 +66,10 @@ FOREST_ROAD_MARGIN = 5.0  # Puffer um Straßen zur Baum-Filterung (in Metern, li
 GENERATE_SLOPES = False
 # Minimale Boeschungsbreite (Meter) unabhängig von Hoehenunterschieden
 MIN_SLOPE_WIDTH = 2
+# Obergrenze der Böschungsbreite (Meter), unabhängig davon, wie groß der
+# Höhenunterschied zwischen Straßenkante und natürlichem Terrain ist
+# (verhindert unrealistisch breite Böschungskorridore bei Extremfällen).
+MAX_SLOPE_WIDTH = 30.0
 SLOPE_ANGLE = 45.0  # Neigungswinkel der Boeschung in Grad (45° = 1:1 Steigung)
 # Vorab-Reduktion ueber groeberes Grid (Strategie 2). Fuer feineres Terrain z.B. 1.0 setzen.
 GRID_SPACING = 2.0  # Abstand zwischen Grid-Punkten in Metern (1.0 = sehr fein, 10.0 = grob)
