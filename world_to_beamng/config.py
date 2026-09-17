@@ -42,10 +42,6 @@ FORESTS_ENABLED = True  # Wald-Export global aktivieren/deaktivieren
 # === MATERIAL-EINSTELLUNGEN ===
 # Materialien verwenden IMMER Texturen (keine Farb-Fallbacks)
 
-# === MESH-HOLE-FILLING ===
-FILL_ALL_MESH_HOLES = False  # Schließe ALLE Boundary-Holes (äußer + Inseln)
-FILL_HOLES_MAX_EDGE_LENGTH = 100.0  # Warnung bei Edge-Länge > X Metern
-
 # === OpenTopography API für Horizont ===
 OPENTOPOGRAPHY_API_KEY = "9805a06e82a636afd885c07a2f2e1838"  # Registrierung: https://opentopography.org/
 OPENTOPOGRAPHY_ENABLED = False  # Automatischer Download von DGM30 aktivieren
@@ -62,14 +58,29 @@ JUNCTION_STOP_BUFFER = 5.0
 # === FOREST GENERATION PARAMETERS ===
 FOREST_ROAD_MARGIN = 5.0  # Puffer um Straßen zur Baum-Filterung (in Metern, links & rechts)
 
-# Böschungs-Generierung (vorübergehend deaktiviert bis Remeshing stabil)
-GENERATE_SLOPES = False
+# Böschungs-Generierung: war wegen Terrain-Stitching-Instabilität deaktiviert;
+# seit der Umstellung auf natives .terrain-Heightmap (siehe
+# docs/superpowers/specs/2026-09-17-terrain-heightmap-migration-design.md)
+# entfällt das Stitching komplett, Böschungen sind jetzt immer aktiv.
+GENERATE_SLOPES = True
 # Minimale Boeschungsbreite (Meter) unabhängig von Hoehenunterschieden
 MIN_SLOPE_WIDTH = 2
 SLOPE_ANGLE = 45.0  # Neigungswinkel der Boeschung in Grad (45° = 1:1 Steigung)
 # Vorab-Reduktion ueber groeberes Grid (Strategie 2). Fuer feineres Terrain z.B. 1.0 setzen.
 GRID_SPACING = 2.0  # Abstand zwischen Grid-Punkten in Metern (1.0 = sehr fein, 10.0 = grob)
 TERRAIN_REDUCTION = 0  # Decimation bleibt aus; steuern wir ueber GRID_SPACING
+
+# === NATIVES TERRAIN (.terrain-Heightmap) ===
+# Meter pro Heightmap-Rasterzelle. = GRID_SPACING für Auflösungs-Parität zum
+# bisherigen Mesh-Ansatz (siehe Spec Abschnitt 2, Anforderung 2).
+TERRAIN_SQUARE_SIZE = GRID_SPACING
+# Sicherheitsabstand (Meter), den das Terrain unter der Straßen-/Böschungs-
+# Mesh-Oberfläche bleiben muss, damit nichts durchsticht oder Z-Fighting
+# entsteht (siehe Spec Abschnitt 4).
+ROAD_EMBED_MARGIN = 0.1
+# Puffer (Meter) über dem tatsächlichen Höhen-Max/-Min beim Berechnen von
+# maxHeight für die .terrain-Datei (siehe Spec Abschnitt 8).
+TERRAIN_MAX_HEIGHT_BUFFER = 50.0
 
 # DEBUG / EXPORTS
 DEBUG_EXPORTS = True  # Debug-Dumps (Netz, Grid) nur bei Bedarf aktivieren
