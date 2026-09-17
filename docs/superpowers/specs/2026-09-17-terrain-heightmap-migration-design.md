@@ -100,12 +100,21 @@ konsistent sind) direkt erfüllt.
   bleibt bestehen).
 - Hole-Filling-/CCW-Normalisierungs-Schritte, die speziell für die
   Straße-Terrain-Verschweißung existieren.
-- Config-Flags, die nur für den alten Mechanismus existierten:
-  `GENERATE_SLOPES` (wird obsolet, da Böschung jetzt immer Teil des
-  unveränderten Straßenmeshs ist, nicht mehr optional/instabil),
-  `FILL_ALL_MESH_HOLES`, `FILL_HOLES_MAX_EDGE_LENGTH`,
-  `HORIZON_BOUNDARY_STITCHING` (bezog sich auf die Naht zum Haupt-Terrain,
-  das jetzt ein anderes Rendering-System ist).
+- Config-Flags, die nur für den alten Mechanismus existierten, werden
+  entfernt: `FILL_ALL_MESH_HOLES`, `FILL_HOLES_MAX_EDGE_LENGTH` (beide nur in
+  `mesh/stitch_gaps.py` verwendet, das komplett entfällt).
+  `HORIZON_BOUNDARY_STITCHING` bleibt als Flag bestehen (weiterhin `False`,
+  siehe Abschnitt 7) — seine Zielfunktion `stitch_terrain_horizon_boundary`
+  kann in der neuen Architektur ohnehin keine Mesh-Mesh-Naht mehr bilden, da
+  das Haupt-Terrain kein Mesh mehr ist; das ist kein Regressionsrisiko, weil
+  der Flag heute schon deaktiviert ist. **Korrektur:** `GENERATE_SLOPES`
+  entfällt NICHT — es sitzt in `mesh/road_mesh.py` (nicht im
+  Stitching-Code) und steuert dort, ob Böschungs-Geometrie überhaupt erzeugt
+  wird. Es ist aktuell `False`, Böschungen werden also **heute gar nicht
+  generiert**. Für Anforderung 4 muss dieser Flag im Zuge der Migration auf
+  `True` gesetzt werden — vermutlich stand er wegen der (jetzt entfallenden)
+  Stitching-Instabilität auf `False`, nicht wegen eines Fehlers in der
+  Böschungs-Geometrie selbst. Das ist jetzt Teil des Implementierungsplans.
 - Terrain-Anteil der DAE-Tile-Aufteilung (`TILE_SIZE`) — ein Heightmap pro
   Level statt N Terrain-Tiles. Ob Straßen-DAEs weiterhin in 500m-Stücken
   exportiert werden (rein Streaming-Optimierung, nicht mehr technisch
