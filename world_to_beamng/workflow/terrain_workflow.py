@@ -41,16 +41,27 @@ class TerrainWorkflow:
 
     def process_tile(
         self,
-        tile: Dict,
+        tiles: List[Dict],
         global_offset: Tuple[float, float],
         bbox_margin: float = 50.0,
         buildings_data: Optional[Dict] = None,
     ) -> Dict:
         """
-        Verarbeite einzelnes Tile.
+        Verarbeite alle übergebenen Kacheln als EINE zusammenhängende Fläche.
+
+        Die Höhendaten aller Kacheln werden zu einer einzigen Punktwolke
+        kombiniert (setzt voraus, dass sie einen lückenlosen, rechteckigen
+        Bereich bilden - Nutzer-Verantwortung, siehe utils.tile_scanner).
+        Ab hier läuft die komplette restliche Verarbeitung (BBox, OSM-Abfrage,
+        Grid, Straßen-Mesh, Junction-Erkennung, Böschung, Heightmap) EINMAL
+        über die Gesamtfläche statt einmal pro Kachel - Clipping findet nur
+        noch am Außenrand der Gesamtfläche statt, nicht mehr an den früheren
+        Kachelgrenzen. Ein einzelnes Tile ist einfach der Spezialfall
+        len(tiles) == 1 desselben Codepfads.
 
         Args:
-            tile: Tile-Metadaten
+            tiles: Liste von Tile-Metadaten (typischerweise alle DGM1-Kacheln
+                eines Exports)
             global_offset: Globaler Offset (origin_x, origin_y)
             bbox_margin: BBox-Erweiterung in Metern
             buildings_data: Optional - LoD2 Gebäudedaten
@@ -69,14 +80,16 @@ class TerrainWorkflow:
         from ..mesh.road_mesh import generate_road_mesh_strips
         from ..mesh.vertex_manager import VertexManager
         from ..terrain.grid import create_terrain_grid
+        from ..io.cache import calculate_global_tiles_hash
 
-        # 1. Lade Höhendaten
-        height_points, height_elevations = self.tile_processor.load_height_data(tile)
+        # 1. Höhendaten aller Kacheln zu einer Punktwolke kombinieren
+        height_points, height_elevations = self.tile_processor.load_height_data_multi(tiles)
         if height_points is None:
             return {"status": "failed", "reason": "no_height_data"}
 
-        # Berechne tile_hash für Caching
-        tile_hash = self.cache.hash_file(tile.get("filepath")) if tile.get("filepath") else "unknown"
+        # Kombinierter Hash über alle Kacheln - Cache-Identität für OSM/
+        # Elevation/Grid (ersetzt den früheren Pro-Kachel-Dateihash)
+        tile_hash = calculate_global_tiles_hash(tiles) if tiles else "unknown"
 
         # 2. BBox berechnen (VOR der lokalen Transformation!)
         # Berechne BBox mit Margin direkt in UTM (Meter), dann Transformation zu WGS84
@@ -106,46 +119,12 @@ class TerrainWorkflow:
 
         road_polygons = get_road_polygons(roads, osm_bbox, local_points, elevations, global_offset, tile_hash=tile_hash)
 
-        # 6a. Luftbilder verarbeiten (nur wenn die Ziel-Texturen noch fehlen)
-        # WICHTIG: Nicht an elevation_was_cached koppeln! Der Elevation-Cache bleibt über
-        # Sessions hinweg bestehen, die Textur-Dateien im BeamNG-Level-Ordner aber nicht
-        # (z.B. nach einem BeamNG-Update, das den Userdata-Ordner zurücksetzt) - sonst
-        # werden die Texturen dauerhaft übersprungen, obwohl sie nie geschrieben wurden.
-        from pathlib import Path
-
-        aerial_dir = Path("data/DOP20")
-        textures_dir = config.BEAMNG_DIR_TEXTURES
-        textures_missing = not (textures_dir.exists() and any(textures_dir.glob("tile_*.dds")))
-
-        if textures_missing:
-            if aerial_dir.exists() and any(aerial_dir.glob("*.zip")):
-                logger.info("  [i] Verarbeite Luftbilder für dieses Tile...")
-                try:
-                    from ..io.aerial import process_aerial_images
-
-                    # Berechne Grid-Bounds schon hier (für Luftbilder)
-                    grid_bounds_local = (
-                        float(local_points[:, 0].min()),
-                        float(local_points[:, 0].max()),
-                        float(local_points[:, 1].min()),
-                        float(local_points[:, 1].max()),
-                    )
-
-                    num_textures = process_aerial_images(
-                        aerial_dir=str(aerial_dir),
-                        output_dir=config.BEAMNG_DIR_TEXTURES,
-                        grid_bounds=grid_bounds_local,
-                        global_offset=global_offset,
-                        tile_world_size=config.TILE_SIZE,
-                        tile_size=2500,  # 2500 Pixel pro Texturkachel (→ 4096x4096 DDS)
-                    )
-
-                    if num_textures > 0:
-                        logger.info(f"  [OK] {num_textures} Luftbild-Texturen für dieses Tile exportiert")
-                except Exception as e:
-                    logger.error(f"  [!] Fehler bei Luftbild-Verarbeitung: {e}")
-        else:
-            logger.info(f"  [i] Luftbild-Texturen bereits vorhanden - werden übersprungen")
+        # 6a. Luftbilder: werden NICHT mehr hier pro Kachel verarbeitet - bei
+        # mehreren Kacheln würde die Datei-Existenz-Prüfung ("gibt es schon
+        # irgendeine .dds?") den Export für alle Kacheln außer der ersten
+        # überspringen. Stattdessen ruft BeamNGExporter.export_complete_level()
+        # process_aerial_images() einmalig für die Gesamt-BBox aller Kacheln auf,
+        # bevor die Tile-Schleife beginnt.
 
         # 6b. LoD2-Gebäude laden (wenn aktiviert und noch nicht übergeben)
         if buildings_data is None and config.LOD2_ENABLED:
@@ -502,20 +481,27 @@ class TerrainWorkflow:
             "height_hash": tile_hash,  # Für Cache-Konsistenz in Forest-Workflow
         }
 
-    def export_tile(self, tile_x: int, tile_y: int, mesh_data: Dict) -> str:
+    def prepare_road_export(self, mesh_data: Dict) -> Dict:
         """
-        Exportiere Tile als DAE.
+        Bereitet die Straßen-Geometrie für den DAE-Export vor: löst pro Face
+        das Material auf (inkl. Junction-Fallback), erzeugt Debug-Labels und
+        baut die Road-UV-Tabelle.
+
+        Getrennt von export_merged_roads(), damit über mesh.road_merge kein
+        500m-DAE-Tiling mehr nötig ist, seit das Terrain kein Mesh mehr ist
+        (das Straßennetz einer 4x4km-Karte hat nur ~400k Faces, für eine GPU
+        trivial - ein einziges Straßennetz-Dict reicht als Eingabe, da
+        process_tile() bereits alle Kacheln als eine Fläche verarbeitet).
 
         Args:
-            tile_x, tile_y: Tile-Koordinaten
-            mesh_data: Mesh-Daten aus process_tile()
+            mesh_data: Ergebnis von process_tile()
 
         Returns:
-            Liste von exportierten DAE-Dateinamen
+            {"vertices": (N,3) ndarray, "faces": List[[i0,i1,i2]],
+             "materials_per_face": List[str], "unique_materials": Dict,
+             "uv_indices": Dict[int, List[int]], "uvs": List[Tuple[float,float]]}
+            - direkte Eingabe für mesh.road_merge.merge_road_exports()
         """
-        from ..io.dae import export_separate_tile_daes
-        from ..mesh.tile_slicer import slice_mesh_into_tiles
-
         # Extrahiere Daten
         road_mesh_tuple = mesh_data["road_mesh"]
         road_slope_polygons_2d = mesh_data["road_slope_polygons_2d"]
@@ -619,21 +605,15 @@ class TerrainWorkflow:
         # Hole alle Vertices vom VertexManager
         all_vertices = np.array(vertex_manager.get_array())
 
-        # slice_mesh_into_tiles() erwartet für hochwertige Straßen-Texturierung
-        # ein mesh_obj mit .uv_indices/.uvs (siehe mesh/tile_slicer.py:330-360:
-        # "if mesh_obj and hasattr(mesh_obj, 'uv_indices') and original_face_idx
-        # in mesh_obj.uv_indices"). Vorher kamen diese UVs aus dem kombinierten
-        # Terrain+Road mesh_obj von TerrainMeshBuilder; die UV-Rohdaten selbst
-        # stammen aber unverändert aus RoadMeshBuilder (road_mesh_data[i]["uvs"]),
-        # nicht aus TerrainMeshBuilder. Ein minimaler Adapter reicht, um exakt
-        # dieselbe Straßen-Textur-Qualität wie vor der Migration zu erhalten
-        # (statt auf die gröbere Tile-planare Fallback-UV zurückzufallen, die
-        # slice_mesh_into_tiles sonst für Faces ohne mesh_obj-Treffer nutzt -
-        # siehe tile_slicer.py:361-369).
+        # Wandelt die per-Vertex-UVs aus road_mesh_data (RoadMeshBuilder) in
+        # ein indiziertes UV-Format um (uv_indices: {face_idx: [i0,i1,i2]},
+        # uvs: [(u,v), ...]), im selben Schema, das export_separate_tile_daes()
+        # als "uv_indices"/"global_uvs" pro Tile erwartet (siehe io/dae.py) -
+        # damit die Straßen ihre echte UV-Texturierung behalten statt auf eine
+        # grobe Fallback-UV zurückzufallen.
         class _RoadUVAdapter:
-            """Minimaler mesh_obj-Ersatz: stellt nur die Road-UVs aus
-            road_mesh_data bereit, im von slice_mesh_into_tiles erwarteten
-            Format (uv_indices: {face_idx: [i0,i1,i2]}, uvs: [(u,v), ...])."""
+            """Baut aus road_mesh_data das indizierte UV-Format für den
+            DAE-Export (uv_indices: {face_idx: [i0,i1,i2]}, uvs: [(u,v), ...])."""
 
             def __init__(self, road_mesh_data, faces):
                 self.uvs = []
@@ -654,44 +634,124 @@ class TerrainWorkflow:
 
         road_uv_adapter = _RoadUVAdapter(road_mesh_data, all_faces)
 
-        # Slice in Tiles (nur noch Straßen-Faces - Terrain ist jetzt .ter, kein Mesh mehr)
-        tiles_dict = slice_mesh_into_tiles(
-            vertices=all_vertices,
-            faces=all_faces,
-            materials_per_face=materials_per_face,
-            tile_size=config.TILE_SIZE,
-            vertex_normals=None,
-            mesh_obj=road_uv_adapter,
-        )
+        return {
+            "vertices": all_vertices,
+            "faces": all_faces,
+            "materials_per_face": materials_per_face,
+            "unique_materials": unique_materials,
+            "uv_indices": road_uv_adapter.uv_indices,
+            "uvs": road_uv_adapter.uvs,
+        }
 
-        # Export als DAE (SEPARATE Dateien pro Tile!)
-        import os
+    def export_merged_roads(self, prepared_list: List[Dict]) -> List[str]:
+        """
+        Führt die prepare_road_export()-Ergebnisse mehrerer Kacheln zu EINEM
+        Straßennetz zusammen und exportiert es als EINE DAE-Datei (kein
+        500m-Tiling mehr - siehe prepare_road_export()-Docstring).
 
-        shapes_dir = config.BEAMNG_DIR_SHAPES
-        logger.info(f"  Exportiere {len(tiles_dict)} Tiles als separate DAE-Dateien...")
+        Args:
+            prepared_list: Liste von prepare_road_export()-Ergebnissen
+
+        Returns:
+            Liste der exportierten DAE-Dateinamen (aktuell immer genau 1 Datei,
+            sofern Straßen-Faces vorhanden sind)
+        """
+        from ..io.dae import export_separate_tile_daes
+        from ..mesh.road_merge import merge_road_exports
+        from ..config import OSM_MAPPER
+
+        merged = merge_road_exports(prepared_list)
+        vertices = merged["vertices"]
+        faces = merged["faces"]
+        materials_per_face = merged["materials_per_face"]
+        unique_materials = merged["unique_materials"]
+
+        if len(faces) == 0:
+            logger.warning("  [!] Keine Straßen-Faces zum Exportieren gefunden")
+            return []
+
+        # Generiere und füge Materials hinzu (wie zuvor: sammle auch Materials,
+        # die in materials_per_face auftauchen, aber noch nicht in unique_materials sind)
+        for mat in materials_per_face:
+            if mat and mat not in unique_materials and mat != "terrain":
+                props = OSM_MAPPER.get_road_properties({"surface": mat})
+                unique_materials[mat] = props
+
+        road_material_entries = [
+            OSM_MAPPER.generate_materials_json_entry(mat_name, props) for mat_name, props in unique_materials.items()
+        ]
+        for mat_entry in road_material_entries:
+            mat_name = mat_entry.pop("__name", None)
+            if mat_name:
+                self.materials.materials[mat_name] = mat_entry
+
+        # Alle Straßen als EIN Tile exportieren - export_separate_tile_daes()
+        # erwartet weiterhin ein tiles_dict (historisch für räumliches Tiling
+        # gedacht), hier mit genau einem Eintrag für das gesamte Straßennetz.
+        tiles_dict = {
+            (0, 0): {
+                "vertices": vertices,
+                "faces": faces,
+                "materials": materials_per_face,
+                "uv_indices": merged["uv_indices"],
+                "global_uvs": merged["uvs"],
+            }
+        }
+
         dae_files = export_separate_tile_daes(
             tiles_dict=tiles_dict,
-            output_dir=shapes_dir,
-            material_manager=self.materials,  # Übergebe MaterialManager-Referenz
+            output_dir=config.BEAMNG_DIR_SHAPES,
+            material_manager=self.materials,
             tile_size=config.TILE_SIZE,
         )
 
-        # Terrain als .ter exportieren (natives BeamNG-Heightmap statt Mesh)
+        logger.info(f"  Erstelle {len(dae_files)} TSStatic-Item(s) für Straßen...")
+        for dae_filename in dae_files:
+            tile_coords = Path(dae_filename).stem.replace("tile_", "")
+            item_name = f"road_tile_{tile_coords}"
+            self.items.add_terrain(
+                name=item_name,
+                dae_filename=dae_filename,
+                position=(0, 0, 0),
+                overwrite=True,
+            )
+
+        logger.info(f"  [OK] {len(dae_files)} Straßen-DAE(s) exportiert ({len(vertices)} Vertices, {len(faces)} Faces)")
+        return dae_files
+
+    def export_merged_terrain(
+        self,
+        heights: np.ndarray,
+        layer_map: np.ndarray,
+        terrain_material_names: List[str],
+        terrain_origin_x: float,
+        terrain_origin_y: float,
+        terrain_size: int,
+        z_min: float,
+        max_height: float,
+        photo_tile_names: List[str],
+    ) -> None:
+        """
+        Schreibt EIN .ter und registriert TerrainBlock + TerrainMaterials.
+
+        Args:
+            heights, layer_map: fertige (bereits gepaddete) globale Arrays,
+                shape (terrain_size, terrain_size)
+            terrain_material_names: globale, deduplizierte Materialliste
+                (Index entspricht layer_map-Werten)
+            terrain_origin_x, terrain_origin_y: Welt-Koordinaten der Zelle [0, 0]
+            z_min, max_height: siehe ter_writer.encode_heights_to_u16()
+            photo_tile_names: Teilmenge von terrain_material_names, die
+                Luftbild-Kacheln sind (siehe terrain_materials.build_terrain_material_entries)
+        """
         from ..terrain.ter_writer import write_ter, encode_heights_to_u16
         from ..terrain.terrain_materials import build_terrain_material_entries, build_terrain_material_texture_set
-
-        heights = mesh_data["heightmap"]
-        z_min = mesh_data["z_min"]
-        max_height = mesh_data["max_height"]
-        layer_map = mesh_data["layer_map"]
-        terrain_material_names = mesh_data["terrain_material_names"]
-        photo_tile_names = mesh_data["photo_tile_names"]
 
         heightmap_u16 = encode_heights_to_u16(heights, z_min, max_height)
         ter_filename = f"{config.LEVEL_NAME}.ter"
         ter_path = config.BEAMNG_DIR / ter_filename
         write_ter(ter_path, heightmap_u16, layer_map.astype("uint8"), terrain_material_names)
-        logger.info(f"  [OK] Terrain exportiert: {ter_filename} ({mesh_data['terrain_size']}x{mesh_data['terrain_size']})")
+        logger.info(f"  [OK] Terrain exportiert: {ter_filename} ({terrain_size}x{terrain_size})")
 
         terrain_material_entries = build_terrain_material_entries(
             terrain_material_names,
@@ -702,7 +762,9 @@ class TerrainWorkflow:
         )
         texture_set_name = f"{config.LEVEL_NAME}TerrainMaterialTextureSet"
         terrain_material_entries.update(
-            build_terrain_material_texture_set(texture_set_name, base_tex_size=int(config.TILE_SIZE) * 8)
+            build_terrain_material_texture_set(
+                texture_set_name, base_tex_size=config.TERRAIN_BASE_TEX_PIXEL_SIZE
+            )
         )
         self.materials.add_terrain_materials(terrain_material_entries)
 
@@ -712,48 +774,41 @@ class TerrainWorkflow:
             material_texture_set=texture_set_name,
             max_height=max_height,
             z_min=z_min,
-            origin_x=mesh_data["terrain_origin_x"],
-            origin_y=mesh_data["terrain_origin_y"],
+            origin_x=terrain_origin_x,
+            origin_y=terrain_origin_y,
             square_size=config.TERRAIN_SQUARE_SIZE,
             overwrite=True,
         )
 
-        # Generiere und füge Materials hinzu
-        # WICHTIG: Sammle auch alle Materials, die tatsächlich in materials_per_face sind
-        # Manche Materials könnten in den Faces sein, aber nicht in unique_materials
-        for mat in materials_per_face:
-            if mat and mat not in unique_materials and mat != "terrain":
-                # Material ist in den Faces aber nicht in unique_materials
-                # Versuche es von OSM_MAPPER zu holen
-                props = OSM_MAPPER.get_road_properties({"surface": mat})
-                unique_materials[mat] = props
+    def export_tile(self, tile_x: int, tile_y: int, mesh_data: Dict) -> List[str]:
+        """
+        Exportiere EINE einzelne Kachel komplett (Straßen-DAE + eigenes .ter).
 
-        # Road-Materials via OSM_MAPPER generieren (nach dem Sammeln aller Materials)
-        road_material_entries = [
-            OSM_MAPPER.generate_materials_json_entry(mat_name, props) for mat_name, props in unique_materials.items()
-        ]
+        Convenience-Wrapper um prepare_road_export()/export_merged_roads()/
+        export_merged_terrain() für Aufrufer, die nur eine einzelne Kachel
+        exportieren (export_single_tile()/export_terrain_only()). Der
+        Haupt-Workflow (BeamNGExporter.export_complete_level()) ruft diese
+        drei Methoden stattdessen direkt auf, um mehrere Kacheln vorher
+        zusammenzuführen.
 
-        # Füge Road-Materials hinzu
-        for mat_entry in road_material_entries:
-            mat_name = mat_entry.pop("__name", None)
-            if mat_name:
-                self.materials.materials[mat_name] = mat_entry
+        Args:
+            tile_x, tile_y: unbenutzt, nur für Aufrufer-Kompatibilität
+            mesh_data: Mesh-Daten aus process_tile()
 
-        # Erstelle TSStatic-Items für JEDES Straßen-Tile (separate DAEs!)
-        # add_terrain() bleibt die richtige Convenience-Methode (TSStatic +
-        # "Visible Mesh Final"-Kollision) - dae_files enthält jetzt nur noch
-        # Straßen-Geometrie, kein Terrain mehr (siehe Step 4).
-        logger.info(f"  Erstelle {len(dae_files)} TSStatic-Items für Straßen-Tiles...")
-        for dae_filename in dae_files:
-            # Extrahiere Tile-Koordinaten: tile_-1000_-1000.dae → "-1000_-1000"
-            tile_coords = Path(dae_filename).stem.replace("tile_", "")
-            item_name = f"road_tile_{tile_coords}"  # z.B. "road_tile_-1000_-1000"
-            self.items.add_terrain(
-                name=item_name,
-                dae_filename=dae_filename,
-                position=(0, 0, 0),
-                overwrite=True,
-            )
-
-        logger.info(f"  [OK] {len(dae_files)} Straßen-Tile-DAEs exportiert")
+        Returns:
+            Liste der exportierten Straßen-DAE-Dateinamen
+        """
+        prepared = self.prepare_road_export(mesh_data)
+        dae_files = self.export_merged_roads([prepared])
+        self.export_merged_terrain(
+            heights=mesh_data["heightmap"],
+            layer_map=mesh_data["layer_map"],
+            terrain_material_names=list(mesh_data["terrain_material_names"]),
+            terrain_origin_x=mesh_data["terrain_origin_x"],
+            terrain_origin_y=mesh_data["terrain_origin_y"],
+            terrain_size=mesh_data["terrain_size"],
+            z_min=mesh_data["z_min"],
+            max_height=mesh_data["max_height"],
+            photo_tile_names=mesh_data["photo_tile_names"],
+        )
         return dae_files

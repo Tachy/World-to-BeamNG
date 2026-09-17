@@ -193,71 +193,69 @@ class BeamNGExporter:
         terrain_vertex_manager = None
         terrain_grid_bounds = None
 
-        # Phase 1: Terrain-Tiles
-        if len(tiles) > 1:
-            logger.error(
-                f"[!] {len(tiles)} Höhendaten-Tiles gefunden, aber der native .terrain-Export "
-                f"unterstützt aktuell nur EIN zusammenhängendes Heightmap pro Level - nur das "
-                f"letzte verarbeitete Tile würde im Terrain landen, alle anderen gehen verloren. "
-                f"Multi-Tile-Terrain-Export ist noch nicht implementiert (siehe Spec Abschnitt 10)."
-            )
+        # Luftbild-Texturen EINMAL für die Gesamtfläche aller Kacheln generieren
+        # (nicht pro Kachel - siehe process_tile()-Kommentar: eine Datei-Existenz-
+        # Prüfung pro Kachel würde bei mehreren Kacheln alle außer der ersten
+        # überspringen, weil schon irgendeine .dds-Datei auf der Platte liegt).
+        from ..utils.tile_scanner import compute_global_bbox
 
-        for tile_idx, tile in enumerate(tiles):
+        utm_min_x, utm_max_x, utm_min_y, utm_max_y = compute_global_bbox(tiles)
+        combined_grid_bounds_local = (
+            utm_min_x - global_offset[0],
+            utm_max_x - global_offset[0],
+            utm_min_y - global_offset[1],
+            utm_max_y - global_offset[1],
+        )
+        textures_dir = config.BEAMNG_DIR_TEXTURES
+        aerial_dir = Path("data/DOP20")
+        if textures_dir.exists() and any(textures_dir.glob("tile_*.dds")):
+            logger.info("[i] Luftbild-Texturen bereits vorhanden - werden übersprungen")
+        elif aerial_dir.exists() and any(aerial_dir.glob("*.zip")):
+            logger.info("[i] Verarbeite Luftbilder für die Gesamtfläche...")
+            from ..io.aerial import process_aerial_images
 
-            timer.begin(f"[Tile {tile_idx + 1}/{len(tiles)}]")
-
-            # Terrain benötigt nur (x, y)
-            result = self.terrain.process_tile(tile=tile, global_offset=global_offset[:2], bbox_margin=50.0)
-
-            if result["status"] != "success":
-                stats["tiles_failed"] += 1
-                continue
-
-            # Speichere Höhendaten vom ersten erfolgreichen Tile für Spawn-Punkt-Berechnung
-            if self.height_points is None and self.height_elevations is None:
-                self.height_points = result.get("height_points")
-                self.height_elevations = result.get("height_elevations")
-                logger.debug(
-                    f"  [i] Spawn-Höhendaten: {len(self.height_points
-) if self.height_points is not None else 0} Punkte"
+            try:
+                num_textures = process_aerial_images(
+                    aerial_dir=str(aerial_dir),
+                    output_dir=textures_dir,
+                    grid_bounds=combined_grid_bounds_local,
+                    global_offset=global_offset,
+                    tile_world_size=config.TILE_SIZE,
+                    tile_size=2500,  # 2500 Pixel pro Texturkachel (→ 4096x4096 DDS)
                 )
+                if num_textures > 0:
+                    logger.info(f"[OK] {num_textures} Luftbild-Texturen exportiert")
+            except Exception as e:
+                logger.error(f"[!] Fehler bei Luftbild-Verarbeitung: {e}")
 
-            # Speichere Terrain-Daten für Horizon-Stitching (vom letzten erfolgreichen Tile)
-            if result.get("terrain_mesh") is not None:
-                terrain_mesh = result.get("terrain_mesh")
-                terrain_vertex_manager = result.get("vertex_manager")
-                terrain_grid_bounds = result.get("grid_bounds_local")
-                vm_count = terrain_vertex_manager.get_count() if terrain_vertex_manager else 0
-                logger.debug(f"  [i] Terrain-Daten für Stitching: VM={vm_count} Vertices, Bounds={terrain_grid_bounds}")
+        # Phase 1: Terrain + Straßen - ALLE Kacheln als EINE zusammenhängende
+        # Fläche verarbeiten (ein Grid, ein Straßennetz, ein Junction-Pass).
+        # Clipping findet nur noch am Außenrand der Gesamtfläche statt, nicht
+        # mehr an den früheren DGM1-Kachelgrenzen (siehe process_tile()-Docstring).
+        timer.begin("Terrain + Straßen (Gesamtfläche)")
+        result = self.terrain.process_tile(tiles=tiles, global_offset=global_offset[:2], bbox_margin=50.0)
 
-            # Exportiere DAE
-            tile_x = tile.get("tile_x", 0)
-            tile_y = tile.get("tile_y", 0)
+        if result["status"] != "success":
+            stats["tiles_failed"] = len(tiles)
+            logger.error(f"[!] Terrain-Verarbeitung fehlgeschlagen: {result.get('reason')}")
+        else:
+            stats["tiles_processed"] = len(tiles)
 
-            self.terrain.export_tile(tile_x, tile_y, result)
-            stats["tiles_processed"] += 1
+            # Höhendaten für Spawn-Punkt-Berechnung
+            self.height_points = result.get("height_points")
+            self.height_elevations = result.get("height_elevations")
 
-            # Sammle Tile-Grenzen für Horizon-Clipping (in lokalen Koordinaten!)
-            # tile ist der große DGM1-Tile (2×2 km), nicht der DAE-Export-Tile (500m)
-            # tile_x und tile_y sind in UTM-Koordinaten, also erst zu lokal konvertieren
-            ox, oy = global_offset[0], global_offset[1]
-            tile_x_local = tile_x - ox
-            tile_y_local = tile_y - oy
+            self.terrain.export_tile(0, 0, result)
 
-            # Verwende die tatsächliche Tile-Größe (2000m für DGM1-Tiles)
-            large_tile_size = tile.get("tile_size", 2000)
-
-            x_min = tile_x_local
-            x_max = tile_x_local + large_tile_size
-            y_min = tile_y_local
-            y_max = tile_y_local + large_tile_size
+            # Gesamt-BBox in lokalen Koordinaten für Horizon-Clipping
+            x_min, x_max, y_min, y_max = result["grid_bounds_local"]
             tile_bounds_local.append((x_min, y_min, x_max, y_max))
 
-            # Phase 1b: Forest Processing (pro Tile)
+            # Phase 1b: Forest Processing (für die Gesamtfläche, nicht mehr pro Kachel)
             if forests_enabled:
                 forest_result = self.forests.process_tile(
                     tile_bounds=(x_min, y_min, x_max, y_max),
-                    tile_name=f"T{tile_x:.0f}_{tile_y:.0f}",
+                    tile_name="combined_area",
                     elevation_data=result.get("height_points"),
                     height_grid_info={
                         "origin": (x_min, y_min),
@@ -343,12 +341,12 @@ class BeamNGExporter:
         Args:
             tile: Tile-Metadaten
             global_offset: (origin_x, origin_y)
-            tile_x, tile_y: Tile-Koordinaten
+            tile_x, tile_y: unbenutzt, nur für Aufrufer-Kompatibilität
 
         Returns:
             Pfad zur DAE-Datei oder None
         """
-        result = self.terrain.process_tile(tile=tile, global_offset=global_offset)
+        result = self.terrain.process_tile(tiles=[tile], global_offset=global_offset)
 
         if result["status"] != "success":
             return None
@@ -357,25 +355,22 @@ class BeamNGExporter:
 
     def export_terrain_only(self, tiles: List[Dict], global_offset: Tuple[float, float]) -> int:
         """
-        Exportiere nur Terrain (keine Buildings/Horizon).
+        Exportiere nur Terrain (keine Buildings/Horizon) - alle Kacheln als
+        eine zusammenhängende Fläche (siehe TerrainWorkflow.process_tile()).
 
         Args:
             tiles: Liste von Tile-Metadaten
             global_offset: (origin_x, origin_y)
 
         Returns:
-            Anzahl erfolgreich exportierter Tiles
+            Anzahl der in den Export einbezogenen Kacheln (0 bei Fehlschlag)
         """
+        result = self.terrain.process_tile(tiles=tiles, global_offset=global_offset)
+
         count = 0
-
-        for tile in tiles:
-            result = self.terrain.process_tile(tile, global_offset)
-
-            if result["status"] == "success":
-                tile_x = tile.get("tile_x", 0)
-                tile_y = tile.get("tile_y", 0)
-                self.terrain.export_tile(tile_x, tile_y, result)
-                count += 1
+        if result["status"] == "success":
+            self.terrain.export_tile(0, 0, result)
+            count = len(tiles)
 
         self._finalize_export()
         return count

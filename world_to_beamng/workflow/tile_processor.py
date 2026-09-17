@@ -70,6 +70,38 @@ class TileProcessor:
 
         return points, elevations
 
+    def load_height_data_multi(self, tiles: List[Dict]) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
+        """
+        Lädt und kombiniert die Höhendaten mehrerer DGM1-Kacheln zu einer
+        einzigen Punktwolke (vstack/hstack) - dieselbe Kombinationslogik wie
+        beim Laden der 4 Sub-Kacheln innerhalb eines einzelnen DGM1-ZIPs
+        (_load_from_zip), nur eine Ebene höher für mehrere ZIP-Dateien.
+
+        Setzt voraus, dass die Kacheln einen lückenlosen, rechteckigen
+        Bereich bilden (Nutzer-Verantwortung, siehe utils.tile_scanner).
+
+        Args:
+            tiles: Liste von Tile-Metadaten-Dicts (wie scan_lgl_tiles() sie liefert)
+
+        Returns:
+            Tuple (points, elevations) oder (None, None), falls eine Kachel fehlschlägt
+        """
+        all_points = []
+        all_elevations = []
+
+        for tile in tiles:
+            points, elevations = self.load_height_data(tile)
+            if points is None:
+                logger.error(f"  [!] Höhendaten für {tile.get('filename')} fehlen - Gesamtfläche unvollständig")
+                return None, None
+            all_points.append(points)
+            all_elevations.append(elevations)
+
+        if not all_points:
+            return None, None
+
+        return np.vstack(all_points), np.hstack(all_elevations)
+
     def _load_from_zip(self, filepath: str) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
         """
         Lade Höhendaten aus ZIP.
