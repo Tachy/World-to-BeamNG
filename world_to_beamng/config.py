@@ -114,6 +114,14 @@ CLIP_ROAD_FACES_AT_BOUNDS = True  # True = Entferne Straßen-Dreiecke, die kompl
 # === TILE-EXPORT (DAE) ===
 TILE_SIZE = 500  # Größe pro DAE-Tile in Metern
 
+# Pixel-Auflösung, mit der texconv die Luftbild-Kacheln als DDS schreibt
+# (io/aerial.py). MUSS mit dem baseTexSize der TerrainMaterialTextureSet
+# (terrain_workflow.py) übereinstimmen - sonst bindet BeamNG beim Packen des
+# Terrain-Material-Atlas eine falsch dimensionierte Textur und der D3D12-
+# Renderer stürzt mit "root cbv with 0 gpu va" ab (siehe Terrain-Material-
+# Crash-Fix vom 2026-09-17).
+TERRAIN_BASE_TEX_PIXEL_SIZE = 4096
+
 
 # === VERZEICHNISSE ===
 CACHE_DIR = Path("cache")  # Verzeichnis fuer Cache-Dateien

@@ -9,6 +9,7 @@ from PIL import Image, ImageEnhance
 from io import BytesIO
 import logging
 from world_to_beamng.logging_config import LoggerConfig
+from .. import config
 
 logger = LoggerConfig.get_logger()
 
@@ -322,18 +323,22 @@ def process_aerial_images(aerial_dir, output_dir, grid_bounds, global_offset, ti
                     # Speichere temporär als PNG für texconv
                     tile_img.save(png_filepath, "PNG")
 
-                    # Konvertiere zu DDS (4096×4096, BC1, volle Mipmap-Kette) mit texconv
+                    # Konvertiere zu DDS (BC1, volle Mipmap-Kette) mit texconv.
+                    # Pixelgröße MUSS mit baseTexSize der TerrainMaterialTextureSet
+                    # übereinstimmen (siehe config.TERRAIN_BASE_TEX_PIXEL_SIZE) - sonst
+                    # stürzt BeamNGs D3D12-Renderer beim Laden des Terrain-Material-Atlas ab.
                     import subprocess
 
+                    tex_size = str(config.TERRAIN_BASE_TEX_PIXEL_SIZE)
                     texconv_exe = Path("bin/texconv.exe")
                     cmd = [
                         str(texconv_exe),
                         "-f",
                         "BC1_UNORM",  # BeamNG-kompatibel (nicht BC7!)
                         "-w",
-                        "4096",
+                        tex_size,
                         "-h",
-                        "4096",
+                        tex_size,
                         "-m",
                         "0",
                         "-y",
