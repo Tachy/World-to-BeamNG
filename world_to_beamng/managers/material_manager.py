@@ -47,6 +47,18 @@ class MaterialManager:
         self._templates = self._init_templates()
         self._config = self._load_config()  # Ganze JSON für buildings, etc.
 
+    def add_terrain_materials(self, entries: Dict[str, Dict]) -> None:
+        """
+        Registriert TerrainMaterial-Einträge (aus
+        terrain.terrain_materials.build_terrain_material_entries()) für den
+        späteren materials.json-Export.
+
+        Args:
+            entries: {material_name: {...TerrainMaterial JSON...}}
+        """
+        for mat_name, mat_data in entries.items():
+            self.materials[mat_name] = mat_data
+
     @classmethod
     def get_instance(cls, beamng_dir: Path = None) -> "MaterialManager":
         """
