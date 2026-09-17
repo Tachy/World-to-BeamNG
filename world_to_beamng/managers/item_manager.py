@@ -283,6 +283,50 @@ class ItemManager:
         )
         return name
 
+    def add_terrain_block(
+        self,
+        name: str,
+        terrain_filename: str,
+        material_texture_set: str,
+        max_height: float,
+        z_min: float,
+        origin_x: float,
+        origin_y: float,
+        overwrite: bool = False,
+    ) -> str:
+        """
+        Registriert das native BeamNG-Terrain (TerrainBlock, .ter-Datei).
+
+        JSON-Schema verifiziert gegen BeamNGs eigenes template-Level
+        (content/levels/template.zip).
+
+        Args:
+            name: Item-Name (üblich: "theTerrain")
+            terrain_filename: Dateiname der .ter-Datei (z.B. "world_to_beamng.ter"),
+                              relativ zum Level-Root abgelegt
+            material_texture_set: Name des TerrainMaterialTextureSet
+            max_height: Höhenbereich in Metern (config.TERRAIN_MAX_HEIGHT_BUFFER
+                       + tatsächliche Elevation-Spanne)
+            z_min: absolute Welthöhe (Meter), die Heightmap-Wert 0 entspricht
+            origin_x, origin_y: Welt-Koordinaten der Terrain-Ecke [0, 0]
+            overwrite: Überschreibe existierendes Item
+
+        Returns:
+            Item-Name
+        """
+        from .. import config
+
+        self.add_item(
+            name,
+            item_class="TerrainBlock",
+            position=(origin_x, origin_y, z_min),
+            overwrite=overwrite,
+            materialTextureSet=material_texture_set,
+            maxHeight=max_height,
+            terrainFile=f"/levels/{config.LEVEL_NAME}/{terrain_filename}",
+        )
+        return name
+
     def add_building(
         self,
         name: str,
