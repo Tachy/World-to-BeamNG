@@ -1,0 +1,55 @@
+# .claudeignore — keep context tokens for source/docs, exclude bulky/generated data.
+# This is separate from .gitignore: some git-tracked files (report.html, .venv) also
+# don't need to be read by the assistant, and some git-ignored dirs are listed here
+# again for clarity/completeness.
+
+# Raw geodata (height/imagery/building tiles) — huge, binary, never worth reading
+data/DGM1/
+data/DGM30/
+data/DOP20/
+data/DOP300/
+data/LoD2/
+data/assets/
+data/italy/
+data/*.jpg
+data/*.jpeg
+data/*.png
+
+# Generated/cache output
+cache/
+debug/
+levels/
+*.obj
+*.mtl
+*.dae
+
+# Python environment & bytecode
+.venv/
+venv/
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Git internals
+.git/
+
+# Vendored binaries
+bin/*.exe
+
+# Large generated reports
+report.html
+
+# Archives / logs
+*.zip
+*.tar.gz
+*.log
+
+# Editor/IDE
+.vscode/
+.idea/
+*.code-workspace
+
+# Subagent-driven-development scratch workspace
+.superpowers/
