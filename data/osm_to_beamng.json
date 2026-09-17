@@ -376,8 +376,8 @@
             "priority": 10,
             "internal_name": "mat_forest",
             "groundModelName": "forest",
-            "baseColorMap": "/assets/materials/terrains/forest_floor_01_d.dds",
-            "normalMap": "/assets/materials/terrains/forest_floor_01_n.dds",
+            "baseColorMap": "levels/world_to_beamng/art/shapes/assets/materials/terrain/forest/t_forest_ground/t_forest_ground_b.png",
+            "normalMap": "levels/world_to_beamng/art/shapes/assets/materials/terrain/forest/t_forest_ground/t_forest_ground_nm.png",
             "groundCover": [
                 {
                     "type": "forest_fern",
@@ -440,8 +440,8 @@
             "priority": 5,
             "internal_name": "mat_dirt",
             "groundModelName": "dirt",
-            "baseColorMap": "/assets/materials/terrains/dirt_01_d.dds",
-            "normalMap": "/assets/materials/terrains/dirt_01_n.dds",
+            "baseColorMap": "levels/world_to_beamng/art/shapes/assets/materials/terrain/soil/t_dirt_dry_grassy/t_dirt_dry_grassy_b.png",
+            "normalMap": "levels/world_to_beamng/art/shapes/assets/materials/terrain/soil/t_dirt_dry_grassy/t_dirt_dry_grassy_nm.png",
             "groundCover": [
                 {
                     "type": "crop_stubble",
@@ -455,8 +455,8 @@
             "priority": 4,
             "internal_name": "mat_grass",
             "groundModelName": "grass",
-            "baseColorMap": "/assets/materials/terrains/grass_green_01_d.dds",
-            "normalMap": "/assets/materials/terrains/grass_green_01_n.dds",
+            "baseColorMap": "levels/world_to_beamng/art/shapes/assets/materials/terrain/grass/t_grass_01/t_grass_01_b.png",
+            "normalMap": "levels/world_to_beamng/art/shapes/assets/materials/terrain/grass/t_grass_01/t_grass_01_nm.png",
             "groundCover": [
                 {
                     "type": "grass_flowers",
