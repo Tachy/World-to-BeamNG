@@ -1972,7 +1972,7 @@ class DAETileViewer:
         # Erstelle eine temporäre Pfad-Variable für forest_loader (wird dort nicht verwendet,
         # aber die Signatur benötigt sie). Alternativ könnte man forest_loader refaktorieren.
         try:
-            actor = load_forest_layer(self, config.BEAMNG_DIR / "main" / "forest.forest4.json")
+            actor = load_forest_layer(self, config.BEAMNG_DIR / "forest" / "forest.forest4.json")
 
             if actor is not None:
                 logger.info(f"  [✓] Forest-Layer Actors erstellt")

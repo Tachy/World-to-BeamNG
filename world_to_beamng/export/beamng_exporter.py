@@ -48,7 +48,7 @@ class BeamNGExporter:
         self.items.add_item(
             name="the_forest",
             item_class="Forest",
-            dataFile="levels/world_to_beamng/main/forest.forest4.json",
+            dataFile="levels/world_to_beamng/forest/forest.forest4.json",
             lodScale=1.0,
             overwrite=True,
         )
@@ -147,31 +147,32 @@ class BeamNGExporter:
         if forests_enabled:
             timer.begin("Forest Asset Initialization")
 
-            # Lade forestItemData.json (wird von generate_forest_item_data.py erzeugt)
-            forest_item_data_path = config.BEAMNG_DIR / "main" / "forestItemData.json"
+            # Lade managedItemData.json (wird von generate_forest_assets.py erzeugt)
+            forest_item_data_path = config.BEAMNG_DIR / "art" / "forest" / "managedItemData.json"
 
             if forest_item_data_path.exists():
                 try:
                     with open(forest_item_data_path, "r", encoding="utf-8") as f:
                         forest_item_data = json.load(f)
 
-                    # Konvertiere zu registered_trees Format
+                    # Konvertiere zu registered_trees Format (Key MUSS der internalName sein,
+                    # denn forest.forest4.json referenziert Bäume darüber im "type"-Feld)
                     for item_key, item_info in forest_item_data.items():
-                        tree_type = item_info.get("name", "tree")  # Name ist der Baum-Typ
-                        registered_trees[item_key] = {
-                            "name": item_key,
+                        internal_name = item_info.get("internalName", item_key)
+                        registered_trees[internal_name] = {
+                            "name": internal_name,
                             "dae_path": item_info.get("shapeFile", ""),
                             "radius": item_info.get("radius", 1.5),
                         }
 
-                    logger.info(f"✓ {len(registered_trees)} Tree-Items aus forestItemData.json geladen")
+                    logger.info(f"✓ {len(registered_trees)} Tree-Items aus managedItemData.json geladen")
 
                 except Exception as e:
-                    logger.error(f"Fehler beim Laden von forestItemData.json: {e}")
+                    logger.error(f"Fehler beim Laden von managedItemData.json: {e}")
                     registered_trees = {}
             else:
-                logger.warning(f"forestItemData.json nicht gefunden: {forest_item_data_path}")
-                logger.warning("  Bitte führen Sie zuerst aus: python tools/generate_forest_item_data.py")
+                logger.warning(f"managedItemData.json nicht gefunden: {forest_item_data_path}")
+                logger.warning("  Bitte führen Sie zuerst aus: python tools/generate_forest_assets.py")
 
             stats["forests_registered"] = len(registered_trees)
 

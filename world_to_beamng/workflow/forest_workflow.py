@@ -80,7 +80,8 @@ class ForestWorkflow:
 
         from .. import config
 
-        output_dir = config.BEAMNG_DIR / "main"
+        # BeamNG erwartet *.forest4.json Platzierungsdateien im Level-Unterordner "forest/" (nicht "main/")
+        output_dir = config.BEAMNG_DIR / "forest"
         self.json_writer = ForestJSONWriter(output_dir)
 
     def _transform_osm_to_local(self, osm_data, global_offset: Tuple[float, float]):
@@ -269,7 +270,7 @@ class ForestWorkflow:
                     {
                         "type": "oak",
                         "pos": [x, y, z],
-                        "rot": [rx, ry, rz, rw],
+                        "rotationMatrix": [r00, r01, r02, r10, r11, r12, r20, r21, r22],
                         "scale": 1.15
                     },
                     ...

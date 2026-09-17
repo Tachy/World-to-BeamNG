@@ -1,9 +1,9 @@
 """
-Generate Forest Assets: forestItemData.json + forest_type_templates
+Generate Forest Assets: managedItemData.json + forest_type_templates
 
 Kombiniertes Script das:
-1. DAE-Dateien scannt und forestItemData.json generiert
-2. Aus forestItemData.json Waldtypen und Mappings generiert
+1. DAE-Dateien scannt und managedItemData.json generiert (art/forest/, BeamNG-Item-Registry)
+2. Aus den gescannten Items Waldtypen und Mappings generiert
 3. osm_to_beamng.json aktualisiert
 """
 
@@ -61,7 +61,7 @@ def extract_tree_name_from_filename(filename: str) -> str:
 
 def scan_dae_files(dir_path: str, beamng_root: str) -> dict:
     """
-    Scanne DAE-Dateien und generiere forestItemData.
+    Scanne DAE-Dateien und generiere managedItemData.
 
     Returns:
         {tree_key: {name, class, shapeFile, collidable, radius}}
@@ -102,7 +102,8 @@ def scan_dae_files(dir_path: str, beamng_root: str) -> dict:
 
         forest_item_data[item_key] = {
             "name": item_key,
-            "class": "TSForestItemData",
+            "class": "ForestItemData",
+            "internalName": item_key,
             "shapeFile": shape_file_path,
             "collidable": True,
             "radius": radius,
@@ -282,13 +283,13 @@ def generate_forest_mappings(forest_types: dict) -> dict:
 
 
 def main():
-    """Hauptfunktion: Generiere forestItemData.json und Waldtypen."""
+    """Hauptfunktion: Generiere managedItemData.json und Waldtypen."""
     print("=" * 80)
-    print("[START] Generiere Forest Assets (forestItemData + forest_type_templates)")
+    print("[START] Generiere Forest Assets (managedItemData + forest_type_templates)")
     print("=" * 80)
 
     # ===== PHASE 1: Scan DAE-Dateien =====
-    print("\n[PHASE 1] Scanne DAE-Dateien und generiere forestItemData.json")
+    print("\n[PHASE 1] Scanne DAE-Dateien und generiere managedItemData.json")
     print("-" * 80)
 
     search_dir = Path(
@@ -305,15 +306,15 @@ def main():
         print("[ERROR] Keine Forest-Items generiert")
         return
 
-    # Speichere forestItemData.json
-    output_dir = config.BEAMNG_DIR / "main"
+    # Speichere managedItemData.json (BeamNG erwartet die Item-Registry unter art/forest/)
+    output_dir = config.BEAMNG_DIR / "art" / "forest"
     output_dir.mkdir(parents=True, exist_ok=True)
-    output_file = output_dir / "forestItemData.json"
+    output_file = output_dir / "managedItemData.json"
 
     with open(output_file, "w", encoding="utf-8") as f:
         json.dump(forest_item_data, f, indent=2, ensure_ascii=False)
 
-    print(f"\n[DONE] forestItemData.json erstellt: {output_file}")
+    print(f"\n[DONE] managedItemData.json erstellt: {output_file}")
     print(f"       {len(forest_item_data)} Tree-Items")
 
     # ===== PHASE 2: Generiere Waldtypen =====
@@ -357,7 +358,7 @@ def main():
     print("\n" + "=" * 80)
     print("[✓] ERFOLGREICH ABGESCHLOSSEN")
     print("=" * 80)
-    print(f"forestItemData.json: {len(forest_item_data)} Tree-Items")
+    print(f"managedItemData.json: {len(forest_item_data)} Tree-Items")
     print(f"Forest-Typen:        {len(forest_types)}")
     print(f"  - german_deciduous_dense")
     print(f"  - german_mixed_forest")

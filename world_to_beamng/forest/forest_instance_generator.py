@@ -18,11 +18,11 @@ class ForestInstanceGenerator:
     """
     Generiert finale Baum-Instanzen mit Type, Rotation und Scale.
 
-    Format pro Instance:
+    Format pro Instance (BeamNG .forest4.json Schema):
     {
         "type": "oak",
         "pos": [x, y, z],
-        "rot": [rx, ry, rz, rw],  # Quaternion
+        "rotationMatrix": [r00, r01, r02, r10, r11, r12, r20, r21, r22],  # 3x3-Rotationsmatrix
         "scale": 1.15
     }
     """
@@ -72,7 +72,7 @@ class ForestInstanceGenerator:
             tree_type = tree_types[i]
 
             # Rotation (zufällig um Z-Achse)
-            rotation = self._generate_rotation()
+            rotation_matrix = self._generate_rotation_matrix()
 
             # Scale (basierend auf average_height)
             scale = self._generate_scale(min_height, max_height)
@@ -80,7 +80,7 @@ class ForestInstanceGenerator:
             instance = {
                 "type": tree_type,
                 "pos": [float(x), float(y), float(z)],
-                "rot": rotation,
+                "rotationMatrix": rotation_matrix,
                 "scale": float(scale),
             }
 
@@ -143,26 +143,22 @@ class ForestInstanceGenerator:
 
         return tree_types.tolist()
 
-    def _generate_rotation(self) -> List[float]:
+    def _generate_rotation_matrix(self) -> List[float]:
         """
-        Generiere zufällige Rotation um Z-Achse (Quaternion).
+        Generiere zufällige Rotation um Z-Achse als 3x3-Rotationsmatrix (row-major).
+
+        BeamNGs .forest4.json erwartet "rotationMatrix" als 9 Werte, nicht ein Quaternion.
 
         Returns:
-            [rx, ry, rz, rw] Quaternion
+            [r00, r01, r02, r10, r11, r12, r20, r21, r22]
         """
         # Zufälliger Winkel um Z-Achse (0 - 2π)
         angle = np.random.uniform(0, 2 * np.pi)
 
-        # Quaternion für Rotation um Z-Achse:
-        # q = [0, 0, sin(angle/2), cos(angle/2)]
-        half_angle = angle / 2.0
+        c = float(np.cos(angle))
+        s = float(np.sin(angle))
 
-        rx = 0.0
-        ry = 0.0
-        rz = float(np.sin(half_angle))
-        rw = float(np.cos(half_angle))
-
-        return [rx, ry, rz, rw]
+        return [c, -s, 0.0, s, c, 0.0, 0.0, 0.0, 1.0]
 
     def _generate_scale(self, min_height: float, max_height: float) -> float:
         """

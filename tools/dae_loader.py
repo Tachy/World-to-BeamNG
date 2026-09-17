@@ -462,7 +462,7 @@ def load_forest_data(beamng_dir):
     """
     import json
 
-    forest_json_path = Path(beamng_dir) / "main" / "forest.forest4.json"
+    forest_json_path = Path(beamng_dir) / "forest" / "forest.forest4.json"
 
     if not forest_json_path.exists():
         logger.error(f"  [!] forest.forest4.json nicht gefunden: {forest_json_path}")

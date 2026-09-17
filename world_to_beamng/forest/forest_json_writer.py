@@ -17,8 +17,8 @@ class ForestJSONWriter:
     Schreibt forest.forest4.json mit allen Baum-Instanzen.
 
     Format: JSONL (newline-delimited JSON) - jede Instanz auf separater Zeile
-    {"type": "oak", "pos": [145.2, 330.5, 42.12], "rot": [0, 0, 0.382, 0.923], "scale": 1.15, "ctxid": 0}
-    {"type": "birch", "pos": [150.1, 332.2, 43.5], "rot": [0, 0, 0.5, 0.866], "scale": 1.2, "ctxid": 0}
+    {"type": "oak", "pos": [145.2, 330.5, 42.12], "rotationMatrix": [1,0,0,0,1,0,0,0,1], "scale": 1.15, "ctxid": 0}
+    {"type": "birch", "pos": [150.1, 332.2, 43.5], "rotationMatrix": [1,0,0,0,1,0,0,0,1], "scale": 1.2, "ctxid": 0}
     ...
     """
 
@@ -38,7 +38,7 @@ class ForestJSONWriter:
 
         Args:
             tree_instances: Liste von Baum-Instance-Dicts
-                           (mit "type", "pos", "rot", "scale")
+                           (mit "type", "pos", "rotationMatrix", "scale")
             filename: Optional - Dateiname (default: "forest.forest4.json")
 
         Returns:
