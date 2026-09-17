@@ -1508,11 +1508,7 @@ def generate_road_mesh_strips(road_polygons, height_points, height_elevations, v
                 )
 
     logger.info(f"  [OK] {len(road_mesh_data)} Strassen-Faces")
-    if config.GENERATE_SLOPES:
-        logger.info(f"  [OK] {len(all_slope_faces)} Boeschungs-Faces")
-        logger.info(f"  [OK] Boeschungen OK")
-    else:
-        logger.debug(f"  [i] Boeschungs-Generierung deaktiviert (config.GENERATE_SLOPES=False)")
+    logger.debug(f"  [i] Boeschungs-Geometrie wird im Terrain-Heightmap erzeugt, nicht im Mesh (config.GENERATE_SLOPES=False)")
 
     # === Junction Z-Glättung (nach Fan-Triangulation) ===
     if junction_fans:

@@ -58,11 +58,12 @@ JUNCTION_STOP_BUFFER = 5.0
 # === FOREST GENERATION PARAMETERS ===
 FOREST_ROAD_MARGIN = 5.0  # Puffer um Straßen zur Baum-Filterung (in Metern, links & rechts)
 
-# Böschungs-Generierung: war wegen Terrain-Stitching-Instabilität deaktiviert;
-# seit der Umstellung auf natives .terrain-Heightmap (siehe
-# docs/superpowers/specs/2026-09-17-terrain-heightmap-migration-design.md)
-# entfällt das Stitching komplett, Böschungen sind jetzt immer aktiv.
-GENERATE_SLOPES = True
+# Böschungs-Geometrie entsteht NICHT im Mesh (die Face-Triangulierung dafür
+# wurde nie fertig implementiert, siehe mesh/road_mesh.py) - stattdessen wird
+# der Übergang zur Umgebung direkt im Terrain-Heightmap erzeugt, siehe
+# terrain/road_embedding.py:apply_embankment_blend(). Dieser Flag bleibt
+# dauerhaft False.
+GENERATE_SLOPES = False
 # Minimale Boeschungsbreite (Meter) unabhängig von Hoehenunterschieden
 MIN_SLOPE_WIDTH = 2
 SLOPE_ANGLE = 45.0  # Neigungswinkel der Boeschung in Grad (45° = 1:1 Steigung)
