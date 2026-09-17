@@ -69,7 +69,6 @@ class TerrainWorkflow:
         from ..mesh.road_mesh import generate_road_mesh_strips
         from ..mesh.vertex_manager import VertexManager
         from ..mesh.terrain_mesh import generate_full_grid_mesh
-        from ..mesh.stitch_gaps import stitch_all_gaps
         from ..terrain.grid import create_terrain_grid
 
         # 1. Lade Höhendaten
