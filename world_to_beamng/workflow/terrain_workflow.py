@@ -370,8 +370,28 @@ class TerrainWorkflow:
         terrain_origin_x = heightmap_result["origin_x"]
         terrain_origin_y = heightmap_result["origin_y"]
 
-        # Straßen-Einbettung: Terrain unter dem (unveränderten) Straßen-/
-        # Böschungsmesh knapp absenken
+        # Böschung: Übergang von Straßenkante zur natürlichen Umgebung direkt
+        # im Heightmap erzeugen (GENERATE_SLOPES bleibt False, das Mesh
+        # generiert keine Böschungs-Geometrie mehr - siehe Spec Abschnitt 4b).
+        # WICHTIG: muss auf den noch UNVERÄNDERTEN heights laufen, damit
+        # "natürliche Höhe" wirklich natürlich ist (vor embed_roads_into_heightmap).
+        from ..terrain.road_embedding import build_road_embankment_profiles, apply_embankment_blend
+
+        embankment_profiles = build_road_embankment_profiles(
+            road_slope_polygons_2d,
+            heights,
+            terrain_origin_x,
+            terrain_origin_y,
+            config.TERRAIN_SQUARE_SIZE,
+            OSM_MAPPER,
+            config.SLOPE_ANGLE,
+            config.MIN_SLOPE_WIDTH,
+        )
+        heights = apply_embankment_blend(heights, terrain_origin_x, terrain_origin_y, config.TERRAIN_SQUARE_SIZE, embankment_profiles)
+
+        # Straßen-Einbettung: Terrain unter der (unveränderten) Straßenfläche
+        # knapp absenken (Böschung ist bereits durch apply_embankment_blend
+        # abgedeckt, hier geht es nur noch um die reine Fahrbahnfläche)
         all_vertices = np.array(vertex_manager.get_array())
         road_mesh_data_for_embedding = road_mesh[0]
         road_vertices, road_triangles = road_mesh_to_arrays(road_mesh_data_for_embedding, all_vertices)
