@@ -109,12 +109,18 @@ class TerrainWorkflow:
 
         road_polygons = get_road_polygons(roads, osm_bbox, local_points, elevations, global_offset, tile_hash=tile_hash)
 
-        # 6a. Luftbilder verarbeiten (nur wenn Elevation-Cache NEU erstellt wurde)
-        if not elevation_was_cached:
-            from pathlib import Path
+        # 6a. Luftbilder verarbeiten (nur wenn die Ziel-Texturen noch fehlen)
+        # WICHTIG: Nicht an elevation_was_cached koppeln! Der Elevation-Cache bleibt über
+        # Sessions hinweg bestehen, die Textur-Dateien im BeamNG-Level-Ordner aber nicht
+        # (z.B. nach einem BeamNG-Update, das den Userdata-Ordner zurücksetzt) - sonst
+        # werden die Texturen dauerhaft übersprungen, obwohl sie nie geschrieben wurden.
+        from pathlib import Path
 
-            aerial_dir = Path("data/DOP20")
+        aerial_dir = Path("data/DOP20")
+        textures_dir = config.BEAMNG_DIR_TEXTURES
+        textures_missing = not (textures_dir.exists() and any(textures_dir.glob("tile_*.dds")))
 
+        if textures_missing:
             if aerial_dir.exists() and any(aerial_dir.glob("*.zip")):
                 logger.info("  [i] Verarbeite Luftbilder für dieses Tile...")
                 try:
@@ -143,7 +149,7 @@ class TerrainWorkflow:
                 except Exception as e:
                     logger.error(f"  [!] Fehler bei Luftbild-Verarbeitung: {e}")
         else:
-            logger.info(f"  [i] Elevation-Cache vorhanden - Luftbilder werden übersprungen")
+            logger.info(f"  [i] Luftbild-Texturen bereits vorhanden - werden übersprungen")
 
         # 6b. LoD2-Gebäude laden (wenn aktiviert und noch nicht übergeben)
         if buildings_data is None and config.LOD2_ENABLED:

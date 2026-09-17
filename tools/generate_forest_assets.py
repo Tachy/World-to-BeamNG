@@ -10,6 +10,9 @@ Kombiniertes Script das:
 from pathlib import Path
 import json
 import re
+import shutil
+import zipfile
+import configparser
 from collections import defaultdict
 import sys
 
@@ -59,9 +62,232 @@ def extract_tree_name_from_filename(filename: str) -> str:
     return cleaned.lower()
 
 
+def upgrade_to_canonical_meshes(dest_dir: Path, install_dir: Path) -> int:
+    """
+    Ersetzt Baum-Meshes, wo möglich, durch BeamNGs kanonische, level-unabhängige
+    "trees_library" (+ "foliage/bushes") aus content/assets/meshes.zip.
+
+    Hintergrund (Recherche 2026-09-17): east_coast_usa's eigener Baum-Ordner ist nur eine
+    PER-LEVEL-KOPIE dieser gemeinsamen Bibliothek - die Dateinamen sind identisch
+    (z.B. "tree_beech_bush_a.dae", "cork_oak_bush_large.dae"). Die Bibliothek deckt nicht
+    alle Arten ab (keine Douglasie/Fichte, kein Italy-Ölbaum, keine Kiefer) - für die
+    bleibt die level-lokale Kopie als Fallback bestehen, alles andere wird auf die
+    kanonische, garantiert aktuelle Quelle "hochgestuft".
+
+    Ersetzte Meshes bekommen ihre alten .cdae/.dae.asset.json/.imposter*.dds gelöscht,
+    da diese zum ALTEN Mesh gehören und beim neuen nicht mehr passen - BeamNG erzeugt sie
+    beim Laden automatisch neu.
+
+    Returns:
+        Anzahl der hochgestuften Meshes
+    """
+    meshes_zip_path = install_dir / "content" / "assets" / "meshes.zip"
+    if not meshes_zip_path.is_file():
+        print(f"[WARNUNG] meshes.zip nicht gefunden, überspringe kanonisches Upgrade: {meshes_zip_path}")
+        return 0
+
+    z = zipfile.ZipFile(meshes_zip_path)
+    canonical_index = {}  # dae-Dateiname -> zip-Eintrag
+    for entry in z.namelist():
+        if entry.endswith(".dae") and ("foliage/trees_library/" in entry or "foliage/bushes/" in entry):
+            canonical_index[entry.rsplit("/", 1)[-1]] = entry
+
+    upgraded = 0
+    for dae_file in dest_dir.rglob("*.dae"):
+        entry = canonical_index.get(dae_file.name)
+        if not entry:
+            continue
+
+        dae_file.write_bytes(z.read(entry))
+
+        # Zum alten Mesh gehörende Caches sind jetzt ungültig -> löschen, BeamNG baut neu.
+        for stale in (
+            dae_file.with_suffix(".cdae"),
+            dae_file.with_name(dae_file.name + ".asset.json"),
+            dae_file.with_name(dae_file.name + ".imposter.dds"),
+            dae_file.with_name(dae_file.name + ".imposter_normals.dds"),
+        ):
+            if stale.exists():
+                stale.unlink()
+
+        upgraded += 1
+
+    print(f"[INFO] {upgraded} Meshes auf kanonische trees_library/foliage-Bibliothek hochgestuft")
+    return upgraded
+
+
+def copy_tree_assets(source_dir: Path, dest_dir: Path, install_dir: Path) -> int:
+    """
+    Kopiert den kompletten Baum-Asset-Ordner (DAE, Texturen, materials.json, ...)
+    in den eigenen Level, damit world_to_beamng nicht mehr von einem fremden
+    Level (z.B. east_coast_usa) abhängt.
+
+    Nutzt east_coast_usa dabei nur noch als Fallback-Quelle für Geometrie + als Quelle
+    für die Material-DEFINITIONEN (materials.json) - die Mesh-Dateien selbst werden im
+    Anschluss über upgrade_to_canonical_meshes() wo möglich durch BeamNGs kanonische
+    trees_library ersetzt (siehe dort).
+
+    Schreibt anschließend die "levels/<altes_level>/..."-Pfadreferenzen in allen
+    TEXT-Dateien (materials.json UND .dae, COLLADA embedded texture refs) auf den
+    eigenen Level um. .cdae-Dateien sind ein kompiliertes Binär-Cache-Format, das
+    den alten Pfad ebenfalls einbettet, aber NICHT sicher text-patchbar ist
+    (Längen-präfixierte Strings) - diese werden stattdessen gelöscht, damit BeamNG
+    sie beim nächsten Laden automatisch frisch aus der .dae neu kompiliert.
+
+    Returns:
+        Anzahl der umgeschriebenen Text-Dateien
+    """
+    print(f"[INFO] Kopiere Baum-Assets (Fallback-Basis): {source_dir} -> {dest_dir}")
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(source_dir, dest_dir, dirs_exist_ok=True)
+
+    upgrade_to_canonical_meshes(dest_dir, install_dir)
+
+    # Ermittle den alten Level-Namen aus dem Quellpfad (.../levels/<name>/art/...)
+    parts = source_dir.parts
+    old_level_name = parts[parts.index("levels") + 1] if "levels" in parts else None
+
+    fixed = 0
+    if old_level_name and old_level_name != config.LEVEL_NAME:
+        old_ref = f"levels/{old_level_name}/art/shapes/trees"
+        new_ref = f"levels/{config.LEVEL_NAME}/art/shapes/trees"
+
+        text_files = list(dest_dir.rglob("*materials.json")) + list(dest_dir.rglob("*.dae"))
+        for text_file in text_files:
+            text = text_file.read_text(encoding="utf-8")
+            if old_ref in text:
+                text_file.write_text(text.replace(old_ref, new_ref), encoding="utf-8")
+                fixed += 1
+
+        # .cdae ist ein kompilierter Binär-Cache und bettet den alten Pfad ein.
+        # Löschen -> BeamNG kompiliert beim nächsten Laden automatisch frisch aus der .dae.
+        cdae_files = list(dest_dir.rglob("*.cdae"))
+        for cdae_file in cdae_files:
+            cdae_file.unlink()
+        if cdae_files:
+            print(f"[INFO] {len(cdae_files)} .cdae Cache-Dateien gelöscht (werden beim Laden neu kompiliert)")
+
+    print(f"[INFO] {fixed} Text-Dateien (.dae/.materials.json) auf eigenen Level-Pfad umgeschrieben")
+    return fixed
+
+
+def get_beamng_install_dir() -> Path:
+    """Liest den BeamNG-Installationspfad aus BeamNG.drive.ini."""
+    ini_path = Path.home() / "AppData" / "Local" / "BeamNG" / "BeamNG.drive.ini"
+    if not ini_path.is_file():
+        raise FileNotFoundError(f"BeamNG.drive.ini nicht gefunden: {ini_path}")
+
+    raw = ini_path.read_text(encoding="utf-8-sig")
+    parser = configparser.ConfigParser()
+    parser.read_string("[main]\n" + raw)
+    return Path(parser["main"]["installpath"].strip().strip('"'))
+
+
+def resolve_tree_texture_links(dest_dir: Path, install_dir: Path) -> None:
+    """
+    Ersetzt die *.link Platzhalter (Zeiger auf einen gemeinsamen BeamNG-Textur-Pool) durch
+    echte DDS-Bytes.
+
+    Grund: Die .link-Dateien verweisen auf ein veraltetes Pfadschema
+    ("/assets/materials/foliage/tree/<species>/...") - das gilt für ALLE Vanilla-Level
+    (nicht nur east_coast_usa), passt aber nicht mehr zum aktuell installierten
+    BeamNG-Content (der Baum-Texturpack liegt dort unter einem anderen Schema:
+    "assets/materials/tree/<species>/<material>/..."). Deshalb per Dateiname (nicht per
+    Pfad) im kompletten BeamNG-Materials-Content suchen und die echten Bytes lokal ablegen.
+
+    Referenzen enden bisher auf ".png" (Cook-from-source Pfad); wir legen die Datei
+    stattdessen als ".dds" ab (Direkt-Lade-Pfad, das Format, das die restliche Pipeline
+    bereits für Terrain-/Straßen-Texturen verwendet) und schreiben alle betroffenen
+    .dae/.materials.json Referenzen entsprechend um.
+    """
+    link_files = list(dest_dir.rglob("*.link"))
+    if not link_files:
+        return
+
+    print(f"[INFO] Löse {len(link_files)} Textur-Links zu echten BeamNG-Assets auf...")
+
+    materials_dir = install_dir / "content" / "assets" / "materials"
+
+    # Index: Dateiname (ohne Verzeichnis) -> (zip_pfad, voller_eintrag_in_der_zip)
+    name_index = {}
+    for zip_path in sorted(materials_dir.glob("*.zip")):
+        try:
+            z = zipfile.ZipFile(zip_path)
+        except zipfile.BadZipFile:
+            continue
+        for entry in z.namelist():
+            if entry.endswith("/"):
+                continue
+            fname = entry.rsplit("/", 1)[-1]
+            name_index.setdefault(fname, (zip_path, entry))
+
+    open_zips = {}
+    rename_map = {}  # alter Logik-Name (....png) -> neuer physischer Name (....dds)
+    resolved = 0
+    unresolved = []
+
+    for link_file in link_files:
+        old_name = link_file.name[: -len(".link")]  # z.B. "t_beech_branch_o.data.png"
+        base = old_name.rsplit(".", 1)[0]  # "t_beech_branch_o.data"
+
+        # Suche eine physische Datei mit gleichem Basisnamen, beliebiges Bild-Suffix
+        candidate = None
+        # Manche Vanilla-Level lassen das "t_"-Präfix in ihren .link-Dateien weg, obwohl
+        # der Asset-Pack es führt (z.B. "scots_pine_ao.data" -> "t_scots_pine_ao.data").
+        for candidate_base in (base, f"t_{base}"):
+            for ext in ("dds", "png", "tga"):
+                fname = f"{candidate_base}.{ext}"
+                if fname in name_index:
+                    candidate = name_index[fname]
+                    break
+            if candidate:
+                break
+
+        if not candidate:
+            unresolved.append(old_name)
+            link_file.unlink()
+            continue
+
+        zip_path, entry = candidate
+        if zip_path not in open_zips:
+            open_zips[zip_path] = zipfile.ZipFile(zip_path)
+        z = open_zips[zip_path]
+
+        new_name = f"{base}.dds"
+        dest_file = link_file.with_name(new_name)
+        dest_file.write_bytes(z.read(entry))
+        link_file.unlink()
+
+        rename_map[old_name] = new_name
+        resolved += 1
+
+    print(f"[INFO] {resolved} Texturen aufgelöst und lokal abgelegt, {len(unresolved)} nicht gefunden")
+    if unresolved:
+        print("[WARNUNG] Nicht gefunden (Baum bleibt evtl. untexturiert):")
+        for u in sorted(set(unresolved)):
+            print("   ", u)
+
+    # Referenzen in .dae/.materials.json auf die neuen physischen Dateinamen umschreiben
+    if rename_map:
+        rewritten = 0
+        for text_file in list(dest_dir.rglob("*.dae")) + list(dest_dir.rglob("*materials.json")):
+            text = text_file.read_text(encoding="utf-8")
+            new_text = text
+            for old_name, new_name in rename_map.items():
+                if old_name in new_text:
+                    new_text = new_text.replace(old_name, new_name)
+            if new_text != text:
+                text_file.write_text(new_text, encoding="utf-8")
+                rewritten += 1
+        print(f"[INFO] {rewritten} Dateien auf die neuen Textur-Dateinamen (.dds) umgeschrieben")
+
+
 def scan_dae_files(dir_path: str, beamng_root: str) -> dict:
     """
     Scanne DAE-Dateien und generiere managedItemData.
+
+    WICHTIG: dir_path MUSS bereits innerhalb von beamng_root liegen (siehe copy_tree_assets),
+    damit shapeFile auf den eigenen Level zeigt statt auf die Quelle der Assets.
 
     Returns:
         {tree_key: {name, class, shapeFile, collidable, radius}}
@@ -87,16 +313,9 @@ def scan_dae_files(dir_path: str, beamng_root: str) -> dict:
         tree_type = extract_tree_name_from_filename(dae_file.name)
         item_key = dae_file.stem
 
-        try:
-            relative_dae = dae_file.relative_to(beamng_root_obj)
-        except ValueError:
-            relative_dae = dae_file
-
-        full_path = str(relative_dae).replace("\\", "/")
-        if "levels/" in full_path:
-            shape_file_path = "levels/" + full_path.split("levels/")[1]
-        else:
-            shape_file_path = full_path
+        # dae_file liegt unter beamng_root_obj (world_to_beamng) -> "levels/<level>/<rel>"
+        relative_dae = dae_file.relative_to(beamng_root_obj)
+        shape_file_path = f"levels/{config.LEVEL_NAME}/" + str(relative_dae).replace("\\", "/")
 
         radius = 2.0 if tree_type in ["cork_oak", "holm_oak"] else 1.5
 
@@ -288,19 +507,30 @@ def main():
     print("[START] Generiere Forest Assets (managedItemData + forest_type_templates)")
     print("=" * 80)
 
-    # ===== PHASE 1: Scan DAE-Dateien =====
+    install_dir = get_beamng_install_dir()
+
+    # ===== PHASE 0: Baum-Assets in den eigenen Level kopieren =====
+    print("\n[PHASE 0] Kopiere Baum-Assets in den eigenen Level (macht world_to_beamng unabhängig)")
+    print("-" * 80)
+
+    # east_coast_usa dient nur noch als Fallback-Quelle für Geometrie (Arten, die es in
+    # BeamNGs kanonischer trees_library nicht gibt) und als Quelle der Material-Definitionen.
+    userpath_levels_dir = config.BEAMNG_DIR.parent
+    source_dir = userpath_levels_dir / "east_coast_usa" / "art" / "shapes" / "trees"
+
+    if not source_dir.is_dir():
+        print(f"[ERROR] Quellverzeichnis nicht gefunden: {source_dir}")
+        return
+
+    dest_dir = config.BEAMNG_DIR / "art" / "shapes" / "trees"
+    copy_tree_assets(source_dir, dest_dir, install_dir)
+    resolve_tree_texture_links(dest_dir, install_dir)
+
+    # ===== PHASE 1: Scan DAE-Dateien (in der eigenen Kopie!) =====
     print("\n[PHASE 1] Scanne DAE-Dateien und generiere managedItemData.json")
     print("-" * 80)
 
-    search_dir = Path(
-        r"C:\Users\johan\AppData\Local\BeamNG\BeamNG.drive\current\levels\east_coast_usa\art\shapes\trees"
-    )
-
-    if not search_dir.is_dir():
-        print(f"[ERROR] Suchverzeichnis nicht gefunden: {search_dir}")
-        return
-
-    forest_item_data = scan_dae_files(str(search_dir), str(config.BEAMNG_DIR))
+    forest_item_data = scan_dae_files(str(dest_dir), str(config.BEAMNG_DIR))
 
     if not forest_item_data:
         print("[ERROR] Keine Forest-Items generiert")
