@@ -49,24 +49,44 @@ def clip_road_polygons(road_polygons, grid_bounds_local, margin=3.0):
     clipped_roads = []
     removed_count = 0
     segment_count = 0
+    split_count = 0
 
     for road in road_polygons:
         coords = road["coords"]
-        new_coords = []
 
+        # WICHTIG: Punkte, die durch das Clipping entfernt wurden, dürfen NICHT
+        # einfach übersprungen werden - sonst werden die verbleibenden,
+        # tatsächlich weit auseinanderliegenden Punkte (z.B. von einer Straße,
+        # die weit ausserhalb des Tiles einen Bogen macht und an zwei ganz
+        # unterschiedlichen Stellen wieder ins Tile hineinragt) zu einer
+        # einzigen, künstlichen "Teleport"-Gerade zusammengefasst. Das erzeugt
+        # eine falsche Centerline mit falschen Z-Werten, die dann als riesige,
+        # unnatürliche Klippe im Böschungs-Blend landet. Stattdessen: an jeder
+        # Lücke einen neuen, eigenständigen Strassen-Abschnitt beginnen (wie im
+        # alten Mesh-Workflow, wo Strassen am Rand tatsächlich endeten).
+        runs = []
+        current_run = []
         for x, y, z in coords:
-            # Hard Clip: Punkt ausserhalb -> verwerfen
             if clip_min_x <= x <= clip_max_x and clip_min_y <= y <= clip_max_y:
-                new_coords.append((x, y, z))
+                current_run.append((x, y, z))
+            elif current_run:
+                runs.append(current_run)
+                current_run = []
+        if current_run:
+            runs.append(current_run)
 
-        # Strasse behalten wenn mindestens 2 Punkte uebrig sind
-        if len(new_coords) >= 2:
-            # Unterteile lange Segmente nach Clipping (um grosse Luecken zu fuellen)
-            # Nutze road_width für dynamische Segment-Länge
-            osm_tags = road.get("osm_tags", {})
-            road_width = OSM_MAPPER.get_road_properties(osm_tags)["width"]
-            # max_seg = road_width * config.SAMPLE_SPACING_FACTOR
-            max_seg = config.GRID_SPACING
+        osm_tags = road.get("osm_tags", {})
+        road_width = OSM_MAPPER.get_road_properties(osm_tags)["width"]
+        max_seg = config.GRID_SPACING
+
+        for run_idx, new_coords in enumerate(runs):
+            if len(new_coords) < 2:
+                removed_count += 1
+                continue
+
+            # Unterteile lange Segmente nach Clipping (um grosse Luecken innerhalb
+            # eines zusammenhängenden Abschnitts zu füllen, z.B. bei grob
+            # abgetasteten OSM-Ways)
             final_coords = []
             for i, coord in enumerate(new_coords):
                 final_coords.append(coord)
@@ -93,21 +113,27 @@ def clip_road_polygons(road_polygons, grid_bounds_local, margin=3.0):
                             )
                             final_coords.append(inter_point)
 
+            road_id = road["id"]
+            if len(runs) > 1:
+                # Mehrere getrennte Abschnitte aus derselben Strasse -> eindeutige IDs
+                road_id = f"{road_id}_c{run_idx}" if isinstance(road_id, str) else road_id * 1000 + run_idx
+                split_count += 1
+
             clipped_roads.append(
                 {
-                    "id": road["id"],
+                    "id": road_id,
                     "coords": final_coords,
                     "name": road["name"],
-                    "osm_tags": road.get("osm_tags", {}),  # OSM-Tags durchreichen
+                    "osm_tags": osm_tags,  # OSM-Tags durchreichen
                 }
             )
             segment_count += len(coords) - len(final_coords)
-        else:
-            removed_count += 1
 
-    if removed_count > 0 or segment_count > 0:
+    if removed_count > 0 or segment_count > 0 or split_count > 0:
         logger.info(
-            f"  Clipping: {removed_count} Strassen entfernt, {segment_count} Punkte ausserhalb des Grids entfernt"
+            f"  Clipping: {removed_count} Strassen(-Abschnitte) entfernt, "
+            f"{segment_count} Punkte ausserhalb des Grids entfernt, "
+            f"{split_count} Strassen am Rand in getrennte Abschnitte gesplittet"
         )
 
     return clipped_roads
