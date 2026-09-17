@@ -66,7 +66,6 @@ class TerrainWorkflow:
             mark_junction_endpoints,
             split_roads_at_mid_junctions,
         )
-        from ..geometry.vertices import classify_grid_vertices
         from ..mesh.road_mesh import generate_road_mesh_strips
         from ..mesh.vertex_manager import VertexManager
         from ..mesh.terrain_mesh import generate_full_grid_mesh
@@ -260,9 +259,9 @@ class TerrainWorkflow:
             .build()
         )
 
-        # 9. Vertex-Klassifizierung (nutzt road_slope_polygons_2d)
+        # 9. Grid-Dimensionen extrahieren (Vertex-Klassifizierung entfällt -
+        # das Terrain wird nicht mehr trianguliert, siehe Task 9)
         grid_points, grid_elevations, nx, ny = grid
-        vertex_states = classify_grid_vertices(grid_points, grid_elevations, road_slope_polygons_2d)
 
         # 10. Road Mesh (mit Builder)
         from ..builders import RoadMeshBuilder
@@ -358,24 +357,105 @@ class TerrainWorkflow:
 
                 road_material_map[-(junction_id + 1)] = (best_mat, material_props[best_mat])
 
-        # 11. Terrain Mesh (mit Builder)
-        from ..builders import TerrainMeshBuilder
+        # 11. Terrain-Heightmap statt Mesh-Triangulierung (siehe Spec:
+        # docs/superpowers/specs/2026-09-17-terrain-heightmap-migration-design.md)
+        from ..terrain.heightmap import build_heightmap
+        from ..terrain.road_embedding import embed_roads_into_heightmap, road_mesh_to_arrays
+        from ..terrain.terrain_materials import build_photo_fallback_layer, paint_landuse_materials
 
-        terrain_mesh = (
-            TerrainMeshBuilder()
-            .with_grid(grid)
-            .with_vertex_states(vertex_states)
-            .with_vertex_manager(vertex_manager)
-            .with_road_mesh(road_mesh, road_slope_polygons_2d)  # NEU: Road-Faces mit Material-Mapping
-            .with_road_material_map(road_material_map)  # NEU: Übergebe komplette Material-Map (inkl. Junctions)
-            .with_stitching(road_slope_polygons_2d, junctions)
-            .build()
+        heightmap_result = build_heightmap(
+            grid_points, grid_elevations, nx, ny, config.TERRAIN_SQUARE_SIZE
         )
+        heights = heightmap_result["heights"]
+        terrain_size = heightmap_result["size"]
+        terrain_origin_x = heightmap_result["origin_x"]
+        terrain_origin_y = heightmap_result["origin_y"]
+
+        # Straßen-Einbettung: Terrain unter dem (unveränderten) Straßen-/
+        # Böschungsmesh knapp absenken
+        all_vertices = np.array(vertex_manager.get_array())
+        road_mesh_data_for_embedding = road_mesh[0]
+        road_vertices, road_triangles = road_mesh_to_arrays(road_mesh_data_for_embedding, all_vertices)
+        heights = embed_roads_into_heightmap(
+            heights,
+            terrain_origin_x,
+            terrain_origin_y,
+            config.TERRAIN_SQUARE_SIZE,
+            road_vertices,
+            road_triangles,
+            config.ROAD_EMBED_MARGIN,
+        )
+
+        # Layer-Map: Foto-Fallback pro Tile, dann OSM-Landnutzung obenauf
+        layer_map, photo_tile_names = build_photo_fallback_layer(
+            terrain_size, terrain_origin_x, terrain_origin_y, config.TERRAIN_SQUARE_SIZE, config.TILE_SIZE
+        )
+
+        from shapely.geometry import shape as shapely_shape
+        from pyproj import Transformer
+        from ..geometry.coordinates import transformer_to_wgs84
+
+        # osm_data enthält an dieser Stelle noch RAW Overpass-Geometrie (lat/lon,
+        # {"lat":.., "lon":..} pro Punkt) - dieselbe Situation, die
+        # ForestWorkflow._transform_osm_to_local() für Wald-Polygone löst.
+        # Für Landnutzungs-Polygone hier dieselbe WGS84->UTM->lokal-Transformation.
+        transformer_utm = Transformer.from_proj(
+            transformer_to_wgs84.target_crs,  # WGS84
+            transformer_to_wgs84.source_crs,  # UTM
+        )
+        offset_x, offset_y = global_offset[0], global_offset[1]
+
+        landuse_polygons = []
+        for element in osm_data:
+            tags = element.get("tags", {})
+            if not tags:
+                continue
+            geometry = element.get("geometry")
+            if not geometry or len(geometry) < 3:
+                continue
+            try:
+                coords_2d = []
+                for pt in geometry:
+                    if not isinstance(pt, dict) or "lat" not in pt or "lon" not in pt:
+                        continue
+                    utm_x, utm_y = transformer_utm.transform(pt["lon"], pt["lat"])
+                    coords_2d.append((utm_x - offset_x, utm_y - offset_y))
+                if len(coords_2d) < 3:
+                    continue
+                polygon = shapely_shape({"type": "Polygon", "coordinates": [coords_2d]})
+                if not polygon.is_valid or polygon.is_empty:
+                    continue
+            except Exception:
+                continue
+            landuse_polygons.append({"osm_tags": tags, "geometry": polygon})
+
+        layer_map, terrain_material_names = paint_landuse_materials(
+            layer_map,
+            photo_tile_names,
+            terrain_size,
+            terrain_origin_x,
+            terrain_origin_y,
+            config.TERRAIN_SQUARE_SIZE,
+            landuse_polygons,
+            config.OSM_MAPPER.config.get("landuse_mappings", {}),
+        )
+
+        z_min = float(heights.min())
+        z_max = float(heights.max())
+        max_height = (z_max - z_min) + config.TERRAIN_MAX_HEIGHT_BUFFER
 
         return {
             "status": "success",
             "road_mesh": road_mesh,
-            "terrain_mesh": terrain_mesh,
+            "heightmap": heights,
+            "terrain_size": terrain_size,
+            "terrain_origin_x": terrain_origin_x,
+            "terrain_origin_y": terrain_origin_y,
+            "z_min": z_min,
+            "max_height": max_height,
+            "layer_map": layer_map,
+            "terrain_material_names": terrain_material_names,
+            "photo_tile_names": photo_tile_names,
             "grid": grid,
             "vertex_manager": vertex_manager,
             "road_polygons": road_polygons,
@@ -406,7 +486,6 @@ class TerrainWorkflow:
 
         # Extrahiere Daten
         road_mesh_tuple = mesh_data["road_mesh"]
-        terrain_mesh = mesh_data["terrain_mesh"]
         road_slope_polygons_2d = mesh_data["road_slope_polygons_2d"]
         vertex_manager = mesh_data["vertex_manager"]
 
@@ -417,11 +496,6 @@ class TerrainWorkflow:
         # Konvertiere zurück in die beiden Arrays für diese Funktion (zur Kompatibilität)
         all_road_faces = [rd["vertices"] for rd in road_mesh_data]
         road_face_to_idx = [rd["road_id"] for rd in road_mesh_data]
-
-        # Entpacke terrain_mesh
-        terrain_faces = terrain_mesh["faces"]
-        mesh_obj = terrain_mesh.get("mesh_obj")  # NEU: Hole Mesh-Objekt mit face_uvs
-        vertex_normals = terrain_mesh.get("vertex_normals")
 
         # === Material-Mapping via OSM_MAPPER (wie im alten multitile.py) ===
         from ..config import OSM_MAPPER
@@ -506,35 +580,60 @@ class TerrainWorkflow:
         all_faces = []
         materials_per_face = []
 
-        # Iteriere über ALLE Faces in mesh_obj (enthält schon Roads mit korrekten Materialien!)
-        for face_idx, face in enumerate(terrain_faces):
-            all_faces.append(face)
-            # Hole Material aus mesh_obj.face_props
-            if mesh_obj and hasattr(mesh_obj, "face_props") and face_idx in mesh_obj.face_props:
-                mat_name = mesh_obj.face_props[face_idx].get("material", "terrain")
-                materials_per_face.append(mat_name)
-
-                # Füge zu unique_materials hinzu falls Road-Material
-                if mat_name != "terrain":
-                    # Suche Properties in road_material_map
-                    for r_id, (r_mat, r_props) in road_material_map.items():
-                        if r_mat == mat_name:
-                            unique_materials[mat_name] = r_props
-                            break
-            else:
-                materials_per_face.append("terrain")
+        for face_data in road_mesh_data:
+            all_faces.append(face_data["vertices"])
+            mat_name = None
+            r_id = face_data.get("road_id")
+            if r_id in road_material_map:
+                mat_name = road_material_map[r_id][0]
+            materials_per_face.append(mat_name or "road_default")
 
         # Hole alle Vertices vom VertexManager
         all_vertices = np.array(vertex_manager.get_array())
 
-        # Slice in Tiles (übergebe mesh_obj für indexed UV-System!)
+        # slice_mesh_into_tiles() erwartet für hochwertige Straßen-Texturierung
+        # ein mesh_obj mit .uv_indices/.uvs (siehe mesh/tile_slicer.py:330-360:
+        # "if mesh_obj and hasattr(mesh_obj, 'uv_indices') and original_face_idx
+        # in mesh_obj.uv_indices"). Vorher kamen diese UVs aus dem kombinierten
+        # Terrain+Road mesh_obj von TerrainMeshBuilder; die UV-Rohdaten selbst
+        # stammen aber unverändert aus RoadMeshBuilder (road_mesh_data[i]["uvs"]),
+        # nicht aus TerrainMeshBuilder. Ein minimaler Adapter reicht, um exakt
+        # dieselbe Straßen-Textur-Qualität wie vor der Migration zu erhalten
+        # (statt auf die gröbere Tile-planare Fallback-UV zurückzufallen, die
+        # slice_mesh_into_tiles sonst für Faces ohne mesh_obj-Treffer nutzt -
+        # siehe tile_slicer.py:361-369).
+        class _RoadUVAdapter:
+            """Minimaler mesh_obj-Ersatz: stellt nur die Road-UVs aus
+            road_mesh_data bereit, im von slice_mesh_into_tiles erwarteten
+            Format (uv_indices: {face_idx: [i0,i1,i2]}, uvs: [(u,v), ...])."""
+
+            def __init__(self, road_mesh_data, faces):
+                self.uvs = []
+                self.uv_indices = {}
+                uv_lookup = {}
+
+                for face_idx, face_data in enumerate(road_mesh_data):
+                    face_vertices = faces[face_idx]
+                    per_vertex_uv = face_data.get("uvs", {})
+                    indices = []
+                    for vertex_idx in face_vertices:
+                        uv = per_vertex_uv.get(vertex_idx, (0.0, 0.0))
+                        if uv not in uv_lookup:
+                            uv_lookup[uv] = len(self.uvs)
+                            self.uvs.append(uv)
+                        indices.append(uv_lookup[uv])
+                    self.uv_indices[face_idx] = indices
+
+        road_uv_adapter = _RoadUVAdapter(road_mesh_data, all_faces)
+
+        # Slice in Tiles (nur noch Straßen-Faces - Terrain ist jetzt .ter, kein Mesh mehr)
         tiles_dict = slice_mesh_into_tiles(
             vertices=all_vertices,
             faces=all_faces,
             materials_per_face=materials_per_face,
             tile_size=config.TILE_SIZE,
-            vertex_normals=vertex_normals,
-            mesh_obj=mesh_obj,  # Nutze indexed UV-System (uvs + uv_indices)
+            vertex_normals=None,
+            mesh_obj=road_uv_adapter,
         )
 
         # Export als DAE (SEPARATE Dateien pro Tile!)
@@ -547,7 +646,43 @@ class TerrainWorkflow:
             output_dir=shapes_dir,
             material_manager=self.materials,  # Übergebe MaterialManager-Referenz
             tile_size=config.TILE_SIZE,
-            mesh_obj=mesh_obj,  # Übergebe Mesh für direkte UV-Zugriff
+        )
+
+        # Terrain als .ter exportieren (natives BeamNG-Heightmap statt Mesh)
+        from ..terrain.ter_writer import write_ter, encode_heights_to_u16
+        from ..terrain.terrain_materials import build_terrain_material_entries
+
+        heights = mesh_data["heightmap"]
+        z_min = mesh_data["z_min"]
+        max_height = mesh_data["max_height"]
+        layer_map = mesh_data["layer_map"]
+        terrain_material_names = mesh_data["terrain_material_names"]
+        photo_tile_names = mesh_data["photo_tile_names"]
+
+        heightmap_u16 = encode_heights_to_u16(heights, z_min, max_height)
+        ter_filename = f"{config.LEVEL_NAME}.ter"
+        ter_path = config.BEAMNG_DIR / ter_filename
+        write_ter(ter_path, heightmap_u16, layer_map.astype("uint8"), terrain_material_names)
+        logger.info(f"  [OK] Terrain exportiert: {ter_filename} ({mesh_data['terrain_size']}x{mesh_data['terrain_size']})")
+
+        terrain_material_entries = build_terrain_material_entries(
+            terrain_material_names,
+            photo_tile_names,
+            config.OSM_MAPPER.config.get("landuse_mappings", {}),
+            config.LEVEL_NAME,
+            config.TILE_SIZE,
+        )
+        self.materials.add_terrain_materials(terrain_material_entries)
+
+        self.items.add_terrain_block(
+            name="theTerrain",
+            terrain_filename=ter_filename,
+            material_texture_set=f"{config.LEVEL_NAME}TerrainMaterialTextureSet",
+            max_height=max_height,
+            z_min=z_min,
+            origin_x=mesh_data["terrain_origin_x"],
+            origin_y=mesh_data["terrain_origin_y"],
+            overwrite=True,
         )
 
         # Generiere und füge Materials hinzu
@@ -585,13 +720,15 @@ class TerrainWorkflow:
         for mat_name, mat_data in terrain_materials.items():
             self.materials.materials[mat_name] = mat_data
 
-        # Erstelle TSStatic-Items für JEDES Tile (separate DAEs!)
-        logger.info(f"  Erstelle {len(dae_files)} TSStatic-Items...")
+        # Erstelle TSStatic-Items für JEDES Straßen-Tile (separate DAEs!)
+        # add_terrain() bleibt die richtige Convenience-Methode (TSStatic +
+        # "Visible Mesh Final"-Kollision) - dae_files enthält jetzt nur noch
+        # Straßen-Geometrie, kein Terrain mehr (siehe Step 4).
+        logger.info(f"  Erstelle {len(dae_files)} TSStatic-Items für Straßen-Tiles...")
         for dae_filename in dae_files:
             # Extrahiere Tile-Koordinaten: tile_-1000_-1000.dae → "-1000_-1000"
             tile_coords = Path(dae_filename).stem.replace("tile_", "")
-            item_name = f"terrain_tile_{tile_coords}"  # z.B. "terrain_tile_-1000_-1000"
-            # Nutze add_terrain() um persistentId und parentId automatisch zu erzeugen
+            item_name = f"road_tile_{tile_coords}"  # z.B. "road_tile_-1000_-1000"
             self.items.add_terrain(
                 name=item_name,
                 dae_filename=dae_filename,
@@ -599,5 +736,5 @@ class TerrainWorkflow:
                 overwrite=True,
             )
 
-        logger.info(f"  [OK] {len(dae_files)} Tile-DAEs exportiert")
+        logger.info(f"  [OK] {len(dae_files)} Straßen-Tile-DAEs exportiert")
         return dae_files
