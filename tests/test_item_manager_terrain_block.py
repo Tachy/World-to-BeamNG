@@ -20,6 +20,7 @@ def test_add_terrain_block_creates_correct_item(tmp_path):
         z_min=263.0,
         origin_x=-1024.0,
         origin_y=-1024.0,
+        square_size=2.0,
     )
 
     item = items.items["theTerrain"]
@@ -28,6 +29,7 @@ def test_add_terrain_block_creates_correct_item(tmp_path):
     assert item["maxHeight"] == 574.0
     assert item["materialTextureSet"] == "world_to_beamngTerrainMaterialTextureSet"
     assert item["terrainFile"] == "/levels/world_to_beamng/world_to_beamng.ter"
+    assert item["squareSize"] == 2.0
     ItemManager.reset_instance()
 
 

@@ -292,6 +292,7 @@ class ItemManager:
         z_min: float,
         origin_x: float,
         origin_y: float,
+        square_size: float,
         overwrite: bool = False,
     ) -> str:
         """
@@ -309,6 +310,8 @@ class ItemManager:
                        + tatsächliche Elevation-Spanne)
             z_min: absolute Welthöhe (Meter), die Heightmap-Wert 0 entspricht
             origin_x, origin_y: Welt-Koordinaten der Terrain-Ecke [0, 0]
+            square_size: Meter pro Rasterzelle (config.TERRAIN_SQUARE_SIZE) -
+                        Torque3D TerrainBlock-Feld "squareSize"
             overwrite: Überschreibe existierendes Item
 
         Returns:
@@ -324,6 +327,7 @@ class ItemManager:
             materialTextureSet=material_texture_set,
             maxHeight=max_height,
             terrainFile=f"/levels/{config.LEVEL_NAME}/{terrain_filename}",
+            squareSize=square_size,
         )
         return name
 
