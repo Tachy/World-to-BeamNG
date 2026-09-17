@@ -58,30 +58,55 @@ Nutzer-Workflows.
 
 ## 4. Kern-Mechanismus: Straßen-Einbettung (beantwortet Anforderung 3 + 4)
 
-Die Straßen-/Böschungsgeometrie wird **unverändert** wie heute berechnet
-(exaktes, analytisches Mesh, horizontal im Querschnitt, mit vorhandener
-Junction-Remeshing-Logik zwischen Straßensegmenten).
+**Korrektur (2026-09-17, während der Implementierung):** Die ursprüngliche
+Annahme unten — Böschungen seien bereits Teil des Straßen-Meshs — erwies sich
+beim ersten echten Pipeline-Lauf als falsch: `mesh/road_mesh.py` berechnet
+zwar Böschungs-*Vertices*, aber die zugehörige Flächen-Triangulierung wurde
+nie fertig implementiert (nur ein Kommentar "Böschungen sind deaktiviert",
+kein Code). Der Nutzer hat daraufhin die Richtung bestätigt: `GENERATE_SLOPES`
+bleibt **dauerhaft `False`**, Böschungs-Geometrie entsteht **nicht mehr im
+Mesh**, sondern ausschließlich im Terrain-Raster selbst (Abschnitt 4b).
 
-Neu ist ausschließlich, wie sie mit dem Terrain zusammenspielt:
+Die Straßen-Mesh-Geometrie (flache Fahrbahn, Querschnitt horizontal, Junction-
+Remeshing) wird davon nicht berührt — sie bleibt wie heute, nur ohne
+Böschungs-Anteil.
 
-Für jede Zelle des Terrain-Höhenrasters, die innerhalb eines Korridors um eine
-Straße liegt, wird die Höhe der (bereits vorhandenen) Straßen-/Böschungsfläche
-an exakt dieser XY-Position abgefragt, ein konfigurierbarer
-Sicherheitsabstand (`ROAD_EMBED_MARGIN`) abgezogen, und das Minimum aus
-diesem Wert und der natürlichen Terrainhöhe ins Raster geschrieben. Außerhalb
-des Korridors bleibt das Terrain unverändert. Liegen mehrere Straßen nah
-beieinander (Kreuzungen), wird einfach das Minimum aller beteiligten
-Absenkungen genommen — keine Sonderbehandlung für Kreuzungen nötig.
+Für die reine Fahrbahnfläche (ohne Böschung) gilt weiterhin: für jede Zelle
+des Terrain-Höhenrasters, die innerhalb des (jetzt schmaleren) Straßen-Mesh-
+Footprints liegt, wird die Höhe der Straßenoberfläche an exakt dieser
+XY-Position abgefragt, ein konfigurierbarer Sicherheitsabstand
+(`ROAD_EMBED_MARGIN`) abgezogen, und das Minimum aus diesem Wert und der
+natürlichen Terrainhöhe ins Raster geschrieben. Liegen mehrere Straßen nah
+beieinander (Kreuzungen), wird das Minimum aller beteiligten Absenkungen
+genommen.
 
-Weil die Böschung selbst (die den Höhenunterschied zur Umgebung überbrückt)
-bereits Teil der unveränderten Straßen-Mesh-Geometrie ist und dort endet, wo
-sie natürlich ins Gelände übergeht, muss das Terrain-Raster die
-Böschungsform nicht selbst nachbilden — es muss nur überall dort, wo diese
-Geometrie existiert, knapp darunter bleiben. Straßenoberfläche und
-Terrain-Kante werden dadurch an derselben Referenz ausgerichtet statt an zwei
-unabhängig berechneten Näherungen, was Anforderung 3 (immer horizontal, weil
-unveränderter Code) und Anforderung 4 (saubere Einbettung, weil beide Seiten
-konsistent sind) direkt erfüllt.
+## 4b. Böschung im Terrain-Raster (korrigierter Mechanismus)
+
+Da die Böschung nicht mehr im Mesh existiert, muss der Übergang von der
+Straßenkante zur natürlichen Umgebung direkt im Heightmap erzeugt werden —
+sonst entstünde an der Straßenkante ein harter Sprung.
+
+**Mechanismus:** Pro Straße wird entlang der (bereits dicht abgetasteten)
+Centerline für links und rechts je ein Kantenpunkt-Profil berechnet
+(Position bei halber Straßenbreite, Fahrbahnhöhe, natürliche Terrainhöhe an
+dieser Position aus dem noch unveränderten Heightmap bilinear abgetastet).
+Aus der Höhendifferenz und `config.SLOPE_ANGLE` ergibt sich pro Punkt eine
+Böschungsbreite (mindestens `MIN_SLOPE_WIDTH`, gedeckelt bei 30 m) — dieselbe
+Formel, die vorher (unvollständig) im Mesh-Code steckte, jetzt korrekt über
+den Tangens des Winkels statt hart auf 45° angenommen.
+
+Für jede Rasterzelle im so aufgespannten Böschungskorridor (zwischen
+Straßenkante und Kante+Böschungsbreite) wird linear zwischen Straßenkanten-
+Höhe (an der Kante) und der ursprünglichen natürlichen Terrainhöhe (am
+Korridor-Rand) interpoliert — das funktioniert für Damm (Straße höher) und
+Einschnitt (Straße tiefer) gleichermaßen, weil einfach in Richtung "natürliche
+Höhe" interpoliert wird, ohne Vorzeichen-Annahme. Außerhalb des Korridors
+bleibt das Terrain unangetastet.
+
+Überlappen sich die Böschungskorridore mehrerer Straßen (z.B. an Kreuzungen),
+gewinnt die zuletzt verarbeitete Straße — eine einfache, dokumentierte
+Vereinfachung; komplexe Kreuzungsbereiche können optisch minimal wirken, was
+für den ersten Wurf akzeptiert wird (siehe Abschnitt 10).
 
 ## 5. Architektur: Komponenten & Datenfluss
 
@@ -267,3 +292,11 @@ unabhängige Systeme auf denselben Quellpolygonen, kein Konflikt.
   Parität, spätere Feinabstimmung möglich).
 - Straßen-DAE-Tiling-Strategie überdenken, jetzt da sie nicht mehr an die
   Terrain-Kachelung gebunden ist.
+- Böschungs-Überblendung an komplexen Kreuzungen: aktuell "zuletzt
+  verarbeitete Straße gewinnt" bei überlappenden Korridoren (Abschnitt 4b) —
+  keine echte Multi-Straßen-Gewichtung. Bei Bedarf später verfeinern.
+- Die (jetzt permanent toten, aber harmlosen) Böschungs-Vertex-Berechnungen
+  in `mesh/road_mesh.py` hinter `if config.GENERATE_SLOPES:` wurden bewusst
+  nicht entfernt (Risiko/Scope-Minimierung an bestehendem Code) — nur die
+  abstürzende Log-Zeile wurde repariert. Aufräumen ist ein separates,
+  unabhängiges Cleanup-Ticket.
