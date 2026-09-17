@@ -148,7 +148,14 @@ GRID_BOUNDS_LOCAL = None  # Grid Bounds in lokalen Koordinaten (wird pro Tile ü
 
 # === OVERPASS API ENDPOINTS ===
 OVERPASS_ENDPOINTS = [
+    "https://overpass.private.coffee/api/interpreter",
     "https://overpass-api.de/api/interpreter",
-    "https://overpass.kumi.systems/api/interpreter",
-    "https://overpass.openstreetmap.ru/api/interpreter",
+    "https://overpass.osm.ch/api/interpreter",
 ]
+
+# Mehrere Overpass-Server lehnen Anfragen mit generischem "python-requests/x.x"
+# User-Agent ab (406 Not Acceptable) bzw. drosseln sie eher (429 Too Many
+# Requests). Community-Empfehlung aller drei Server oben: Projekt-Name + eine
+# Kontaktmöglichkeit angeben. Bei Bedarf hier durch eigene Kontaktdaten
+# (E-Mail/Projekt-URL) ergänzen - wird als Header an die Overpass-Server gesendet.
+OVERPASS_USER_AGENT = "World-to-BeamNG/1.0 (privates OSM-zu-BeamNG-Konvertierungstool)"
