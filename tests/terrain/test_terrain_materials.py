@@ -8,12 +8,16 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 import numpy as np
 from shapely.geometry import Polygon
 
+from PIL import Image
+
 from world_to_beamng.terrain.terrain_materials import (
     get_landuse_category,
     build_photo_fallback_layer,
     paint_landuse_materials,
     build_terrain_material_entries,
     build_terrain_material_texture_set,
+    ensure_flat_pbr_placeholders,
+    ensure_landuse_base_textures_sized,
 )
 
 LANDUSE_MAPPINGS_FIXTURE = {
@@ -32,54 +36,22 @@ def test_get_landuse_category_matches_active_only():
     assert get_landuse_category({}, LANDUSE_MAPPINGS_FIXTURE) is None
 
 
-def test_photo_fallback_layer_one_material_per_tile():
-    # 10x10 Raster, 1m/Zelle, tile_size=5m -> 2x2 Kacheln im Bereich
-    # Kein Padding involviert: real_max_x/y = origin + (size-1)*square_size
-    size, origin_x, origin_y, square_size = 10, 0.0, 0.0, 1.0
-    real_max_x = origin_x + (size - 1) * square_size
-    real_max_y = origin_y + (size - 1) * square_size
-    layer_map, names = build_photo_fallback_layer(
-        size=size, origin_x=origin_x, origin_y=origin_y, square_size=square_size, tile_size=5.0,
-        real_max_x=real_max_x, real_max_y=real_max_y,
-    )
-    assert layer_map.shape == (10, 10)
-    assert len(names) == 4  # 2x2 Kacheln
-    assert all(n.startswith("tile_") for n in names)
-    # Zelle (0,0) und Zelle (9,9) müssen unterschiedliche Kachel-Materialien haben
-    assert layer_map[0, 0] != layer_map[9, 9]
+def test_photo_fallback_layer_single_material_for_whole_area():
+    # Seit 2026-09-18: EIN Foto-Material für die gesamte Fläche statt vieler
+    # 500m-Kachel-Materialien (siehe Docstring von build_photo_fallback_layer() -
+    # BeamNGs Terrain-Atlas-Packer verdreht Kacheln sichtbar, wenn ihm zu viele
+    # große, einzigartige Materialien übergeben werden).
+    layer_map, names = build_photo_fallback_layer(size=20)
 
-
-def test_photo_fallback_layer_clamps_padding_to_real_bounds():
-    # Heightmap ist größer als die echten Höhendaten (Zweierpotenz-Padding,
-    # siehe heightmap.py:build_heightmap). Zellen jenseits der echten Bounds
-    # müssen dieselbe Kachel wie der echte Rand bekommen, nicht eine neue.
-    size, origin_x, origin_y, square_size, tile_size = 20, 0.0, 0.0, 1.0, 100.0
-    real_nx = 12  # echte Daten reichen nur bis Spalte 11 (0-indiziert)
-    real_max_x = origin_x + (real_nx - 1) * square_size  # = 11.0
-    real_max_y = origin_y + (size - 1) * square_size  # keine Padding in Y
-
-    layer_map, names = build_photo_fallback_layer(
-        size=size, origin_x=origin_x, origin_y=origin_y, square_size=square_size, tile_size=tile_size,
-        real_max_x=real_max_x, real_max_y=real_max_y,
-    )
-
-    # Alles liegt innerhalb einer einzigen 100m-Kachel -> nur ein Material,
-    # auch für Spalten jenseits von real_max_x (Padding-Bereich)
-    assert len(names) == 1
-    real_edge_material = layer_map[0, real_nx - 1]
-    padded_material = layer_map[0, size - 1]
-    assert padded_material == real_edge_material
+    assert layer_map.shape == (20, 20)
+    assert names == ["aerial_photo"]
+    assert (layer_map == 0).all()
 
 
 def test_paint_landuse_overwrites_photo_fallback():
     size = 20
-    real_max_x = 0.0 + (size - 1) * 1.0
-    real_max_y = 0.0 + (size - 1) * 1.0
-    layer_map, names = build_photo_fallback_layer(
-        size=size, origin_x=0.0, origin_y=0.0, square_size=1.0, tile_size=100.0,
-        real_max_x=real_max_x, real_max_y=real_max_y,
-    )
-    assert len(names) == 1  # ein Foto-Tile deckt alles ab
+    layer_map, names = build_photo_fallback_layer(size=size)
+    assert len(names) == 1  # ein Foto-Material deckt alles ab
 
     forest_polygon = Polygon([(5, 5), (15, 5), (15, 15), (5, 15)])
     landuse_polygons = [{"osm_tags": {"landuse": "forest"}, "geometry": forest_polygon}]
@@ -125,20 +97,80 @@ def test_paint_landuse_priority_resolves_overlap():
     assert new_layer_map[1, 1] == farmland_index
 
 
+def _fake_placeholders_for_tier(tier: str) -> dict:
+    return {
+        channel: f"/levels/world_to_beamng/art/shapes/textures/_flat_{channel}_{tier}.png"
+        for channel in ("baseColor", "normal", "roughness", "ao", "height")
+    }
+
+
+_FAKE_PLACEHOLDERS = {tier: _fake_placeholders_for_tier(tier) for tier in ("base", "detail", "macro")}
+
+# BeamNGs v1.5-Terrain-Material-Editor speichert kein TerrainMaterial mit
+# leerem Texturslot (siehe terrain_materials.py::_add_required_pbr_slots());
+# ohne einen davon rendert BeamNG die "warning texture" (grauer Boden).
+_REQUIRED_TERRAIN_TEX_FIELDS = [
+    f"{channel}{tier}Tex" for channel in ("baseColor", "normal", "roughness", "ao", "height") for tier in ("Base", "Detail", "Macro")
+]
+
+
 def test_build_terrain_material_entries():
-    material_names = ["tile_0_0", "mat_forest"]
-    photo_tile_names = ["tile_0_0"]
+    material_names = ["aerial_photo", "mat_forest"]
+    photo_tile_names = ["aerial_photo"]
 
     entries = build_terrain_material_entries(
-        material_names, photo_tile_names, LANDUSE_MAPPINGS_FIXTURE, "world_to_beamng", 500.0
+        material_names, photo_tile_names, LANDUSE_MAPPINGS_FIXTURE, "world_to_beamng", 2048.0, _FAKE_PLACEHOLDERS
     )
 
-    assert "tile_0_0" in entries
-    assert entries["tile_0_0"]["class"] == "TerrainMaterial"
-    assert "levels/world_to_beamng" in entries["tile_0_0"]["baseColorBaseTex"]
+    assert "aerial_photo" in entries
+    assert entries["aerial_photo"]["class"] == "TerrainMaterial"
+    assert "levels/world_to_beamng" in entries["aerial_photo"]["baseColorBaseTex"]
+    assert entries["aerial_photo"]["baseColorBaseTexSize"] == 2048.0
 
     assert "mat_forest" in entries
     assert entries["mat_forest"]["baseColorBaseTex"] == "a/forest_b.png"
+
+    for name in ("aerial_photo", "mat_forest"):
+        for field in _REQUIRED_TERRAIN_TEX_FIELDS:
+            assert field in entries[name], f"{name} fehlt Pflichtfeld {field}"
+
+
+def test_ensure_flat_pbr_placeholders_matches_declared_tex_sizes(tmp_path):
+    # Regression: BeamNG meldet "dont have required size of W-H" und rendert
+    # die "warning texture" (grauer Boden), wenn ein Texturslot nicht exakt
+    # die in der TerrainMaterialTextureSet deklarierte Pixelgröße hat - ein
+    # generisches 8x8-Platzhalterbild reichte NICHT (Recherche 2026-09-18).
+    placeholders = ensure_flat_pbr_placeholders(tmp_path, "world_to_beamng", base_tex_size=4096, detail_tex_size=1024, macro_tex_size=1024)
+
+    for tier, expected_size in (("base", 4096), ("detail", 1024), ("macro", 1024)):
+        for channel, level_path in placeholders[tier].items():
+            filename = level_path.rsplit("/", 1)[-1]
+            with Image.open(tmp_path / filename) as img:
+                assert img.size == (expected_size, expected_size), f"{tier}/{channel}: {img.size}"
+
+
+def test_ensure_landuse_base_textures_sized_resizes_mismatched_textures(tmp_path):
+    beamng_dir = tmp_path / "levels" / "world_to_beamng"
+    textures_dir = beamng_dir / "art" / "shapes" / "textures"
+    source_dir = beamng_dir / "art" / "shapes" / "assets"
+    source_dir.mkdir(parents=True)
+    small_texture = source_dir / "t_forest_ground_b.png"
+    Image.new("RGB", (512, 512), (10, 80, 10)).save(small_texture)
+
+    landuse_mappings = {
+        "forest": {
+            "internal_name": "mat_forest",
+            "baseColorMap": f"levels/world_to_beamng/art/shapes/assets/{small_texture.name}",
+        },
+    }
+
+    result = ensure_landuse_base_textures_sized(landuse_mappings, 4096, beamng_dir, textures_dir, "world_to_beamng")
+
+    new_path = result["forest"]["baseColorMap"]
+    assert new_path != landuse_mappings["forest"]["baseColorMap"]
+    filename = new_path.rsplit("/", 1)[-1]
+    with Image.open(textures_dir / filename) as img:
+        assert img.size == (4096, 4096)
 
 
 def test_build_terrain_material_texture_set():
@@ -146,15 +178,18 @@ def test_build_terrain_material_texture_set():
     assert "myTerrainTextureSet" in entries
     assert entries["myTerrainTextureSet"]["class"] == "TerrainMaterialTextureSet"
     assert entries["myTerrainTextureSet"]["baseTexSize"] == [1024, 1024]
+    # TerrainBlock.materialTextureSet resolves this via the SimObject "name" field
+    # (not "internalName" - that's only for TerrainMaterial .ter-layer lookups).
+    # Missing "name" -> BeamNG logs "Failed to find TerrainMaterialTextureSet with
+    # name: ..." and crashes on the first terrain draw with a D3D12 root-cbv assert.
+    assert entries["myTerrainTextureSet"]["name"] == "myTerrainTextureSet"
 
 
 if __name__ == "__main__":
     test_get_landuse_category_matches_active_only()
     print("[OK] test_get_landuse_category_matches_active_only")
-    test_photo_fallback_layer_one_material_per_tile()
-    print("[OK] test_photo_fallback_layer_one_material_per_tile")
-    test_photo_fallback_layer_clamps_padding_to_real_bounds()
-    print("[OK] test_photo_fallback_layer_clamps_padding_to_real_bounds")
+    test_photo_fallback_layer_single_material_for_whole_area()
+    print("[OK] test_photo_fallback_layer_single_material_for_whole_area")
     test_paint_landuse_overwrites_photo_fallback()
     print("[OK] test_paint_landuse_overwrites_photo_fallback")
     test_paint_landuse_priority_resolves_overlap()

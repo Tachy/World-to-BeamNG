@@ -158,22 +158,25 @@ class OSMMapper:
 
         # Fallback für fehlende Texturen - nutze einfache Farben
         stages_config = {
-            #            "useAnisotropic": True,
             "specularPower": 1.0,
             "pixelSpecular": True,
         }
 
-        # Texturen IMMER verwenden (wenn vorhanden)
+        # Volle PBR-Textur-Stufe für DecalRoad-Materialien (verifiziert gegen
+        # BeamNGs eigenes west_coast_usa/art/road/main.materials.json ->
+        # "road_asphalt_2lane": baseColorMap+normalMap+roughnessMap+
+        # ambientOcclusionMap+opacityMap ist dort der Standard, nicht nur
+        # baseColorMap).
         if tex.get("baseColorMap"):
             stages_config["baseColorMap"] = tex.get("baseColorMap")
-        #        if tex.get("normalMap"):
-        #            stages_config["normalMap"] = tex.get("normalMap")
-        #        if tex.get("roughnessMap"):
-        #            stages_config["roughnessMap"] = tex.get("roughnessMap")
-        #        if tex.get("ambientOcclusionMap"):
-        #            stages_config["ambientOcclusionMap"] = tex.get("ambientOcclusionMap")
-        #        if tex.get("opacityMap"):
-        #            stages_config["opacityMap"] = tex.get("opacityMap")
+        if tex.get("normalMap"):
+            stages_config["normalMap"] = tex.get("normalMap")
+        if tex.get("roughnessMap"):
+            stages_config["roughnessMap"] = tex.get("roughnessMap")
+        if tex.get("ambientOcclusionMap"):
+            stages_config["ambientOcclusionMap"] = tex.get("ambientOcclusionMap")
+        if tex.get("opacityMap"):
+            stages_config["opacityMap"] = tex.get("opacityMap")
 
         # Fallback nur wenn Texturen-Keys nicht vorhanden sind
         if not any(k in stages_config for k in ["baseColorMap", "normalMap", "roughnessMap"]):
@@ -183,20 +186,36 @@ class OSMMapper:
                 color.append(1.0)
             stages_config["diffuseColor"] = color
 
-        # groundModelName gehört auf TOP-LEVEL (nicht in Stages)!
-        ground_model_name = props.get("groundModelName", "asphalt")
+        # groundType gehört auf TOP-LEVEL (nicht in Stages) und MUSS einer der
+        # ~32 offiziellen, GROSSGESCHRIEBENEN Bezeichner aus BeamNGs eigener
+        # art/groundmodels.json sein (z.B. "ASPHALT", "DIRT") - sonst greift
+        # stillschweigend der ASPHALT-Fallback für Reifenphysik/-sound. Der
+        # frühere Key "groundModelName" (kleingeschrieben) wurde von BeamNG
+        # gar nicht ausgewertet.
+        ground_type = str(props.get("groundModelName", "asphalt")).upper()
+        annotation = "ASPHALT" if ground_type.startswith("ASPHALT") else "NATURE"
 
         return {
             "__name": mat_name,  # ← WICHTIG: __name für MaterialManager
             "name": mat_name,
             "mapTo": mat_name,
             "class": "Material",
-            "version": 2,
-            "groundModelName": ground_model_name,  # ← TOP-LEVEL (nicht in Stages)
-            #            "shader": "PBR",  # ← WICHTIG: PBR-Shader für Textur-Rendering!
+            "version": 1.5,
+            "groundType": ground_type,  # ← TOP-LEVEL (nicht in Stages)
             "Stages": [stages_config],
-            #            "materialTag0": "RoadAndPath",  # ← KRITISCH: BeamNG erkennt nur "RoadAndPath" als Straßen-Material!
-            #            "materialTag1": "custom",  # Custom-Materialien mit BeamNG Standard-Texturen
+            # materialTag0="RoadAndPath": BeamNG erkennt nur das als Straßen-
+            # Material für Traffic-KI/Navmesh. materialTag1/annotation nach
+            # dem Schema von BeamNGs eigenen DecalRoad-Materialien
+            # (west_coast_usa/art/road/main.materials.json).
+            "materialTag0": "RoadAndPath",
+            "materialTag1": "beamng",
+            "annotation": annotation,
+            # translucent/translucentZWrite: PFLICHT für DecalRoad-Materialien
+            # (verifiziert gegen west_coast_usa "road_asphalt_2lane") - ohne
+            # diese Flags kann BeamNG das Decal nicht korrekt auf die
+            # Terrain-Oberfläche darunter verblenden.
+            "translucent": True,
+            "translucentZWrite": True,
             "persistentId": str(uuid.uuid4()),  # ← KRITISCH: BeamNG braucht eindeutige IDs für Material-Persistierung!
         }
 

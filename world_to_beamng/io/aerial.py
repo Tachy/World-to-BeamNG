@@ -141,233 +141,112 @@ def enhance_dop20_image(image, contrast_factor=1.18, brightness_factor=0.92, col
     return image
 
 
-def tile_image(image, tile_size=1000):
+AERIAL_PHOTO_FILENAME = "aerial_photo.png"
+
+
+def process_aerial_images(aerial_dir, output_dir, grid_bounds, global_offset, target_pixel_size=None):
     """
-    Teilt ein Bild in tile_size x tile_size Pixel große Kacheln auf.
+    Setzt alle Luftbilder zu EINEM zusammenhängenden Foto für die gesamte
+    grid_bounds-Fläche zusammen (statt vieler kleiner 500m-Kacheln).
 
-    Args:
-        image: PIL Image
-        tile_size: Kachelgröße in Pixeln
+    Hintergrund (Recherche 2026-09-18): BeamNGs v1.5-Terrain-Material-System
+    ist laut offizieller Doku für eine KLEINE Anzahl wiederholender Materialien
+    ausgelegt ("keep terrain material counts much lower than the technical
+    limit"), nicht für viele (16-25) einzigartige 4096px-Texturen. Mit vielen
+    großen, einzigartigen Materialien hat BeamNGs Textur-Atlas-Packer beim
+    Verpacken einzelne Kacheln verdreht dargestellt, obwohl die Quelldateien
+    nachweislich korrekt waren (jede für sich UND als zusammengesetztes Mosaik
+    lückenlos). Mit nur einem Material für die gesamte Fläche entfällt dieses
+    Packing-Problem komplett.
 
-    Returns:
-        List von PIL Image Objekten (Kacheln)
-    """
-    width, height = image.size
-    tiles = []
-
-    tiles_x = (width + tile_size - 1) // tile_size
-    tiles_y = (height + tile_size - 1) // tile_size
-
-    for y_idx in range(tiles_y):
-        for x_idx in range(tiles_x):
-            x1 = x_idx * tile_size
-            y1 = y_idx * tile_size
-            x2 = min(x1 + tile_size, width)
-            y2 = min(y1 + tile_size, height)
-
-            tile = image.crop((x1, y1, x2, y2))
-
-            # Falls Kachel kleiner als tile_size, fülle mit schwarzem Rand auf
-            if tile.size != (tile_size, tile_size):
-                padded = Image.new("RGB", (tile_size, tile_size), (0, 0, 0))
-                padded.paste(tile, (0, 0))
-                tile = padded
-
-            tiles.append(tile)
-
-    return tiles
-
-
-def process_aerial_images(aerial_dir, output_dir, grid_bounds, global_offset, tile_world_size=400.0, tile_size=1000):
-    """
-    Verarbeitet alle Luftbilder: Extrahiert aus ZIPs, kachelt basierend auf Georeferenzierung.
-
-    Verwendet .tfw World Files zur Bestimmung der Position jedes Luftbilds.
-    Tiles werden basierend auf Weltkoordinaten benannt.
+    Nutzt .tfw World Files zur exakten Positionierung jedes Quellbilds auf
+    einer gemeinsamen Leinwand in nativer Auflösung, skaliert das Ergebnis
+    danach auf target_pixel_size herunter.
 
     Args:
         aerial_dir: Verzeichnis mit ZIP-Archiven
-        output_dir: Zielverzeichnis für Kacheln
+        output_dir: Zielverzeichnis für das zusammengesetzte Foto
         grid_bounds: (min_x, max_x, min_y, max_y) in lokalen Koordinaten
         global_offset: (utm_x, utm_y, utm_z) tuple - UTM Offset für Koordinaten-Transformation
-        tile_world_size: Tile-Größe in Metern (Standard: 400.0)
-        tile_size: Kachelgröße in Pixeln (Standard: 1000)
+        target_pixel_size: Kantenlänge (Pixel) des Ausgabefotos (Default: config.TERRAIN_BASE_TEX_PIXEL_SIZE)
 
     Returns:
-        Anzahl gespeicherter Kacheln
+        1 wenn ein Foto gespeichert wurde, sonst 0
     """
+    if target_pixel_size is None:
+        target_pixel_size = config.TERRAIN_BASE_TEX_PIXEL_SIZE
 
-    # Extrahiere Bilder mit Georeferenzierung
     images = extract_images_from_zips(aerial_dir)
-
     if not images:
         logger.debug("  [i] Keine Luftbilder gefunden")
         return 0
 
-    # Filtere Bilder ohne World File Info
     images_with_geo = [(name, data, info) for name, data, info in images if info is not None]
-
     if not images_with_geo:
         logger.error(f"  [!] Keine Georeferenzierung gefunden (fehlen .tfw-Dateien?)")
         return 0
 
     logger.debug(f"  [i] {len(images_with_geo)} Luftbilder mit Georeferenzierung gefunden")
 
-    # Debug: Zeige erste Luftbild-Info
-    if images_with_geo:
-        first_name, first_data, first_info = images_with_geo[0]
-        first_img = Image.open(BytesIO(first_data))
-        logger.debug(f"  [DEBUG] Erstes Luftbild: {first_name}")
-        logger.info(f"    Größe: {first_img.size[0]}×{first_img.size[1]} Pixel")
-        logger.info(f"    Pixel-Größe: {first_info['pixel_size_x']}m/px")
-        logger.info(
-            f"    Abdeckung: {first_img.size[0] * abs(first_info['pixel_size_x']
-):.0f}m × {first_img.size[1] * abs(first_info['pixel_size_y']):.0f}m"
-        )
-        logger.info(f"    UTM Origin: ({first_info['x_origin']:.1f}, {first_info['y_origin']:.1f})")
-
-    # Grid-Bounds
     grid_min_x, grid_max_x, grid_min_y, grid_max_y = grid_bounds
     grid_width = grid_max_x - grid_min_x
     grid_height = grid_max_y - grid_min_y
-
-    # Global Offset (UTM -> lokal) - Z ist optional
     offset_x, offset_y = global_offset[:2]
-    offset_z = global_offset[2] if len(global_offset) > 2 else 0.0
 
-    logger.debug(
-        f"  [DEBUG] Grid Bounds (lokal): X=[{grid_min_x:.1f}..{grid_max_x:.1f}], Y=[{grid_min_y:.1f}..{grid_max_y:.1f}]"
+    # Native Auflösung als Referenz für die Leinwand (alle DOP20-Kacheln einer
+    # Region haben dieselbe Pixelgröße, z.B. 0.2m/px).
+    native_pixel_size = abs(images_with_geo[0][2]["pixel_size_x"])
+    canvas_w = max(1, round(grid_width / native_pixel_size))
+    canvas_h = max(1, round(grid_height / native_pixel_size))
+    logger.info(
+        f"  [i] Baue Gesamt-Luftbild: {grid_width:.0f}m x {grid_height:.0f}m "
+        f"@ {native_pixel_size}m/px = {canvas_w}x{canvas_h}px nativ -> {target_pixel_size}x{target_pixel_size}px"
     )
-    logger.debug(f"  [DEBUG] Grid Größe: {grid_width:.1f}m × {grid_height:.1f}m")
-    logger.debug(
-        f"  [DEBUG] Erwartete Tiles: {int(grid_width/tile_world_size)}×{int(grid_height/tile_world_size)} = {int(grid_width/tile_world_size) * int(grid_height/tile_world_size)}"
-    )
-    logger.debug(f"  [DEBUG] LOCAL_OFFSET: ({offset_x:.1f}, {offset_y:.1f}, {offset_z:.1f})")
 
-    # Erstelle Ausgabeverzeichnis
-    output_path = Path(output_dir)
-    output_path.mkdir(parents=True, exist_ok=True)
+    # Füllfarbe für evtl. Lücken (keine Luftbild-Deckung) - gedecktes Grün statt
+    # Schwarz/Magenta, damit fehlende Randbereiche nicht grell auffallen.
+    canvas = Image.new("RGB", (canvas_w, canvas_h), (70, 95, 55))
 
-    tile_counter = 0
-    unique_tiles = set()  # Tracking für eindeutige Tiles
-
+    pasted = 0
     for img_name, img_data, world_info in images_with_geo:
         try:
-            # Lade Bild
             image = Image.open(BytesIO(img_data))
-            width, height = image.size
-
-            # Verbessere DOP20-Bild für naturgetreuere Darstellung
             image = enhance_dop20_image(image)
-
-            # Welt-Koordinaten des Luftbilds (UTM)
-            img_utm_x = world_info["x_origin"]
-            img_utm_y = world_info["y_origin"]
-
-            # Nutze .tfw Metadaten direkt für Pixel-Größe
             pixel_size = abs(world_info["pixel_size_x"])
 
-            # Transformiere zu lokalen Koordinaten
-            # .tfw Ursprung ist oben-links, Y wächst nach unten (negative Richtung in lokalen Koordinaten)
-            img_local_x = img_utm_x - offset_x
-            img_local_y = img_utm_y - offset_y  # Obere linke Ecke
-            # Kachle Bild
-            tiles = tile_image(image, tile_size=tile_size)
-            logger.debug(
-                f"    [DEBUG] Luftbild {img_name}: {width}x{height}px -> {len(tiles
-)} Tiles (tile_size={tile_size}px)"
-            )
+            # .tfw-Ursprung ist die obere linke (nordwestliche) Pixelecke.
+            img_local_x = world_info["x_origin"] - offset_x
+            img_local_y = world_info["y_origin"] - offset_y
 
-            # Berechne Anzahl Tiles pro Dimension
-            tiles_per_row = (width + tile_size - 1) // tile_size
+            if not math.isclose(pixel_size, native_pixel_size, rel_tol=1e-6):
+                scale = pixel_size / native_pixel_size
+                image = image.resize(
+                    (max(1, round(image.width * scale)), max(1, round(image.height * scale))),
+                    Image.Resampling.LANCZOS,
+                )
 
-            # Speichere Kacheln mit Geo-basierter Indizierung
-            for tile_idx, tile_img in enumerate(tiles):
-                # Lokale Position innerhalb des Luftbilds
-                local_x_idx = tile_idx % tiles_per_row
-                local_y_idx = tile_idx // tiles_per_row
+            # Position auf der Leinwand: Ursprung der Leinwand ist die
+            # nordwestliche Ecke (grid_min_x, grid_max_y), Zeile 0 = Norden -
+            # Standard-Bildkonvention, keine Kachel-Bucket-Arithmetik mehr nötig.
+            px = round((img_local_x - grid_min_x) / native_pixel_size)
+            py = round((grid_max_y - img_local_y) / native_pixel_size)
 
-                # Lokale Position dieser Tile
-                # Luftbild hat Ursprung oben-links, Y läuft nach unten in Pixeln
-                tile_size_m = tile_size * pixel_size
-                tile_local_x = img_local_x + (local_x_idx * tile_size_m)
-                tile_local_y = img_local_y - (local_y_idx * tile_size_m)  # Obere Kante dieser Tile
-
-                # Berechne globale Tile-Indizes relativ zum Grid
-                # Nutze math.floor() für korrekte Behandlung negativer Zahlen
-                global_x_idx = math.floor((tile_local_x - grid_min_x) / tile_world_size)
-                global_y_idx = math.floor((tile_local_y - grid_min_y) / tile_world_size)
-                if len(unique_tiles) < 8:
-                    logger.info(
-                        f"      [{img_name[-30:]}] Tile({local_x_idx},{local_y_idx}) @ World({tile_local_x:.0f},{tile_local_y:.0f}) -> Grid-Idx({global_x_idx},{global_y_idx})"
-                    )
-
-                # Prüfe ob Tile innerhalb des Grids liegt
-                tiles_x = int(grid_width / tile_world_size)
-                tiles_y = int(grid_height / tile_world_size)
-
-                if 0 <= global_x_idx < tiles_x and 0 <= global_y_idx < tiles_y:
-                    # Berechne Koordinaten der oberen linken Ecke dieses Tiles
-                    tile_corner_x = int(grid_min_x + global_x_idx * tile_world_size)
-                    tile_corner_y = int(grid_min_y + global_y_idx * tile_world_size)
-                    filename_base = f"tile_{tile_corner_x}_{tile_corner_y}"
-                    png_filename = f"{filename_base}.png"
-                    dds_filename = f"{filename_base}.dds"
-                    png_filepath = output_path / png_filename
-                    dds_filepath = output_path / dds_filename
-
-                    # Konvertiere zu RGB falls nötig
-                    if tile_img.mode != "RGB":
-                        tile_img = tile_img.convert("RGB")
-
-                    # Speichere temporär als PNG für texconv
-                    tile_img.save(png_filepath, "PNG")
-
-                    # Konvertiere zu DDS (BC1, volle Mipmap-Kette) mit texconv.
-                    # Pixelgröße MUSS mit baseTexSize der TerrainMaterialTextureSet
-                    # übereinstimmen (siehe config.TERRAIN_BASE_TEX_PIXEL_SIZE) - sonst
-                    # stürzt BeamNGs D3D12-Renderer beim Laden des Terrain-Material-Atlas ab.
-                    import subprocess
-
-                    tex_size = str(config.TERRAIN_BASE_TEX_PIXEL_SIZE)
-                    texconv_exe = Path("bin/texconv.exe")
-                    cmd = [
-                        str(texconv_exe),
-                        "-f",
-                        "BC1_UNORM",  # BeamNG-kompatibel (nicht BC7!)
-                        "-w",
-                        tex_size,
-                        "-h",
-                        tex_size,
-                        "-m",
-                        "0",
-                        "-y",
-                        "-o",
-                        str(output_path),
-                        str(png_filepath),
-                    ]
-                    subprocess.run(cmd, capture_output=True, text=True, check=True)
-
-                    # texconv erstellt DDS mit gleichem Stammnamen
-                    texconv_output = png_filepath.with_suffix(".dds")
-                    if texconv_output.exists() and texconv_output != dds_filepath:
-                        texconv_output.rename(dds_filepath)
-
-                    # Lösche PNG nach erfolgreicher Konvertierung
-                    if png_filepath.exists():
-                        png_filepath.unlink()
-
-                    tile_counter += 1
-                    unique_tiles.add((global_x_idx, global_y_idx))
-
+            canvas.paste(image, (px, py))
+            pasted += 1
         except Exception as e:
             logger.error(f"  [!] Fehler beim Verarbeiten von {img_name}: {e}")
             continue
 
-    logger.info(f"  [OK] {tile_counter} Kacheln gespeichert ({len(unique_tiles)} eindeutige Tiles)")
-    logger.debug(
-        f"  [i] Tile-Range: X=[{min(t[0] for t in unique_tiles
-)}..{max(t[0] for t in unique_tiles)}], Y=[{min(t[1] for t in unique_tiles)}..{max(t[1] for t in unique_tiles)}]"
-    )
-    logger.info(f"  [OK] {tile_counter} Kacheln gespeichert in {output_path}")
-    return tile_counter
+    if pasted == 0:
+        logger.error("  [!] Keine Luftbilder konnten platziert werden")
+        return 0
+
+    canvas = canvas.resize((target_pixel_size, target_pixel_size), Image.Resampling.LANCZOS)
+
+    output_path = Path(output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
+    filepath = output_path / AERIAL_PHOTO_FILENAME
+    canvas.save(filepath, "PNG")
+
+    logger.info(f"  [OK] Gesamt-Luftbild aus {pasted} Quellbildern gespeichert: {filepath}")
+    return 1

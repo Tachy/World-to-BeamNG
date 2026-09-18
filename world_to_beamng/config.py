@@ -49,18 +49,14 @@ HORIZON_GRID_SPACING = 200  # Horizont-Grid Auflösung in Metern (200m)
 
 # === MESH-PARAMETER ===
 ROAD_WIDTH = 7.0
-# Winkel-Schwelle für dynamischen Junction-Buffer (Grad). Unterhalb dieses Winkels wird ein winkelabhängiger Buffer aktiviert.
-# Buffer = half_width / sin(angle/2) - half_width (asymmetrisch pro Straße)
-JUNCTION_STOP_ANGLE_THRESHOLD = 90.0
-# Buffer-Abstand beim Stoppen vor Junctions (Meter)
-JUNCTION_STOP_BUFFER = 5.0
 
 # === FOREST GENERATION PARAMETERS ===
 FOREST_ROAD_MARGIN = 5.0  # Puffer um Straßen zur Baum-Filterung (in Metern, links & rechts)
 
-# Böschungs-Geometrie entsteht NICHT im Mesh (die Face-Triangulierung dafür
-# wurde nie fertig implementiert, siehe mesh/road_mesh.py) - stattdessen wird
-# der Übergang zur Umgebung direkt im Terrain-Heightmap erzeugt, siehe
+# Böschungs-Geometrie entsteht NICHT im Mesh - Straßen selbst werden seit der
+# DecalRoad-Umstellung überhaupt nicht mehr als Mesh exportiert (siehe
+# workflow/terrain_workflow.py::export_decal_roads()). Der Übergang zur
+# Umgebung entsteht direkt im Terrain-Heightmap, siehe
 # terrain/road_embedding.py:apply_embankment_blend(). Dieser Flag bleibt
 # dauerhaft False.
 GENERATE_SLOPES = False
@@ -72,17 +68,18 @@ MIN_SLOPE_WIDTH = 2
 MAX_SLOPE_WIDTH = 30.0
 SLOPE_ANGLE = 45.0  # Neigungswinkel der Boeschung in Grad (45° = 1:1 Steigung)
 # Vorab-Reduktion ueber groeberes Grid (Strategie 2). Fuer feineres Terrain z.B. 1.0 setzen.
-GRID_SPACING = 2.0  # Abstand zwischen Grid-Punkten in Metern (1.0 = sehr fein, 10.0 = grob)
+GRID_SPACING = 1.0  # Abstand zwischen Grid-Punkten in Metern (native DGM1-Auflösung; 10.0 = grob)
 TERRAIN_REDUCTION = 0  # Decimation bleibt aus; steuern wir ueber GRID_SPACING
 
 # === NATIVES TERRAIN (.terrain-Heightmap) ===
 # Meter pro Heightmap-Rasterzelle. = GRID_SPACING für Auflösungs-Parität zum
 # bisherigen Mesh-Ansatz (siehe Spec Abschnitt 2, Anforderung 2).
 TERRAIN_SQUARE_SIZE = GRID_SPACING
-# Sicherheitsabstand (Meter), den das Terrain unter der Straßen-/Böschungs-
-# Mesh-Oberfläche bleiben muss, damit nichts durchsticht oder Z-Fighting
-# entsteht (siehe Spec Abschnitt 4).
-ROAD_EMBED_MARGIN = 0.1
+# Kein ROAD_EMBED_MARGIN/Gefälle-Kompensation mehr nötig (frühere, jetzt
+# entfernte Konstanten): seit der Umstellung auf BeamNG `DecalRoad` (siehe
+# terrain/road_embedding.py-Moduldocstring) gibt es keine zweite, separat
+# kodierte Straßen-Oberfläche mehr, die getroffen werden müsste - das
+# Terrain wird direkt exakt auf Straßen-Centerline-Höhe gesetzt.
 # Puffer (Meter) über dem tatsächlichen Höhen-Max/-Min beim Berechnen von
 # maxHeight für die .terrain-Datei (siehe Spec Abschnitt 8).
 TERRAIN_MAX_HEIGHT_BUFFER = 50.0
@@ -114,13 +111,24 @@ CLIP_ROAD_FACES_AT_BOUNDS = True  # True = Entferne Straßen-Dreiecke, die kompl
 # === TILE-EXPORT (DAE) ===
 TILE_SIZE = 500  # Größe pro DAE-Tile in Metern
 
-# Pixel-Auflösung, mit der texconv die Luftbild-Kacheln als DDS schreibt
-# (io/aerial.py). MUSS mit dem baseTexSize der TerrainMaterialTextureSet
-# (terrain_workflow.py) übereinstimmen - sonst bindet BeamNG beim Packen des
-# Terrain-Material-Atlas eine falsch dimensionierte Textur und der D3D12-
-# Renderer stürzt mit "root cbv with 0 gpu va" ab (siehe Terrain-Material-
-# Crash-Fix vom 2026-09-17).
-TERRAIN_BASE_TEX_PIXEL_SIZE = 4096
+# Pixel-Kantenlänge des EINEN zusammengesetzten Luftbilds für die gesamte
+# Fläche (io/aerial.py::process_aerial_images() - seit 2026-09-18 kein
+# Foto-Material mehr pro 500m-Kachel, siehe dortigen Docstring). MUSS mit dem
+# baseTexSize der TerrainMaterialTextureSet (terrain_workflow.py)
+# übereinstimmen, sonst packt BeamNG eine falsch dimensionierte Textur in den
+# Terrain-Material-Atlas (siehe Terrain-Material-Crash-Fix vom 2026-09-17).
+#
+# 8192 statt der BeamNG-"typisch"-Obergrenze 4096, weil unsere offizielle
+# Doku-Recherche (2026-09-18, https://documentation.beamng.com/modding/
+# levels/level_formats/terrain/) ausdrücklich höhere Werte erlaubt, "wenn die
+# Basis eine einzigartige Gesamt-Terrain-Karte ist" - genau unser Fall (EIN
+# Luftbild für die ganze Fläche statt vieler Kacheln). 8192 statt 16384
+# (Stand 2026-09-18) auf Nutzerwunsch wegen Dateigröße (jede Landnutzungs-
+# Textur muss laut BeamNG auf dieselbe baseTexSize hochskaliert werden, siehe
+# ensure_landuse_base_textures_sized() - bei 16384 wurden das >1.6GB).
+# 2048m-Kachel bei 8192px ≈ 0.25m/Pixel, nah an der nativen DOP20-Auflösung
+# (0.2m/Pixel).
+TERRAIN_BASE_TEX_PIXEL_SIZE = 8192
 
 
 # === VERZEICHNISSE ===

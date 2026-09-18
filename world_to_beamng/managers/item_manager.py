@@ -331,6 +331,48 @@ class ItemManager:
         )
         return name
 
+    def add_decal_road(
+        self,
+        name: str,
+        nodes: List[List[float]],
+        material: str,
+        drivability: float = 1.0,
+        overwrite: bool = False,
+        **extra,
+    ) -> str:
+        """
+        Registriert eine Straße als BeamNG DecalRoad (Spline-Decal, wird zur
+        Laufzeit direkt auf die Terrain-Oberfläche projiziert - siehe
+        JSON-Schema verifiziert gegen BeamNGs eigenem gridmap_v2-Level,
+        main/MissionGroup/.../decalroads/items.level.json).
+
+        Args:
+            name: Item-Name (eindeutig, z.B. "road_<road_id>")
+            nodes: Liste von [x, y, z, width]-Knoten entlang der Centerline
+            material: Name des Material-Datablocks (siehe
+                      OSMMapper.generate_materials_json_entry())
+            drivability: AI-Navigations-Gewicht (-1 = nicht nutzbar, 1 = normal)
+            overwrite: Überschreibe existierendes Item
+            **extra: Zusätzliche DecalRoad-Felder (z.B. autoLanes, autoJunction,
+                     improvedSpline, textureLength, renderPriority, distanceFade)
+
+        Returns:
+            Item-Name
+        """
+        position = tuple(nodes[0][:3]) if nodes else (0.0, 0.0, 0.0)
+
+        self.add_item(
+            name,
+            item_class="DecalRoad",
+            position=position,
+            overwrite=overwrite,
+            nodes=nodes,
+            material=material,
+            drivability=drivability,
+            **extra,
+        )
+        return name
+
     def add_building(
         self,
         name: str,

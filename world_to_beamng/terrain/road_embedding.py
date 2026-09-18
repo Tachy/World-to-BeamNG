@@ -1,12 +1,21 @@
 """
-Senkt das Terrain-Heightmap-Array entlang von Straßen ab, damit das
-(unveränderte) Straßen-/Böschungs-Mesh sauber eingebettet liegt, statt zu
-schweben oder das Terrain zu durchstechen (Spec Abschnitt 4).
+Setzt das Terrain-Heightmap-Array entlang von Straßen exakt auf die
+Straßen-Centerline-Höhe.
 
-Kern-Idee: für jede Rasterzelle nahe einer Straße wird die Höhe der
-Straßen-/Böschungs-Mesh-Oberfläche an exakt dieser XY-Position abgefragt
-(baryzentrische Interpolation im jeweiligen Dreieck) und das Terrain auf
-diesen Wert minus Sicherheitsabstand abgesenkt - nie angehoben.
+Seit der Umstellung auf BeamNG `DecalRoad` (siehe
+docs/superpowers/plans - Straßen werden nicht mehr als eigenes Mesh
+exportiert, sondern als Decal zur Laufzeit direkt auf die Terrain-Oberfläche
+projiziert) gibt es keine zweite, separat kodierte Straßen-Oberfläche mehr,
+die "getroffen" werden müsste - das Terrain IST die sichtbare Straße. Daher
+kein Sicherheitsabstand/Gefälle-Kompensation mehr nötig (im Gegensatz zur
+früheren Mesh-Einbettung): die Ziel-Höhe pro Rasterzelle ist exakt die
+Centerline-Höhe an der nächstgelegenen Position.
+
+Kern-Idee: für jede Straße wird pro Rasterzelle im (bereits vorhandenen)
+2D-Straßenpolygon geprüft, ob sie darin liegt (Punkt-in-Polygon), und falls
+ja die Höhe per Projektion der Zellmitte auf die nächstgelegene Position
+entlang der Centerline bestimmt (lineare Interpolation zwischen den beiden
+nächsten Centerline-Punkten) und direkt gesetzt.
 """
 
 import math
@@ -18,48 +27,25 @@ from scipy.spatial import cKDTree
 from .. import config
 
 
-def road_mesh_to_arrays(
-    road_mesh_data: List[Dict], all_vertices: np.ndarray
-) -> Tuple[np.ndarray, np.ndarray]:
-    """
-    Wandelt die strukturierte Road-Mesh-Ausgabe von RoadMeshBuilder.build() in
-    ein einfaches (vertices, triangles)-Paar für embed_roads_into_heightmap() um.
-
-    Args:
-        road_mesh_data: Liste von {"vertices": [i0, i1, i2], ...} Dicts
-                        (road_mesh[0] aus TerrainWorkflow.process_tile())
-        all_vertices: (N, 3) Array aller Mesh-Vertex-Positionen
-                      (vertex_manager.get_array())
-
-    Returns:
-        (all_vertices, triangles) - triangles ist ein (K, 3) int Array
-    """
-    if not road_mesh_data:
-        return all_vertices, np.empty((0, 3), dtype=np.int64)
-    triangles = np.array([face["vertices"] for face in road_mesh_data], dtype=np.int64)
-    return all_vertices, triangles
-
-
 def embed_roads_into_heightmap(
     heights: np.ndarray,
     origin_x: float,
     origin_y: float,
     square_size: float,
-    road_vertices: np.ndarray,
-    road_triangles: np.ndarray,
-    margin: float,
+    road_slope_polygons_2d: List[Dict],
 ) -> np.ndarray:
     """
-    Senkt heights dort ab, wo das Straßenmesh liegt. Verändert heights NICHT
-    in-place, gibt eine neue Kopie zurück.
+    Setzt heights dort exakt auf Straßen-Centerline-Höhe, wo eine Straße
+    liegt. Verändert heights NICHT in-place, gibt eine neue Kopie zurück.
 
     Args:
         heights: (size, size) float Array
         origin_x, origin_y: Welt-Koordinaten der Zelle [*, 0] bzw. [0, *]
         square_size: Meter pro Rasterzelle
-        road_vertices: (M, 3) Array aller Straßen-Vertex-Positionen (x, y, z)
-        road_triangles: (K, 3) Array von Vertex-Indizes (in road_vertices) pro Dreieck
-        margin: Sicherheitsabstand in Metern (config.ROAD_EMBED_MARGIN)
+        road_slope_polygons_2d: Liste von Dicts mit "road_polygon" ((M,2)
+            2D-Straßenumriss, bereits um halbe Straßenbreite gebuffert) und
+            "trimmed_centerline" ((N,3) x,y,z-Punkte) - dieselbe Struktur wie
+            für build_road_embankment_profiles()
 
     Returns:
         Neues (size, size) float Array
@@ -67,32 +53,79 @@ def embed_roads_into_heightmap(
     result = heights.copy()
     size_y, size_x = heights.shape
 
-    for tri in road_triangles:
-        p0 = road_vertices[tri[0]]
-        p1 = road_vertices[tri[1]]
-        p2 = road_vertices[tri[2]]
-        _embed_triangle(result, origin_x, origin_y, square_size, p0, p1, p2, margin, size_x, size_y)
+    for road in road_slope_polygons_2d:
+        _embed_road(result, origin_x, origin_y, square_size, road, size_x, size_y)
 
     return result
 
 
-def _embed_triangle(
+def _points_in_polygon_2d(qx: np.ndarray, qy: np.ndarray, polygon: np.ndarray) -> np.ndarray:
+    """Vektorisierter Punkt-in-Polygon-Test (Ray-Casting/Crossing-Number)."""
+    polygon = np.asarray(polygon, dtype=np.float64)
+    px = polygon[:, 0]
+    py = polygon[:, 1]
+    n = len(polygon)
+    inside = np.zeros(qx.shape, dtype=bool)
+    j = n - 1
+    for i in range(n):
+        xi, yi = px[i], py[i]
+        xj, yj = px[j], py[j]
+        with np.errstate(divide="ignore", invalid="ignore"):
+            x_intersect = (xj - xi) * (qy - yi) / (yj - yi) + xi
+        crosses = (yi > qy) != (yj > qy)
+        inside ^= crosses & (qx < x_intersect)
+        j = i
+    return inside
+
+
+def _project_onto_polyline(
+    qx: np.ndarray, qy: np.ndarray, poly_x: np.ndarray, poly_y: np.ndarray, poly_z: np.ndarray
+) -> np.ndarray:
+    """
+    Projiziert Query-Punkte (qx, qy, beliebige gleiche Shape) auf die
+    nächstgelegene Position entlang der durch (poly_x, poly_y, poly_z)
+    definierten Polylinie und gibt die dort linear interpolierte Z-Höhe
+    zurück (gleiche Shape wie qx/qy).
+    """
+    best_dist = np.full(qx.shape, np.inf)
+    best_z = np.zeros(qx.shape)
+
+    for i in range(len(poly_x) - 1):
+        ax, ay, az = poly_x[i], poly_y[i], poly_z[i]
+        bx, by, bz = poly_x[i + 1], poly_y[i + 1], poly_z[i + 1]
+        dx, dy = bx - ax, by - ay
+        seg_len_sq = dx * dx + dy * dy
+        if seg_len_sq < 1e-9:
+            continue
+        t = np.clip(((qx - ax) * dx + (qy - ay) * dy) / seg_len_sq, 0.0, 1.0)
+        proj_x = ax + t * dx
+        proj_y = ay + t * dy
+        dist = np.hypot(qx - proj_x, qy - proj_y)
+        z = az + t * (bz - az)
+        better = dist < best_dist
+        best_dist = np.where(better, dist, best_dist)
+        best_z = np.where(better, z, best_z)
+
+    return best_z
+
+
+def _embed_road(
     heights: np.ndarray,
     origin_x: float,
     origin_y: float,
     square_size: float,
-    p0: np.ndarray,
-    p1: np.ndarray,
-    p2: np.ndarray,
-    margin: float,
+    road: Dict,
     size_x: int,
     size_y: int,
 ) -> None:
-    """Senkt alle Rasterzellen ab, die (in 2D-Draufsicht) innerhalb des Dreiecks liegen."""
-    min_x = min(p0[0], p1[0], p2[0])
-    max_x = max(p0[0], p1[0], p2[0])
-    min_y = min(p0[1], p1[1], p2[1])
-    max_y = max(p0[1], p1[1], p2[1])
+    """Setzt alle Rasterzellen innerhalb des Straßenpolygons auf Centerline-Höhe."""
+    polygon = np.asarray(road["road_polygon"], dtype=np.float64)
+    centerline = np.asarray(road["trimmed_centerline"], dtype=np.float64)
+    if len(polygon) < 3 or len(centerline) < 2:
+        return
+
+    min_x, min_y = polygon[:, 0].min(), polygon[:, 1].min()
+    max_x, max_y = polygon[:, 0].max(), polygon[:, 1].max()
 
     col_start = max(0, int(np.floor((min_x - origin_x) / square_size)))
     col_end = min(size_x - 1, int(np.ceil((max_x - origin_x) / square_size)))
@@ -102,29 +135,20 @@ def _embed_triangle(
     if col_start > col_end or row_start > row_end:
         return
 
-    denom = (p1[1] - p2[1]) * (p0[0] - p2[0]) + (p2[0] - p1[0]) * (p0[1] - p2[1])
-    if abs(denom) < 1e-9:
-        return  # entartetes Dreieck (Fläche ~0)
-
     cols = np.arange(col_start, col_end + 1)
     rows = np.arange(row_start, row_end + 1)
     cell_x = origin_x + cols * square_size
     cell_y = origin_y + rows * square_size
     grid_x, grid_y = np.meshgrid(cell_x, cell_y)  # shape (len(rows), len(cols))
 
-    w0 = ((p1[1] - p2[1]) * (grid_x - p2[0]) + (p2[0] - p1[0]) * (grid_y - p2[1])) / denom
-    w1 = ((p2[1] - p0[1]) * (grid_x - p2[0]) + (p0[0] - p2[0]) * (grid_y - p2[1])) / denom
-    w2 = 1.0 - w0 - w1
-
-    inside = (w0 >= -1e-6) & (w1 >= -1e-6) & (w2 >= -1e-6)
+    inside = _points_in_polygon_2d(grid_x, grid_y, polygon)
     if not np.any(inside):
         return
 
-    interpolated_z = w0 * p0[2] + w1 * p1[2] + w2 * p2[2]
-    target = interpolated_z - margin
+    target_z = _project_onto_polyline(grid_x, grid_y, centerline[:, 0], centerline[:, 1], centerline[:, 2])
 
     sub = heights[row_start : row_end + 1, col_start : col_end + 1]
-    np.minimum(sub, np.where(inside, target, sub), out=sub)
+    sub[inside] = target_z[inside]
 
 
 def sample_heightmap_bilinear(

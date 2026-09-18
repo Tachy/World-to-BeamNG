@@ -13,8 +13,11 @@ def _road(road_id, coords):
 
 
 def test_clip_road_polygons_keeps_single_contiguous_road_unchanged():
-    # Alle Punkte liegen innerhalb der Clip-Box -> ein Abschnitt, ID bleibt gleich
-    coords = [(0.0, 0.0, 100.0), (1.0, 0.0, 101.0), (2.0, 0.0, 102.0)]
+    # Alle Punkte liegen innerhalb der Clip-Box -> ein Abschnitt, ID bleibt gleich.
+    # Punktabstand bewusst << config.GRID_SPACING, damit die Segment-Unterteilung
+    # in clip_road_polygons() (max_seg = config.GRID_SPACING) unabhängig vom
+    # konfigurierten Grid-Spacing keine Zwischenpunkte einfügt.
+    coords = [(0.0, 0.0, 100.0), (0.1, 0.0, 100.1), (0.2, 0.0, 100.2)]
     grid_bounds_local = (-10.0, 10.0, -10.0, 10.0)
 
     result = clip_road_polygons([_road(42, coords)], grid_bounds_local, margin=0.0)
@@ -36,16 +39,18 @@ def test_clip_road_polygons_splits_at_removed_gap_instead_of_bridging():
     """
     grid_bounds_local = (-10.0, 10.0, -10.0, 10.0)
 
+    # Punktabstand innerhalb der Cluster bewusst << config.GRID_SPACING (siehe
+    # Kommentar in test_clip_road_polygons_keeps_single_contiguous_road_unchanged).
     coords = [
         # Cluster A: innerhalb der Box
         (0.0, 0.0, 100.0),
-        (1.0, 0.0, 101.0),
+        (0.1, 0.0, 100.1),
         # Weit ausserhalb der Box (wird entfernt)
         (500.0, 500.0, 50.0),
         (600.0, 600.0, 20.0),
         # Cluster B: wieder innerhalb der Box, aber geometrisch weit von Cluster A entfernt
         (-5.0, -5.0, 300.0),
-        (-6.0, -5.0, 301.0),
+        (-5.1, -5.0, 300.1),
     ]
 
     result = clip_road_polygons([_road(77512819, coords)], grid_bounds_local, margin=0.0)
@@ -56,8 +61,8 @@ def test_clip_road_polygons_splits_at_removed_gap_instead_of_bridging():
     # Cluster fälschlich zu einer durchgehenden Centerline verbunden würden).
     assert len(result) == 2
     coord_lists = [road["coords"] for road in result]
-    assert [(0.0, 0.0, 100.0), (1.0, 0.0, 101.0)] in coord_lists
-    assert [(-5.0, -5.0, 300.0), (-6.0, -5.0, 301.0)] in coord_lists
+    assert [(0.0, 0.0, 100.0), (0.1, 0.0, 100.1)] in coord_lists
+    assert [(-5.0, -5.0, 300.0), (-5.1, -5.0, 300.1)] in coord_lists
 
     # IDs der beiden Abschnitte müssen eindeutig sein
     assert result[0]["id"] != result[1]["id"]
@@ -67,7 +72,7 @@ def test_clip_road_polygons_drops_run_with_single_surviving_point():
     grid_bounds_local = (-10.0, 10.0, -10.0, 10.0)
     coords = [
         (0.0, 0.0, 100.0),
-        (1.0, 0.0, 101.0),
+        (0.1, 0.0, 100.1),
         (500.0, 500.0, 50.0),  # entfernt -> beendet ersten Abschnitt
         (600.0, 600.0, 20.0),  # entfernt
         (700.0, 700.0, 10.0),  # entfernt
@@ -78,4 +83,4 @@ def test_clip_road_polygons_drops_run_with_single_surviving_point():
     result = clip_road_polygons([_road(1, coords)], grid_bounds_local, margin=0.0)
 
     assert len(result) == 1
-    assert result[0]["coords"] == [(0.0, 0.0, 100.0), (1.0, 0.0, 101.0)]
+    assert result[0]["coords"] == [(0.0, 0.0, 100.0), (0.1, 0.0, 100.1)]

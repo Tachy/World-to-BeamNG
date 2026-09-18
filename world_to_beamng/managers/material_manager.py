@@ -269,13 +269,28 @@ class MaterialManager:
                 color.append(1.0)  # Alpha hinzufügen
             stages_dict["diffuseColor"] = color
 
+        # groundType MUSS einer der ~32 offiziellen Bezeichner aus BeamNGs
+        # art/groundmodels.json sein (z.B. "ASPHALT", "DIRT", GROSSGESCHRIEBEN),
+        # sonst greift stillschweigend der ASPHALT-Fallback für Reifenphysik/
+        # -sound. Unsere eigene osm_mapper.py liefert den Wert unter dem Key
+        # "groundModelName" (nicht "groundType"!) und kleingeschrieben.
+        ground_model = str(properties.get("groundModelName", "asphalt")).upper()
+        # materialTag0/1 + annotation nach dem Schema von BeamNGs eigenen
+        # DecalRoad-Materialien (east_coast_usa/art/road/main.materials.json):
+        # materialTag0="RoadAndPath" macht die Fläche für Traffic-KI/Navmesh
+        # als befahrbar erkennbar, annotation steuert die Kamera-Segmentierung.
+        annotation = "ASPHALT" if ground_model.startswith("ASPHALT") else "NATURE"
+
         self.add_material(
             mat_name,
             template="road",
             overwrite=overwrite,
             Stages=stages_dict,
             friction=properties.get("friction", 1.0),
-            groundType=properties.get("groundType", "ASPHALT"),
+            groundType=ground_model,
+            materialTag0="RoadAndPath",
+            materialTag1="beamng",
+            annotation=annotation,
         )
         return mat_name
 

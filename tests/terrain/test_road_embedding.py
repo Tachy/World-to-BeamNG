@@ -8,7 +8,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 import numpy as np
 
 from world_to_beamng.terrain.road_embedding import (
-    road_mesh_to_arrays,
     embed_roads_into_heightmap,
     sample_heightmap_bilinear,
     build_road_embankment_profiles,
@@ -16,42 +15,31 @@ from world_to_beamng.terrain.road_embedding import (
 )
 
 
-def test_road_mesh_to_arrays():
-    road_mesh_data = [
-        {"vertices": [0, 1, 2], "road_id": 1, "uvs": {}},
-        {"vertices": [1, 2, 3], "road_id": 1, "uvs": {}},
-    ]
-    all_vertices = np.array(
-        [[0, 0, 10], [10, 0, 10], [0, 10, 10], [10, 10, 10]], dtype=np.float64
-    )
-
-    vertices, triangles = road_mesh_to_arrays(road_mesh_data, all_vertices)
-
-    assert np.array_equal(vertices, all_vertices)
-    assert triangles.shape == (2, 3)
-    assert list(triangles[0]) == [0, 1, 2]
-    assert list(triangles[1]) == [1, 2, 3]
+def _road(polygon_xy, centerline_xyz):
+    return {
+        "road_polygon": np.array(polygon_xy, dtype=np.float64),
+        "trimmed_centerline": np.array(centerline_xyz, dtype=np.float64),
+    }
 
 
-def test_embed_roads_lowers_only_near_road():
+def test_embed_roads_sets_exact_road_height_only_near_road():
     # 20x20 Heightmap, 1m/Zelle, überall 100m hoch
     size = 20
     heights = np.full((size, size), 100.0)
     origin_x, origin_y, square_size = 0.0, 0.0, 1.0
 
-    # Eine flache Straße bei Z=95 (5m unter natürlichem Terrain), Fläche x=[5,15], y=[5,15]
-    road_vertices = np.array(
-        [[5, 5, 95], [15, 5, 95], [5, 15, 95], [15, 15, 95]], dtype=np.float64
-    )
-    road_triangles = np.array([[0, 1, 2], [1, 2, 3]], dtype=np.int64)
-
-    margin = 0.1
-    result = embed_roads_into_heightmap(
-        heights, origin_x, origin_y, square_size, road_vertices, road_triangles, margin
+    # Eine flache Straße bei Z=95, Fläche x=[5,15], y=[5,15] (Centerline bei y=10)
+    road = _road(
+        polygon_xy=[[5, 5], [15, 5], [15, 15], [5, 15]],
+        centerline_xyz=[[5, 10, 95], [15, 10, 95]],
     )
 
-    # Zellen unter der Straße müssen auf ~95 - 0.1 = 94.9 abgesenkt sein
-    assert np.isclose(result[10, 10], 95.0 - margin, atol=0.5)
+    result = embed_roads_into_heightmap(heights, origin_x, origin_y, square_size, [road])
+
+    # Zellen unter der Straße müssen exakt auf Centerline-Höhe (95) gesetzt sein
+    # - kein Sicherheitsabstand mehr, da DecalRoad direkt auf das Terrain
+    # projiziert wird (siehe Modul-Docstring).
+    assert np.isclose(result[10, 10], 95.0)
 
     # Zellen weit weg von der Straße müssen unverändert bei 100 bleiben
     assert result[1, 1] == 100.0
@@ -61,22 +49,45 @@ def test_embed_roads_lowers_only_near_road():
     assert heights[10, 10] == 100.0
 
 
-def test_embed_roads_never_raises_terrain():
-    # Straße LIEGT HÖHER als natürliches Terrain -> Terrain darf NICHT angehoben werden
+def test_embed_roads_can_raise_terrain_above_surroundings():
+    # Straße liegt HÖHER als natürliches Terrain (z.B. Damm/Brückenrampe) ->
+    # anders als beim früheren Mesh-Ansatz DARF das Terrain jetzt angehoben
+    # werden, weil es die sichtbare Straßenoberfläche selbst ist (DecalRoad
+    # hat keine eigene Geometrie, die durchstoßen werden könnte).
     size = 10
     heights = np.full((size, size), 50.0)
     origin_x, origin_y, square_size = 0.0, 0.0, 1.0
 
-    road_vertices = np.array(
-        [[2, 2, 200], [8, 2, 200], [2, 8, 200], [8, 8, 200]], dtype=np.float64
-    )
-    road_triangles = np.array([[0, 1, 2], [1, 2, 3]], dtype=np.int64)
-
-    result = embed_roads_into_heightmap(
-        heights, origin_x, origin_y, square_size, road_vertices, road_triangles, margin=0.1
+    road = _road(
+        polygon_xy=[[2, 2], [8, 2], [8, 8], [2, 8]],
+        centerline_xyz=[[2, 5, 200], [8, 5, 200]],
     )
 
-    assert np.all(result <= 50.0)
+    result = embed_roads_into_heightmap(heights, origin_x, origin_y, square_size, [road])
+
+    assert np.isclose(result[5, 5], 200.0)
+    # Ausserhalb der Straße unverändert
+    assert result[0, 0] == 50.0
+
+
+def test_embed_roads_follows_curved_centerline_height():
+    # Gebogene Straße mit unterschiedlicher Höhe an beiden Enden -> die
+    # Ziel-Höhe muss entlang der Centerline linear interpoliert werden, nicht
+    # konstant sein.
+    size = 20
+    heights = np.zeros((size, size))
+    origin_x, origin_y, square_size = 0.0, 0.0, 1.0
+
+    road = _road(
+        polygon_xy=[[0, 8], [20, 8], [20, 12], [0, 12]],
+        centerline_xyz=[[0, 10, 0], [20, 10, 20]],
+    )
+
+    result = embed_roads_into_heightmap(heights, origin_x, origin_y, square_size, [road])
+
+    assert np.isclose(result[10, 2], 2.0, atol=0.5)
+    assert np.isclose(result[10, 18], 18.0, atol=0.5)
+    assert result[10, 2] < result[10, 18]
 
 
 def test_sample_heightmap_bilinear_matches_grid_points():
@@ -190,12 +201,12 @@ def test_apply_embankment_blend_handles_fill_and_cut():
 
 
 if __name__ == "__main__":
-    test_road_mesh_to_arrays()
-    print("[OK] test_road_mesh_to_arrays")
-    test_embed_roads_lowers_only_near_road()
-    print("[OK] test_embed_roads_lowers_only_near_road")
-    test_embed_roads_never_raises_terrain()
-    print("[OK] test_embed_roads_never_raises_terrain")
+    test_embed_roads_sets_exact_road_height_only_near_road()
+    print("[OK] test_embed_roads_sets_exact_road_height_only_near_road")
+    test_embed_roads_can_raise_terrain_above_surroundings()
+    print("[OK] test_embed_roads_can_raise_terrain_above_surroundings")
+    test_embed_roads_follows_curved_centerline_height()
+    print("[OK] test_embed_roads_follows_curved_centerline_height")
     test_sample_heightmap_bilinear_matches_grid_points()
     print("[OK] test_sample_heightmap_bilinear_matches_grid_points")
     test_build_road_embankment_profiles_straight_road()

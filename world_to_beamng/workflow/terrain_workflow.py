@@ -77,8 +77,6 @@ class TerrainWorkflow:
             mark_junction_endpoints,
             split_roads_at_mid_junctions,
         )
-        from ..mesh.road_mesh import generate_road_mesh_strips
-        from ..mesh.vertex_manager import VertexManager
         from ..terrain.grid import create_terrain_grid
         from ..io.cache import calculate_global_tiles_hash
 
@@ -239,106 +237,15 @@ class TerrainWorkflow:
         # das Terrain wird nicht mehr trianguliert, siehe Task 9)
         grid_points, grid_elevations, nx, ny = grid
 
-        # 10. Road Mesh (mit Builder)
-        from ..builders import RoadMeshBuilder
-
-        vertex_manager = VertexManager()
-        road_mesh = (
-            RoadMeshBuilder()
-            .with_roads(road_polygons)
-            .with_junctions(junctions)
-            .with_grid(grid)
-            .with_vertex_manager(vertex_manager)
-            .build()
-        )
-
-        # 10a. Road-Face Cleanup: Clippe Road-Faces an Grid-Grenzen (messerscharf)
-        from ..mesh.road_cleanup import clip_road_mesh_data
-
-        # Road-Mesh ist jetzt strukturiert: [{'vertices': [...], 'road_id': ..., 'uvs': {...}}, ...]
-        road_mesh_data = road_mesh[0]
-
-        # Clippe Road-Faces (mit UVs zusammen!)
-        clipped_road_mesh_data = clip_road_mesh_data(road_mesh_data, vertex_manager, grid_bounds_local)
-
-        # Packe Tupel neu zusammen (mit geclippten Daten)
-        road_mesh = (
-            clipped_road_mesh_data,  # Strukturierte Road-Daten
-            road_mesh[1],  # road_slope_polygons_2d (alt Index 2)
-            road_mesh[2],  # original_to_mesh_idx (alt Index 3)
-            road_mesh[3],  # all_road_polygons_2d (alt Index 4)
-            road_mesh[4],  # junction_fans (alt Index 5)
-        )
-
-        # 10b. Junction-Material-Mapping
-        # Baue road_material_map für Roads UND Junctions
+        # 10. Terrain-Heightmap statt Mesh-Triangulierung (siehe Spec:
+        # docs/superpowers/specs/2026-09-17-terrain-heightmap-migration-design.md).
+        # Straßen werden seit der DecalRoad-Umstellung nicht mehr als Mesh
+        # gebaut (kein RoadMeshBuilder/Junction-Fan-Material-Mehrheitsvotum
+        # mehr nötig) - siehe export_decal_roads().
         from ..config import OSM_MAPPER
-
-        road_material_map = {}
-        junction_fans = road_mesh[4] if len(road_mesh) > 4 else {}
-
-        # Zuerst: Sammle Road-Materials
-        for poly in road_slope_polygons_2d:
-            r_id = poly.get("road_id")
-            if r_id is not None:
-                props = OSM_MAPPER.get_road_properties(poly.get("osm_tags", {}))
-                mat_name = props.get("internal_name", "road_default")
-                road_material_map[r_id] = (mat_name, props)
-
-        # Dann: Füge Junction-Materials hinzu (negative road_id)
-        default_props = OSM_MAPPER.get_road_properties({})
-        default_mat = default_props.get("internal_name", "road_default")
-
-        for junction_id, junction_data in junction_fans.items():
-            connected_road_ids = junction_data.get("connected_road_ids", [])
-
-            if not connected_road_ids:
-                # Keine angrenzenden Straßen: nutze Default
-                road_material_map[-(junction_id + 1)] = (default_mat, default_props)
-                continue
-
-            # Sammle alle Materialien der angrenzenden Straßen
-            material_counts = {}  # {material_name: count}
-            material_props = {}  # {material_name: properties}
-
-            for road_id in connected_road_ids:
-                if road_id in road_material_map:
-                    mat_name, props = road_material_map[road_id]
-                    material_counts[mat_name] = material_counts.get(mat_name, 0) + 1
-                    material_props[mat_name] = props
-
-            if not material_counts:
-                # Keine Materialien gefunden: nutze Default
-                road_material_map[-(junction_id + 1)] = (default_mat, default_props)
-                continue
-
-            # Finde das häufigste Material
-            max_count = max(material_counts.values())
-            candidates = [mat for mat, count in material_counts.items() if count == max_count]
-
-            if len(candidates) == 1:
-                # Eindeutiger Gewinner
-                mat_name = candidates[0]
-                road_material_map[-(junction_id + 1)] = (mat_name, material_props[mat_name])
-            else:
-                # Bei Gleichstand: nutze das Material mit höherer Priorität
-                best_mat = candidates[0]
-                best_priority = material_props[best_mat].get("priority", 0)
-
-                for mat in candidates[1:]:
-                    mat_priority = material_props[mat].get("priority", 0)
-                    if mat_priority > best_priority:
-                        best_mat = mat
-                        best_priority = mat_priority
-
-                road_material_map[-(junction_id + 1)] = (best_mat, material_props[best_mat])
-
-        # 11. Terrain-Heightmap statt Mesh-Triangulierung (siehe Spec:
-        # docs/superpowers/specs/2026-09-17-terrain-heightmap-migration-design.md)
         from ..terrain.heightmap import build_heightmap
         from ..terrain.road_embedding import (
             embed_roads_into_heightmap,
-            road_mesh_to_arrays,
             build_road_embankment_profiles,
             apply_embankment_blend,
         )
@@ -370,38 +277,21 @@ class TerrainWorkflow:
         )
         heights = apply_embankment_blend(heights, terrain_origin_x, terrain_origin_y, config.TERRAIN_SQUARE_SIZE, embankment_profiles)
 
-        # Straßen-Einbettung: Terrain unter der (unveränderten) Straßenfläche
-        # knapp absenken (Böschung ist bereits durch apply_embankment_blend
-        # abgedeckt, hier geht es nur noch um die reine Fahrbahnfläche)
-        all_vertices = np.array(vertex_manager.get_array())
-        road_mesh_data_for_embedding = road_mesh[0]
-        road_vertices, road_triangles = road_mesh_to_arrays(road_mesh_data_for_embedding, all_vertices)
+        # Straßen-Einbettung: Terrain auf der reinen Fahrbahnfläche exakt auf
+        # Centerline-Höhe setzen (Böschung ist bereits durch
+        # apply_embankment_blend abgedeckt) - siehe road_embedding.py-
+        # Moduldocstring für die DecalRoad-Begründung.
         heights = embed_roads_into_heightmap(
             heights,
             terrain_origin_x,
             terrain_origin_y,
             config.TERRAIN_SQUARE_SIZE,
-            road_vertices,
-            road_triangles,
-            config.ROAD_EMBED_MARGIN,
+            road_slope_polygons_2d,
         )
 
-        # Layer-Map: Foto-Fallback pro Tile, dann OSM-Landnutzung obenauf
-        # real_max_x/real_max_y: Ende der ECHTEN (nicht gepaddeten) Höhendaten -
-        # Zellen jenseits davon (Zweierpotenz-Padding, siehe heightmap.py) werden
-        # auf die letzte echte Kachel geklemmt statt eine nicht-existente
-        # Foto-Textur zu referenzieren.
-        real_max_x = terrain_origin_x + (nx - 1) * config.TERRAIN_SQUARE_SIZE
-        real_max_y = terrain_origin_y + (ny - 1) * config.TERRAIN_SQUARE_SIZE
-        layer_map, photo_tile_names = build_photo_fallback_layer(
-            terrain_size,
-            terrain_origin_x,
-            terrain_origin_y,
-            config.TERRAIN_SQUARE_SIZE,
-            config.TILE_SIZE,
-            real_max_x,
-            real_max_y,
-        )
+        # Layer-Map: EIN Luftbild-Material für die gesamte Fläche, dann OSM-
+        # Landnutzung obenauf (siehe build_photo_fallback_layer()).
+        layer_map, photo_tile_names = build_photo_fallback_layer(terrain_size)
 
         from shapely.geometry import shape as shapely_shape
         from pyproj import Transformer
@@ -458,7 +348,6 @@ class TerrainWorkflow:
 
         return {
             "status": "success",
-            "road_mesh": road_mesh,
             "heightmap": heights,
             "terrain_size": terrain_size,
             "terrain_origin_x": terrain_origin_x,
@@ -469,10 +358,8 @@ class TerrainWorkflow:
             "terrain_material_names": terrain_material_names,
             "photo_tile_names": photo_tile_names,
             "grid": grid,
-            "vertex_manager": vertex_manager,
             "road_polygons": road_polygons,
-            "road_slope_polygons_2d": road_slope_polygons_2d,  # Für Material-Mapping
-            "road_material_map": road_material_map,  # Material-Map inkl. Junction-Materials
+            "road_slope_polygons_2d": road_slope_polygons_2d,  # Für DecalRoad-Export
             "grid_bounds_local": grid_bounds_local,
             "global_offset": global_offset,
             "buildings_data": buildings_data,  # Übergebe Gebäude-Daten
@@ -481,201 +368,76 @@ class TerrainWorkflow:
             "height_hash": tile_hash,  # Für Cache-Konsistenz in Forest-Workflow
         }
 
-    def prepare_road_export(self, mesh_data: Dict) -> Dict:
+    def export_decal_roads(self, mesh_data: Dict) -> int:
         """
-        Bereitet die Straßen-Geometrie für den DAE-Export vor: löst pro Face
-        das Material auf (inkl. Junction-Fallback), erzeugt Debug-Labels und
-        baut die Road-UV-Tabelle.
-
-        Getrennt von export_merged_roads(), damit über mesh.road_merge kein
-        500m-DAE-Tiling mehr nötig ist, seit das Terrain kein Mesh mehr ist
-        (das Straßennetz einer 4x4km-Karte hat nur ~400k Faces, für eine GPU
-        trivial - ein einziges Straßennetz-Dict reicht als Eingabe, da
-        process_tile() bereits alle Kacheln als eine Fläche verarbeitet).
+        Exportiert jede Straße als eigenes BeamNG `DecalRoad`-Item - ein
+        Spline-Decal, das zur Laufzeit direkt auf die Terrain-Oberfläche
+        projiziert wird (siehe road_embedding.py-Moduldocstring für die
+        Begründung). Ersetzt das frühere Mesh-Bauwerk (prepare_road_export()/
+        export_merged_roads()/RoadMeshBuilder/DAE-Export) komplett - kein
+        Straßen-Mesh, keine Junction-Fan-Geometrie, keine
+        Face-Material-Mehrheitsentscheidung mehr nötig: jede Straße bekommt
+        ihr eigenes DecalRoad-Item mit ihrem eigenen (aus OSM abgeleiteten)
+        Material, BeamNGs `autoJunction` verbindet angrenzende Straßen
+        automatisch.
 
         Args:
-            mesh_data: Ergebnis von process_tile()
+            mesh_data: Ergebnis von process_tile() (braucht
+                "road_slope_polygons_2d")
 
         Returns:
-            {"vertices": (N,3) ndarray, "faces": List[[i0,i1,i2]],
-             "materials_per_face": List[str], "unique_materials": Dict,
-             "uv_indices": Dict[int, List[int]], "uvs": List[Tuple[float,float]]}
-            - direkte Eingabe für mesh.road_merge.merge_road_exports()
+            Anzahl der erzeugten DecalRoad-Items
         """
-        # Extrahiere Daten
-        road_mesh_tuple = mesh_data["road_mesh"]
-        road_slope_polygons_2d = mesh_data["road_slope_polygons_2d"]
-        vertex_manager = mesh_data["vertex_manager"]
-
-        # Entpacke strukturierte Road-Daten
-        # Format: [{'vertices': [v0,v1,v2], 'road_id': id, 'uvs': {...}}, ...]
-        road_mesh_data = road_mesh_tuple[0]
-
-        # === Material-Mapping via OSM_MAPPER (wie im alten multitile.py) ===
         from ..config import OSM_MAPPER
-        from ..utils.debug_exporter import DebugNetworkExporter
 
-        debug_exporter = DebugNetworkExporter.get_instance()
-
-        # Hole vorgefertigte road_material_map (enthält Roads UND Junctions!)
-        road_material_map = mesh_data.get("road_material_map", {})
-        unique_materials = {}  # ← Initialisiere hier schon, damit es auch leere Roads fängt
+        road_slope_polygons_2d = mesh_data["road_slope_polygons_2d"]
+        unique_materials: Dict[str, Dict] = {}
+        count = 0
 
         for poly in road_slope_polygons_2d:
-            r_id = poly.get("road_id")
-            if r_id is None:
+            road_id = poly.get("road_id")
+            centerline = poly.get("trimmed_centerline")
+            if road_id is None or centerline is None or len(centerline) < 2:
                 continue
 
-            # Hole Material aus vorgefertigter Map (wurde in process_tile() erstellt)
-            mat_tuple = road_material_map.get(r_id)
-            if mat_tuple:
-                mat_name = mat_tuple[0]
-                props = mat_tuple[1]
-            else:
-                # Fallback: Berechne Material neu (sollte nicht passieren)
-                props = OSM_MAPPER.get_road_properties(poly.get("osm_tags", {}))
-                mat_name = props.get("internal_name", "road_default")
+            # Entartete (Nulllängen-)Straßen überspringen: Clipping/Junction-
+            # Split können vereinzelt einen "Rest" mit 2 identischen Punkten
+            # hinterlassen. Ein DecalRoad mit Länge 0 ist ein degenerierter
+            # Spline (im alten Mesh-Ansatz war das ein unsichtbares
+            # Nulldreieck, hier würde es ein kaputtes Decal-Item erzeugen).
+            xy_unique = {(round(float(x), 3), round(float(y), 3)) for x, y, _ in centerline}
+            if len(xy_unique) < 2:
+                continue
 
-            # Schreibe Material direkt in die Road-Struktur
-            poly["material_name"] = mat_name
-
-            # Erstelle Road-Label an der Centerline-Mitte
-            trimmed_centerline = poly.get("trimmed_centerline", [])
-            if len(trimmed_centerline) >= 2:
-                mid_idx = len(trimmed_centerline) // 2
-                mid_point = trimmed_centerline[mid_idx]
-                debug_exporter.add_label(
-                    f"Road_{r_id} ({poly['material_name']})",
-                    position=[mid_point[0], mid_point[1], mid_point[2] if len(mid_point) > 2 else 0.0],
-                    color=[1.0, 0.5, 0.0],  # Orange
-                    size=12.0,
-                )
-
-            # Füge zu unique_materials hinzu
+            props = OSM_MAPPER.get_road_properties(poly.get("osm_tags", {}))
+            mat_name = props.get("internal_name", "road_default")
             unique_materials[mat_name] = props
 
-        # Default-Material für Junctions ohne angrenzende Straßen
-        default_props = OSM_MAPPER.get_road_properties({})
-        default_mat = default_props.get("internal_name", "road_default")
+            width = float(props.get("width", 4.0))
+            nodes = [[float(x), float(y), float(z), width] for x, y, z in centerline]
 
-        # Extrahiere junction_fans aus road_mesh_tuple für Label-Erstellung
-        # (Material-Mapping wurde bereits in process_tile() durchgeführt!)
-        # Index: [0]=road_mesh_data, [1]=road_slope_polygons_2d, [2]=original_to_mesh_idx, [3]=all_road_polygons_2d, [4]=junction_fans
-        junction_fans = road_mesh_tuple[4] if len(road_mesh_tuple) > 4 else {}
+            # renderPriority aus dem vorhandenen "priority"-Feld ableiten
+            # (surface_types in data/osm_to_beamng.json): an Kreuzungen
+            # überlappen sich die (immer volle Breite habenden) Enden
+            # mehrerer DecalRoad-Objekte - ohne explizite, konsistente
+            # Zeichenreihenfolge sortiert BeamNG das beliebig, was an
+            # Kreuzungen wie ein "Flickenteppich" aussieht. Höherwertige
+            # Straßen (Asphalt) werden so immer über niedrigerwertigen
+            # (Dirt/Concrete) gezeichnet.
+            render_priority = int(props.get("priority", 0))
 
-        # === Erstelle Junction-Labels (Material ist bereits in road_material_map!) ===
-        for junction_id, junction_data in junction_fans.items():
-            # Material wurde bereits in process_tile() zugewiesen
-            junction_road_id = -(junction_id + 1)  # Negative road_id für Junction-Faces
-            mat_tuple = road_material_map.get(junction_road_id, (default_mat, default_props))
-            mat_name = mat_tuple[0]
-            mat_props = mat_tuple[1]
-
-            # Füge Material zu unique_materials hinzu
-            unique_materials[mat_name] = mat_props
-
-            # Hole Position aus vertex_manager via center_idx
-            center_idx = junction_data.get("center_idx")
-            if center_idx is not None:
-                # Hole Vertex-Position aus VertexManager
-                center_vertex = vertex_manager.vertices[center_idx]
-                position = [center_vertex[0], center_vertex[1], center_vertex[2]]
-
-                debug_exporter.add_label(
-                    f"Junction_{junction_id} ({mat_name})",
-                    position=position,
-                    color=[0.0, 0.0, 1.0],  # Blau
-                    size=14.0,
-                )
-
-        # Kombiniere alle Faces mit Materials
-        # WICHTIG: mesh_obj.faces enthält BEREITS alle Road-Faces + Terrain-Faces + Stitch-Faces!
-        # Wir müssen diese NICHT doppelt hinzufügen!
-        all_faces = []
-        materials_per_face = []
-
-        for face_data in road_mesh_data:
-            all_faces.append(face_data["vertices"])
-            mat_name = None
-            r_id = face_data.get("road_id")
-            if r_id in road_material_map:
-                mat_name = road_material_map[r_id][0]
-            materials_per_face.append(mat_name or "road_default")
-
-        # Hole alle Vertices vom VertexManager
-        all_vertices = np.array(vertex_manager.get_array())
-
-        # Wandelt die per-Vertex-UVs aus road_mesh_data (RoadMeshBuilder) in
-        # ein indiziertes UV-Format um (uv_indices: {face_idx: [i0,i1,i2]},
-        # uvs: [(u,v), ...]), im selben Schema, das export_separate_tile_daes()
-        # als "uv_indices"/"global_uvs" pro Tile erwartet (siehe io/dae.py) -
-        # damit die Straßen ihre echte UV-Texturierung behalten statt auf eine
-        # grobe Fallback-UV zurückzufallen.
-        class _RoadUVAdapter:
-            """Baut aus road_mesh_data das indizierte UV-Format für den
-            DAE-Export (uv_indices: {face_idx: [i0,i1,i2]}, uvs: [(u,v), ...])."""
-
-            def __init__(self, road_mesh_data, faces):
-                self.uvs = []
-                self.uv_indices = {}
-                uv_lookup = {}
-
-                for face_idx, face_data in enumerate(road_mesh_data):
-                    face_vertices = faces[face_idx]
-                    per_vertex_uv = face_data.get("uvs", {})
-                    indices = []
-                    for vertex_idx in face_vertices:
-                        uv = per_vertex_uv.get(vertex_idx, (0.0, 0.0))
-                        if uv not in uv_lookup:
-                            uv_lookup[uv] = len(self.uvs)
-                            self.uvs.append(uv)
-                        indices.append(uv_lookup[uv])
-                    self.uv_indices[face_idx] = indices
-
-        road_uv_adapter = _RoadUVAdapter(road_mesh_data, all_faces)
-
-        return {
-            "vertices": all_vertices,
-            "faces": all_faces,
-            "materials_per_face": materials_per_face,
-            "unique_materials": unique_materials,
-            "uv_indices": road_uv_adapter.uv_indices,
-            "uvs": road_uv_adapter.uvs,
-        }
-
-    def export_merged_roads(self, prepared_list: List[Dict]) -> List[str]:
-        """
-        Führt die prepare_road_export()-Ergebnisse mehrerer Kacheln zu EINEM
-        Straßennetz zusammen und exportiert es als EINE DAE-Datei (kein
-        500m-Tiling mehr - siehe prepare_road_export()-Docstring).
-
-        Args:
-            prepared_list: Liste von prepare_road_export()-Ergebnissen
-
-        Returns:
-            Liste der exportierten DAE-Dateinamen (aktuell immer genau 1 Datei,
-            sofern Straßen-Faces vorhanden sind)
-        """
-        from ..io.dae import export_separate_tile_daes
-        from ..mesh.road_merge import merge_road_exports
-        from ..config import OSM_MAPPER
-
-        merged = merge_road_exports(prepared_list)
-        vertices = merged["vertices"]
-        faces = merged["faces"]
-        materials_per_face = merged["materials_per_face"]
-        unique_materials = merged["unique_materials"]
-
-        if len(faces) == 0:
-            logger.warning("  [!] Keine Straßen-Faces zum Exportieren gefunden")
-            return []
-
-        # Generiere und füge Materials hinzu (wie zuvor: sammle auch Materials,
-        # die in materials_per_face auftauchen, aber noch nicht in unique_materials sind)
-        for mat in materials_per_face:
-            if mat and mat not in unique_materials and mat != "terrain":
-                props = OSM_MAPPER.get_road_properties({"surface": mat})
-                unique_materials[mat] = props
+            self.items.add_decal_road(
+                name=f"road_{road_id}",
+                nodes=nodes,
+                material=mat_name,
+                drivability=props.get("drivability", 1.0),
+                overwrite=True,
+                autoLanes=True,
+                autoJunction=True,
+                improvedSpline=True,
+                renderPriority=render_priority,
+            )
+            count += 1
 
         road_material_entries = [
             OSM_MAPPER.generate_materials_json_entry(mat_name, props) for mat_name, props in unique_materials.items()
@@ -685,39 +447,8 @@ class TerrainWorkflow:
             if mat_name:
                 self.materials.materials[mat_name] = mat_entry
 
-        # Alle Straßen als EIN Tile exportieren - export_separate_tile_daes()
-        # erwartet weiterhin ein tiles_dict (historisch für räumliches Tiling
-        # gedacht), hier mit genau einem Eintrag für das gesamte Straßennetz.
-        tiles_dict = {
-            (0, 0): {
-                "vertices": vertices,
-                "faces": faces,
-                "materials": materials_per_face,
-                "uv_indices": merged["uv_indices"],
-                "global_uvs": merged["uvs"],
-            }
-        }
-
-        dae_files = export_separate_tile_daes(
-            tiles_dict=tiles_dict,
-            output_dir=config.BEAMNG_DIR_SHAPES,
-            material_manager=self.materials,
-            tile_size=config.TILE_SIZE,
-        )
-
-        logger.info(f"  Erstelle {len(dae_files)} TSStatic-Item(s) für Straßen...")
-        for dae_filename in dae_files:
-            tile_coords = Path(dae_filename).stem.replace("tile_", "")
-            item_name = f"road_tile_{tile_coords}"
-            self.items.add_terrain(
-                name=item_name,
-                dae_filename=dae_filename,
-                position=(0, 0, 0),
-                overwrite=True,
-            )
-
-        logger.info(f"  [OK] {len(dae_files)} Straßen-DAE(s) exportiert ({len(vertices)} Vertices, {len(faces)} Faces)")
-        return dae_files
+        logger.info(f"  [OK] {count} DecalRoad-Item(s) exportiert ({len(unique_materials)} Materialien)")
+        return count
 
     def export_merged_terrain(
         self,
@@ -741,11 +472,17 @@ class TerrainWorkflow:
                 (Index entspricht layer_map-Werten)
             terrain_origin_x, terrain_origin_y: Welt-Koordinaten der Zelle [0, 0]
             z_min, max_height: siehe ter_writer.encode_heights_to_u16()
-            photo_tile_names: Teilmenge von terrain_material_names, die
-                Luftbild-Kacheln sind (siehe terrain_materials.build_terrain_material_entries)
+            photo_tile_names: Teilmenge von terrain_material_names, die auf
+                das zusammengesetzte Luftbild verweisen (siehe
+                terrain_materials.build_terrain_material_entries)
         """
         from ..terrain.ter_writer import write_ter, encode_heights_to_u16
-        from ..terrain.terrain_materials import build_terrain_material_entries, build_terrain_material_texture_set
+        from ..terrain.terrain_materials import (
+            build_terrain_material_entries,
+            build_terrain_material_texture_set,
+            ensure_flat_pbr_placeholders,
+            ensure_landuse_base_textures_sized,
+        )
 
         heightmap_u16 = encode_heights_to_u16(heights, z_min, max_height)
         ter_filename = f"{config.LEVEL_NAME}.ter"
@@ -753,12 +490,44 @@ class TerrainWorkflow:
         write_ter(ter_path, heightmap_u16, layer_map.astype("uint8"), terrain_material_names)
         logger.info(f"  [OK] Terrain exportiert: {ter_filename} ({terrain_size}x{terrain_size})")
 
+        placeholders = ensure_flat_pbr_placeholders(
+            config.BEAMNG_DIR_TEXTURES, config.LEVEL_NAME, config.TERRAIN_BASE_TEX_PIXEL_SIZE
+        )
+        sized_landuse_mappings = ensure_landuse_base_textures_sized(
+            config.OSM_MAPPER.config.get("landuse_mappings", {}),
+            config.TERRAIN_BASE_TEX_PIXEL_SIZE,
+            config.BEAMNG_DIR,
+            config.BEAMNG_DIR_TEXTURES,
+            config.LEVEL_NAME,
+        )
+        # photo_extent_size: der Wert, den wir BeamNG als baseColorBaseTexSize
+        # für das Luftbild-Material mitteilen.
+        #
+        # DIAGNOSE 2026-09-18 (drei Messpunkte mit echtem Nutzer-Test, siehe
+        # [[project_road_embed_slope_margin]]-Nachbar-Memory für den Kontext
+        # dieser Session):
+        #   - Grid @ 2m/Zelle: terrain_size=1024, TERRAIN_SQUARE_SIZE=2.0,
+        #     physische Größe 2048m -> deklarierter Wert 1024 war korrekt.
+        #   - Grid @ 1m/Zelle: terrain_size=2048, TERRAIN_SQUARE_SIZE=1.0,
+        #     physische Größe UNVERÄNDERT 2048m -> derselbe Wert 1024 (aus der
+        #     alten "physische_Größe * 0.5"-Formel) war jetzt FALSCH, korrekt
+        #     ist 2048.
+        # Die physische Kartengröße blieb in beiden Fällen identisch (2048m),
+        # nur die Rasterauflösung hat sich geändert - trotzdem musste sich der
+        # korrekte Wert mit der Rasterauflösung verdoppeln. Das heißt,
+        # baseColorBaseTexSize wird von BeamNG offenbar in Heightmap-
+        # Rasterzellen interpretiert, NICHT in Weltmetern (entgegen der
+        # Doku-Formel "world_size = size * squareSize"): der korrekte Wert
+        # ist schlicht terrain_size, die reine .ter-Rasterpunktzahl, komplett
+        # unabhängig von TERRAIN_SQUARE_SIZE.
+        photo_extent_size = float(terrain_size)
         terrain_material_entries = build_terrain_material_entries(
             terrain_material_names,
             photo_tile_names,
-            config.OSM_MAPPER.config.get("landuse_mappings", {}),
+            sized_landuse_mappings,
             config.LEVEL_NAME,
-            config.TILE_SIZE,
+            photo_extent_size,
+            placeholders,
         )
         texture_set_name = f"{config.LEVEL_NAME}TerrainMaterialTextureSet"
         terrain_material_entries.update(
@@ -780,26 +549,22 @@ class TerrainWorkflow:
             overwrite=True,
         )
 
-    def export_tile(self, tile_x: int, tile_y: int, mesh_data: Dict) -> List[str]:
+    def export_tile(self, tile_x: int, tile_y: int, mesh_data: Dict) -> int:
         """
-        Exportiere EINE einzelne Kachel komplett (Straßen-DAE + eigenes .ter).
+        Exportiere EINE einzelne Kachel komplett (DecalRoad-Straßen + eigenes .ter).
 
-        Convenience-Wrapper um prepare_road_export()/export_merged_roads()/
-        export_merged_terrain() für Aufrufer, die nur eine einzelne Kachel
-        exportieren (export_single_tile()/export_terrain_only()). Der
-        Haupt-Workflow (BeamNGExporter.export_complete_level()) ruft diese
-        drei Methoden stattdessen direkt auf, um mehrere Kacheln vorher
-        zusammenzuführen.
+        Convenience-Wrapper um export_decal_roads()/export_merged_terrain()
+        für Aufrufer, die nur eine einzelne Kachel exportieren
+        (export_single_tile()/export_terrain_only()).
 
         Args:
             tile_x, tile_y: unbenutzt, nur für Aufrufer-Kompatibilität
             mesh_data: Mesh-Daten aus process_tile()
 
         Returns:
-            Liste der exportierten Straßen-DAE-Dateinamen
+            Anzahl der erzeugten DecalRoad-Items
         """
-        prepared = self.prepare_road_export(mesh_data)
-        dae_files = self.export_merged_roads([prepared])
+        road_count = self.export_decal_roads(mesh_data)
         self.export_merged_terrain(
             heights=mesh_data["heightmap"],
             layer_map=mesh_data["layer_map"],
@@ -811,4 +576,4 @@ class TerrainWorkflow:
             max_height=mesh_data["max_height"],
             photo_tile_names=mesh_data["photo_tile_names"],
         )
-        return dae_files
+        return road_count

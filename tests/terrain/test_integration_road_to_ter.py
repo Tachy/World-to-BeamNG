@@ -16,7 +16,6 @@ from world_to_beamng.terrain.heightmap import build_heightmap
 from world_to_beamng.terrain.road_embedding import (
     build_road_embankment_profiles,
     apply_embankment_blend,
-    road_mesh_to_arrays,
     embed_roads_into_heightmap,
 )
 from world_to_beamng.terrain.ter_writer import write_ter, read_ter, encode_heights_to_u16
@@ -44,7 +43,11 @@ def test_road_to_ter_full_chain(tmp_path):
 
     # Eine Straße bei x=25, Z=95 (5m Einschnitt), width=6
     centerline = np.array([[25.0, y, 95.0] for y in range(5, 45)], dtype=float)
-    road_slope_polygons_2d = [{"trimmed_centerline": centerline, "osm_tags": {}}]
+    # 2D-Straßenpolygon (x=[22,28], y=[5,45]) - entspricht width=6 um die Centerline
+    road_polygon = np.array([[22.0, 5.0], [28.0, 5.0], [28.0, 45.0], [22.0, 45.0]])
+    road_slope_polygons_2d = [
+        {"trimmed_centerline": centerline, "osm_tags": {}, "road_polygon": road_polygon}
+    ]
 
     profiles = build_road_embankment_profiles(
         road_slope_polygons_2d, heights, origin_x, origin_y, spacing,
@@ -52,12 +55,9 @@ def test_road_to_ter_full_chain(tmp_path):
     )
     heights = apply_embankment_blend(heights, origin_x, origin_y, spacing, profiles)
 
-    # Synthetisches Straßen-Mesh: flaches Quad bei x=[22,28], y=[5,45], z=95
-    road_vertices = np.array([
-        [22.0, 5.0, 95.0], [28.0, 5.0, 95.0], [22.0, 45.0, 95.0], [28.0, 45.0, 95.0],
-    ])
-    road_triangles = np.array([[0, 1, 2], [1, 2, 3]])
-    heights = embed_roads_into_heightmap(heights, origin_x, origin_y, spacing, road_vertices, road_triangles, margin=0.1)
+    # DecalRoad-Ansatz: Terrain wird exakt auf Centerline-Höhe gesetzt
+    # (kein Sicherheitsabstand mehr, siehe road_embedding.py-Moduldocstring)
+    heights = embed_roads_into_heightmap(heights, origin_x, origin_y, spacing, road_slope_polygons_2d)
 
     z_min = float(heights.min())
     max_height = float(heights.max() - z_min) + 10.0

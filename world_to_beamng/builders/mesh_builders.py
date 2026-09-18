@@ -1,118 +1,11 @@
 """
-Builder für Road-, Grid- und Building-Meshes.
+Builder für Grid- und Building-Meshes.
 
 Vereinfacht komplexe Mesh-Generierung mit einem klaren Builder-Pattern.
 """
 
 from typing import Optional, List, Dict, Tuple
 import numpy as np
-
-from ..mesh.mesh import Mesh
-from ..mesh.vertex_manager import VertexManager
-
-
-class RoadMeshBuilder:
-    """
-    Builder für Road-Meshes.
-
-    Beispiel:
-        >>> builder = RoadMeshBuilder()
-        >>> mesh = (builder
-        ...     .with_roads(roads)
-        ...     .with_junctions(junctions)
-        ...     .with_grid(grid)
-        ...     .with_vertex_manager(vertex_manager)
-        ...     .build())
-    """
-
-    def __init__(self):
-        self._roads = None
-        self._junctions = None
-        self._grid = None
-        self._vertex_manager = None
-
-    def with_roads(self, roads: List[Dict]) -> "RoadMeshBuilder":
-        """
-        Setze Straßen.
-
-        Args:
-            roads: Liste von Road-Dicts
-
-        Returns:
-            Self für Method-Chaining
-        """
-        self._roads = roads
-        return self
-
-    def with_junctions(self, junctions: List[Dict]) -> "RoadMeshBuilder":
-        """
-        Setze Junctions.
-
-        Args:
-            junctions: Liste von Junction-Dicts
-
-        Returns:
-            Self für Method-Chaining
-        """
-        self._junctions = junctions
-        return self
-
-    def with_grid(self, grid: np.ndarray) -> "RoadMeshBuilder":
-        """
-        Setze Grid.
-
-        Args:
-            grid: N×M×3 Grid
-
-        Returns:
-            Self für Method-Chaining
-        """
-        self._grid = grid
-        return self
-
-    def with_vertex_manager(self, vertex_manager: VertexManager) -> "RoadMeshBuilder":
-        """
-        Setze VertexManager.
-
-        Args:
-            vertex_manager: VertexManager-Instanz
-
-        Returns:
-            Self für Method-Chaining
-        """
-        self._vertex_manager = vertex_manager
-        return self
-
-    def build(self) -> Mesh:
-        """
-        Baue Road-Mesh.
-
-        Returns:
-            Generiertes Road-Mesh
-
-        Raises:
-            ValueError: Wenn erforderliche Parameter fehlen
-        """
-        if self._roads is None:
-            raise ValueError("Roads required")
-        if self._junctions is None:
-            raise ValueError("Junctions required")
-        if self._grid is None:
-            raise ValueError("Grid required")
-        if self._vertex_manager is None:
-            raise ValueError("VertexManager required")
-
-        from ..mesh.road_mesh import generate_road_mesh_strips
-
-        grid_points, grid_elevations, _, _ = self._grid
-
-        return generate_road_mesh_strips(
-            self._roads,
-            grid_points,
-            grid_elevations,
-            self._vertex_manager,
-            self._junctions,
-        )
 
 
 class GridBuilder:

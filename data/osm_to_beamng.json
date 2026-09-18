@@ -16,23 +16,22 @@
             "priority": 2,
             "drivability": 0.3,
             "textures": {
-                "baseColorMap": "levels/world_to_beamng/art/shapes/assets/materials/decalroad/dirt/m_asphalt_road_dirt_grass_edge_02/t_asphalt_dirt_moss_edge_02_b.color.dds",
-                "normalMap": "levels/world_to_beamng/art/shapes/assets/materials/decalroad/dirt/m_asphalt_road_dirt_grass_edge_02/t_asphalt_dirt_moss_edge_02_nm.normal.dds",
-                "ambientOcclusionMap": "levels/world_to_beamng/art/shapes/assets/materials/decalroad/dirt/m_asphalt_road_dirt_grass_edge_02/t_asphalt_dirt_moss_edge_02_ao.data.dds",
-                "roughnessMap": "levels/world_to_beamng/art/shapes/assets/materials/decalroad/dirt/m_asphalt_road_dirt_grass_edge_02/t_asphalt_dirt_moss_edge_02_r.data.dds",
-                "opacityMap": "levels/world_to_beamng/art/shapes/assets/materials/decalroad/dirt/m_asphalt_road_dirt_grass_edge_02/t_asphalt_dirt_moss_edge_02_o.data.dds"
+                "baseColorMap": "levels/world_to_beamng/art/shapes/assets/materials/decalroad/dirt/dirt_road_gravels/t_dirt_road_gravels_b.color.dds",
+                "normalMap": "levels/world_to_beamng/art/shapes/assets/materials/decalroad/dirt/dirt_road_gravels/t_dirt_road_gravels_nm.normal.dds",
+                "ambientOcclusionMap": "levels/world_to_beamng/art/shapes/assets/materials/decalroad/dirt/dirt_road_gravels/t_dirt_road_gravels_ao.data.dds",
+                "roughnessMap": "levels/world_to_beamng/art/shapes/assets/materials/decalroad/dirt/dirt_road_gravels/t_dirt_road_gravels_r.data.dds",
+                "opacityMap": "levels/world_to_beamng/art/shapes/assets/materials/decalroad/dirt/dirt_road_gravels/t_dirt_road_gravels_o.data.dds"
             }
         },
         "concrete": {
-            "groundModelName": "concrete",
+            "groundModelName": "asphalt",
             "priority": 0,
             "drivability": 0.0,
             "textures": {
-                "baseColorMap": "levels/world_to_beamng/art/shapes/assets/materials/decalroad/concrete/italy_road_edge_concrete/t_italy_road_edge_concrete_b.color.dds",
-                "normalMap": "levels/world_to_beamng/art/shapes/assets/materials/decalroad/concrete/italy_road_edge_concrete/t_italy_road_edge_concrete_nm.normal.dds",
-                "ambientOcclusionMap": "levels/world_to_beamng/art/shapes/assets/materials/decalroad/concrete/italy_road_edge_concrete/t_italy_road_edge_concrete_ao.data.dds",
-                "roughnessMap": "levels/world_to_beamng/art/shapes/assets/materials/decalroad/concrete/italy_road_edge_concrete/t_italy_road_edge_concrete_r.data.dds",
-                "opacityMap": "levels/world_to_beamng/art/shapes/assets/materials/decalroad/concrete/italy_road_edge_concrete/t_italy_road_edge_concrete_o.data.dds"
+                "baseColorMap": "levels/world_to_beamng/art/shapes/assets/materials/decalroad/concrete/decalroad_concrete/t_highway_concrete_b.color.dds",
+                "normalMap": "levels/world_to_beamng/art/shapes/assets/materials/decalroad/concrete/decalroad_concrete/t_highway_concrete_nm.normal.dds",
+                "ambientOcclusionMap": "levels/world_to_beamng/art/shapes/assets/materials/decalroad/concrete/decalroad_concrete/t_highway_concrete_ao.data.dds",
+                "roughnessMap": "levels/world_to_beamng/art/shapes/assets/materials/decalroad/concrete/decalroad_concrete/t_highway_concrete_r.data.dds"
             }
         }
     },
@@ -104,7 +103,6 @@
             "lod_distance": 250.0,
             "collision_enabled": true,
             "preferred_trees": {
-                "cork_oak_bush_large": 0.1,
                 "tree_aspen_forest_a": 0.1,
                 "tree_aspen_forest_b": 0.1,
                 "tree_aspen_forest_group": 0.1,
@@ -113,7 +111,8 @@
                 "tree_beech_forest_a": 0.1,
                 "tree_beech_forest_b": 0.1,
                 "tree_beech_forest_group": 0.1,
-                "tree_beech_large_b": 0.1
+                "tree_beech_large_b": 0.1,
+                "tree_beech_large_c": 0.1
             },
             "comment": "Dichter Laubwald - Buchen und Eichen (klassischer deutscher Wald)"
         },
@@ -150,16 +149,16 @@
             "lod_distance": 180.0,
             "collision_enabled": true,
             "preferred_trees": {
-                "cork_oak_bush_large": 0.1,
-                "cork_oak_bush_medium": 0.1,
                 "generibush": 0.1,
                 "generibush_small": 0.1,
-                "maritime_pine_bush": 0.1,
                 "tree_aspen_bush_a": 0.1,
                 "tree_aspen_bush_b": 0.1,
                 "tree_aspen_bush_c": 0.1,
                 "tree_aspen_small_a": 0.1,
-                "tree_aspen_small_b": 0.1
+                "tree_aspen_small_b": 0.1,
+                "tree_aspen_small_c": 0.1,
+                "tree_aspen_small_d": 0.1,
+                "tree_aspen_small_low": 0.1
             },
             "comment": "Lichter Laubwald - überwiegend Busch- und kleinere Bäume"
         },

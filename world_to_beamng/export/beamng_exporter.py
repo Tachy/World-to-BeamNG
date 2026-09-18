@@ -9,6 +9,8 @@ from typing import List, Dict, Optional, Tuple
 from pathlib import Path
 import json
 
+import numpy as np
+
 from .. import config
 from ..core.cache_manager import CacheManager
 from ..managers import MaterialManager, ItemManager, DAEExporter
@@ -193,23 +195,39 @@ class BeamNGExporter:
         terrain_vertex_manager = None
         terrain_grid_bounds = None
 
-        # Luftbild-Texturen EINMAL für die Gesamtfläche aller Kacheln generieren
-        # (nicht pro Kachel - siehe process_tile()-Kommentar: eine Datei-Existenz-
-        # Prüfung pro Kachel würde bei mehreren Kacheln alle außer der ersten
-        # überspringen, weil schon irgendeine .dds-Datei auf der Platte liegt).
+        # EIN zusammengesetztes Luftbild für die Gesamtfläche generieren (nicht
+        # mehr eine Textur pro 500m-Kachel - siehe io/aerial.py::process_aerial_images()
+        # Docstring: BeamNGs Terrain-Atlas-Packer verdreht Kacheln sichtbar, wenn
+        # ihm zu viele große, einzigartige Materialien übergeben werden).
         from ..utils.tile_scanner import compute_global_bbox
+        from ..io.aerial import AERIAL_PHOTO_FILENAME
+        from ..terrain.heightmap import next_power_of_two_size
 
         utm_min_x, utm_max_x, utm_min_y, utm_max_y = compute_global_bbox(tiles)
+
+        # Das Luftbild MUSS exakt dieselbe Fläche abdecken, die das Terrain
+        # später tatsächlich einnimmt - und das ist NICHT die rohe DGM-Kachel-
+        # Bbox (z.B. 2000x2000m), sondern die auf Zweierpotenz aufgefüllte
+        # Heightmap-Größe (z.B. 2048x2048m, siehe heightmap.py:build_heightmap()).
+        # Ohne diesen Abgleich behauptet die TerrainMaterialTextureSet eine
+        # andere Kantenlänge (baseColorBaseTexSize), als das Foto tatsächlich
+        # zeigt -> das Bild wird falsch skaliert auf das Terrain projiziert.
+        # Padding erweitert (wie bei den Höhendaten) NUR nach Osten/Norden.
+        nx = len(np.arange(utm_min_x, utm_max_x + config.GRID_SPACING * 0.5, config.GRID_SPACING))
+        ny = len(np.arange(utm_min_y, utm_max_y + config.GRID_SPACING * 0.5, config.GRID_SPACING))
+        padded_size = next_power_of_two_size(max(nx, ny))
+        padded_extent = padded_size * config.GRID_SPACING
+
         combined_grid_bounds_local = (
             utm_min_x - global_offset[0],
-            utm_max_x - global_offset[0],
+            utm_min_x - global_offset[0] + padded_extent,
             utm_min_y - global_offset[1],
-            utm_max_y - global_offset[1],
+            utm_min_y - global_offset[1] + padded_extent,
         )
         textures_dir = config.BEAMNG_DIR_TEXTURES
         aerial_dir = Path("data/DOP20")
-        if textures_dir.exists() and any(textures_dir.glob("tile_*.dds")):
-            logger.info("[i] Luftbild-Texturen bereits vorhanden - werden übersprungen")
+        if textures_dir.exists() and (textures_dir / AERIAL_PHOTO_FILENAME).exists():
+            logger.info("[i] Gesamt-Luftbild bereits vorhanden - wird übersprungen")
         elif aerial_dir.exists() and any(aerial_dir.glob("*.zip")):
             logger.info("[i] Verarbeite Luftbilder für die Gesamtfläche...")
             from ..io.aerial import process_aerial_images
@@ -220,11 +238,9 @@ class BeamNGExporter:
                     output_dir=textures_dir,
                     grid_bounds=combined_grid_bounds_local,
                     global_offset=global_offset,
-                    tile_world_size=config.TILE_SIZE,
-                    tile_size=2500,  # 2500 Pixel pro Texturkachel (→ 4096x4096 DDS)
                 )
                 if num_textures > 0:
-                    logger.info(f"[OK] {num_textures} Luftbild-Texturen exportiert")
+                    logger.info(f"[OK] Gesamt-Luftbild exportiert")
             except Exception as e:
                 logger.error(f"[!] Fehler bei Luftbild-Verarbeitung: {e}")
 
@@ -334,7 +350,7 @@ class BeamNGExporter:
 
     def export_single_tile(
         self, tile: Dict, global_offset: Tuple[float, float], tile_x: int = 0, tile_y: int = 0
-    ) -> Optional[str]:
+    ) -> Optional[int]:
         """
         Exportiere einzelnes Tile.
 
@@ -344,7 +360,7 @@ class BeamNGExporter:
             tile_x, tile_y: unbenutzt, nur für Aufrufer-Kompatibilität
 
         Returns:
-            Pfad zur DAE-Datei oder None
+            Anzahl der erzeugten DecalRoad-Items oder None
         """
         result = self.terrain.process_tile(tiles=[tile], global_offset=global_offset)
 
