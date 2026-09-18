@@ -65,6 +65,22 @@ def test_surface_types_ground_model_names_are_official():
         )
 
 
+def test_landuse_mappings_ground_model_names_are_official():
+    config_path = Path(__file__).parent.parent / "data" / "osm_to_beamng.json"
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+
+    for name, category in config.get("landuse_mappings", {}).items():
+        if "groundModelName" not in category:
+            continue  # Foto-Kategorien (Wohngebiet, Wasser) haben kein eigenes Material
+        ground_model = category["groundModelName"].upper()
+        assert ground_model in OFFICIAL_GROUND_MODELS, (
+            f"landuse_mappings.{name}.groundModelName={category['groundModelName']!r} "
+            f"-> {ground_model!r} ist kein offizieller BeamNG-Groundmodel-Name"
+        )
+
+
 if __name__ == "__main__":
     test_surface_types_ground_model_names_are_official()
     print("[OK] test_surface_types_ground_model_names_are_official")
+    test_landuse_mappings_ground_model_names_are_official()
+    print("[OK] test_landuse_mappings_ground_model_names_are_official")

@@ -14,6 +14,8 @@ import numpy as np
 from .. import config
 from ..core.cache_manager import CacheManager
 from ..managers import MaterialManager, ItemManager, DAEExporter
+from ..io.beamng_install import get_beamng_install_dir
+from ..io.vineyard_assets import ITEM_NAMES as VINEYARD_ITEM_NAMES, ensure_vineyard_assets
 from ..workflow import TileProcessor, TerrainWorkflow, BuildingWorkflow, HorizonWorkflow, ForestWorkflow
 import logging
 from world_to_beamng.logging_config import LoggerConfig
@@ -119,6 +121,7 @@ class BeamNGExporter:
             "horizon_exported": False,
             "forests_registered": 0,  # NEU
             "trees_generated": 0,  # NEU
+            "vine_segments": 0,
         }
 
         forests_enabled = include_forests and config.FORESTS_ENABLED
@@ -146,8 +149,18 @@ class BeamNGExporter:
 
         # NEU: Phase 0 - Forest Asset Initialization (DIREKT VOR Tile-Loop)
         registered_trees = {}
+        vineyard_assets_ready = False
         if forests_enabled:
             timer.begin("Forest Asset Initialization")
+
+            # Reben-Assets für Weinberge sicherstellen (idempotent) - VOR dem Laden von
+            # managedItemData.json, damit die Reben als Forest-Items registriert sind.
+            if config.VINEYARDS_ENABLED:
+                try:
+                    ensure_vineyard_assets(config.BEAMNG_DIR, get_beamng_install_dir(), config.LEVEL_NAME)
+                    vineyard_assets_ready = True
+                except Exception as e:
+                    logger.warning(f"Reben-Assets nicht verfügbar - Weinberge bleiben ohne Reben: {e}")
 
             # Lade managedItemData.json (wird von generate_forest_assets.py erzeugt)
             forest_item_data_path = config.BEAMNG_DIR / "art" / "forest" / "managedItemData.json"
@@ -161,6 +174,10 @@ class BeamNGExporter:
                     # denn forest.forest4.json referenziert Bäume darüber im "type"-Feld)
                     for item_key, item_info in forest_item_data.items():
                         internal_name = item_info.get("internalName", item_key)
+                        # Reben sind keine Waldbäume: sonst könnte der Fallback der
+                        # Baumartenwahl ("erster verfügbarer Baum") sie in den Wald pflanzen.
+                        if internal_name in VINEYARD_ITEM_NAMES:
+                            continue
                         registered_trees[internal_name] = {
                             "name": internal_name,
                             "dae_path": item_info.get("shapeFile", ""),
@@ -283,6 +300,10 @@ class BeamNGExporter:
                 )
                 if forest_result["status"] == "success":
                     stats["trees_generated"] += forest_result.get("tree_count", 0)
+
+                # Weinberg-Reben (Forest-Items) zusammen mit den Bäumen in forest.forest4.json
+                if vineyard_assets_ready and result.get("vineyard_instances"):
+                    stats["vine_segments"] += self.forests.add_instances(result["vineyard_instances"])
 
             # Sammle Gebäude-Daten (werden später gruppiert nach Tiles exportiert)
             if include_buildings and result.get("buildings_data"):

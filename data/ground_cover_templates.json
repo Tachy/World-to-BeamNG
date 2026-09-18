@@ -1,0 +1,1283 @@
+{
+  "billboard_materials": {
+    "m_grass_green_short_01": {
+      "name": "m_grass_green_short_01",
+      "mapTo": "m_grass_green_short_01",
+      "class": "Material",
+      "Stages": [
+        {
+          "ambientOcclusionMap": "/assets/materials/foliage/grass/t_grass_green_short_01/t_grass_green_short_01_ao.data.png",
+          "baseColorMap": "/assets/materials/foliage/grass/t_grass_green_short_02/t_grass_green_short_02_b.color.png",
+          "normalMap": "/assets/materials/foliage/grass/t_grass_green_short_01/t_grass_green_short_01_nm.normal.png",
+          "opacityMap": "/assets/materials/foliage/grass/t_grass_green_short_01/t_grass_green_short_01_o.data.png",
+          "roughnessMap": "/assets/materials/foliage/grass/t_grass_green_short_01/t_grass_green_short_01_r.data.png"
+        }
+      ],
+      "alphaRef": 60,
+      "alphaTest": true,
+      "doubleSided": true,
+      "dynamicCubemap": true,
+      "subSurface": true,
+      "subSurfaceIntensity": 1,
+      "version": 1.5
+    },
+    "m_grass_green_long_01": {
+      "name": "m_grass_green_long_01",
+      "mapTo": "m_grass_green_long_01",
+      "class": "Material",
+      "Stages": [
+        {
+          "ambientOcclusionMap": "/assets/materials/foliage/grass/t_grass_green_long_01/t_grass_green_long_01_ao.data.png",
+          "baseColorMap": "/assets/materials/foliage/grass/t_grass_green_long_03/t_grass_green_long_03_b.color.png",
+          "normalMap": "/assets/materials/foliage/grass/t_grass_green_long_01/t_grass_green_long_01_nm.normal.png",
+          "opacityMap": "/assets/materials/foliage/grass/t_grass_green_long_01/t_grass_green_long_01_o.data.png",
+          "roughnessMap": "/assets/materials/foliage/grass/t_grass_green_long_01/t_grass_green_long_01_r.data.png"
+        }
+      ],
+      "alphaRef": 25,
+      "alphaTest": true,
+      "doubleSided": true,
+      "dynamicCubemap": true,
+      "subSurface": true,
+      "subSurfaceIntensity": 1,
+      "version": 1.5
+    },
+    "m_grass_green_close": {
+      "Stages": [
+        {
+          "ambientOcclusionMap": "/assets/materials/foliage/grass/t_grass_green_short_01/t_grass_green_short_01_ao.data.png",
+          "baseColorFactor": [
+            0.836427987,
+            0.836427987,
+            0.836427987,
+            1
+          ],
+          "baseColorMap": "/assets/materials/foliage/grass/t_grass_green_short_03/t_grass_green_short_03_b.color.png",
+          "normalMap": "/assets/materials/foliage/grass/t_grass_green_short_01/t_grass_green_short_01_nm.normal.png",
+          "opacityMap": "/assets/materials/foliage/grass/t_grass_green_short_01/t_grass_green_short_01_o.data.png",
+          "pixelSpecular": true,
+          "roughnessMap": "/assets/materials/foliage/grass/t_grass_green_short_01/t_grass_green_short_01_r.data.png"
+        }
+      ],
+      "alphaRef": 70,
+      "alphaTest": true,
+      "annotation": "GRASS",
+      "class": "Material",
+      "doubleSided": true,
+      "groundType": "GRASS",
+      "mapTo": "m_grass_green_close",
+      "name": "m_grass_green_close",
+      "subSurface": true,
+      "subSurfaceIntensity": 1,
+      "translucentZWrite": true,
+      "version": 1.5
+    },
+    "m_flowers_01": {
+      "name": "m_flowers_01",
+      "mapTo": "m_flowers_01",
+      "class": "Material",
+      "Stages": [
+        {
+          "ambientOcclusionMap": "/assets/materials/foliage/groundcover/t_flowers_01/t_flowers_01_ao.data.png",
+          "baseColorMap": "/assets/materials/foliage/groundcover/t_flowers_01/t_flowers_01_b.color.png",
+          "normalMap": "/assets/materials/foliage/groundcover/t_flowers_01/t_flowers_01_nm.normal.png",
+          "opacityMap": "/assets/materials/foliage/groundcover/t_flowers_01/t_flowers_01_o.data.png",
+          "roughnessMap": "/assets/materials/foliage/groundcover/t_flowers_01/t_flowers_01_r.data.png"
+        }
+      ],
+      "alphaRef": 5,
+      "alphaTest": true,
+      "doubleSided": true,
+      "dynamicCubemap": true,
+      "invertBackFaceNormals": true,
+      "subSurface": true,
+      "subSurfaceIntensity": 1,
+      "version": 1.5
+    },
+    "m_grass_dry_short": {
+      "name": "m_grass_dry_short",
+      "mapTo": "m_grass_dry_short",
+      "class": "Material",
+      "Stages": [
+        {
+          "ambientOcclusionMap": "/assets/materials/foliage/grass/t_grass_green_short_01/t_grass_green_short_01_ao.data.png",
+          "baseColorMap": "/assets/materials/foliage/grass/t_grass_dry_short_01/t_grass_dry_short_01_b.color.png",
+          "normalMap": "/assets/materials/foliage/grass/t_grass_green_short_01/t_grass_green_short_01_nm.normal.png",
+          "opacityMap": "/assets/materials/foliage/grass/t_grass_green_short_01/t_grass_green_short_01_o.data.png",
+          "roughnessMap": "/assets/materials/foliage/grass/t_grass_green_short_01/t_grass_green_short_01_r.data.png"
+        }
+      ],
+      "alphaRef": 60,
+      "alphaTest": true,
+      "doubleSided": true,
+      "dynamicCubemap": true,
+      "subSurface": true,
+      "subSurfaceIntensity": 1,
+      "version": 1.5
+    },
+    "m_grass_dry_01": {
+      "Stages": [
+        {
+          "ambientOcclusionMap": "/assets/materials/foliage/grass/t_grass_green_long_01/t_grass_green_long_01_ao.data.png",
+          "baseColorFactor": [
+            0.783508003,
+            0.731675982,
+            0.681734025,
+            1
+          ],
+          "baseColorMap": "/assets/materials/foliage/grass/t_grass_dry_long_01/t_grass_dry_long_01_b.color.png",
+          "normalMap": "/assets/materials/foliage/grass/t_grass_green_long_01/t_grass_green_long_01_nm.normal.png",
+          "opacityMap": "/assets/materials/foliage/grass/t_grass_green_long_01/t_grass_green_long_01_o.data.png",
+          "pixelSpecular": true,
+          "roughnessMap": "/assets/materials/foliage/grass/t_grass_green_long_01/t_grass_green_long_01_r.data.png"
+        }
+      ],
+      "alphaRef": 16,
+      "alphaTest": true,
+      "annotation": "GRASS",
+      "class": "Material",
+      "doubleSided": true,
+      "groundType": "GRASS",
+      "mapTo": "m_grass_dry_01",
+      "name": "m_grass_dry_01",
+      "subSurface": true,
+      "subSurfaceIntensity": 1,
+      "translucentZWrite": true,
+      "version": 1.5
+    },
+    "m_weed_01": {
+      "Stages": [
+        {
+          "ambientOcclusionMap": "/assets/materials/foliage/grass/t_jv_dry_grass/t_jv_dry_grass_ao.data.png",
+          "baseColorFactor": [
+            1,
+            0.966947019,
+            0.889348984,
+            1
+          ],
+          "baseColorMap": "/assets/materials/foliage/grass/t_jv_dry_grass/t_jv_dry_grass_b.color.png",
+          "normalMap": "/assets/materials/foliage/grass/t_jv_dry_grass/t_jv_dry_grass_nm.normal.png",
+          "opacityMap": "/assets/materials/foliage/grass/t_jv_dry_grass/t_jv_dry_grass_o.data.png",
+          "pixelSpecular": true,
+          "roughnessFactor": 0.643000007,
+          "roughnessMap": "/assets/materials/foliage/grass/t_jv_dry_grass/t_jv_dry_grass_r.data.png"
+        }
+      ],
+      "alphaRef": 96,
+      "alphaTest": true,
+      "annotation": "GRASS",
+      "class": "Material",
+      "doubleSided": true,
+      "groundType": "GRASS",
+      "invertBackFaceNormals": true,
+      "mapTo": "m_weed_01",
+      "name": "m_weed_01",
+      "subSurface": true,
+      "subSurfaceIntensity": 1,
+      "translucentZWrite": true,
+      "version": 1.5
+    },
+    "Groundcover_spring": {
+      "name": "Groundcover_spring",
+      "mapTo": "unmapped_mat",
+      "class": "Material",
+      "Stages": [
+        {
+          "ambientOcclusionMap": "/assets/materials/foliage/groundcover/t_forest_vegetation/t_undergrowth_01_ao.data.png",
+          "baseColorFactor": [
+            0.762239993,
+            0.762239993,
+            0.762239993,
+            1
+          ],
+          "baseColorMap": "/assets/materials/foliage/groundcover/t_forest_vegetation/t_undergrowth_01_b.color.png",
+          "detailNormalMapStrength": 0.5,
+          "detailScale": [
+            1,
+            1
+          ],
+          "normalMap": "/assets/materials/foliage/groundcover/t_forest_vegetation/t_undergrowth_01_nm.normal.png",
+          "normalMapStrength": 2,
+          "opacityMap": "/assets/materials/foliage/groundcover/t_forest_vegetation/t_undergrowth_01_o.data.png",
+          "pixelSpecular": true,
+          "roughnessMap": "/assets/materials/foliage/groundcover/t_forest_vegetation/t_undergrowth_01_r.data.png",
+          "specular": [
+            0.669777989,
+            0.669777989,
+            0.669777989,
+            1
+          ]
+        }
+      ],
+      "alphaRef": 40,
+      "alphaTest": true,
+      "annotation": "NATURE",
+      "doubleSided": true,
+      "invertBackFaceNormals": true,
+      "materialTag0": "beamng",
+      "materialTag1": "vegetation",
+      "materialTag2": "vegetation",
+      "materialTag3": "Natural",
+      "materialTag4": "east_coast_usa",
+      "subSurface": true,
+      "subSurfaceIntensity": 1,
+      "version": 1.5
+    },
+    "m_wet_plant": {
+      "name": "m_wet_plant",
+      "mapTo": "m_wet_pant",
+      "class": "Material",
+      "Stages": [
+        {
+          "ambientOcclusionMap": "/assets/materials/foliage/grass/t_wet_plant/t_wet_plant_ao.data.png",
+          "baseColorMap": "/assets/materials/foliage/grass/t_wet_plant/t_wet_plant_b.color.png",
+          "normalMap": "/assets/materials/foliage/grass/t_wet_plant/t_wet_plant_nm.normal.png",
+          "opacityMap": "/assets/materials/foliage/grass/t_wet_plant/t_wet_plant_o.data.png",
+          "roughnessMap": "/assets/materials/foliage/grass/t_wet_plant/t_wet_plant_r.data.png"
+        }
+      ],
+      "alphaRef": 80,
+      "alphaTest": true,
+      "doubleSided": true,
+      "dynamicCubemap": true,
+      "invertBackFaceNormals": true,
+      "subSurface": true,
+      "subSurfaceIntensity": 1,
+      "version": 1.5
+    }
+  },
+  "templates": {
+    "grass_short": {
+      "material": "m_grass_green_short_01",
+      "source": "Industrial/small_grass_green_distant",
+      "radius": 120,
+      "gridSize": 6,
+      "dissolveRadius": 80,
+      "shapeCullRadius": 90,
+      "maxBillboardTiltAngle": 40,
+      "windGustFrequency": 0.100000001,
+      "windGustLength": 0.5,
+      "windGustStrength": 0.200000003,
+      "windTurbulenceFrequency": 0.600000024,
+      "windTurbulenceStrength": 0.100000001,
+      "types": [
+        {
+          "billboardUVs": [
+            0,
+            0.0078125,
+            1,
+            0.464843988
+          ],
+          "clumpRadius": 0.200000003,
+          "maxClumpCount": 6,
+          "probability": 0.699999988,
+          "sizeMax": 0.200000003,
+          "sizeMin": 0.100000001,
+          "windScale": 0.100000001
+        },
+        {
+          "billboardUVs": [
+            0,
+            0.505124986,
+            1,
+            0.472656012
+          ],
+          "clumpRadius": 0,
+          "maxClumpCount": 4,
+          "minClumpCount": 2,
+          "probability": 0.200000003,
+          "sizeMax": 0.200000003,
+          "sizeMin": 0.100000001,
+          "windScale": 0.100000001
+        },
+        {
+          "billboardUVs": [
+            0,
+            0.515625,
+            0.5,
+            0.476563007
+          ],
+          "maxClumpCount": 4,
+          "minClumpCount": 3,
+          "sizeMax": 0.300000012,
+          "sizeMin": 0.200000003,
+          "windScale": 0.200000003
+        },
+        {
+          "billboardUVs": [
+            0.496093988,
+            0.515625,
+            0.503906012,
+            0.484375
+          ],
+          "clumpRadius": 0.5,
+          "maxClumpCount": 6,
+          "minClumpCount": 3,
+          "sizeMax": 0.300000012,
+          "sizeMin": 0.200000003,
+          "windScale": 0.200000003
+        },
+        {
+          "billboardUVs": [
+            0,
+            0.0117188003,
+            0.527343988,
+            0.484376013
+          ],
+          "clumpExponent": -0.200000003,
+          "clumpRadius": 1.5,
+          "maxClumpCount": 6,
+          "minClumpCount": 2,
+          "sizeMax": 1.20000005,
+          "sizeMin": 0.600000024,
+          "windScale": 0.300000012
+        },
+        {
+          "billboardUVs": [
+            0,
+            0.507812977,
+            0.5,
+            0.390625
+          ],
+          "clumpExponent": -0.5,
+          "maxClumpCount": 4,
+          "minClumpCount": 2,
+          "sizeMax": 0.5,
+          "sizeMin": 0.300000012,
+          "windScale": 0.300000012
+        },
+        {
+          "billboardUVs": [
+            0.535156012,
+            0.515625,
+            0.464843988,
+            0.402343988
+          ],
+          "clumpExponent": -0.5,
+          "maxClumpCount": 5,
+          "minClumpCount": 3,
+          "sizeMax": 0.600000024,
+          "sizeMin": 0.400000006,
+          "windScale": 0.300000012
+        }
+      ]
+    },
+    "grass_long": {
+      "material": "m_grass_green_long_01",
+      "source": "Industrial/long_grass_green_distant",
+      "radius": 120,
+      "gridSize": 8,
+      "dissolveRadius": 80,
+      "shapeCullRadius": 90,
+      "maxBillboardTiltAngle": 40,
+      "windGustFrequency": 10,
+      "windTurbulenceFrequency": 0.300000012,
+      "windTurbulenceStrength": 0.600000024,
+      "types": [
+        {
+          "billboardUVs": [
+            0,
+            0,
+            1,
+            0.491806209
+          ],
+          "clumpRadius": 2,
+          "maxClumpCount": 3,
+          "minClumpCount": 2,
+          "probability": 1,
+          "sizeMax": 0.5,
+          "sizeMin": 0.300000012,
+          "windScale": 0.100000001
+        },
+        {
+          "billboardUVs": [
+            0,
+            0.511717975,
+            1,
+            0.488281995
+          ],
+          "clumpRadius": 2,
+          "maxClumpCount": 3,
+          "minClumpCount": 2,
+          "probability": 0.5,
+          "sizeMax": 0.5,
+          "sizeMin": 0.300000012,
+          "windScale": 0.100000001
+        },
+        {
+          "billboardUVs": [
+            0.5,
+            0.519531012,
+            0.5,
+            0.480468988
+          ],
+          "clumpRadius": 2,
+          "maxClumpCount": 3,
+          "minClumpCount": 2,
+          "sizeMax": 0.800000012,
+          "sizeMin": 0.600000024,
+          "windScale": 0.100000001
+        },
+        {
+          "billboardUVs": [
+            0,
+            0.503906012,
+            0.480468005,
+            0.496093988
+          ],
+          "clumpRadius": 2,
+          "maxClumpCount": 6,
+          "minClumpCount": 3,
+          "sizeMax": 0.800000012,
+          "sizeMin": 0.600000024,
+          "windScale": 0.200000003
+        },
+        {
+          "billboardUVs": [
+            0,
+            0.0117188003,
+            0.527343988,
+            0.484376013
+          ],
+          "clumpRadius": 1.5,
+          "maxClumpCount": 6,
+          "minClumpCount": 2,
+          "sizeMax": 0.699999988,
+          "sizeMin": 0.5,
+          "windScale": 0.300000012
+        },
+        {
+          "billboardUVs": [
+            0.0351562984,
+            0.5,
+            0.347656012,
+            0.300781012
+          ],
+          "maxClumpCount": 2,
+          "sizeMax": 0.5,
+          "sizeMin": 0.300000012,
+          "windScale": 0.300000012
+        }
+      ]
+    },
+    "grass_close": {
+      "material": "m_grass_green_close",
+      "source": "automation_test_track/grass_green_1",
+      "radius": 100,
+      "gridSize": 8,
+      "dissolveRadius": 70,
+      "shapeCullRadius": 80,
+      "maxBillboardTiltAngle": 40,
+      "windGustFrequency": 0.100000001,
+      "windGustLength": 0.5,
+      "windGustStrength": 0.0500000007,
+      "windTurbulenceFrequency": 0.5,
+      "windTurbulenceStrength": 0.100000001,
+      "types": [
+        {
+          "billboardUVs": [
+            0,
+            0,
+            0.5,
+            0.5
+          ],
+          "maxClumpCount": 6,
+          "probability": 0.200000003,
+          "sizeMax": 0.300000012,
+          "sizeMin": 0.200000003,
+          "windScale": 0.0500000007
+        },
+        {
+          "billboardUVs": [
+            0.5,
+            0,
+            0.5,
+            0.5
+          ],
+          "clumpRadius": 2,
+          "maxClumpCount": 4,
+          "minClumpCount": 2,
+          "probability": 1,
+          "sizeMax": 0.200000003,
+          "sizeMin": 0.100000001,
+          "windScale": 0.0500000007
+        },
+        {
+          "billboardUVs": [
+            0,
+            0.5,
+            0.5,
+            0.5
+          ],
+          "maxClumpCount": 4,
+          "minClumpCount": 3,
+          "probability": 1,
+          "sizeMax": 0.100000001,
+          "sizeMin": 0.0500000007,
+          "windScale": 0.0500000007
+        },
+        {
+          "billboardUVs": [
+            0.5,
+            0.5,
+            0.5,
+            0.5
+          ],
+          "maxClumpCount": 6,
+          "minClumpCount": 3,
+          "probability": 1,
+          "sizeMax": 0.200000003,
+          "sizeMin": 0.100000001,
+          "windScale": 0.0500000007
+        },
+        {
+          "billboardUVs": [
+            0.5,
+            0.0078125,
+            0.5,
+            0.464843988
+          ],
+          "maxClumpCount": 6,
+          "sizeMax": 0.25,
+          "sizeMin": 0.200000003,
+          "windScale": 0.0500000007
+        },
+        {
+          "billboardUVs": [
+            0,
+            0.252999991,
+            0.5,
+            0.238000005
+          ],
+          "maxClumpCount": 4,
+          "minClumpCount": 2,
+          "sizeMax": 0.150000006,
+          "sizeMin": 0.119999997,
+          "windScale": 0.0500000007
+        },
+        {
+          "billboardUVs": [
+            0,
+            0.694999993,
+            0.5,
+            0.296000004
+          ],
+          "maxClumpCount": 4,
+          "minClumpCount": 3,
+          "sizeMax": 0.100000001,
+          "sizeMin": 0.0799999982,
+          "windScale": 0.0500000007
+        },
+        {
+          "billboardUVs": [
+            0.496093988,
+            0.75,
+            0.503906012,
+            0.25
+          ],
+          "maxClumpCount": 6,
+          "minClumpCount": 3,
+          "sizeMax": 0.100000001,
+          "sizeMin": 0.0799999982,
+          "windScale": 0.0500000007
+        }
+      ]
+    },
+    "flowers": {
+      "material": "m_flowers_01",
+      "source": "Industrial/flowers_03",
+      "radius": 120,
+      "gridSize": 3,
+      "dissolveRadius": 80,
+      "shapeCullRadius": 90,
+      "maxBillboardTiltAngle": 40,
+      "windGustLength": 1.70000005,
+      "windGustStrength": 0.200000003,
+      "windTurbulenceFrequency": 0.300000012,
+      "types": [
+        {
+          "billboardUVs": [
+            0.391768336,
+            0.386835963,
+            0.150036544,
+            0.226648256
+          ],
+          "clumpExponent": 0.100000001,
+          "clumpRadius": 0.100000001,
+          "maxClumpCount": 4,
+          "minClumpCount": 2,
+          "sizeExponent": 2,
+          "sizeMax": 0.200000003,
+          "sizeMin": 0.150000006,
+          "windScale": 0.200000003
+        },
+        {
+          "billboardUVs": [
+            0.542877078,
+            0.323836416,
+            0.0923759788,
+            0.288212031
+          ],
+          "clumpExponent": 4,
+          "clumpRadius": 0.25,
+          "maxClumpCount": 4,
+          "minClumpCount": 2,
+          "sizeMax": 0.25,
+          "sizeMin": 0.150000006,
+          "windScale": 0.200000003
+        },
+        {
+          "billboardUVs": [
+            0.906521618,
+            0.262987196,
+            0.0934784114,
+            0.351978898
+          ],
+          "clumpExponent": 2,
+          "clumpRadius": 0.25,
+          "maxClumpCount": 4,
+          "minClumpCount": 3,
+          "sizeMax": 0.25,
+          "sizeMin": 0.150000006,
+          "windScale": 0.200000003
+        },
+        {
+          "billboardUVs": [
+            0.635660768,
+            0.33055073,
+            0.272889227,
+            0.279476702
+          ],
+          "clumpExponent": 2,
+          "clumpRadius": 0.25,
+          "maxClumpCount": 4,
+          "minClumpCount": 3,
+          "sizeMax": 0.25,
+          "sizeMin": 0.150000006,
+          "windScale": 0.200000003
+        },
+        {
+          "billboardUVs": [
+            0.219937816,
+            0.352743924,
+            0.167908058,
+            0.258597493
+          ],
+          "clumpExponent": 2,
+          "clumpRadius": 0.25,
+          "maxClumpCount": 5,
+          "minClumpCount": 2,
+          "sizeMax": 0.25,
+          "sizeMin": 0.150000006,
+          "windScale": 0.200000003
+        },
+        {
+          "billboardUVs": [
+            0,
+            0.229237765,
+            0.390784979,
+            0.378839582
+          ],
+          "clumpRadius": 0.5,
+          "maxClumpCount": 2,
+          "minClumpCount": 2,
+          "sizeMax": 0.300000012,
+          "sizeMin": 0.150000006,
+          "windScale": 0.200000003
+        },
+        {
+          "billboardUVs": [
+            0.742842793,
+            0.624263644,
+            0.257157236,
+            0.371296853
+          ],
+          "maxClumpCount": 5,
+          "minClumpCount": 2,
+          "sizeMax": 0.400000006,
+          "sizeMin": 0.300000012,
+          "windScale": 0.200000003
+        },
+        {
+          "billboardUVs": [
+            0.544838309,
+            0.624027073,
+            0.195707396,
+            0.375972927
+          ],
+          "maxClumpCount": 5,
+          "minClumpCount": 2,
+          "sizeMax": 0.400000006,
+          "sizeMin": 0.300000012,
+          "windScale": 0.200000003
+        }
+      ]
+    },
+    "dry_grass_short": {
+      "material": "m_grass_dry_short",
+      "source": "Industrial/small_grass_dry_close",
+      "radius": 50,
+      "gridSize": 6,
+      "dissolveRadius": 30,
+      "shapeCullRadius": 45,
+      "maxBillboardTiltAngle": 40,
+      "windGustFrequency": 0.100000001,
+      "windGustLength": 0.5,
+      "windGustStrength": 0.200000003,
+      "windTurbulenceFrequency": 0.600000024,
+      "windTurbulenceStrength": 0.100000001,
+      "types": [
+        {
+          "billboardUVs": [
+            0,
+            0.0078125,
+            0.543657303,
+            0.464843988
+          ],
+          "clumpRadius": 2,
+          "maxClumpCount": 6,
+          "probability": 1,
+          "sizeMax": 0.200000003,
+          "sizeMin": 0.100000001,
+          "windScale": 0.100000001
+        },
+        {
+          "billboardUVs": [
+            0,
+            0.505124986,
+            0.637241721,
+            0.472656012
+          ],
+          "clumpRadius": 0.200000003,
+          "maxClumpCount": 4,
+          "minClumpCount": 2,
+          "probability": 1,
+          "sizeMax": 0.200000003,
+          "sizeMin": 0.100000001,
+          "windScale": 0.100000001
+        },
+        {
+          "billboardUVs": [
+            0,
+            7.51426121e-09,
+            1,
+            0.476563007
+          ],
+          "clumpRadius": 0.200000003,
+          "maxClumpCount": 4,
+          "minClumpCount": 3,
+          "sizeMax": 0.200000003,
+          "sizeMin": 0.100000001,
+          "windScale": 0.200000003
+        },
+        {
+          "billboardUVs": [
+            0,
+            0.515625,
+            1,
+            0.484375
+          ],
+          "clumpRadius": 0.200000003,
+          "maxClumpCount": 6,
+          "minClumpCount": 3,
+          "sizeMax": 0.200000003,
+          "sizeMin": 0.100000001,
+          "windScale": 0.200000003
+        },
+        {
+          "billboardUVs": [
+            0,
+            0.0117188003,
+            0.527343988,
+            0.484376013
+          ],
+          "clumpExponent": -0.200000003,
+          "clumpRadius": 1.5,
+          "maxClumpCount": 6,
+          "minClumpCount": 2,
+          "sizeMax": 1.20000005,
+          "sizeMin": 0.600000024,
+          "windScale": 0.300000012
+        },
+        {
+          "billboardUVs": [
+            0,
+            0.507812977,
+            0.5,
+            0.390625
+          ],
+          "clumpExponent": -0.5,
+          "maxClumpCount": 4,
+          "minClumpCount": 2,
+          "sizeMax": 0.5,
+          "sizeMin": 0.300000012,
+          "windScale": 0.300000012
+        },
+        {
+          "billboardUVs": [
+            0.535156012,
+            0.515625,
+            0.464843988,
+            0.402343988
+          ],
+          "clumpExponent": -0.5,
+          "maxClumpCount": 5,
+          "minClumpCount": 3,
+          "sizeMax": 0.600000024,
+          "sizeMin": 0.400000006,
+          "windScale": 0.300000012
+        }
+      ]
+    },
+    "dry_grass": {
+      "material": "m_grass_dry_01",
+      "source": "Cliff/grass_dry_7",
+      "radius": 120,
+      "gridSize": 8,
+      "dissolveRadius": 80,
+      "shapeCullRadius": 90,
+      "maxBillboardTiltAngle": 40,
+      "windGustFrequency": 6,
+      "windGustLength": 10,
+      "windGustStrength": 0.100000001,
+      "windTurbulenceFrequency": 0.600000024,
+      "windTurbulenceStrength": 0.400000006,
+      "types": [
+        {
+          "billboardUVs": [
+            0,
+            0,
+            1,
+            0.5
+          ],
+          "maxClumpCount": 6,
+          "probability": 0.200000003,
+          "sizeMax": 0.5,
+          "sizeMin": 0.300000012,
+          "windScale": 0.25000003
+        },
+        {
+          "billboardUVs": [
+            0,
+            0,
+            1,
+            0.5
+          ],
+          "clumpRadius": 2,
+          "maxClumpCount": 4,
+          "minClumpCount": 2,
+          "probability": 1,
+          "sizeMax": 0.400000006,
+          "sizeMin": 0.300000012,
+          "windScale": 0.25000003
+        },
+        {
+          "billboardUVs": [
+            0,
+            0.5,
+            1,
+            0.5
+          ],
+          "maxClumpCount": 4,
+          "minClumpCount": 3,
+          "probability": 0.100000001,
+          "sizeMax": 0.5,
+          "sizeMin": 0.400000006,
+          "windScale": 0.25000003
+        },
+        {
+          "billboardUVs": [
+            0,
+            0.5,
+            1,
+            0.5
+          ],
+          "maxClumpCount": 6,
+          "minClumpCount": 3,
+          "probability": 1,
+          "sizeMax": 0.400000006,
+          "sizeMin": 0.300000012,
+          "windScale": 0.25000003
+        },
+        {
+          "billboardUVs": [
+            0,
+            0.0078125,
+            1,
+            0.464843988
+          ],
+          "maxClumpCount": 6,
+          "probability": 1,
+          "sizeMax": 0.25,
+          "sizeMin": 0.200000003,
+          "windScale": 0.25000003
+        },
+        {
+          "billboardUVs": [
+            0,
+            0,
+            1,
+            0.490999997
+          ],
+          "clumpRadius": 0.100000001,
+          "maxClumpCount": 4,
+          "minClumpCount": 2,
+          "probability": 0.200000003,
+          "sizeMax": 0.300000012,
+          "sizeMin": 0.200000003,
+          "windScale": 0.25000003
+        },
+        {
+          "billboardUVs": [
+            0,
+            0,
+            1,
+            0.491121948
+          ],
+          "clumpRadius": 0.100000001,
+          "maxClumpCount": 4,
+          "minClumpCount": 3,
+          "probability": 0.100000001,
+          "sizeMax": 0.300000012,
+          "sizeMin": 0.200000003,
+          "windScale": 0.25000003
+        },
+        {
+          "billboardUVs": [
+            0,
+            0,
+            0.503906012,
+            0.496858835
+          ],
+          "clumpRadius": 0.100000001,
+          "maxClumpCount": 6,
+          "minClumpCount": 3,
+          "sizeMax": 0.300000012,
+          "sizeMin": 0.200000003,
+          "windScale": 0.25000003
+        }
+      ]
+    },
+    "weed": {
+      "material": "m_weed_01",
+      "source": "Cliff/weed1",
+      "radius": 120,
+      "gridSize": 6,
+      "dissolveRadius": 80,
+      "shapeCullRadius": 90,
+      "maxBillboardTiltAngle": 40,
+      "windGustFrequency": 6,
+      "windGustLength": 10,
+      "windGustStrength": 0.100000001,
+      "windTurbulenceFrequency": 0.600000024,
+      "windTurbulenceStrength": 0.400000006,
+      "types": [
+        {
+          "billboardUVs": [
+            0,
+            0.667967975,
+            0.343751013,
+            0.332031995
+          ],
+          "clumpRadius": 2,
+          "maxClumpCount": 3,
+          "minClumpCount": 2,
+          "probability": 0.200000003,
+          "sizeExponent": 2,
+          "sizeMax": 0.699999988,
+          "sizeMin": 0.5,
+          "windScale": 0.200000018
+        },
+        {
+          "billboardUVs": [
+            0.328126013,
+            0.667968988,
+            0.328123987,
+            0.332031012
+          ],
+          "clumpRadius": 2,
+          "maxClumpCount": 3,
+          "probability": 0.200000003,
+          "sizeExponent": 1.5,
+          "sizeMax": 0.699999988,
+          "sizeMin": 0.5,
+          "windScale": 0.200000018
+        },
+        {
+          "billboardUVs": [
+            0.679687023,
+            0.332031995,
+            0.320313007,
+            0.328125
+          ],
+          "clumpRadius": 2,
+          "maxClumpCount": 3,
+          "probability": 1,
+          "sizeExponent": 2,
+          "sizeMax": 0.699999988,
+          "sizeMin": 0.5,
+          "windScale": 0.200000018
+        },
+        {
+          "billboardUVs": [
+            0.667968988,
+            0.671875,
+            0.332031012,
+            0.285156012
+          ],
+          "clumpRadius": 2,
+          "maxClumpCount": 5,
+          "minClumpCount": 3,
+          "probability": 2,
+          "sizeExponent": 2,
+          "sizeMax": 0.800000012,
+          "sizeMin": 0.400000006,
+          "windScale": 0.200000018
+        },
+        {
+          "billboardUVs": [
+            0.678740144,
+            0.335304141,
+            0.321260005,
+            0.324218005
+          ],
+          "maxClumpCount": 5,
+          "minClumpCount": 2,
+          "sizeMax": 0.400000006,
+          "sizeMin": 0.300000012,
+          "windScale": 0.200000018
+        },
+        {
+          "billboardUVs": [
+            0,
+            0.324218988,
+            0.332031012,
+            0.332031012
+          ],
+          "maxClumpCount": 4,
+          "minClumpCount": 2,
+          "sizeMax": 0.5,
+          "sizeMin": 0.300000012,
+          "windScale": 0.200000018
+        },
+        {
+          "billboardUVs": [
+            0,
+            0,
+            0.335938007,
+            0.308593988
+          ],
+          "maxClumpCount": 2,
+          "sizeMax": 0.600000024,
+          "sizeMin": 0.400000006
+        }
+      ]
+    },
+    "fern": {
+      "material": "Groundcover_spring",
+      "source": "driver_training/fern1",
+      "radius": 50,
+      "gridSize": 5,
+      "dissolveRadius": 30,
+      "shapeCullRadius": 45,
+      "maxBillboardTiltAngle": 40,
+      "windGustLength": 1.70000005,
+      "windGustStrength": 0.200000003,
+      "windTurbulenceFrequency": 0.300000012,
+      "types": [
+        {
+          "billboardUVs": [
+            0,
+            0.710940003,
+            0.164061993,
+            0.289059997
+          ],
+          "clumpRadius": 4,
+          "maxClumpCount": 15,
+          "minClumpCount": 10,
+          "probability": 0.5,
+          "sizeMin": 0.600000024,
+          "windScale": 0.200000003
+        },
+        {
+          "billboardUVs": [
+            0,
+            0.714842975,
+            0.160155997,
+            0.285156995
+          ],
+          "clumpRadius": 1.5,
+          "maxClumpCount": 20,
+          "minClumpCount": 15,
+          "sizeMax": 0.800000012,
+          "sizeMin": 0.400000006,
+          "windScale": 0.200000003
+        },
+        {
+          "billboardUVs": [
+            0.160156995,
+            0.710937977,
+            0.250001013,
+            0.289061993
+          ],
+          "clumpRadius": 0.5,
+          "maxClumpCount": 20,
+          "minClumpCount": 15,
+          "probability": 1,
+          "sizeMax": 0.699999988,
+          "sizeMin": 0.5,
+          "windScale": 0.200000003
+        },
+        {
+          "billboardUVs": [
+            0.164061993,
+            0.714842975,
+            0.246095002,
+            0.285156995
+          ],
+          "clumpRadius": 2,
+          "maxClumpCount": 6,
+          "minClumpCount": 3,
+          "sizeMax": 0.800000012,
+          "sizeMin": 0.5,
+          "windScale": 0.200000003
+        },
+        {
+          "billboardUVs": [
+            0.367188007,
+            0,
+            0.421875,
+            0.425781995
+          ],
+          "clumpRadius": 0.699999988,
+          "maxClumpCount": 3,
+          "sizeMax": 0.899999976,
+          "sizeMin": 0.5,
+          "windScale": 0.300000012
+        },
+        {
+          "billboardUVs": [
+            0.582031012,
+            0.046875,
+            0.417968988,
+            0.449218988
+          ],
+          "maxClumpCount": 2,
+          "sizeMax": 0.800000012,
+          "sizeMin": 0.300000012,
+          "windScale": 0.300000012
+        }
+      ]
+    },
+    "wet_plant": {
+      "material": "m_wet_plant",
+      "source": "Industrial/wet_weed_02",
+      "radius": 120,
+      "gridSize": 4,
+      "dissolveRadius": 80,
+      "shapeCullRadius": 90,
+      "maxBillboardTiltAngle": 40,
+      "windGustLength": 1.70000005,
+      "windGustStrength": 0.200000003,
+      "windTurbulenceFrequency": 0.300000012,
+      "types": [
+        {
+          "billboardUVs": [
+            0.371091992,
+            0.250001997,
+            0.628907979,
+            0.667966008
+          ],
+          "maxClumpCount": 5,
+          "minClumpCount": 3,
+          "probability": 1,
+          "sizeMax": 1.29999995,
+          "sizeMin": 0.800000012,
+          "windScale": 0.200000003
+        },
+        {
+          "billboardUVs": [
+            0,
+            0.585937977,
+            0.332031012,
+            0.332031012
+          ],
+          "clumpExponent": 3,
+          "clumpRadius": 0.5,
+          "maxClumpCount": 3,
+          "minClumpCount": 2,
+          "sizeMin": 0.699999988,
+          "windScale": 0.200000003
+        },
+        {
+          "billboardUVs": [
+            0.253906012,
+            0.527343988,
+            0.417968988,
+            0.414063007
+          ],
+          "clumpExponent": 2,
+          "clumpRadius": 0.100000001,
+          "maxClumpCount": 4,
+          "minClumpCount": 3,
+          "sizeMin": 0.699999988,
+          "windScale": 0.200000003
+        },
+        {
+          "billboardUVs": [
+            0.511718988,
+            0,
+            0.160155997,
+            0.171875
+          ],
+          "clumpRadius": 3,
+          "maxClumpCount": 6,
+          "minClumpCount": 3,
+          "sizeMax": 0.600000024,
+          "sizeMin": 0.300000012,
+          "windScale": 0.200000003
+        },
+        {
+          "billboardUVs": [
+            0.0585935004,
+            0.015625,
+            0.222656995,
+            0.191405997
+          ],
+          "maxClumpCount": 5,
+          "minClumpCount": 2,
+          "sizeMax": 0.800000012,
+          "sizeMin": 0.5,
+          "windScale": 0.200000003
+        },
+        {
+          "billboardUVs": [
+            0,
+            0.589843988,
+            0.285156012,
+            0.257813007
+          ],
+          "maxClumpCount": 3,
+          "minClumpCount": 2,
+          "sizeExponent": 2,
+          "sizeMax": 0.800000012,
+          "sizeMin": 0.5,
+          "windScale": 0.200000003
+        },
+        {
+          "billboardUVs": [
+            0.046875,
+            0,
+            0.234375,
+            0.273438007
+          ],
+          "maxClumpCount": 5,
+          "minClumpCount": 4,
+          "sizeExponent": 2,
+          "sizeMax": 0.699999988,
+          "sizeMin": 0.400000006
+        }
+      ]
+    }
+  }
+}

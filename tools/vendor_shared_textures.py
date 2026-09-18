@@ -13,25 +13,11 @@ from pathlib import Path
 import json
 import sys
 import zipfile
-import configparser
 
 # Importiere config
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from world_to_beamng import config
-
-
-def get_beamng_install_dir() -> Path:
-    """Liest den BeamNG-Installationspfad aus BeamNG.drive.ini (userPathWithouVersion-Nachbar)."""
-    ini_path = Path.home() / "AppData" / "Local" / "BeamNG" / "BeamNG.drive.ini"
-    if not ini_path.is_file():
-        raise FileNotFoundError(f"BeamNG.drive.ini nicht gefunden: {ini_path}")
-
-    # Datei ist eine simple "key = value" Liste ohne Section-Header -> ConfigParser braucht Dummy-Section
-    raw = ini_path.read_text(encoding="utf-8-sig")
-    parser = configparser.ConfigParser()
-    parser.read_string("[main]\n" + raw)
-    install_path = parser["main"]["installpath"].strip().strip('"')
-    return Path(install_path)
+from world_to_beamng.io.beamng_install import get_beamng_install_dir
 
 
 def find_texture_paths(obj, level_prefix: str, found: set) -> None:

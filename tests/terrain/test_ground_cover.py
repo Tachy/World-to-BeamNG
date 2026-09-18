@@ -1,0 +1,161 @@
+"""Tests für world_to_beamng.terrain.ground_cover und die Foto-Maskierung des Layers.
+
+Grashalme etc. sind in BeamNG separate GroundCover-Objekte (Billboards aus einem
+Textur-Atlas), die über den Namen eines Terrain-Materials (`layer`) an eine
+Schicht gebunden sind - sie wachsen NICHT von selbst aus der Terrain-Textur.
+"""
+
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+
+import numpy as np
+import pytest
+from shapely.geometry import Polygon
+
+from world_to_beamng.terrain.ground_cover import build_billboard_material_entries, build_ground_cover_items
+from world_to_beamng.terrain.terrain_materials import mask_layer_map_with_photo
+
+TEMPLATES_DATA = {
+    "billboard_materials": {
+        "m_grass": {"name": "m_grass", "mapTo": "m_grass", "class": "Material", "Stages": [{"baseColorMap": "/assets/x.png"}]},
+        "m_flowers": {"name": "m_flowers", "mapTo": "m_flowers", "class": "Material", "Stages": [{}]},
+    },
+    "templates": {
+        "grass_short": {
+            "material": "m_grass",
+            "radius": 120,
+            "gridSize": 6,
+            "dissolveRadius": 80,
+            "shapeCullRadius": 90,
+            "maxBillboardTiltAngle": 40,
+            "types": [
+                {"billboardUVs": [0, 0, 1, 0.5], "sizeMin": 0.1, "sizeMax": 0.2},
+                {"billboardUVs": [0, 0.5, 1, 0.5], "sizeMin": 0.1, "sizeMax": 0.3, "probability": 0.5},
+            ],
+        },
+        "flowers": {"material": "m_flowers", "radius": 50, "types": [{"billboardUVs": [0, 0, 0.5, 0.5]}]},
+    },
+}
+
+MAPPINGS = {
+    "meadow": {"osm_tags": {"landuse": ["meadow"]}, "internal_name": "mat_grass", "groundCover": ["grass_short", "flowers"]},
+    "forest": {"osm_tags": {"landuse": ["forest"]}, "internal_name": "mat_forest", "groundCover": ["grass_short"]},
+    "urban": {"osm_tags": {"landuse": ["residential"]}, "keep_photo": True},
+}
+
+
+def _items(used_layers, **kwargs):
+    return build_ground_cover_items(MAPPINGS, used_layers, TEMPLATES_DATA, max_elements=1000, max_radius=100, **kwargs)
+
+
+def test_one_ground_cover_object_per_used_layer_and_template():
+    items = _items(["aerial_photo", "mat_grass"])
+
+    assert sorted(i["name"] for i in items) == ["gc_mat_grass_flowers", "gc_mat_grass_grass_short"]
+
+
+def test_layers_not_painted_in_the_terrain_get_no_ground_cover():
+    # Ein Layer, der in keiner Zelle der Layer-Map vorkommt, braucht keine Objekte
+    items = _items(["aerial_photo"])
+
+    assert items == []
+
+
+def test_every_type_is_bound_to_the_terrain_layer():
+    # Ohne layer würde der Bewuchs auf ALLEN Terrain-Materialien wachsen
+    items = _items(["aerial_photo", "mat_grass", "mat_forest"])
+
+    for item in items:
+        layers = {t["layer"] for t in item["Types"]}
+        assert layers == {"mat_grass" if "mat_grass" in item["name"] else "mat_forest"}
+
+
+def test_item_uses_template_material_types_and_object_fields():
+    item = next(i for i in _items(["aerial_photo", "mat_grass"]) if i["name"].endswith("grass_short"))
+
+    assert item["material"] == "m_grass"
+    assert len(item["Types"]) == 2
+    assert item["Types"][0]["billboardUVs"] == [0, 0, 1, 0.5]
+    assert item["Types"][1]["probability"] == 0.5
+    assert item["gridSize"] == 6
+    assert item["maxBillboardTiltAngle"] == 40
+
+
+def test_radius_is_capped_and_dependent_radii_stay_inside():
+    item = next(i for i in _items(["aerial_photo", "mat_grass"]) if i["name"].endswith("grass_short"))
+
+    assert item["radius"] == 100  # Vorlage 120 -> Deckel 100
+    assert item["dissolveRadius"] <= item["radius"]
+    assert item["shapeCullRadius"] <= item["radius"]
+
+
+def test_max_elements_comes_from_the_argument():
+    for item in _items(["aerial_photo", "mat_grass"]):
+        assert item["maxElements"] == 1000
+
+
+def test_photo_categories_and_unknown_templates_are_skipped():
+    mappings = {**MAPPINGS, "orchard": {"internal_name": "mat_orchard", "groundCover": ["does_not_exist"]}}
+
+    items = build_ground_cover_items(mappings, ["aerial_photo", "mat_orchard"], TEMPLATES_DATA, max_elements=10, max_radius=100)
+
+    assert items == []
+
+
+def test_item_names_are_unique():
+    items = _items(["aerial_photo", "mat_grass", "mat_forest"])
+
+    names = [i["name"] for i in items]
+    assert len(names) == len(set(names))
+
+
+def test_billboard_materials_only_for_used_templates_with_persistent_ids():
+    items = _items(["aerial_photo", "mat_forest"])  # nur grass_short
+
+    materials = build_billboard_material_entries(items, TEMPLATES_DATA)
+
+    assert set(materials) == {"m_grass"}
+    assert materials["m_grass"]["class"] == "Material"
+    assert materials["m_grass"]["persistentId"]  # BeamNG braucht eindeutige IDs
+    assert materials["m_grass"]["Stages"][0]["baseColorMap"] == "/assets/x.png"
+
+
+def test_billboard_material_ids_are_unique_per_call():
+    items = _items(["aerial_photo", "mat_grass"])
+
+    materials = build_billboard_material_entries(items, TEMPLATES_DATA)
+    ids = [m["persistentId"] for m in materials.values()]
+
+    assert len(ids) == len(set(ids)) == 2
+
+
+def test_mask_layer_map_with_photo_resets_cells_under_geometry():
+    layer_map = np.full((20, 20), 2, dtype=np.uint8)
+    road = Polygon([(0, 8), (20, 8), (20, 12), (0, 12)])
+
+    result = mask_layer_map_with_photo(layer_map, 20, 0.0, 0.0, 1.0, [road])
+
+    assert result[10, 10] == 0  # unter der Straße: Luftbild, dort wächst nichts
+    assert result[2, 2] == 2  # daneben bleibt die Landnutzung
+    assert (layer_map == 2).all()  # Eingabe bleibt unverändert
+
+
+def test_mask_layer_map_with_photo_buffer_widens_the_mask():
+    layer_map = np.full((20, 20), 2, dtype=np.uint8)
+    road = Polygon([(0, 9), (20, 9), (20, 11), (0, 11)])
+
+    narrow = mask_layer_map_with_photo(layer_map, 20, 0.0, 0.0, 1.0, [road])
+    wide = mask_layer_map_with_photo(layer_map, 20, 0.0, 0.0, 1.0, [road], buffer=2.0)
+
+    assert (wide == 0).sum() > (narrow == 0).sum()
+
+
+def test_mask_layer_map_with_photo_without_geometries_is_a_copy():
+    layer_map = np.full((5, 5), 3, dtype=np.uint8)
+
+    result = mask_layer_map_with_photo(layer_map, 5, 0.0, 0.0, 1.0, [])
+
+    assert (result == 3).all()
+    assert result is not layer_map

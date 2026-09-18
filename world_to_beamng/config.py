@@ -88,6 +88,21 @@ TERRAIN_MAX_HEIGHT_BUFFER = 50.0
 DEBUG_EXPORTS = True  # Debug-Dumps (Netz, Grid) nur bei Bedarf aktivieren
 DEBUG_VERBOSE = False  # Zusätzliche Konsolen-Logs
 
+# === LANDNUTZUNG / BODENBEWUCHS ===
+# Bodenbewuchs (Gras, Blumen, Farn ...) als BeamNG-GroundCover-Objekte je Terrain-Layer.
+GROUND_COVER_ENABLED = True
+GROUND_COVER_MAX_ELEMENTS = 100000  # Obergrenze gleichzeitig gezeichneter Elemente je Objekt (Leistung!)
+GROUND_COVER_MAX_RADIUS = 100.0  # Obergrenze der Sichtweite in Metern je Objekt (BeamNG-Originale: 50-120)
+# Unter Straßen (plus Schulter) und Gebäuden wird der Layer auf das Luftbild zurückgesetzt,
+# damit dort kein Gras durch Decals/Häuser wächst.
+GROUND_COVER_ROAD_MARGIN = 1.0
+GROUND_COVER_BUILDING_MARGIN = 0.5
+# Weinberg-Reben (Forest-Items) - benötigen FORESTS_ENABLED.
+VINEYARDS_ENABLED = True
+# Abstand der Reben zu Straßen/Gebäuden in Metern (ein Zeilensegment ist 5,6 m lang,
+# sein Mittelpunkt muss also mindestens eine halbe Länge entfernt bleiben).
+VINEYARD_EXCLUSION_MARGIN = 3.0
+
 # === LOGGING ===
 LOGGING_ENABLED = True
 LOGGING_FILE = None  # Path("logs/world_to_beamng.log")  # Optional; None = nur stdout
@@ -129,9 +144,9 @@ TILE_SIZE = 500  # Größe pro DAE-Tile in Metern
 # levels/level_formats/terrain/) ausdrücklich höhere Werte erlaubt, "wenn die
 # Basis eine einzigartige Gesamt-Terrain-Karte ist" - genau unser Fall (EIN
 # Luftbild für die ganze Fläche statt vieler Kacheln). 8192 statt 16384
-# (Stand 2026-09-18) auf Nutzerwunsch wegen Dateigröße (jede Landnutzungs-
-# Textur muss laut BeamNG auf dieselbe baseTexSize hochskaliert werden, siehe
-# ensure_landuse_base_textures_sized() - bei 16384 wurden das >1.6GB).
+# (Stand 2026-09-18) auf Nutzerwunsch wegen Dateigröße (jede Basis-Textur
+# muss laut BeamNG genau die baseTexSize haben; die Landnutzungs-Schichten
+# nutzen dasselbe Luftbild als Basis, siehe build_terrain_material_entries()).
 # 2048m-Kachel bei 8192px ≈ 0.25m/Pixel, nah an der nativen DOP20-Auflösung
 # (0.2m/Pixel).
 TERRAIN_BASE_TEX_PIXEL_SIZE = 8192

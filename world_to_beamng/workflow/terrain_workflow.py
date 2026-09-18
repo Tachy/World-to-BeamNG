@@ -249,7 +249,11 @@ class TerrainWorkflow:
             build_road_embankment_profiles,
             apply_embankment_blend,
         )
-        from ..terrain.terrain_materials import build_photo_fallback_layer, paint_landuse_materials
+        from ..terrain.terrain_materials import (
+            build_photo_fallback_layer,
+            mask_layer_map_with_photo,
+            paint_landuse_materials,
+        )
 
         heightmap_result = build_heightmap(
             grid_points, grid_elevations, nx, ny, config.TERRAIN_SQUARE_SIZE
@@ -293,43 +297,12 @@ class TerrainWorkflow:
         # Landnutzung obenauf (siehe build_photo_fallback_layer()).
         layer_map, photo_tile_names = build_photo_fallback_layer(terrain_size)
 
-        from shapely.geometry import shape as shapely_shape
-        from pyproj import Transformer
-        from ..geometry.coordinates import transformer_to_wgs84
+        from ..osm.landuse_polygons import build_landuse_polygons, make_local_transform
 
-        # osm_data enthält an dieser Stelle noch RAW Overpass-Geometrie (lat/lon,
-        # {"lat":.., "lon":..} pro Punkt) - dieselbe Situation, die
-        # ForestWorkflow._transform_osm_to_local() für Wald-Polygone löst.
-        # Für Landnutzungs-Polygone hier dieselbe WGS84->UTM->lokal-Transformation.
-        transformer_utm = Transformer.from_proj(
-            transformer_to_wgs84.target_crs,  # WGS84
-            transformer_to_wgs84.source_crs,  # UTM
-        )
-        offset_x, offset_y = global_offset[0], global_offset[1]
-
-        landuse_polygons = []
-        for element in osm_data:
-            tags = element.get("tags", {})
-            if not tags:
-                continue
-            geometry = element.get("geometry")
-            if not geometry or len(geometry) < 3:
-                continue
-            try:
-                coords_2d = []
-                for pt in geometry:
-                    if not isinstance(pt, dict) or "lat" not in pt or "lon" not in pt:
-                        continue
-                    utm_x, utm_y = transformer_utm.transform(pt["lon"], pt["lat"])
-                    coords_2d.append((utm_x - offset_x, utm_y - offset_y))
-                if len(coords_2d) < 3:
-                    continue
-                polygon = shapely_shape({"type": "Polygon", "coordinates": [coords_2d]})
-                if not polygon.is_valid or polygon.is_empty:
-                    continue
-            except Exception:
-                continue
-            landuse_polygons.append({"osm_tags": tags, "geometry": polygon})
+        # osm_data enthält an dieser Stelle noch RAW Overpass-Geometrie (lat/lon).
+        # Landnutzungs-Polygone entstehen aus Ways UND Multipolygon-Relationen
+        # (große Wald-/Weinberg-/Wohngebietsflächen sind in OSM meist Relationen).
+        landuse_polygons = build_landuse_polygons(osm_data, make_local_transform(global_offset))
 
         layer_map, terrain_material_names = paint_landuse_materials(
             layer_map,
@@ -341,6 +314,61 @@ class TerrainWorkflow:
             landuse_polygons,
             config.OSM_MAPPER.config.get("landuse_mappings", {}),
         )
+
+        # Straßen- und Gebäudeflächen: (1) Bodenbewuchs wächst auf dem Layer - dort geht es
+        # zurück aufs Luftbild, sonst wächst Gras durch Decals und Häuser; (2) Ausschlusszone
+        # für die Weinberg-Reben.
+        from shapely.geometry import Polygon
+
+        road_shapes = [
+            Polygon(road["road_polygon"]) for road in road_slope_polygons_2d if len(road["road_polygon"]) >= 3
+        ]
+        building_shapes = [
+            p["geometry"]
+            for p in build_landuse_polygons(osm_data, make_local_transform(global_offset), tag_keys=("building",))
+        ]
+
+        if config.GROUND_COVER_ENABLED:
+            layer_map = mask_layer_map_with_photo(
+                layer_map,
+                terrain_size,
+                terrain_origin_x,
+                terrain_origin_y,
+                config.TERRAIN_SQUARE_SIZE,
+                road_shapes,
+                buffer=config.GROUND_COVER_ROAD_MARGIN,
+            )
+            layer_map = mask_layer_map_with_photo(
+                layer_map,
+                terrain_size,
+                terrain_origin_x,
+                terrain_origin_y,
+                config.TERRAIN_SQUARE_SIZE,
+                building_shapes,
+                buffer=config.GROUND_COVER_BUILDING_MARGIN,
+            )
+
+        # Weinberg-Reben (Forest-Items) entlang der Falllinie, auf der fertigen Heightmap
+        vineyard_instances = []
+        if config.VINEYARDS_ENABLED and config.FORESTS_ENABLED:
+            from ..forest.vineyard_generator import build_exclusion_geometry, generate_vineyards, make_height_sampler
+            from shapely.geometry import box
+
+            vineyard_instances = generate_vineyards(
+                landuse_polygons,
+                config.OSM_MAPPER.config.get("landuse_mappings", {}),
+                make_height_sampler(heights, terrain_origin_x, terrain_origin_y, config.TERRAIN_SQUARE_SIZE),
+                exclusion=build_exclusion_geometry(road_shapes + building_shapes, config.VINEYARD_EXCLUSION_MARGIN),
+                # Nur über echten Höhendaten: die OSM-Abfrage reicht über das Terrain hinaus,
+                # und der Terrainrand ist aufgefüllt (dort gibt es keine echten Höhen)
+                bounds=box(
+                    grid_bounds_local[0] + config.VINEYARD_EXCLUSION_MARGIN,
+                    grid_bounds_local[2] + config.VINEYARD_EXCLUSION_MARGIN,
+                    grid_bounds_local[1] - config.VINEYARD_EXCLUSION_MARGIN,
+                    grid_bounds_local[3] - config.VINEYARD_EXCLUSION_MARGIN,
+                ),
+            )
+            logger.info(f"  [OK] {len(vineyard_instances)} Rebzeilen-Segmente generiert")
 
         z_min = float(heights.min())
         z_max = float(heights.max())
@@ -357,6 +385,7 @@ class TerrainWorkflow:
             "layer_map": layer_map,
             "terrain_material_names": terrain_material_names,
             "photo_tile_names": photo_tile_names,
+            "vineyard_instances": vineyard_instances,  # Forest-Items (grape_vine)
             "grid": grid,
             "road_polygons": road_polygons,
             "road_slope_polygons_2d": road_slope_polygons_2d,  # Für DecalRoad-Export
@@ -458,6 +487,45 @@ class TerrainWorkflow:
         logger.info(f"  [OK] {count} DecalRoad-Item(s) exportiert ({len(unique_materials)} Materialien)")
         return count
 
+    def export_ground_cover(self, layer_map: np.ndarray, terrain_material_names: List[str]) -> int:
+        """
+        Registriert Bodenbewuchs (Gras, Blumen, Farn, Unkraut) als GroundCover-
+        Objekte für jeden Terrain-Layer, der in der Layer-Map tatsächlich vorkommt,
+        samt der Billboard-Materialien (gemeinsame BeamNG-Assets).
+
+        Args:
+            layer_map: fertige globale Layer-Map (Index in terrain_material_names)
+            terrain_material_names: Layer-Namen in Index-Reihenfolge
+
+        Returns:
+            Anzahl der erzeugten GroundCover-Objekte
+        """
+        if not config.GROUND_COVER_ENABLED:
+            return 0
+
+        from ..terrain.ground_cover import (
+            build_billboard_material_entries,
+            build_ground_cover_items,
+            load_ground_cover_templates,
+        )
+
+        used_layers = [terrain_material_names[i] for i in np.unique(layer_map) if i < len(terrain_material_names)]
+        templates_data = load_ground_cover_templates()
+        items = build_ground_cover_items(
+            config.OSM_MAPPER.config.get("landuse_mappings", {}),
+            used_layers,
+            templates_data,
+            max_elements=config.GROUND_COVER_MAX_ELEMENTS,
+            max_radius=config.GROUND_COVER_MAX_RADIUS,
+        )
+        for item in items:
+            fields = dict(item)
+            self.items.add_ground_cover(fields.pop("name"), fields.pop("material"), fields.pop("Types"), **fields)
+
+        self.materials.materials.update(build_billboard_material_entries(items, templates_data))
+        logger.info(f"  [OK] {len(items)} GroundCover-Objekt(e) für {len(used_layers) - 1} Landnutzungs-Layer")
+        return len(items)
+
     def export_merged_terrain(
         self,
         heights: np.ndarray,
@@ -489,7 +557,8 @@ class TerrainWorkflow:
             build_terrain_material_entries,
             build_terrain_material_texture_set,
             ensure_flat_pbr_placeholders,
-            ensure_landuse_base_textures_sized,
+            ensure_landuse_detail_textures_sized,
+            DETAIL_TEX_SIZE,
         )
 
         heightmap_u16 = encode_heights_to_u16(heights, z_min, max_height)
@@ -501,9 +570,9 @@ class TerrainWorkflow:
         placeholders = ensure_flat_pbr_placeholders(
             config.BEAMNG_DIR_TEXTURES, config.LEVEL_NAME, config.TERRAIN_BASE_TEX_PIXEL_SIZE
         )
-        sized_landuse_mappings = ensure_landuse_base_textures_sized(
+        sized_landuse_mappings = ensure_landuse_detail_textures_sized(
             config.OSM_MAPPER.config.get("landuse_mappings", {}),
-            config.TERRAIN_BASE_TEX_PIXEL_SIZE,
+            DETAIL_TEX_SIZE,
             config.BEAMNG_DIR,
             config.BEAMNG_DIR_TEXTURES,
             config.LEVEL_NAME,
@@ -544,6 +613,8 @@ class TerrainWorkflow:
             )
         )
         self.materials.add_terrain_materials(terrain_material_entries)
+
+        self.export_ground_cover(layer_map, terrain_material_names)
 
         self.items.add_terrain_block(
             name="theTerrain",

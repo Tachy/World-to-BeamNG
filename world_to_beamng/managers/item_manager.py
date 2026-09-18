@@ -331,6 +331,36 @@ class ItemManager:
         )
         return name
 
+    def add_ground_cover(
+        self,
+        name: str,
+        material: str,
+        types: List[Dict[str, Any]],
+        **fields,
+    ) -> str:
+        """
+        Registriert ein GroundCover-Objekt (Bodenbewuchs: Gras, Blumen, Farn ...).
+
+        Args:
+            name: Item-Name (eindeutig, z.B. "gc_mat_grass_grass_short")
+            material: Billboard-Material (Textur-Atlas) der Types
+            types: Liste von Types (billboardUVs, sizeMin/-Max, Klumpung, layer ...);
+                `layer` bindet einen Typ an den Namen eines Terrain-Materials
+            **fields: weitere Felder (radius, maxElements, gridSize, Wind ...)
+
+        Returns:
+            Item-Name
+        """
+        self.add_item(
+            name,
+            item_class="GroundCover",
+            overwrite=True,
+            material=material,
+            Types=types,
+            **fields,
+        )
+        return name
+
     def add_decal_road(
         self,
         name: str,

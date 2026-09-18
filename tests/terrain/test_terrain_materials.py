@@ -17,23 +17,73 @@ from world_to_beamng.terrain.terrain_materials import (
     build_terrain_material_entries,
     build_terrain_material_texture_set,
     ensure_flat_pbr_placeholders,
-    ensure_landuse_base_textures_sized,
+    ensure_landuse_detail_textures_sized,
 )
 
 LANDUSE_MAPPINGS_FIXTURE = {
-    "forest": {"priority": 10, "internal_name": "mat_forest", "baseColorMap": "a/forest_b.png"},
-    "meadow": {"priority": 4, "internal_name": "mat_grass", "baseColorMap": "a/grass_b.png"},
-    "farmland": {"priority": 5, "internal_name": "mat_dirt", "baseColorMap": "a/dirt_b.png"},
-    "water": {"priority": 15, "internal_name": "mat_water", "baseColorMap": "a/water_b.png"},
+    "forest": {
+        "osm_tags": {"landuse": ["forest"], "natural": ["wood"]},
+        "priority": 10,
+        "internal_name": "mat_forest",
+        "groundModelName": "grass",
+        "detailColorMap": "a/forest_b.png",
+        "detailNormalMap": "a/forest_nm.png",
+        "detailStrength": 0.3,
+    },
+    "meadow": {
+        "osm_tags": {"landuse": ["meadow", "grass"], "natural": ["grassland"], "leisure": ["park"]},
+        "priority": 4,
+        "internal_name": "mat_grass",
+        "groundModelName": "grass",
+        "detailColorMap": "a/grass_b.png",
+    },
+    "farmland": {
+        "osm_tags": {"landuse": ["farmland"]},
+        "priority": 5,
+        "internal_name": "mat_dirt",
+        "groundModelName": "dirt",
+        "detailColorMap": "a/dirt_b.png",
+    },
+    # Wohngebiete etc.: Luftbild bleibt, überdeckt aber darunterliegende Layer
+    "urban": {"osm_tags": {"landuse": ["residential"]}, "priority": 12, "keep_photo": True},
+    "disabled": {
+        "osm_tags": {"landuse": ["quarry"]},
+        "priority": 3,
+        "internal_name": "mat_quarry",
+        "active": False,
+        "detailColorMap": "a/quarry_b.png",
+    },
+    # Ohne osm_tags (z.B. der "base"-Fallback-Eintrag) wird nie zugeordnet
+    "base": {"priority": 0, "internal_name": "mat_base_satellite"},
 }
 
 
-def test_get_landuse_category_matches_active_only():
+def test_get_landuse_category_matches_tag_values():
     assert get_landuse_category({"landuse": "forest"}, LANDUSE_MAPPINGS_FIXTURE) == "forest"
-    assert get_landuse_category({"natural": "wood"}, LANDUSE_MAPPINGS_FIXTURE) is None  # nicht in Fixture
-    # "water" ist in landuse_mappings, aber NICHT in ACTIVE_LANDUSE_CATEGORIES -> None
-    assert get_landuse_category({"natural": "water"}, LANDUSE_MAPPINGS_FIXTURE) is None
+    # Alias-Tags: natural=wood gehört zur Kategorie "forest", nicht nur landuse=forest
+    assert get_landuse_category({"natural": "wood"}, LANDUSE_MAPPINGS_FIXTURE) == "forest"
+    assert get_landuse_category({"landuse": "grass"}, LANDUSE_MAPPINGS_FIXTURE) == "meadow"
+    assert get_landuse_category({"natural": "grassland"}, LANDUSE_MAPPINGS_FIXTURE) == "meadow"
+    assert get_landuse_category({"leisure": "park"}, LANDUSE_MAPPINGS_FIXTURE) == "meadow"
+
+
+def test_get_landuse_category_ignores_unknown_inactive_and_untagged():
+    assert get_landuse_category({"landuse": "railway"}, LANDUSE_MAPPINGS_FIXTURE) is None
+    # "active": False -> nie zugeordnet
+    assert get_landuse_category({"landuse": "quarry"}, LANDUSE_MAPPINGS_FIXTURE) is None
+    assert get_landuse_category({"building": "yes"}, LANDUSE_MAPPINGS_FIXTURE) is None
     assert get_landuse_category({}, LANDUSE_MAPPINGS_FIXTURE) is None
+
+
+def test_get_landuse_category_returns_photo_category():
+    assert get_landuse_category({"landuse": "residential"}, LANDUSE_MAPPINGS_FIXTURE) == "urban"
+
+
+def test_get_landuse_category_prefers_higher_priority_on_multiple_tags():
+    # forest (10) schlägt meadow (4), egal welcher Tag zuerst geprüft wird
+    tags = {"landuse": "meadow", "natural": "wood"}
+
+    assert get_landuse_category(tags, LANDUSE_MAPPINGS_FIXTURE) == "forest"
 
 
 def test_photo_fallback_layer_single_material_for_whole_area():
@@ -97,6 +147,40 @@ def test_paint_landuse_priority_resolves_overlap():
     assert new_layer_map[1, 1] == farmland_index
 
 
+def test_paint_landuse_photo_category_restores_photo_over_other_layers():
+    # Wohngebiet (keep_photo, priority 12) liegt über einer Wiese (4): dort soll
+    # wieder das Luftbild (Index 0) sichtbar sein, nicht das Gras-Material.
+    size = 20
+    layer_map, names = build_photo_fallback_layer(size=size)
+    meadow = Polygon([(0, 0), (20, 0), (20, 20), (0, 20)])
+    residential = Polygon([(5, 5), (15, 5), (15, 15), (5, 15)])
+    polygons = [
+        {"osm_tags": {"landuse": "meadow"}, "geometry": meadow},
+        {"osm_tags": {"landuse": "residential"}, "geometry": residential},
+    ]
+
+    new_map, new_names = paint_landuse_materials(layer_map, names, size, 0.0, 0.0, 1.0, polygons, LANDUSE_MAPPINGS_FIXTURE)
+
+    assert new_names == ["aerial_photo", "mat_grass"]  # kein Material für "urban" angelegt
+    assert new_map[10, 10] == 0  # Wohngebiet: Luftbild
+    assert new_map[1, 1] == new_names.index("mat_grass")  # Wiese außerhalb
+
+
+def test_paint_landuse_accepts_multipolygon_geometry():
+    from shapely.geometry import MultiPolygon
+
+    size = 20
+    layer_map, names = build_photo_fallback_layer(size=size)
+    two_parts = MultiPolygon([Polygon([(0, 0), (4, 0), (4, 4), (0, 4)]), Polygon([(10, 10), (14, 10), (14, 14), (10, 14)])])
+
+    new_map, new_names = paint_landuse_materials(
+        layer_map, names, size, 0.0, 0.0, 1.0, [{"osm_tags": {"landuse": "forest"}, "geometry": two_parts}], LANDUSE_MAPPINGS_FIXTURE
+    )
+
+    forest = new_names.index("mat_forest")
+    assert new_map[2, 2] == forest and new_map[12, 12] == forest and new_map[7, 7] == 0
+
+
 def _fake_placeholders_for_tier(tier: str) -> dict:
     return {
         channel: f"/levels/world_to_beamng/art/shapes/textures/_flat_{channel}_{tier}.png"
@@ -128,11 +212,60 @@ def test_build_terrain_material_entries():
     assert entries["aerial_photo"]["baseColorBaseTexSize"] == 2048.0
 
     assert "mat_forest" in entries
-    assert entries["mat_forest"]["baseColorBaseTex"] == "a/forest_b.png"
 
     for name in ("aerial_photo", "mat_forest"):
         for field in _REQUIRED_TERRAIN_TEX_FIELDS:
             assert field in entries[name], f"{name} fehlt Pflichtfeld {field}"
+
+
+def test_landuse_material_uses_aerial_photo_as_base_and_grey_texture_as_detail():
+    # BeamNGs Terrain-Texturen (t_grass_01_b ...) sind graue DETAIL-Texturen
+    # (Mittelwert RGB ~124, Sättigung < 15/255): als Basis-Textur ergeben sie
+    # einheitlich graue Flächen. Die Farbe kommt deshalb aus dem Luftbild,
+    # die graue Textur liegt als Detail darüber (wie in BeamNGs eigenen Levels).
+    entries = build_terrain_material_entries(
+        ["aerial_photo", "mat_forest"], ["aerial_photo"], LANDUSE_MAPPINGS_FIXTURE, "world_to_beamng", 2048.0, _FAKE_PLACEHOLDERS
+    )
+    forest, photo = entries["mat_forest"], entries["aerial_photo"]
+
+    assert forest["baseColorBaseTex"] == photo["baseColorBaseTex"]
+    assert forest["baseColorBaseTexSize"] == photo["baseColorBaseTexSize"] == 2048.0
+    assert forest["baseColorDetailTex"] == "a/forest_b.png"
+    assert forest["baseColorDetailStrength"] == [0.3, 0.0]
+    assert forest["normalDetailTex"] == "a/forest_nm.png"
+    assert forest["normalDetailStrength"] == [1.0, 0.0]
+
+
+def test_landuse_material_placeholders_do_not_overwrite_real_detail_textures():
+    entries = build_terrain_material_entries(
+        ["aerial_photo", "mat_grass"], ["aerial_photo"], LANDUSE_MAPPINGS_FIXTURE, "world_to_beamng", 2048.0, _FAKE_PLACEHOLDERS
+    )
+    grass = entries["mat_grass"]
+
+    assert grass["baseColorDetailTex"] == "a/grass_b.png"
+    assert grass["baseColorDetailStrength"] != [0.0, 0.0]  # Standardstärke, nicht stummgeschaltet
+    # ohne detailNormalMap bleibt der Normal-Detail-Slot ein stummer Platzhalter
+    assert grass["normalDetailTex"] == _FAKE_PLACEHOLDERS["detail"]["normal"]
+    assert grass["normalDetailStrength"] == [0.0, 0.0]
+
+
+def test_landuse_material_sets_ground_model_uppercase():
+    entries = build_terrain_material_entries(
+        ["aerial_photo", "mat_dirt"], ["aerial_photo"], LANDUSE_MAPPINGS_FIXTURE, "world_to_beamng", 2048.0, _FAKE_PLACEHOLDERS
+    )
+
+    # BeamNGs groundmodels.json kennt nur GROSSGESCHRIEBENE Namen; ohne
+    # groundmodelName loggt BeamNG "ground model not found ... using asphalt"
+    assert entries["mat_dirt"]["groundmodelName"] == "DIRT"
+
+
+def test_photo_layer_entry_has_no_ground_model():
+    entries = build_terrain_material_entries(
+        ["aerial_photo"], ["aerial_photo"], LANDUSE_MAPPINGS_FIXTURE, "world_to_beamng", 2048.0, _FAKE_PLACEHOLDERS
+    )
+
+    # Fallback-Verhalten bleibt unverändert (Straßen brauchen den Asphalt-Grip)
+    assert "groundmodelName" not in entries["aerial_photo"]
 
 
 def test_ensure_flat_pbr_placeholders_matches_declared_tex_sizes(tmp_path):
@@ -149,28 +282,43 @@ def test_ensure_flat_pbr_placeholders_matches_declared_tex_sizes(tmp_path):
                 assert img.size == (expected_size, expected_size), f"{tier}/{channel}: {img.size}"
 
 
-def test_ensure_landuse_base_textures_sized_resizes_mismatched_textures(tmp_path):
+def _sized_fixture(tmp_path, size):
     beamng_dir = tmp_path / "levels" / "world_to_beamng"
     textures_dir = beamng_dir / "art" / "shapes" / "textures"
     source_dir = beamng_dir / "art" / "shapes" / "assets"
     source_dir.mkdir(parents=True)
-    small_texture = source_dir / "t_forest_ground_b.png"
-    Image.new("RGB", (512, 512), (10, 80, 10)).save(small_texture)
-
-    landuse_mappings = {
+    texture = source_dir / "t_forest_ground_b.png"
+    Image.new("RGB", (size, size), (10, 80, 10)).save(texture)
+    mappings = {
         "forest": {
             "internal_name": "mat_forest",
-            "baseColorMap": f"levels/world_to_beamng/art/shapes/assets/{small_texture.name}",
+            "detailColorMap": f"levels/world_to_beamng/art/shapes/assets/{texture.name}",
         },
+        "urban": {"keep_photo": True},
     }
+    return mappings, beamng_dir, textures_dir
 
-    result = ensure_landuse_base_textures_sized(landuse_mappings, 4096, beamng_dir, textures_dir, "world_to_beamng")
 
-    new_path = result["forest"]["baseColorMap"]
-    assert new_path != landuse_mappings["forest"]["baseColorMap"]
-    filename = new_path.rsplit("/", 1)[-1]
-    with Image.open(textures_dir / filename) as img:
-        assert img.size == (4096, 4096)
+def test_ensure_landuse_detail_textures_sized_resizes_mismatched_textures(tmp_path):
+    # Detail-Texturen müssen exakt die detailTexSize der TerrainMaterialTextureSet
+    # haben, sonst rendert BeamNG die "warning texture" (grauer Boden).
+    mappings, beamng_dir, textures_dir = _sized_fixture(tmp_path, 512)
+
+    result = ensure_landuse_detail_textures_sized(mappings, 1024, beamng_dir, textures_dir, "world_to_beamng")
+
+    new_path = result["forest"]["detailColorMap"]
+    assert new_path != mappings["forest"]["detailColorMap"]
+    with Image.open(textures_dir / new_path.rsplit("/", 1)[-1]) as img:
+        assert img.size == (1024, 1024)
+    assert result["urban"] == {"keep_photo": True}
+
+
+def test_ensure_landuse_detail_textures_sized_keeps_correctly_sized_textures(tmp_path):
+    mappings, beamng_dir, textures_dir = _sized_fixture(tmp_path, 1024)
+
+    result = ensure_landuse_detail_textures_sized(mappings, 1024, beamng_dir, textures_dir, "world_to_beamng")
+
+    assert result["forest"]["detailColorMap"] == mappings["forest"]["detailColorMap"]
 
 
 def test_build_terrain_material_texture_set():
@@ -186,8 +334,8 @@ def test_build_terrain_material_texture_set():
 
 
 if __name__ == "__main__":
-    test_get_landuse_category_matches_active_only()
-    print("[OK] test_get_landuse_category_matches_active_only")
+    test_get_landuse_category_matches_tag_values()
+    print("[OK] test_get_landuse_category_matches_tag_values")
     test_photo_fallback_layer_single_material_for_whole_area()
     print("[OK] test_photo_fallback_layer_single_material_for_whole_area")
     test_paint_landuse_overwrites_photo_fallback()

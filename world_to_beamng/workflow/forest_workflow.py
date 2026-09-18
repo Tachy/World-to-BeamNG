@@ -478,6 +478,21 @@ class ForestWorkflow:
                 "error": str(e),
             }
 
+    def add_instances(self, instances: List[Dict]) -> int:
+        """
+        Fügt zusätzliche Forest-Instanzen hinzu (z.B. Weinberg-Reben), die nicht aus
+        Waldpolygonen stammen. Sie werden in finalize_forest_export() zusammen mit den
+        Bäumen in forest.forest4.json geschrieben.
+
+        Args:
+            instances: Instanzen im forest4-Format (type, pos, rotationMatrix, scale)
+
+        Returns:
+            Anzahl der hinzugefügten Instanzen
+        """
+        self.all_tree_instances.extend(instances)
+        return len(instances)
+
     def finalize_forest_export(self) -> Dict:
         """
         FINALISIERUNG (nach Tile-Loop): Schreibe forest.forest4.json.

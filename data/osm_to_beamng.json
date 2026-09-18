@@ -314,189 +314,183 @@
         }
     },
     "landuse_mappings": {
-        "base": {
-            "splat_map": null,
-            "channel": null,
-            "priority": 0,
-            "internal_name": "mat_base_satellite",
-            "groundModelName": "grass",
-            "baseColorMap": null,
-            "normalMap": null,
-            "groundCover": [],
-            "comment": "Fallback fÃ¼r nicht gemappte Bereiche, zeigt nur das DOP20-Luftbild."
-        },
-        "water": {
-            "splat_map": "A",
-            "channel": 3,
-            "priority": 15,
-            "internal_name": "mat_water",
-            "groundModelName": "water",
-            "baseColorMap": "/assets/materials/water/water_base_d.dds",
-            "normalMap": "/assets/materials/water/water_base_n.dds",
-            "groundCover": [
-                {
-                    "type": "water_reeds",
-                    "probability": 0.2
-                }
-            ]
-        },
-        "basin": {
-            "splat_map": "A",
-            "channel": 3,
-            "priority": 15,
-            "internal_name": "mat_water",
-            "groundModelName": "water",
-            "baseColorMap": "/assets/materials/water/water_base_d.dds",
-            "normalMap": "/assets/materials/water/water_base_n.dds",
-            "groundCover": [
-                {
-                    "type": "water_lily",
-                    "probability": 0.1
-                }
-            ]
-        },
-        "industrial": {
-            "splat_map": "B",
-            "channel": 2,
-            "priority": 12,
-            "internal_name": "mat_concrete",
-            "groundModelName": "concrete",
-            "baseColorMap": "/assets/materials/decalroad/concrete_01_d.dds",
-            "normalMap": "/assets/materials/decalroad/concrete_01_n.dds",
-            "groundCover": [
-                {
-                    "type": "weeds_cracks",
-                    "probability": 0.3
-                }
-            ]
-        },
-        "commercial": {
-            "splat_map": "B",
-            "channel": 2,
-            "priority": 12,
-            "internal_name": "mat_concrete",
-            "groundModelName": "concrete",
-            "baseColorMap": "/assets/materials/decalroad/concrete_01_d.dds",
-            "normalMap": "/assets/materials/decalroad/concrete_01_n.dds",
-            "groundCover": [
-                {
-                    "type": "urban_trash",
-                    "probability": 0.1
-                }
-            ]
-        },
-        "residential": {
-            "splat_map": "B",
-            "channel": 2,
-            "priority": 11,
-            "internal_name": "mat_asphalt_urban",
-            "groundModelName": "asphalt",
-            "baseColorMap": "/assets/materials/decalroad/asphalt_road_old_01_d.dds",
-            "normalMap": "/assets/materials/decalroad/asphalt_road_old_01_n.dds",
-            "groundCover": [
-                {
-                    "type": "grass_edge",
-                    "probability": 0.2
-                }
-            ]
-        },
         "forest": {
-            "splat_map": "A",
-            "channel": 0,
+            "osm_tags": {
+                "landuse": [
+                    "forest"
+                ],
+                "natural": [
+                    "wood"
+                ]
+            },
             "priority": 10,
             "internal_name": "mat_forest",
-            "groundModelName": "forest",
-            "baseColorMap": "levels/world_to_beamng/art/shapes/assets/materials/terrain/forest/t_forest_ground/t_forest_ground_b.png",
-            "normalMap": "levels/world_to_beamng/art/shapes/assets/materials/terrain/forest/t_forest_ground/t_forest_ground_nm.png",
+            "groundModelName": "grass",
+            "detailColorMap": "levels/world_to_beamng/art/shapes/assets/materials/terrain/forest/t_forest_ground/t_forest_ground_b.png",
+            "detailNormalMap": "levels/world_to_beamng/art/shapes/assets/materials/terrain/forest/t_forest_ground/t_forest_ground_nm.png",
+            "detailStrength": 0.3,
             "groundCover": [
-                {
-                    "type": "forest_fern",
-                    "probability": 0.4
-                },
-                {
-                    "type": "forest_dry_leaves",
-                    "probability": 0.8
-                }
+                "fern",
+                "dry_grass"
             ]
         },
         "vineyard": {
-            "splat_map": "B",
-            "channel": 0,
+            "osm_tags": {
+                "landuse": [
+                    "vineyard"
+                ]
+            },
             "priority": 9,
             "internal_name": "mat_vineyard",
-            "groundModelName": "dirt_dusty",
-            "baseColorMap": "/assets/materials/terrains/dirt_loose_01_d.dds",
-            "normalMap": "/assets/materials/terrains/dirt_loose_01_n.dds",
+            "groundModelName": "grass",
+            "detailColorMap": "levels/world_to_beamng/art/shapes/assets/materials/terrain/grass/t_grass_02/t_grass_02_b.png",
+            "detailNormalMap": "levels/world_to_beamng/art/shapes/assets/materials/terrain/grass/t_grass_02/t_grass_02_nm.png",
             "groundCover": [
-                {
-                    "type": "vine_plants",
-                    "probability": 0.9
-                }
-            ]
-        },
-        "greenhouse_horticulture": {
-            "splat_map": "B",
-            "channel": 3,
-            "priority": 9,
-            "internal_name": "mat_mud",
-            "groundModelName": "mud",
-            "baseColorMap": "/assets/materials/terrains/mud_01_d.dds",
-            "normalMap": "/assets/materials/terrains/mud_01_n.dds",
-            "groundCover": [
-                {
-                    "type": "patchy_grass",
-                    "probability": 0.3
-                }
-            ]
+                "grass_short",
+                "dry_grass_short"
+            ],
+            "comment": "Gras zwischen den Rebzeilen; die Reben selbst sind Forest-Items (grape_vine).",
+            "rows": {
+                "item": "grape_vine",
+                "orientation": "gradient",
+                "row_spacing": 2.5,
+                "segment_length": 5.6,
+                "edge_margin": 1.5,
+                "min_slope_percent": 2.0,
+                "max_direction_spread_deg": 12.0,
+                "min_block_area": 1500.0,
+                "scale_range": [
+                    0.97,
+                    1.03
+                ],
+                "comment": "orientation: 'gradient' = Zeilen laufen entlang der Falllinie (Steigungsgradient), 'contour' = entlang der Höhenlinien. Bei fast ebenem Gelände (< min_slope_percent) richtet sich die Zeile nach der Längsachse der Fläche. Große Flächen werden in Blöcke geteilt (Mindestgröße min_block_area), wenn die Falllinie darin im Mittel mehr als max_direction_spread_deg schwankt; jeder Block bekommt dann seine eigene Zeilenrichtung. Alternative mit ca. 8x weniger Instanzen: item=grape_vine_group, segment_length=16.0, row_spacing=7.5 (ein Block = 3 Zeilen)."
+            }
         },
         "orchard": {
-            "splat_map": "B",
-            "channel": 1,
+            "osm_tags": {
+                "landuse": [
+                    "orchard"
+                ]
+            },
             "priority": 8,
             "internal_name": "mat_orchard",
             "groundModelName": "grass",
-            "baseColorMap": "/assets/materials/terrains/grass_long_dry_01_d.dds",
-            "normalMap": "/assets/materials/terrains/grass_long_dry_01_n.dds",
+            "detailColorMap": "levels/world_to_beamng/art/shapes/assets/materials/terrain/grass/ind_grass/t_ind_grass_b.png",
+            "detailNormalMap": "levels/world_to_beamng/art/shapes/assets/materials/terrain/grass/ind_grass/t_ind_grass_nm.png",
             "groundCover": [
-                {
-                    "type": "fruit_trees_undergrowth",
-                    "probability": 0.5
-                }
+                "grass_short",
+                "flowers"
+            ]
+        },
+        "scrub": {
+            "osm_tags": {
+                "natural": [
+                    "scrub",
+                    "heath"
+                ]
+            },
+            "priority": 7,
+            "internal_name": "mat_scrub",
+            "groundModelName": "grass",
+            "detailColorMap": "levels/world_to_beamng/art/shapes/assets/materials/terrain/grass/t_dirt_vegetation/t_dirt_vegetation_b.png",
+            "detailNormalMap": "levels/world_to_beamng/art/shapes/assets/materials/terrain/grass/t_dirt_vegetation/t_dirt_vegetation_nm.png",
+            "groundCover": [
+                "weed",
+                "dry_grass"
+            ]
+        },
+        "wetland": {
+            "osm_tags": {
+                "natural": [
+                    "wetland"
+                ]
+            },
+            "priority": 6,
+            "internal_name": "mat_wetland",
+            "groundModelName": "mud",
+            "detailColorMap": "levels/world_to_beamng/art/shapes/assets/materials/terrain/forest/t_moss/t_moss_b.png",
+            "detailNormalMap": "levels/world_to_beamng/art/shapes/assets/materials/terrain/forest/t_moss/t_moss_nm.png",
+            "groundCover": [
+                "grass_close",
+                "wet_plant"
             ]
         },
         "farmland": {
-            "splat_map": "A",
-            "channel": 2,
+            "osm_tags": {
+                "landuse": [
+                    "farmland",
+                    "farmyard",
+                    "allotments"
+                ]
+            },
             "priority": 5,
             "internal_name": "mat_dirt",
             "groundModelName": "dirt",
-            "baseColorMap": "levels/world_to_beamng/art/shapes/assets/materials/terrain/soil/t_dirt_dry_grassy/t_dirt_dry_grassy_b.png",
-            "normalMap": "levels/world_to_beamng/art/shapes/assets/materials/terrain/soil/t_dirt_dry_grassy/t_dirt_dry_grassy_nm.png",
+            "detailColorMap": "levels/world_to_beamng/art/shapes/assets/materials/terrain/soil/t_dirt_dry_grassy/t_dirt_dry_grassy_b.png",
+            "detailNormalMap": "levels/world_to_beamng/art/shapes/assets/materials/terrain/soil/t_dirt_dry_grassy/t_dirt_dry_grassy_nm.png",
             "groundCover": [
-                {
-                    "type": "crop_stubble",
-                    "probability": 0.6
-                }
+                "dry_grass_short",
+                "weed"
             ]
         },
         "meadow": {
-            "splat_map": "A",
-            "channel": 1,
+            "osm_tags": {
+                "landuse": [
+                    "meadow",
+                    "grass",
+                    "village_green",
+                    "recreation_ground",
+                    "cemetery"
+                ],
+                "natural": [
+                    "grassland"
+                ],
+                "leisure": [
+                    "park",
+                    "garden",
+                    "pitch",
+                    "playground"
+                ]
+            },
             "priority": 4,
             "internal_name": "mat_grass",
             "groundModelName": "grass",
-            "baseColorMap": "levels/world_to_beamng/art/shapes/assets/materials/terrain/grass/t_grass_01/t_grass_01_b.png",
-            "normalMap": "levels/world_to_beamng/art/shapes/assets/materials/terrain/grass/t_grass_01/t_grass_01_nm.png",
+            "detailColorMap": "levels/world_to_beamng/art/shapes/assets/materials/terrain/grass/t_grass_01/t_grass_01_b.png",
+            "detailNormalMap": "levels/world_to_beamng/art/shapes/assets/materials/terrain/grass/t_grass_01/t_grass_01_nm.png",
             "groundCover": [
-                {
-                    "type": "grass_flowers",
-                    "probability": 0.5
-                },
-                {
-                    "type": "grass_long",
-                    "probability": 0.7
-                }
+                "grass_short",
+                "grass_long",
+                "flowers"
             ]
+        },
+        "urban": {
+            "osm_tags": {
+                "landuse": [
+                    "residential",
+                    "commercial",
+                    "industrial",
+                    "retail",
+                    "garages",
+                    "greenhouse_horticulture"
+                ]
+            },
+            "priority": 12,
+            "keep_photo": true,
+            "comment": "Wohn-/Gewerbegebiete: das Luftbild bleibt (Häuser, Gärten, Straßen sind im Foto)."
+        },
+        "water": {
+            "osm_tags": {
+                "natural": [
+                    "water"
+                ],
+                "landuse": [
+                    "basin",
+                    "reservoir"
+                ]
+            },
+            "priority": 15,
+            "keep_photo": true,
+            "comment": "Wasserflächen: das Luftbild bleibt (echtes Wasser erfordert ein WaterPlane-Objekt)."
         }
     }
 }
