@@ -103,6 +103,12 @@ SAMPLE_SPACING_FACTOR = 0.5  # Faktor für Segment-Spacing: road_width * SAMPLE_
 ROAD_SMOOTH_ITERATIONS = 1  # Anzahl Smoothing-Iterationen (1-3; höher = glatter)
 ROAD_SMOOTH_WEIGHT = 0.6  # Chaikin-Filter Gewicht (0.5-0.9; höher = weniger Glättung, 0.75 = mild)
 
+# Mindestabstand zwischen zwei DecalRoad-Knoten in Metern. BeamNG zeichnet ein
+# DecalRoad gar nicht, wenn es ein zu kurzes Segment hat (0,10 m -> unsichtbar,
+# 0,32 m -> ok; verifiziert an der Eichgasse). Typischer Abstand nach dem
+# Resampling ist ~0,8 m.
+DECAL_ROAD_MIN_NODE_SPACING = 0.5
+
 # === CLIPPING ===
 ENABLE_ROAD_CLIPPING = True  # True = Clip + Segment-Unterteilung am Grid-Rand, False = Skip (Testbetrieb)
 ROAD_CLIP_MARGIN = -20.0  # Clipping-Abstand vom Grid-Rand in Metern (Faces < 3m vom Rand werden entfernt)

@@ -139,6 +139,43 @@ def clip_road_polygons(road_polygons, grid_bounds_local, margin=3.0):
     return clipped_roads
 
 
+def drop_close_nodes(nodes, min_dist):
+    """Entfernt Knoten, die (in XY) näher als min_dist am vorherigen behaltenen Knoten liegen.
+
+    Start- und Endknoten bleiben exakt erhalten (Junction-Anschluss an
+    Nachbarstraßen). Ist das letzte Segment zu kurz, wird stattdessen der
+    vorletzte Knoten entfernt.
+
+    Args:
+        nodes: Liste von Knoten [x, y, z, ...] (weitere Einträge wie die Breite
+            bleiben unverändert)
+        min_dist: Mindestabstand in Metern
+
+    Returns:
+        Gefilterte Knotenliste, oder [] wenn die Straße nach dem Filtern
+        unbrauchbar kurz ist (weniger als 2 Knoten oder Start-Ende-Abstand < min_dist).
+    """
+    if len(nodes) < 2:
+        return []
+
+    def dist(a, b):
+        return float(np.hypot(a[0] - b[0], a[1] - b[1]))
+
+    kept = [nodes[0]]
+    for node in nodes[1:-1]:
+        if dist(node, kept[-1]) >= min_dist:
+            kept.append(node)
+
+    last = nodes[-1]
+    if len(kept) > 1 and dist(last, kept[-1]) < min_dist:
+        kept.pop()
+    kept.append(last)
+
+    if dist(kept[0], kept[-1]) < min_dist:
+        return []
+    return kept
+
+
 def resample_road_xy_only(xy_coords, target_spacing):
     """Resampled Centerline auf XY-Ebene mit fixer Schrittweite.
 

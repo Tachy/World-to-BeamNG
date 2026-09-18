@@ -389,6 +389,7 @@ class TerrainWorkflow:
             Anzahl der erzeugten DecalRoad-Items
         """
         from ..config import OSM_MAPPER
+        from ..geometry.polygon import drop_close_nodes
 
         road_slope_polygons_2d = mesh_data["road_slope_polygons_2d"]
         unique_materials: Dict[str, Dict] = {}
@@ -415,6 +416,13 @@ class TerrainWorkflow:
 
             width = float(props.get("width", 4.0))
             nodes = [[float(x), float(y), float(z), width] for x, y, z in centerline]
+
+            # Zu kurze Segmente entfernen: BeamNG zeichnet ein DecalRoad mit
+            # einem zu kurzen Segment (z.B. 0,10 m vom Junction-Schnitt neben
+            # einem Resample-Punkt) gar nicht - das ganze Stück fehlt dann.
+            nodes = drop_close_nodes(nodes, config.DECAL_ROAD_MIN_NODE_SPACING)
+            if len(nodes) < 2:
+                continue
 
             # renderPriority aus dem vorhandenen "priority"-Feld ableiten
             # (surface_types in data/osm_to_beamng.json): an Kreuzungen
