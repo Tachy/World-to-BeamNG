@@ -59,13 +59,14 @@ class OSMMapper:
                 props[key] = value
 
         # 3. Prüfe Surface-Override oder Tracktype-Override
-        # Tracktype-Mapping: grade1 (bester Zustand) → asphalt
+        # Tracktype-Mapping (Werte sind Keys in surface_overrides):
+        # grade1 → Asphalt, grade2 → Kies (befestigt), grade3-5 → Erdweg
         tracktype_mapping = {
             "grade1": "asphalt",  # Beste Qualität → asphalt
-            "grade2": "gravel",  # Mittlere Qualität → gravel
-            "grade3": "gravel",  # Schlechtere Qualität → gravel
-            "grade4": "gravel",  # Noch schlechter → gravel
-            "grade5": "gravel",  # Schlechteste → gravel
+            "grade2": "gravel",  # Überwiegend fest → Kies
+            "grade3": "dirt",  # Gemischt fest/weich → Erdweg
+            "grade4": "dirt",  # Überwiegend weich → Erdweg
+            "grade5": "dirt",  # Weich (Gras/Erde) → Erdweg
         }
 
         # Prüfe zuerst Surface-Tag
@@ -177,6 +178,10 @@ class OSMMapper:
             stages_config["ambientOcclusionMap"] = tex.get("ambientOcclusionMap")
         if tex.get("opacityMap"):
             stages_config["opacityMap"] = tex.get("opacityMap")
+        # Optional: opacityFactor < 1 lässt das Terrain darunter durchscheinen
+        # (BeamNGs "road_gravel" nutzt 0.721).
+        if props.get("opacityFactor") is not None:
+            stages_config["opacityFactor"] = props["opacityFactor"]
 
         # Fallback nur wenn Texturen-Keys nicht vorhanden sind
         if not any(k in stages_config for k in ["baseColorMap", "normalMap", "roughnessMap"]):

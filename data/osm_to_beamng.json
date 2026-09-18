@@ -16,11 +16,24 @@
             "priority": 2,
             "drivability": 0.3,
             "textures": {
-                "baseColorMap": "levels/world_to_beamng/art/shapes/assets/materials/decalroad/dirt/dirt_road_gravels/t_dirt_road_gravels_b.color.dds",
-                "normalMap": "levels/world_to_beamng/art/shapes/assets/materials/decalroad/dirt/dirt_road_gravels/t_dirt_road_gravels_nm.normal.dds",
-                "ambientOcclusionMap": "levels/world_to_beamng/art/shapes/assets/materials/decalroad/dirt/dirt_road_gravels/t_dirt_road_gravels_ao.data.dds",
-                "roughnessMap": "levels/world_to_beamng/art/shapes/assets/materials/decalroad/dirt/dirt_road_gravels/t_dirt_road_gravels_r.data.dds",
-                "opacityMap": "levels/world_to_beamng/art/shapes/assets/materials/decalroad/dirt/dirt_road_gravels/t_dirt_road_gravels_o.data.dds"
+                "baseColorMap": "levels/world_to_beamng/art/shapes/assets/materials/decalroad/dirt/m_dirt_road_01/t_dirt_road_b.color.dds",
+                "normalMap": "levels/world_to_beamng/art/shapes/assets/materials/breakup/m_dirt_road/t_dirt_road_nm.normal.dds",
+                "ambientOcclusionMap": "levels/world_to_beamng/art/shapes/assets/materials/decalroad/dirt/m_dirt_road_01/t_dirt_road_ao.data.dds",
+                "roughnessMap": "levels/world_to_beamng/art/shapes/assets/materials/decalroad/dirt/m_dirt_road_01/t_dirt_road_r.data.dds",
+                "opacityMap": "levels/world_to_beamng/art/shapes/assets/materials/decalroad/dirt/m_dirt_road_01/t_dirt_road_o.data.dds"
+            }
+        },
+        "gravel_road": {
+            "groundModelName": "gravel",
+            "priority": 4,
+            "drivability": 0.5,
+            "opacityFactor": 0.72,
+            "textures": {
+                "baseColorMap": "levels/world_to_beamng/art/shapes/assets/materials/decalroad/dirt/road_gravel/t_dirt_road_02_b.color.dds",
+                "normalMap": "levels/world_to_beamng/art/shapes/assets/materials/breakup/m_dirt_road/t_dirt_road_nm.normal.dds",
+                "ambientOcclusionMap": "levels/world_to_beamng/art/shapes/assets/materials/decalroad/dirt/m_dirt_road_01/t_dirt_road_ao.data.dds",
+                "roughnessMap": "levels/world_to_beamng/art/shapes/assets/materials/decalroad/dirt/m_dirt_road_01/t_dirt_road_r.data.dds",
+                "opacityMap": "levels/world_to_beamng/art/shapes/assets/materials/decalroad/dirt/m_dirt_road_01/t_dirt_road_o.data.dds"
             }
         },
         "concrete": {
@@ -83,6 +96,24 @@
     },
     "surface_overrides": {
         "gravel": {
+            "internal_name": "gravel_road"
+        },
+        "fine_gravel": {
+            "internal_name": "gravel_road"
+        },
+        "compacted": {
+            "internal_name": "gravel_road"
+        },
+        "pebblestone": {
+            "internal_name": "gravel_road"
+        },
+        "dirt": {
+            "internal_name": "dirt_road"
+        },
+        "ground": {
+            "internal_name": "dirt_road"
+        },
+        "earth": {
             "internal_name": "dirt_road"
         },
         "paved": {
