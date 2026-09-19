@@ -159,7 +159,8 @@ ROAD_CLIP_MARGIN = -20.0  # Clipping-Abstand vom Grid-Rand in Metern (Faces < 3m
 CLIP_ROAD_FACES_AT_BOUNDS = True  # True = Entferne Straßen-Dreiecke, die komplett außerhalb der Grid-Bounds liegen
 
 # === TILE-EXPORT (DAE) ===
-TILE_SIZE = 500  # Größe pro DAE-Tile in Metern
+BUILDINGS_AS_ONE_OBJECT = True  # True: ALLE Gebäude in EINER DAE/EINEM Objekt auf der Gesamtfläche (wie die Straßen)
+TILE_SIZE = 500  # Größe pro DAE-Tile in Metern (nur bei BUILDINGS_AS_ONE_OBJECT = False)
 
 # Pixel-Kantenlänge des EINEN zusammengesetzten Luftbilds für die gesamte
 # Fläche (io/aerial.py::process_aerial_images() - seit 2026-09-18 kein

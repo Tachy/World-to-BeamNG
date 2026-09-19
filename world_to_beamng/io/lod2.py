@@ -837,7 +837,7 @@ def export_materials_json(output_dir: str, material_manager) -> str:
     return str(materials_file)
 
 
-def create_items_json_entry(dae_path: str, tile_x: int, tile_y: int, item_manager) -> Dict:
+def create_items_json_entry(dae_path: str, tile_x: int, tile_y: int, item_manager, item_name: str = None) -> Dict:
     """
     Erstellt einen items.json-Eintrag für ein Gebäude-Tile.
 
@@ -847,13 +847,14 @@ def create_items_json_entry(dae_path: str, tile_x: int, tile_y: int, item_manage
         dae_path: Relativer Pfad zur .dae-Datei
         tile_x, tile_y: Tile-Koordinaten (Welt-Koordinaten der oberen linken Ecke)
         item_manager: ItemManager-Instanz
+        item_name: Optional - Item-Name (Standard: buildings_tile_<x>_<y>)
 
     Returns:
         Dict für items.json
     """
     # Registriere Item direkt im übergebenen Manager (KEIN lokaler Manager mehr)
     dae_filename = Path(dae_path).name
-    item_name = f"buildings_tile_{tile_x}_{tile_y}"
+    item_name = item_name or f"buildings_tile_{tile_x}_{tile_y}"
 
     item_manager.add_building(item_name, dae_filename, position=(0, 0, 0))
 

@@ -334,24 +334,23 @@ class BeamNGExporter:
 
             timer.begin("Buildings Export")
 
-            # Gruppiere Gebäude nach DAE-Tiles (500m x 500m)
-            buildings_by_tile = defaultdict(list)
-            for building in all_buildings:
-                bounds = building.get("bounds")
-                if not bounds:
-                    continue
-                center_x = (bounds[0] + bounds[3]) / 2
-                center_y = (bounds[1] + bounds[4]) / 2
-                tile_x = int((center_x // config.TILE_SIZE) * config.TILE_SIZE)
-                tile_y = int((center_y // config.TILE_SIZE) * config.TILE_SIZE)
-                buildings_by_tile[(tile_x, tile_y)].append(building)
+            # Gebäude: EIN Objekt auf der Gesamtfläche (wie die Straßen) oder - wenn abgeschaltet - je 500-m-Kachel
+            from ..workflow.building_workflow import SINGLE_BUILDINGS_NAME, group_buildings, remove_stale_building_daes
 
-            # Exportiere pro DAE-Tile
+            one_object = config.BUILDINGS_AS_ONE_OBJECT
+            buildings_by_tile = group_buildings(all_buildings, None if one_object else config.TILE_SIZE)
+            name = SINGLE_BUILDINGS_NAME if one_object else None
+
+            written = set()
             for (tile_x, tile_y), tile_buildings in buildings_by_tile.items():
-                dae_path = self.buildings.export_buildings(tile_buildings, tile_x, tile_y, grid_bounds=None)
+                dae_path = self.buildings.export_buildings(tile_buildings, tile_x, tile_y, grid_bounds=None, name=name)
                 if dae_path:
-                    self.buildings.add_items(tile_buildings, tile_x, tile_y)
+                    written.add(Path(dae_path).stem)
+                    self.buildings.add_items(tile_buildings, tile_x, tile_y, name=name)
                     stats["buildings_exported"] += len(tile_buildings)
+
+            # DAEs der jeweils anderen Aufteilung (frühere Kacheln bzw. das Gesamtobjekt) entfernen
+            remove_stale_building_daes(config.BEAMNG_DIR_BUILDINGS, keep=written)
 
             # Materials exportieren
             # Füge LoD2-Materialien zu gemeinsamen Materials hinzu (NICHT separat exportieren!)
