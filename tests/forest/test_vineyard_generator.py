@@ -40,6 +40,11 @@ def _plane(slope_x=0.0, slope_y=0.0, base=100.0):
 
 
 def _matrix(instance):
+    """
+    rotationMatrix zeilenweise. BeamNG liest die Modellachsen als ZEILEN (X = Zeile 0):
+    gemessen an BeamNGs eigenen Weinbergen (italy) - dort folgt Zeile 0 zu 98,5 % dem
+    Geländegefälle, Spalte 0 dagegen ist negativ korreliert.
+    """
     return np.array(instance["rotationMatrix"]).reshape(3, 3)
 
 
@@ -135,7 +140,7 @@ def test_all_rows_are_parallel_to_the_fall_line():
     instances = generate_vineyard_instances(box(0, 0, 80, 50), _plane(slope_x=0.2), ROWS)
 
     for instance in instances:
-        forward_xy = _matrix(instance)[:2, 0]  # erste Spalte = Modell-X-Achse = Zeilenrichtung
+        forward_xy = _matrix(instance)[0, :2]  # erste Zeile = Modell-X-Achse = Zeilenrichtung
         assert _axis_dot(forward_xy / np.linalg.norm(forward_xy), [1, 0]) == pytest.approx(1.0, abs=1e-6)
 
 
@@ -184,10 +189,24 @@ def test_rotation_matrix_is_a_proper_rotation_and_follows_the_slope():
         m = _matrix(instance)
         assert m @ m.T == pytest.approx(np.eye(3), abs=1e-9)
         assert np.linalg.det(m) == pytest.approx(1.0, abs=1e-9)
-        forward = m[:, 0]
+        forward = m[0]
         # Bergauf entlang +x: Modell-X-Achse zeigt mit der Steigung nach oben
         assert forward[2] == pytest.approx(math.sin(math.atan(slope)), abs=1e-6)
         assert m[2, 2] > 0.9  # Reben stehen aufrecht
+
+
+def test_diagonal_slope_rows_point_along_the_fall_line_and_climb_with_it():
+    # Diagonaler Hang: eine transponierte Matrix würde die Zeilenrichtung an der x-Achse
+    # spiegeln (quer zum Hang) und die Neigung umkehren (Reben tauchen in den Boden).
+    slope = 0.15
+    instances = generate_vineyard_instances(box(0, 0, 80, 80), _plane(slope_x=slope, slope_y=slope), ROWS)
+
+    assert instances
+    fall_line = np.array([1.0, 1.0]) / np.sqrt(2)
+    for instance in instances:
+        forward = _matrix(instance)[0]
+        assert np.dot(forward[:2] / np.linalg.norm(forward[:2]), fall_line) == pytest.approx(1.0, abs=1e-6)
+        assert forward[2] == pytest.approx(np.sin(np.arctan(slope * np.sqrt(2))), abs=1e-6)
 
 
 def test_vertical_axis_stays_upright_on_a_cross_slope():
@@ -198,7 +217,7 @@ def test_vertical_axis_stays_upright_on_a_cross_slope():
     for instance in instances:
         m = _matrix(instance)
         assert m[2, 2] > 0.95
-        assert m[:, 0][2] == pytest.approx(0.0, abs=1e-6)  # entlang der Höhenlinie: keine Längsneigung
+        assert m[0][2] == pytest.approx(0.0, abs=1e-6)  # entlang der Höhenlinie: keine Längsneigung
 
 
 def test_same_input_gives_same_output():
@@ -313,9 +332,9 @@ def test_rows_in_each_block_follow_their_own_fall_line():
     right = [i for i in instances if i["pos"][0] > 110]
     assert left and right
     for i in left:
-        assert _axis_dot(_matrix(i)[:2, 0] / np.linalg.norm(_matrix(i)[:2, 0]), [1, 0]) > 0.98
+        assert _axis_dot(_matrix(i)[0, :2] / np.linalg.norm(_matrix(i)[0, :2]), [1, 0]) > 0.98
     for i in right:
-        assert _axis_dot(_matrix(i)[:2, 0] / np.linalg.norm(_matrix(i)[:2, 0]), [0, 1]) > 0.98
+        assert _axis_dot(_matrix(i)[0, :2] / np.linalg.norm(_matrix(i)[0, :2]), [0, 1]) > 0.98
 
 
 MAPPINGS = {

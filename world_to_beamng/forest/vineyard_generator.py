@@ -221,16 +221,19 @@ def _line_parts(geometry: BaseGeometry) -> List[LineString]:
     return []
 
 
-def _rotation_matrix(forward: np.ndarray) -> List[float]:
+def _rotation_matrices(forward: np.ndarray) -> np.ndarray:
     """
-    Zeilenweise 3x3-Rotationsmatrix (wie ForestInstanceGenerator): Spalten = Modell-
-    X (Zeilenrichtung, folgt der Hangneigung), Y, Z (aufrecht, senkrecht zu X).
+    Zeilenweise 3x3-Rotationsmatrizen als (N, 9)-Array für N normierte Zeilenrichtungen
+    (N, 3): ZEILEN = Modell-X (Zeilenrichtung, folgt der Hangneigung), Y, Z (aufrecht,
+    senkrecht zu X). BeamNG liest die Achsen als Zeilen; belegt an BeamNGs eigenen
+    Weinbergen (italy): dort folgt Zeile 0 zu 98,5 % dem Geländegefälle, Spalte 0 ist
+    negativ korreliert. Spalten würden die Neigung invertieren (Reben tauchen in den
+    Hang) und die Richtung spiegeln (quer zum Hang).
     """
-    up = np.array([0.0, 0.0, 1.0]) - forward[2] * forward
-    up /= np.linalg.norm(up)
+    up = np.array([0.0, 0.0, 1.0]) - forward[:, 2:3] * forward
+    up /= np.linalg.norm(up, axis=1, keepdims=True)
     side = np.cross(up, forward)
-    matrix = np.column_stack([forward, side, up])
-    return [float(v) for v in matrix.ravel()]
+    return np.stack([forward, side, up], axis=1).reshape(-1, 9)
 
 
 def _polygon_instances(polygon: BaseGeometry, height_at: HeightAt, rows: Dict, exclusion, rng) -> List[Dict]:
@@ -253,7 +256,7 @@ def _polygon_instances(polygon: BaseGeometry, height_at: HeightAt, rows: Dict, e
     t_min, t_max = float(t_all.min()) - 1.0, float(t_all.max()) + 1.0
     v_min, v_max = float(v_all.min()), float(v_all.max())
 
-    instances = []
+    centers = []
     row_count = int(np.floor((v_max - v_min) / spacing)) + 1
     v_start = v_min + ((v_max - v_min) - (row_count - 1) * spacing) / 2.0
     for row in range(row_count):
@@ -266,22 +269,25 @@ def _polygon_instances(polygon: BaseGeometry, height_at: HeightAt, rows: Dict, e
             if count < 1:
                 continue
             first = t0 + ((t1 - t0) - count * segment) / 2.0
-            for k in range(count):
-                t = first + (k + 0.5) * segment
-                center = t * u + v_coord * v
-                end_a, end_b = center - u * segment / 2.0, center + u * segment / 2.0
-                z_a, z_b = float(height_at(end_a[0], end_a[1])), float(height_at(end_b[0], end_b[1]))
-                forward = np.array([segment * u[0], segment * u[1], z_b - z_a])
-                forward /= np.linalg.norm(forward)
-                instances.append(
-                    {
-                        "type": rows["item"],
-                        "pos": [float(center[0]), float(center[1]), float(height_at(center[0], center[1]))],
-                        "rotationMatrix": _rotation_matrix(forward),
-                        "scale": float(rng.uniform(scale_min, scale_max)),
-                    }
-                )
-    return instances
+            t = first + (np.arange(count) + 0.5) * segment
+            centers.append(t[:, None] * u + v_coord * v)
+    if not centers:
+        return []
+
+    # Alle Segmente eines Blocks auf einmal: Höhen der Segmentenden, Neigung, Matrix.
+    center = np.vstack(centers)
+    end_a, end_b = center - u * segment / 2.0, center + u * segment / 2.0
+    z_a, z_b = height_at(end_a[:, 0], end_a[:, 1]), height_at(end_b[:, 0], end_b[:, 1])
+    forward = np.column_stack([np.full(len(center), segment * u[0]), np.full(len(center), segment * u[1]), z_b - z_a])
+    forward /= np.linalg.norm(forward, axis=1, keepdims=True)
+    z_center = height_at(center[:, 0], center[:, 1])
+    matrices = _rotation_matrices(forward).tolist()
+    scales = rng.uniform(scale_min, scale_max, size=len(center))  # gleiche Zufallsfolge wie einzeln gezogen
+
+    return [
+        {"type": rows["item"], "pos": [x, y, z], "rotationMatrix": matrix, "scale": scale}
+        for (x, y), z, matrix, scale in zip(center.tolist(), z_center.tolist(), matrices, scales.tolist())
+    ]
 
 
 def generate_vineyard_instances(

@@ -216,3 +216,63 @@ if __name__ == "__main__":
     test_apply_embankment_blend_handles_fill_and_cut()
     print("[OK] test_apply_embankment_blend_handles_fill_and_cut")
     print("Alle Tests bestanden.")
+
+
+# --- Charakterisierung: Optimierung darf das Ergebnis nicht verändern ---------------------
+
+
+def _diagonal_road(size=400, width=6.0):
+    """Lange, gekrümmte Diagonal-Straße: riesige Bounding-Box, aber schmaler Streifen."""
+    from shapely.geometry import LineString
+
+    t = np.linspace(20.0, size - 20.0, 120)
+    xy = np.column_stack([t, 0.9 * t + 12.0 * np.sin(t / 25.0)])
+    z = 100.0 + 0.05 * t + 2.0 * np.sin(t / 40.0)
+    polygon = np.array(LineString(xy).buffer(width / 2.0, cap_style=2).exterior.coords[:-1])
+    return _road(polygon, np.column_stack([xy, z]))
+
+
+def _reference_embed(heights, origin_x, origin_y, square_size, road):
+    """Brute-Force-Referenz: volle Bounding-Box, kein Vorfiltern (alte Logik)."""
+    from world_to_beamng.terrain.road_embedding import _points_in_polygon_2d, _project_onto_polyline
+
+    result = heights.copy()
+    polygon, centerline = road["road_polygon"], road["trimmed_centerline"]
+    size_y, size_x = heights.shape
+    col_start = max(0, int(np.floor((polygon[:, 0].min() - origin_x) / square_size)))
+    col_end = min(size_x - 1, int(np.ceil((polygon[:, 0].max() - origin_x) / square_size)))
+    row_start = max(0, int(np.floor((polygon[:, 1].min() - origin_y) / square_size)))
+    row_end = min(size_y - 1, int(np.ceil((polygon[:, 1].max() - origin_y) / square_size)))
+    gx, gy = np.meshgrid(
+        origin_x + np.arange(col_start, col_end + 1) * square_size,
+        origin_y + np.arange(row_start, row_end + 1) * square_size,
+    )
+    inside = _points_in_polygon_2d(gx, gy, polygon)
+    target = _project_onto_polyline(gx, gy, centerline[:, 0], centerline[:, 1], centerline[:, 2])
+    sub = result[row_start : row_end + 1, col_start : col_end + 1]
+    sub[inside] = target[inside]
+    return result
+
+
+def test_embed_matches_brute_force_reference_on_long_diagonal_road():
+    size = 400
+    rng = np.random.RandomState(1)
+    heights = 100.0 + rng.rand(size, size)
+    road = _diagonal_road(size)
+
+    result = embed_roads_into_heightmap(heights, 0.0, 0.0, 1.0, [road])
+    reference = _reference_embed(heights, 0.0, 0.0, 1.0, road)
+
+    assert np.count_nonzero(result != heights) > 500  # Straße wurde wirklich eingebettet
+    np.testing.assert_array_equal(result, reference)
+
+
+def test_embed_with_subcell_resolution_and_offset_origin_matches_reference():
+    rng = np.random.RandomState(2)
+    heights = 50.0 + rng.rand(300, 300)
+    road = _diagonal_road(150)
+
+    result = embed_roads_into_heightmap(heights, 3.3, -2.7, 0.5, [road])
+    reference = _reference_embed(heights, 3.3, -2.7, 0.5, road)
+
+    np.testing.assert_array_equal(result, reference)

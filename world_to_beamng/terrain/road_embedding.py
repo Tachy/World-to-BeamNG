@@ -23,6 +23,8 @@ from typing import Dict, List, Tuple
 
 import numpy as np
 from scipy.spatial import cKDTree
+from shapely import intersects_xy
+from shapely.geometry import Polygon
 
 from .. import config
 
@@ -76,6 +78,18 @@ def _points_in_polygon_2d(qx: np.ndarray, qy: np.ndarray, polygon: np.ndarray) -
         inside ^= crosses & (qx < x_intersect)
         j = i
     return inside
+
+
+def _cells_in_polygon(qx: np.ndarray, qy: np.ndarray, polygon: np.ndarray) -> np.ndarray:
+    """
+    Punkt-in-Polygon für ein Zellraster. Schnell über Shapely (C, vorbereitetes Polygon);
+    nur bei ungültigen Polygonen (z.B. selbstüberschneidender Centerline-Fallback) greift
+    der Ray-Casting-Test, dessen Even-Odd-Regel dort das bisherige Verhalten liefert.
+    """
+    shape = Polygon(polygon)
+    if not shape.is_valid:
+        return _points_in_polygon_2d(qx, qy, polygon)
+    return intersects_xy(shape, qx, qy)
 
 
 def _project_onto_polyline(
@@ -141,14 +155,18 @@ def _embed_road(
     cell_y = origin_y + rows * square_size
     grid_x, grid_y = np.meshgrid(cell_x, cell_y)  # shape (len(rows), len(cols))
 
-    inside = _points_in_polygon_2d(grid_x, grid_y, polygon)
+    inside = _cells_in_polygon(grid_x, grid_y, polygon)
     if not np.any(inside):
         return
 
-    target_z = _project_onto_polyline(grid_x, grid_y, centerline[:, 0], centerline[:, 1], centerline[:, 2])
+    # Nur die Zellen im Polygon projizieren: bei langen, diagonalen Straßen ist die
+    # Bounding-Box riesig, der eigentliche Streifen aber schmal (Faktor 100+ weniger Zellen).
+    target_z = _project_onto_polyline(
+        grid_x[inside], grid_y[inside], centerline[:, 0], centerline[:, 1], centerline[:, 2]
+    )
 
     sub = heights[row_start : row_end + 1, col_start : col_end + 1]
-    sub[inside] = target_z[inside]
+    sub[inside] = target_z
 
 
 def sample_heightmap_bilinear(
@@ -377,7 +395,11 @@ def _blend_one_side(heights, origin_x, origin_y, square_size, size_x, size_y, ed
     grid_x, grid_y = np.meshgrid(cell_x, cell_y)
     query_points = np.column_stack([grid_x.ravel(), grid_y.ravel()])
 
-    dist, idx = tree.query(query_points)
+    # Der Korridor endet spätestens bei max_width: weiter entfernte Zellen (bei langen,
+    # diagonalen Straßen der Großteil der Bounding-Box) bricht der Baum sofort ab (dist=inf).
+    dist, idx = tree.query(query_points, distance_upper_bound=max_width + 1e-9)
+    near = np.isfinite(dist)
+    dist, idx = dist[near], idx[near]
 
     nearest_edge_z = edge_xyz[idx, 2]
     nearest_slope_width = slope_width[idx]
@@ -393,6 +415,6 @@ def _blend_one_side(heights, origin_x, origin_y, square_size, size_x, size_y, ed
 
     sub_shape = (row_end - row_start + 1, col_end - col_start + 1)
     sub = heights[row_start : row_end + 1, col_start : col_end + 1].reshape(-1)
-    write_mask = in_corridor
-    sub[write_mask] = blended[write_mask]
+    target = np.flatnonzero(near)[in_corridor]
+    sub[target] = blended[in_corridor]
     heights[row_start : row_end + 1, col_start : col_end + 1] = sub.reshape(sub_shape)
