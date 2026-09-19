@@ -170,6 +170,127 @@
             },
             "comment": "Mischwald - Buchen, Eichen und Espen (vielfältiger Bestand)"
         },
+        "german_low_deciduous": {
+            "tree_density": 0.7,
+            "average_height": [
+                16.0,
+                22.0
+            ],
+            "underground_material": "forest_floor",
+            "lod_distance": 200.0,
+            "collision_enabled": true,
+            "preferred_trees": {
+                "tree_aspen_small_low": 0.09090909090909091,
+                "tree_aspen_small_low_group": 0.09090909090909091,
+                "tree_aspen_small_a": 0.09090909090909091,
+                "tree_aspen_small_b": 0.09090909090909091,
+                "tree_aspen_small_c": 0.09090909090909091,
+                "tree_aspen_small_d": 0.09090909090909091,
+                "tree_beech_small_b": 0.09090909090909091,
+                "tree_beech_small_c": 0.09090909090909091,
+                "tree_beech_small_d": 0.09090909090909091,
+                "tree_oak_sml_a": 0.09090909090909091,
+                "tree_oak_sml_b": 0.09090909090909091
+            },
+            "comment": "Niedriger Laubwald (6-13 m) - alles mit Bäumen außer landuse=forest; average_height wirkt als Skalierung (Zielhöhe/20 m)"
+        },
+        "garden_mixed": {
+            "tree_density": 0.3,
+            "average_height": [
+                16.0,
+                22.0
+            ],
+            "underground_material": "grassland",
+            "lod_distance": 150.0,
+            "collision_enabled": true,
+            "preferred_trees": {
+                "tree_aspen_small_low": 0.045,
+                "tree_aspen_small_a": 0.045,
+                "tree_aspen_small_b": 0.045,
+                "tree_aspen_small_c": 0.045,
+                "tree_aspen_small_d": 0.045,
+                "tree_beech_small_b": 0.045,
+                "tree_beech_small_c": 0.045,
+                "tree_beech_small_d": 0.045,
+                "tree_oak_sml_a": 0.045,
+                "tree_oak_sml_b": 0.045,
+                "tree_beech_bush_a": 0.06875,
+                "tree_oak_bush_a": 0.06875,
+                "tree_aspen_bush_a": 0.06875,
+                "tree_aspen_bush_b": 0.06875,
+                "tree_aspen_bush_c": 0.06875,
+                "tree_oak_bush_c": 0.06875,
+                "tree_beech_bush_b": 0.06875,
+                "generibush_small": 0.06875
+            },
+            "comment": "Gärten/Kleingärten - lichte kleine Laubbäume (Obstbaum-Größe) und Büsche; es gibt keine echten Obstbaum-Assets in BeamNG"
+        },
+        "residential_green": {
+            "tree_density": 0.3,
+            "average_height": [
+                16.0,
+                22.0
+            ],
+            "underground_material": "grassland",
+            "lod_distance": 150.0,
+            "collision_enabled": true,
+            "preferred_trees": {
+                "tree_beech_bush_a": 0.125,
+                "tree_oak_bush_a": 0.125,
+                "tree_aspen_bush_a": 0.125,
+                "tree_aspen_bush_b": 0.125,
+                "tree_aspen_bush_c": 0.125,
+                "tree_oak_bush_c": 0.125,
+                "tree_beech_bush_b": 0.125,
+                "generibush_small": 0.125
+            },
+            "comment": "Wohngebiete - lichte Büsche zwischen den Häusern (Straßen/Gebäude werden ausgespart)"
+        },
+        "single_tree": {
+            "tree_density": 1.0,
+            "average_height": [
+                16.0,
+                26.0
+            ],
+            "underground_material": "grassland",
+            "lod_distance": 180.0,
+            "collision_enabled": true,
+            "preferred_trees": {
+                "tree_aspen_small_a": 0.1111111111111111,
+                "tree_aspen_small_b": 0.1111111111111111,
+                "tree_aspen_small_c": 0.1111111111111111,
+                "tree_aspen_small_d": 0.1111111111111111,
+                "tree_beech_small_b": 0.1111111111111111,
+                "tree_beech_small_c": 0.1111111111111111,
+                "tree_beech_small_d": 0.1111111111111111,
+                "tree_oak_sml_a": 0.1111111111111111,
+                "tree_oak_sml_b": 0.1111111111111111
+            },
+            "comment": "Einzelbäume (OSM natural=tree als Punkt)"
+        },
+        "tree_row": {
+            "tree_density": 1.0,
+            "row_spacing": 8.0,
+            "average_height": [
+                16.0,
+                24.0
+            ],
+            "underground_material": "grassland",
+            "lod_distance": 180.0,
+            "collision_enabled": true,
+            "preferred_trees": {
+                "tree_aspen_small_a": 0.1111111111111111,
+                "tree_aspen_small_b": 0.1111111111111111,
+                "tree_aspen_small_c": 0.1111111111111111,
+                "tree_aspen_small_d": 0.1111111111111111,
+                "tree_beech_small_b": 0.1111111111111111,
+                "tree_beech_small_c": 0.1111111111111111,
+                "tree_beech_small_d": 0.1111111111111111,
+                "tree_oak_sml_a": 0.1111111111111111,
+                "tree_oak_sml_b": 0.1111111111111111
+            },
+            "comment": "Baumreihe (OSM natural=tree_row ist eine LINIE): Bäume im Abstand row_spacing entlang der Linie"
+        },
         "german_sparse_deciduous": {
             "tree_density": 0.4,
             "average_height": [
@@ -259,20 +380,23 @@
     "forest_mappings": {
         "landuse": {
             "forest": "german_mixed_forest",
-            "wood": "german_mixed_forest",
-            "orchard": "orchard_area"
+            "wood": "german_low_deciduous",
+            "orchard": "orchard_area",
+            "allotments": "garden_mixed",
+            "residential": "residential_green"
         },
         "natural": {
-            "wood": "german_mixed_forest",
-            "forest": "german_mixed_forest",
+            "wood": "german_low_deciduous",
+            "forest": "german_low_deciduous",
             "scrub": "german_sparse_deciduous",
             "heath": "german_sparse_deciduous",
-            "tree_row": "hedgerow",
-            "wetland": "german_mixed_forest"
+            "tree_row": "tree_row",
+            "wetland": "german_low_deciduous"
         },
         "leisure": {
-            "nature_reserve": "german_mixed_forest",
-            "park": "german_sparse_deciduous"
+            "nature_reserve": "german_low_deciduous",
+            "park": "german_sparse_deciduous",
+            "garden": "garden_mixed"
         },
         "tag_overrides": {
             "trees=conifer": "german_mixed_forest",
@@ -281,6 +405,21 @@
             "leaf_type=needleleaf": "german_mixed_forest",
             "leaf_type=broadleaved": "german_deciduous_dense",
             "leaf_type=mixed": "german_mixed_forest"
+        },
+        "tag_overrides_only_for": [
+            "landuse=forest"
+        ],
+        "clearings": {
+            "forest_type": "german_low_deciduous",
+            "only_for": [
+                "landuse=forest",
+                "landuse=wood",
+                "natural=wood",
+                "natural=forest"
+            ]
+        },
+        "single_trees": {
+            "forest_type": "single_tree"
         }
     },
     "buildings": {
@@ -458,15 +597,32 @@
             "detailColorMap": "levels/world_to_beamng/art/shapes/assets/materials/terrain/grass/t_grass_01/t_grass_01_b.png",
             "detailNormalMap": "levels/world_to_beamng/art/shapes/assets/materials/terrain/grass/t_grass_01/t_grass_01_nm.png",
             "groundCover": [
+                "grass_medium_close",
                 "grass_short",
                 "grass_long",
                 "flowers"
             ]
         },
+        "residential": {
+            "osm_tags": {
+                "landuse": [
+                    "residential"
+                ]
+            },
+            "priority": 3,
+            "internal_name": "mat_residential",
+            "groundModelName": "grass",
+            "detailColorMap": "levels/world_to_beamng/art/shapes/assets/materials/terrain/grass/ind_grass/t_ind_grass_b.png",
+            "detailNormalMap": "levels/world_to_beamng/art/shapes/assets/materials/terrain/grass/ind_grass/t_ind_grass_nm.png",
+            "groundCover": [
+                "grass_short",
+                "grass_close"
+            ],
+            "comment": "Wohngebiete: Rasen (Luftbild bleibt als Grundfarbe). Straßen und Gebäude werden per Maske ausgespart; Gärten/Parks/Wiesen darin haben mit höherer Priorität ihre eigene Schicht."
+        },
         "urban": {
             "osm_tags": {
                 "landuse": [
-                    "residential",
                     "commercial",
                     "industrial",
                     "retail",
@@ -476,7 +632,7 @@
             },
             "priority": 12,
             "keep_photo": true,
-            "comment": "Wohn-/Gewerbegebiete: das Luftbild bleibt (Häuser, Gärten, Straßen sind im Foto)."
+            "comment": "Gewerbe-/Industriegebiete: das Luftbild bleibt (Hallen, Höfe, Straßen sind im Foto)."
         },
         "water": {
             "osm_tags": {

@@ -265,6 +265,60 @@ def create_tree_distribution(preferred_trees: list) -> dict:
     return {tree: probability for tree in preferred_trees}
 
 
+# Niedrige Laubbäume (gemessene Modellhöhe 6-12,2 m). Explizit statt per Namensmuster:
+# "low" im Namen ist unzuverlässig (tree_douglasfir_group_low ist 22,6 m hoch).
+LOW_DECIDUOUS_TREES = [
+    "tree_aspen_small_low",
+    "tree_aspen_small_low_group",
+    "tree_aspen_small_a",
+    "tree_aspen_small_b",
+    "tree_aspen_small_c",
+    "tree_aspen_small_d",
+    "tree_beech_small_b",
+    "tree_beech_small_c",
+    "tree_beech_small_d",
+    "tree_oak_sml_a",
+    "tree_oak_sml_b",
+]
+
+
+# Gärten/Wohngebiete: kleine Laubbäume (Obstbaum-Größe; BeamNG hat keine echten Obstbäume) und
+# Büsche (gemessene Höhe 1,2-3,3 m). Explizit, weil Namensmuster bei den Höhen täuschen.
+GARDEN_TREES = [
+    "tree_aspen_small_low",
+    "tree_aspen_small_a",
+    "tree_aspen_small_b",
+    "tree_aspen_small_c",
+    "tree_aspen_small_d",
+    "tree_beech_small_b",
+    "tree_beech_small_c",
+    "tree_beech_small_d",
+    "tree_oak_sml_a",
+    "tree_oak_sml_b",
+]
+GARDEN_BUSHES = [
+    "tree_beech_bush_a",
+    "tree_oak_bush_a",
+    "tree_aspen_bush_a",
+    "tree_aspen_bush_b",
+    "tree_aspen_bush_c",
+    "tree_oak_bush_c",
+    "tree_beech_bush_b",
+    "generibush_small",
+]
+SINGLE_TREES = [
+    "tree_aspen_small_a",
+    "tree_aspen_small_b",
+    "tree_aspen_small_c",
+    "tree_aspen_small_d",
+    "tree_beech_small_b",
+    "tree_beech_small_c",
+    "tree_beech_small_d",
+    "tree_oak_sml_a",
+    "tree_oak_sml_b",
+]
+
+
 def generate_forest_types(trees_by_type: dict) -> dict:
     """Generiere sinnvolle Waldtypen für deutsche Wälder."""
     forest_types = {}
@@ -296,6 +350,71 @@ def generate_forest_types(trees_by_type: dict) -> dict:
             "collision_enabled": True,
             "preferred_trees": create_tree_distribution(mixed_trees),
             "comment": "Mischwald - Buchen, Eichen und Espen (vielfältiger Bestand)",
+        }
+
+    # 2b. German Low Deciduous: alles mit Bäumen außer landuse=forest bekommt nur niedrige Laubbäume.
+    # average_height wirkt als Skalierung (Zielhöhe / 20 m): 16-22 -> 0,8-1,1.
+    low_trees = [t for t in LOW_DECIDUOUS_TREES if t in all_tree_keys]
+    if low_trees:
+        forest_types["german_low_deciduous"] = {
+            "tree_density": 0.7,
+            "average_height": [16.0, 22.0],
+            "underground_material": "forest_floor",
+            "lod_distance": 200.0,
+            "collision_enabled": True,
+            "preferred_trees": create_tree_distribution(low_trees),
+            "comment": "Niedriger Laubwald (6-13 m) - alles mit Bäumen außer landuse=forest; "
+            "average_height wirkt als Skalierung (Zielhöhe/20 m)",
+        }
+
+    # 2c. Gärten/Kleingärten, Wohngebiete, Einzelbäume. Mindestabstand im ForestWorkflow ist 5 m:
+    # Abstand = 5 / sqrt(tree_density) -> 0,3 ergibt ca. 9 m (lichte Bepflanzung).
+    garden_trees = [t for t in GARDEN_TREES if t in all_tree_keys]
+    garden_bushes = [t for t in GARDEN_BUSHES if t in all_tree_keys]
+    if garden_trees and garden_bushes:
+        weights = {t: 0.45 / len(garden_trees) for t in garden_trees}
+        weights.update({t: 0.55 / len(garden_bushes) for t in garden_bushes})
+        forest_types["garden_mixed"] = {
+            "tree_density": 0.3,
+            "average_height": [16.0, 22.0],
+            "underground_material": "grassland",
+            "lod_distance": 150.0,
+            "collision_enabled": True,
+            "preferred_trees": weights,
+            "comment": "Gärten/Kleingärten - lichte kleine Laubbäume (Obstbaum-Größe) und Büsche; "
+            "es gibt keine echten Obstbaum-Assets in BeamNG",
+        }
+    if garden_bushes:
+        forest_types["residential_green"] = {
+            "tree_density": 0.3,
+            "average_height": [16.0, 22.0],
+            "underground_material": "grassland",
+            "lod_distance": 150.0,
+            "collision_enabled": True,
+            "preferred_trees": create_tree_distribution(garden_bushes),
+            "comment": "Wohngebiete - lichte Büsche zwischen den Häusern (Straßen/Gebäude werden ausgespart)",
+        }
+    single_trees = [t for t in SINGLE_TREES if t in all_tree_keys]
+    if single_trees:
+        forest_types["single_tree"] = {
+            "tree_density": 1.0,
+            "average_height": [16.0, 26.0],
+            "underground_material": "grassland",
+            "lod_distance": 180.0,
+            "collision_enabled": True,
+            "preferred_trees": create_tree_distribution(single_trees),
+            "comment": "Einzelbäume (OSM natural=tree als Punkt)",
+        }
+        # Baumreihe: natural=tree_row ist eine LINIE - Bäume im Abstand row_spacing entlang der Linie
+        forest_types["tree_row"] = {
+            "tree_density": 1.0,
+            "row_spacing": 8.0,
+            "average_height": [16.0, 24.0],
+            "underground_material": "grassland",
+            "lod_distance": 180.0,
+            "collision_enabled": True,
+            "preferred_trees": create_tree_distribution(single_trees),
+            "comment": "Baumreihe (OSM natural=tree_row ist eine LINIE): Bäume im Abstand row_spacing entlang der Linie",
         }
 
     # 3. German Sparse Deciduous
@@ -378,24 +497,32 @@ def generate_forest_mappings(forest_types: dict) -> dict:
         }
 
     default_forest = "german_mixed_forest" if "german_mixed_forest" in forest_types else list(forest_types.keys())[0]
+    # Nur landuse=forest bekommt den hohen Mischwald, alles andere mit Bäumen den niedrigen Laubwald
+    low_forest = "german_low_deciduous" if "german_low_deciduous" in forest_types else default_forest
 
-    return {
+    garden = "garden_mixed" if "garden_mixed" in forest_types else None
+    residential = "residential_green" if "residential_green" in forest_types else None
+
+    mappings = {
         "landuse": {
             "forest": default_forest,
-            "wood": default_forest,
+            "wood": low_forest,
             "orchard": "orchard_area" if "orchard_area" in forest_types else default_forest,
+            **({"allotments": garden} if garden else {}),
+            **({"residential": residential} if residential else {}),
         },
         "natural": {
-            "wood": default_forest,
-            "forest": default_forest,
+            "wood": low_forest,
+            "forest": low_forest,
             "scrub": "german_sparse_deciduous" if "german_sparse_deciduous" in forest_types else default_forest,
             "heath": "german_sparse_deciduous" if "german_sparse_deciduous" in forest_types else default_forest,
-            "tree_row": "hedgerow" if "hedgerow" in forest_types else default_forest,
-            "wetland": default_forest,
+            "tree_row": "tree_row" if "tree_row" in forest_types else ("hedgerow" if "hedgerow" in forest_types else default_forest),
+            "wetland": low_forest,
         },
         "leisure": {
-            "nature_reserve": default_forest,
+            "nature_reserve": low_forest,
             "park": "german_sparse_deciduous" if "german_sparse_deciduous" in forest_types else default_forest,
+            **({"garden": garden} if garden else {}),
         },
         "tag_overrides": {
             "trees=conifer": default_forest,
@@ -407,7 +534,19 @@ def generate_forest_mappings(forest_types: dict) -> dict:
             ),
             "leaf_type=mixed": default_forest,
         },
+        # Lichtungen (innere Ringe von Wald-Relationen) bekommen nur niedrige Laubbäume
+        # Lichtungen nur in Wald-Relationen - ein Loch im Wohngebiet ist etwas anderes
+        "clearings": {
+            "forest_type": low_forest,
+            "only_for": ["landuse=forest", "landuse=wood", "natural=wood", "natural=forest"],
+        },
+        # Overrides (trees=conifer, ...) verfeinern nur landuse=forest - sonst würde z.B. ein
+        # natural=wood mit Nadelbaum-Tag in einen hohen Waldtyp umgeleitet
+        "tag_overrides_only_for": ["landuse=forest"],
     }
+    if "single_tree" in forest_types:
+        mappings["single_trees"] = {"forest_type": "single_tree"}  # OSM natural=tree (Punkte)
+    return mappings
 
 
 def main():

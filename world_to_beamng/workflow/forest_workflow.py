@@ -229,6 +229,83 @@ class ForestWorkflow:
         #     logger.debug(f"  [Forest] Stack Trace: {traceback.format_exc()}")
         #     return None
 
+    def _create_building_buffer(self, osm_data, margin: float = None):
+        """
+        Gepufferte Vereinigung aller OSM-Gebäudegrundrisse: dort stehen keine Bäume/Büsche.
+
+        Wichtig für Gärten und Wohngebiete, deren Polygone die Häuser umschließen.
+
+        VORAUSSETZUNG: osm_data liegt bereits in lokalen Koordinaten vor.
+
+        Returns:
+            shapely-Geometrie oder None (keine Gebäude)
+        """
+        if margin is None:
+            margin = self.config.FOREST_BUILDING_MARGIN
+
+        from shapely.geometry import Polygon
+        from shapely.ops import unary_union
+
+        shapes = []
+        for element in osm_data or []:
+            if element.get("type") != "way" or "building" not in (element.get("tags") or {}):
+                continue
+            geometry = element.get("geometry") or []
+            coords = [(pt["x"], pt["y"]) for pt in geometry if isinstance(pt, dict) and "x" in pt and "y" in pt]
+            if len(coords) < 4:
+                continue
+            polygon = Polygon(coords)
+            if not polygon.is_valid:
+                polygon = polygon.buffer(0)
+            if not polygon.is_empty:
+                shapes.append(polygon.buffer(margin))
+
+        return unary_union(shapes) if shapes else None
+
+    def _create_row_exclusion(self, osm_data, building_buffer):
+        """
+        Ausschluss für Baumreihen: Gebäude und Straßen mit dem KLEINEREN Puffer FOREST_ROW_ROAD_MARGIN
+        (Alleen stehen wenige Meter neben der Straße, nicht auf der Fahrbahn).
+
+        Returns:
+            shapely-Geometrie oder None
+        """
+        from shapely.ops import unary_union
+
+        road_buffer = self._create_road_buffer(osm_data, road_margin=self.config.FOREST_ROW_ROAD_MARGIN) if osm_data else None
+        parts = [g for g in (road_buffer, building_buffer) if g is not None]
+        return unary_union(parts) if parts else None
+
+    def _single_tree_points(self, osm_data, tile_bounds, global_offset, exclusion=None):
+        """
+        Positionen einzelner Bäume (OSM-Punkte mit natural=tree) innerhalb des Tiles.
+
+        Die Punkte tragen noch lat/lon (nur "geometry"-Listen wurden transformiert). Punkte in
+        `exclusion` (Straßen, Gebäude) werden verworfen.
+
+        Returns:
+            Liste lokaler (x, y)
+        """
+        from shapely import intersects_xy
+
+        from ..osm.landuse_polygons import make_local_transform
+
+        to_local = make_local_transform(global_offset)
+        x_min, y_min, x_max, y_max = tile_bounds
+        points = []
+        for element in osm_data or []:
+            if element.get("type") != "node" or (element.get("tags") or {}).get("natural") != "tree":
+                continue
+            if "lat" not in element or "lon" not in element:
+                continue
+            x, y = to_local([{"lat": element["lat"], "lon": element["lon"]}])[0]
+            if not (x_min <= x <= x_max and y_min <= y <= y_max):
+                continue
+            if exclusion is not None and intersects_xy(exclusion, x, y):
+                continue
+            points.append((x, y))
+        return points
+
     def process_tile(
         self,
         tile_bounds: Tuple[float, float, float, float],
@@ -409,7 +486,17 @@ class ForestWorkflow:
                 )
             else:
                 logger.info(f"  [Forest] Road Buffer ist None!")
-            self.point_generator.set_road_buffer(road_buffer)
+            # Bäume/Büsche dürfen weder auf Straßen noch in/an Gebäuden stehen (Gärten, Wohngebiete)
+            building_buffer = self._create_building_buffer(osm_data)
+            if building_buffer is not None:
+                logger.info(f"  [Forest] Gebäude-Puffer erstellt - Fläche: {building_buffer.area:.0f}m²")
+                from shapely.ops import unary_union
+
+                exclusion = unary_union([road_buffer, building_buffer]) if road_buffer else building_buffer
+            else:
+                exclusion = road_buffer
+            self.point_generator.set_road_buffer(exclusion)
+            self.point_generator.set_row_exclusion(self._create_row_exclusion(osm_data, building_buffer))
 
             forest_properties = {
                 ft: self.normalizer.get_forest_properties(ft)
@@ -419,6 +506,15 @@ class ForestWorkflow:
             forest_points = self.point_generator.generate_points_for_forests(
                 forests=forests, forest_properties=forest_properties
             )
+
+            # Einzelbäume (OSM natural=tree als Punkt) als eigener synthetischer "Wald"-Eintrag
+            single_type = self.forest_config.get("forest_mappings", {}).get("single_trees", {}).get("forest_type")
+            if single_type and single_type in forest_properties:
+                singles = self._single_tree_points(osm_data, tile_bounds, (ox, oy), exclusion)
+                if singles:
+                    forests.append({"type": single_type, "geometry": None, "osm_tags": {"natural": "tree"}})
+                    forest_points[len(forests) - 1] = singles
+                    logger.info(f"  [Forest] {len(singles)} Einzelbäume (natural=tree)")
 
             total_points = sum(len(pts) for pts in forest_points.values())
             logger.info(f"  [→] {total_points} Baumpositionen generiert")

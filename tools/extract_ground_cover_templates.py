@@ -38,6 +38,11 @@ SOURCES = {
     "weed": ("Cliff", "weed1"),
     "fern": ("driver_training", "fern1"),
     "wet_plant": ("Industrial", "wet_weed_02"),
+    # Dichte "close"-Presets (Raster 4, Radius 50, ~1,3 Elemente/m², Halme bis 1,2 m): das ist das
+    # dichte hohe Gras der Original-Levels. Die "distant"-Vorlagen oben sind nur die dünne Fernschicht
+    # (Raster 6-8, ~0,3-0,6/m²) - allein ergeben sie einzelne kleine Halme.
+    "grass_medium_close": ("east_coast_usa", "medium_grass_close"),
+    "dry_grass_medium_close": ("Industrial", "medium_grass_dry_close"),
 }
 
 # Objekt-Felder, die 1:1 übernommen werden (alles andere - persistentId, Position,

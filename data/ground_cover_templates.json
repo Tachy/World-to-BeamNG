@@ -1278,6 +1278,214 @@
           "sizeMin": 0.400000006
         }
       ]
+    },
+    "grass_medium_close": {
+      "material": "m_grass_green_long_01",
+      "source": "east_coast_usa/medium_grass_close",
+      "radius": 50,
+      "gridSize": 4,
+      "dissolveRadius": 30,
+      "shapeCullRadius": 45,
+      "maxBillboardTiltAngle": 40,
+      "windGustFrequency": 5,
+      "windGustLength": 10,
+      "windGustStrength": 0.0500000007,
+      "windTurbulenceFrequency": 0.5,
+      "windTurbulenceStrength": 0.200000003,
+      "types": [
+        {
+          "billboardUVs": [
+            0,
+            0,
+            1,
+            0.493654042
+          ],
+          "clumpExponent": -0.5,
+          "clumpRadius": 2,
+          "maxClumpCount": 3,
+          "minClumpCount": 2,
+          "probability": 1,
+          "sizeMax": 0.400000006,
+          "sizeMin": 0.200000003,
+          "windScale": 0.200000003
+        },
+        {
+          "billboardUVs": [
+            0,
+            0.523437023,
+            1,
+            0.448785245
+          ],
+          "clumpExponent": -0.5,
+          "clumpRadius": 2,
+          "maxClumpCount": 3,
+          "minClumpCount": 2,
+          "probability": 1,
+          "sizeExponent": 0.600000024,
+          "sizeMax": 0.400000006,
+          "sizeMin": 0.200000003,
+          "windScale": 0.200000003
+        },
+        {
+          "billboardUVs": [
+            0.511718988,
+            0.535156012,
+            0.488281012,
+            0.464843988
+          ],
+          "maxClumpCount": 5,
+          "minClumpCount": 3,
+          "sizeMax": 0.400000006,
+          "sizeMin": 0.200000003,
+          "windScale": 0.200000003
+        },
+        {
+          "billboardUVs": [
+            0,
+            0,
+            0.507812023,
+            0.46875
+          ],
+          "clumpExponent": -0.200000003,
+          "clumpRadius": 2,
+          "maxClumpCount": 6,
+          "minClumpCount": 3,
+          "sizeMax": 0.600000024,
+          "sizeMin": 0.400000006,
+          "windScale": 0.200000003
+        },
+        {
+          "billboardUVs": [
+            0,
+            0.0117188003,
+            0.527343988,
+            0.484376013
+          ],
+          "clumpExponent": -0.200000003,
+          "clumpRadius": 1.5,
+          "maxClumpCount": 6,
+          "minClumpCount": 2,
+          "sizeMax": 1.20000005,
+          "sizeMin": 0.600000024,
+          "windScale": 0.300000012
+        },
+        {
+          "billboardUVs": [
+            0.0351562984,
+            0.5,
+            0.347656012,
+            0.300781012
+          ],
+          "maxClumpCount": 2,
+          "sizeMax": 0.5,
+          "sizeMin": 0.300000012,
+          "windScale": 0.300000012
+        }
+      ]
+    },
+    "dry_grass_medium_close": {
+      "material": "m_grass_dry_01",
+      "source": "Industrial/medium_grass_dry_close",
+      "radius": 50,
+      "gridSize": 4,
+      "dissolveRadius": 30,
+      "shapeCullRadius": 45,
+      "maxBillboardTiltAngle": 40,
+      "windGustFrequency": 5,
+      "windGustLength": 10,
+      "windGustStrength": 0.0500000007,
+      "windTurbulenceFrequency": 0.5,
+      "windTurbulenceStrength": 0.200000003,
+      "types": [
+        {
+          "billboardUVs": [
+            0,
+            0,
+            1,
+            0.493654042
+          ],
+          "clumpExponent": -0.5,
+          "clumpRadius": 2,
+          "maxClumpCount": 3,
+          "minClumpCount": 2,
+          "probability": 1,
+          "sizeMax": 0.400000006,
+          "sizeMin": 0.200000003,
+          "windScale": 0.200000003
+        },
+        {
+          "billboardUVs": [
+            0,
+            0.523437023,
+            1,
+            0.448785245
+          ],
+          "clumpExponent": -0.5,
+          "clumpRadius": 2,
+          "maxClumpCount": 3,
+          "minClumpCount": 2,
+          "probability": 1,
+          "sizeExponent": 0.600000024,
+          "sizeMax": 0.400000006,
+          "sizeMin": 0.200000003,
+          "windScale": 0.200000003
+        },
+        {
+          "billboardUVs": [
+            0.511718988,
+            0.535156012,
+            0.488281012,
+            0.464843988
+          ],
+          "maxClumpCount": 5,
+          "minClumpCount": 3,
+          "sizeMax": 0.400000006,
+          "sizeMin": 0.200000003,
+          "windScale": 0.200000003
+        },
+        {
+          "billboardUVs": [
+            0,
+            0,
+            0.507812023,
+            0.46875
+          ],
+          "clumpExponent": -0.200000003,
+          "clumpRadius": 2,
+          "maxClumpCount": 6,
+          "minClumpCount": 3,
+          "sizeMax": 0.600000024,
+          "sizeMin": 0.400000006,
+          "windScale": 0.200000003
+        },
+        {
+          "billboardUVs": [
+            0,
+            0.0117188003,
+            0.527343988,
+            0.484376013
+          ],
+          "clumpExponent": -0.200000003,
+          "clumpRadius": 1.5,
+          "maxClumpCount": 6,
+          "minClumpCount": 2,
+          "sizeMax": 1.20000005,
+          "sizeMin": 0.600000024,
+          "windScale": 0.300000012
+        },
+        {
+          "billboardUVs": [
+            0.0351562984,
+            0.5,
+            0.347656012,
+            0.300781012
+          ],
+          "maxClumpCount": 2,
+          "sizeMax": 0.5,
+          "sizeMin": 0.300000012,
+          "windScale": 0.300000012
+        }
+      ]
     }
   }
 }

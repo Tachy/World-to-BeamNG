@@ -159,3 +159,62 @@ def test_mask_layer_map_with_photo_without_geometries_is_a_copy():
 
     assert (result == 3).all()
     assert result is not layer_map
+
+
+# --- Dichtes hohes Gras: die echten Vorlagen und die Wiesen-Zuordnung --------------------------
+# In BeamNGs Originalen liegt über der dünnen "distant"-Fernschicht (Raster 6-8, ~0,3-0,6 Elemente/m²)
+# ein dichtes "close"-Preset (Raster 4, ~1,3 Elemente/m², Halme bis 1,2 m). Nur die Fernschicht allein
+# ergibt einzelne kleine Halme.
+
+REAL_TEMPLATES_PATH = Path(__file__).parent.parent.parent / "data" / "ground_cover_templates.json"
+REAL_MAPPINGS_PATH = Path(__file__).parent.parent.parent / "data" / "osm_to_beamng.json"
+
+
+def _real_templates():
+    import json
+
+    return json.loads(REAL_TEMPLATES_PATH.read_text(encoding="utf-8"))["templates"]
+
+
+def _clumps_per_m2(template):
+    grid = template["gridSize"]
+    total = sum(
+        t.get("probability", 1.0) * (t.get("minClumpCount", 1) + t.get("maxClumpCount", 1)) / 2 for t in template["types"]
+    )
+    return total / (grid * grid)
+
+
+@pytest.mark.parametrize("name", ["grass_medium_close", "dry_grass_medium_close"])
+def test_dense_close_presets_are_present_and_really_dense(name):
+    template = _real_templates()[name]
+
+    assert template["gridSize"] <= 4  # enges Raster = dichte Klumpen
+    assert template["radius"] <= 60  # "close": nur im Nahbereich, die Ferne deckt die dünne Schicht ab
+    assert max(t.get("sizeMax", 1) for t in template["types"]) >= 1.0  # hohe Halme
+    assert _clumps_per_m2(template) >= 1.0
+    # 6 echte Billboard-Typen (die zwei weiteren Typen der Originale sind leere Platzhalter ohne Shape/UVs)
+    assert len(template["types"]) >= 6
+
+
+def test_meadow_gets_a_dense_tall_grass_preset_besides_the_distant_layers():
+    import json
+
+    meadow = json.loads(REAL_MAPPINGS_PATH.read_text(encoding="utf-8"))["landuse_mappings"]["meadow"]
+    templates = _real_templates()
+
+    dense = [n for n in meadow["groundCover"] if templates[n]["gridSize"] <= 4 and "grass" in n]
+    assert dense, "Wiese ohne dichtes Gras-Preset"
+    # die dünne Fernschicht bleibt für die Weitsicht erhalten
+    assert any(templates[n]["radius"] >= 100 for n in meadow["groundCover"] if "grass" in n)
+
+
+def test_meadow_grass_is_much_denser_than_the_old_distant_only_setup():
+    import json
+
+    meadow = json.loads(REAL_MAPPINGS_PATH.read_text(encoding="utf-8"))["landuse_mappings"]["meadow"]
+    templates = _real_templates()
+
+    grass = [n for n in meadow["groundCover"] if "grass" in n]
+    density = sum(_clumps_per_m2(templates[n]) for n in grass)
+    old_density = _clumps_per_m2(templates["grass_short"]) + _clumps_per_m2(templates["grass_long"])
+    assert density > 1.8 * old_density

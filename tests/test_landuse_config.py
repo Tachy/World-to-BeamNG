@@ -51,8 +51,9 @@ def _photo_categories():
         ({"landuse": "vineyard"}, "vineyard"),
         ({"natural": "scrub"}, "scrub"),
         ({"natural": "wetland"}, "wetland"),
+        # Wohngebiete: eigene Schicht mit Rasen (Straßen/Häuser werden per Maske ausgespart)
+        ({"landuse": "residential"}, "residential"),
         # Luftbild bleibt (Häuser/Straßen/Wasser im Foto)
-        ({"landuse": "residential"}, "urban"),
         ({"landuse": "commercial"}, "urban"),
         ({"landuse": "industrial"}, "urban"),
         ({"landuse": "greenhouse_horticulture"}, "urban"),
@@ -70,11 +71,24 @@ def test_region_relations_and_unrelated_tags_are_not_mapped():
     assert get_landuse_category({"building": "yes"}, MAPPINGS) is None
 
 
-def test_residential_and_water_keep_the_aerial_photo():
+def test_commercial_and_water_keep_the_aerial_photo():
     assert MAPPINGS["urban"]["keep_photo"] is True
     assert MAPPINGS["water"]["keep_photo"] is True
     # Foto-Kategorien müssen andere Schichten überdecken können
     assert MAPPINGS["urban"]["priority"] > max(d["priority"] for d in _material_categories().values())
+    # Wohngebiete sind NICHT mehr Foto-Kategorie, sondern haben Rasen
+    assert "residential" not in MAPPINGS["urban"]["osm_tags"].get("landuse", [])
+
+
+def test_residential_gets_lawn_but_yields_to_more_specific_areas():
+    residential = MAPPINGS["residential"]
+
+    assert residential["internal_name"] == "mat_residential"
+    assert any("grass" in template for template in residential["groundCover"])
+    # kurzer Rasen, kein hohes Gras zwischen den Häusern
+    assert all(TEMPLATES[t]["gridSize"] > 4 or max(x.get("sizeMax", 1) for x in TEMPLATES[t]["types"]) < 1.0 for t in residential["groundCover"])
+    # Gärten/Parks/Wiesen/Wald/Obst innerhalb eines Wohngebiets behalten ihre eigene Schicht
+    assert residential["priority"] < min(d["priority"] for n, d in _material_categories().items() if n != "residential")
 
 
 def test_no_osm_tag_value_is_claimed_by_two_categories():

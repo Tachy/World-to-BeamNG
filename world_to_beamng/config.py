@@ -79,6 +79,8 @@ ROAD_WIDTH = 7.0
 
 # === FOREST GENERATION PARAMETERS ===
 FOREST_ROAD_MARGIN = 5.0  # Puffer um Straßen zur Baum-Filterung (in Metern, links & rechts)
+FOREST_BUILDING_MARGIN = 2.5  # Puffer um Gebäude: dort stehen keine Bäume/Büsche (in Metern)
+FOREST_ROW_ROAD_MARGIN = 3.0  # Baumreihen (Alleen) stehen näher an Straßen als Wald: kleinerer Puffer (in Metern)
 
 # Böschungs-Geometrie entsteht NICHT im Mesh - Straßen selbst werden seit der
 # DecalRoad-Umstellung überhaupt nicht mehr als Mesh exportiert (siehe

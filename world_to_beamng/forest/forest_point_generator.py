@@ -39,6 +39,7 @@ class ForestPointGenerator:
         # Prepared geometry für schnelle Straßen-Abfragen
         self.prep_road_buffer = prep(road_buffer) if road_buffer is not None else None
         self.has_roads = road_buffer is not None
+        self.prep_row_exclusion = None  # nur für Baumreihen, siehe set_row_exclusion()
 
     def set_road_buffer(self, road_buffer: Optional[Polygon]) -> None:
         """
@@ -51,6 +52,41 @@ class ForestPointGenerator:
         """
         self.prep_road_buffer = prep(road_buffer) if road_buffer is not None else None
         self.has_roads = road_buffer is not None
+
+    def set_row_exclusion(self, exclusion) -> None:
+        """
+        Ausschlussbereich nur für Baumreihen (Gebäude, Straßen mit kleinem Puffer).
+
+        Baumreihen (Alleen) stehen näher an Straßen als Wald; der breite Wald-Straßenpuffer würde sie löschen.
+        """
+        self.prep_row_exclusion = prep(exclusion) if exclusion is not None else None
+
+    def generate_points_along_line(self, line, spacing: float, jitter: float = 0.12) -> List[Tuple[float, float]]:
+        """
+        Baumpositionen im Abstand `spacing` entlang einer (Multi-)Linie, mit leichtem Versatz entlang der Linie
+        (±jitter*spacing), damit die Reihe nicht maschinell wirkt. Eine Linie kürzer als der Abstand bekommt
+        einen Baum in der Mitte. Punkte im Ausschlussbereich für Reihen entfallen.
+        """
+        import random
+
+        parts = list(line.geoms) if hasattr(line, "geoms") else [line]
+        points = []
+        for part in parts:
+            if part.geom_type != "LineString" or part.length <= 0:
+                continue
+            if part.length < spacing:
+                distances = [part.length / 2.0]
+            else:
+                count = int(part.length // spacing)
+                start = (part.length - (count - 1) * spacing) / 2.0
+                distances = [start + i * spacing for i in range(count)]
+            for d in distances:
+                d = min(max(d + random.uniform(-jitter, jitter) * spacing, 0.0), part.length)
+                x, y = part.interpolate(d).coords[0]
+                if self.prep_row_exclusion is not None and self.prep_row_exclusion.intersects(Point(x, y)):
+                    continue
+                points.append((x, y))
+        return points
 
     def generate_points(
         self, polygon: Polygon, tree_density: float, min_distance_override: Optional[float] = None
@@ -396,6 +432,13 @@ class ForestPointGenerator:
             # Hole Properties
             props = forest_properties.get(forest_type, {})
             tree_density = props.get("tree_density", 0.5)
+
+            # Baumreihe: Bäume entlang der Linie statt Poisson-Verteilung in einer Fläche
+            if props.get("row_spacing") and geometry_to_use.geom_type in ("LineString", "MultiLineString"):
+                points = self.generate_points_along_line(geometry_to_use, float(props["row_spacing"]))
+                logger.debug(f"  Baumreihe {idx}: {len(points)} Punkte")
+                result[idx] = points
+                continue
 
             # Generiere Punkte NUR auf der relevanten Geometrie
             if isinstance(geometry_to_use, Polygon):

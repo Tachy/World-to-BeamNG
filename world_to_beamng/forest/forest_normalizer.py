@@ -125,8 +125,15 @@ class ForestNormalizer:
                 # Die Punkt-Generierung prüft später pro Punkt, ob er im Tile liegt.
                 # Damit vermeiden wir Wald-Verlust an Tile-Rändern (z.B. Schwarzwald über mehrere Tiles)
 
-                # Bestimme Forest-Type basierend auf OSM-Tags
+                # Bestimme Forest-Type basierend auf OSM-Tags; Lichtungen (innere Ringe) bekommen
+                # den in forest_mappings["clearings"] konfigurierten Typ (z.B. niedriger Laubwald)
                 forest_type = self._map_to_forest_type(tags)
+                if osm_forest.get("is_clearing"):
+                    clearings = self.forest_mappings.get("clearings", {})
+                    only_for = clearings.get("only_for")
+                    if only_for is not None and self._base_forest_mapping(tags)[1] not in only_for:
+                        continue  # Loch in einem Wohngebiet o.ä. ist keine Waldlichtung: nicht bepflanzen
+                    forest_type = clearings.get("forest_type", forest_type)
                 if not forest_type:
                     logger.debug(f"    [i] Waldpolygon gemappt zu keinem forest_type: {tags}")
                     continue
@@ -223,11 +230,21 @@ class ForestNormalizer:
             # === CASE 1: Relation (Multipolygon) ===
             if element_type == "relation" and tags.get("type") == "multipolygon":
                 try:
-                    # Versuche Geometrie aus members zusammenzusetzen
-                    geom = self._build_multipolygon_from_members(element, ways_by_id)
+                    # Wald ohne Lichtungen + Lichtungen (innere Ringe) getrennt
+                    geom, clearings = self._build_multipolygon_from_members(element, ways_by_id)
                     if geom and not geom.is_empty:
                         forests.append(
                             {"geometry": geom, "tags": tags, "osm_id": element.get("id"), "type": "relation"}
+                        )
+                    if clearings is not None:
+                        forests.append(
+                            {
+                                "geometry": clearings,
+                                "tags": tags,
+                                "osm_id": element.get("id"),
+                                "type": "relation",
+                                "is_clearing": True,
+                            }
                         )
                 except Exception as e:
                     logger.debug(f"  [!] Fehler beim Multipolygon-Assembly: {e}")
@@ -247,6 +264,19 @@ class ForestNormalizer:
                         if isinstance(geom_data[0], dict) and "x" in geom_data[0] and "y" in geom_data[0]:
                             # Lokale Koordinaten - CORRECT!
                             coords = [(pt["x"], pt["y"]) for pt in geom_data]
+                            if self._is_row_type(tags):
+                                # Baumreihe (natural=tree_row): eine LINIE, kein Polygon - die Bäume stehen
+                                # später im Abstand row_spacing entlang der Linie
+                                if len(coords) >= 2:
+                                    forests.append(
+                                        {
+                                            "geometry": LineString(coords),
+                                            "tags": tags,
+                                            "osm_id": element.get("id"),
+                                            "type": "way",
+                                        }
+                                    )
+                                continue
                             if len(coords) >= 3:  # Polygon benötigt mind. 3 Punkte
                                 geom = Polygon(coords)
 
@@ -262,7 +292,11 @@ class ForestNormalizer:
 
     def _build_multipolygon_from_members(self, relation: Dict, ways_by_id: Dict):
         """
-        Versuche Geometrie eines Multipolygon aus seinen Member-Ways zu bauen.
+        Baue Wald und Lichtungen eines Multipolygons aus seinen Member-Ways.
+
+        Die Teilstücke einer Rolle werden zu geschlossenen Ringen zusammengesetzt (OSM zerlegt
+        lange Ringe in mehrere Ways - jeden einzeln zu schließen ergäbe falsche Flächen).
+        Innere Ringe sind Lichtungen: sie werden vom Wald abgezogen und separat geliefert.
 
         WICHTIG: Erwartet lokale Koordinaten {x, y}!
         (Zentrale Transformation in ForestWorkflow._transform_osm_to_local() erfolgt VORHER)
@@ -272,93 +306,67 @@ class ForestNormalizer:
             ways_by_id: Index way_id → way_element
 
         Returns:
-            Shapely Polygon/MultiPolygon oder None
+            (Wald-Geometrie ohne Lichtungen, Lichtungs-Geometrie oder None) - oder (None, None)
         """
-        from shapely.geometry import Polygon, LineString, MultiPolygon
+        from shapely.geometry import LineString
+        from shapely.ops import polygonize, unary_union
 
-        members = relation.get("members", [])
-        if not members:
-            return None
-
-        # Sammle outer ways (diese ergeben die Außenkante)
-        outer_coords_list = []
-
-        for member in members:
-            if member.get("type") != "way":
-                continue
-
-            role = member.get("role", "")
-            if role != "outer":  # Wir interessieren uns nur für outer
-                continue
-
-            way_id = member.get("ref")
-
-            if way_id not in ways_by_id:
-                # Way nicht im Cache
-                continue
-
-            way = ways_by_id[way_id]
-            geom_data = way.get("geometry")
-
-            if not geom_data:
-                continue
-
-            # Parse Way-Geometrie (MUSS bereits in lokalen Koordinaten {x, y} sein!)
-            coords = None
-            if isinstance(geom_data, list) and len(geom_data) > 0:
-                if isinstance(geom_data[0], dict) and "x" in geom_data[0] and "y" in geom_data[0]:
-                    # Lokale Koordinaten - CORRECT!
+        def role_polygons(roles):
+            lines = []
+            for member in relation.get("members", []):
+                if member.get("type") != "way" or member.get("role", "") not in roles:
+                    continue
+                way = ways_by_id.get(member.get("ref"))
+                geom_data = way.get("geometry") if way else None
+                if isinstance(geom_data, list) and geom_data and isinstance(geom_data[0], dict) and "x" in geom_data[0]:
                     coords = [(pt["x"], pt["y"]) for pt in geom_data]
-
-            if coords and len(coords) >= 2:
-                outer_coords_list.append(coords)
-
-        if not outer_coords_list:
-            return None
+                    if len(coords) >= 2:
+                        lines.append(LineString(coords))
+            return list(polygonize(unary_union(lines))) if lines else []
 
         try:
-            # Wenn wir nur einen outer haben, nimm ihn direkt
-            if len(outer_coords_list) == 1:
-                coords = outer_coords_list[0]
-                if len(coords) >= 3:
-                    # Stelle sicher dass Polygon geschlossen ist
-                    if coords[0] != coords[-1]:
-                        coords = coords + [coords[0]]
+            outer_polygons = role_polygons(("outer", ""))
+            if not outer_polygons:
+                return None, None
+            outer = unary_union(outer_polygons)
+            inner_polygons = role_polygons(("inner",))
+            if not inner_polygons:
+                return (outer if outer.is_valid else outer.buffer(0)), None
 
-                    poly = Polygon(coords)
-                    return poly if poly.is_valid else None
-
-            # Mehrere outer ways - versuche sie zu merger
-            else:
-                # Baue Ring aus jedem set of coords
-                rings = []
-                for coords in outer_coords_list:
-                    if len(coords) >= 3:
-                        if coords[0] != coords[-1]:
-                            coords = coords + [coords[0]]
-                        ring_poly = Polygon(coords)
-                        if ring_poly.is_valid:
-                            rings.append(ring_poly)
-
-                if not rings:
-                    return None
-                elif len(rings) == 1:
-                    return rings[0]
-                else:
-                    # Mehrere Polygone - als MultiPolygon zurückgeben
-                    return MultiPolygon(rings)
-
+            clearings = unary_union(inner_polygons).intersection(outer)
+            forest = outer.difference(clearings)
+            forest = forest if forest.is_valid else forest.buffer(0)
+            return (None if forest.is_empty else forest), (None if clearings.is_empty else clearings)
         except Exception as e:
             logger.debug(f"Fehler beim Multipolygon-Assembly: {e}")
-            return None
+            return None, None
+
+    def _is_row_type(self, osm_tags: Dict) -> bool:
+        """True, wenn der Waldtyp der Tags eine Baumreihe ist (Vorlage mit row_spacing): Linie statt Fläche."""
+        base_type, _ = self._base_forest_mapping(osm_tags)
+        return bool(base_type and self.forest_types.get(base_type, {}).get("row_spacing"))
+
+    def _base_forest_mapping(self, osm_tags: Dict) -> Tuple[Optional[str], Optional[str]]:
+        """(Basis-Waldtyp, auslösender Tag "key=value") aus landuse/natural/leisure oder (None, None)."""
+        for tag_key in ["landuse", "natural", "leisure"]:
+            values = self.forest_mappings.get(tag_key)
+            if not values:
+                continue
+            tag_value = osm_tags.get(tag_key)
+            if tag_value and tag_value in values:
+                return values[tag_value], f"{tag_key}={tag_value}"
+        return None, None
 
     def _map_to_forest_type(self, osm_tags: Dict) -> Optional[str]:
         """
         Mappe OSM-Tags zu forest_type.
 
         Folgt der Logik aus forest_mappings:
-        1. Prüfe tag_overrides (z.B. trees=conifer)
-        2. Prüfe landuse/natural/leisure Tags
+        1. Basis-Typ aus landuse/natural/leisure
+        2. tag_overrides (z.B. trees=conifer) verfeinern den Basis-Typ - aber nur, wenn der
+           Basis-Tag in "tag_overrides_only_for" steht (z.B. "landuse=forest"). Sonst könnte ein
+           natural=wood mit Nadelbaum-Tag in einen hohen Waldtyp umgeleitet werden. Fehlt der
+           Schlüssel, gelten die Overrides für alle (abwärtskompatibel).
         3. Fallback: None
 
         Args:
@@ -368,24 +376,19 @@ class ForestNormalizer:
             forest_type-String oder None
         """
         mappings = self.forest_mappings
+        base_type, base_tag = self._base_forest_mapping(osm_tags)
 
-        # 1. Tag-Overrides (höchste Priorität)
-        if "tag_overrides" in mappings:
-            for override_key, override_value in mappings["tag_overrides"].items():
-                if osm_tags.get(override_key.split("=")[0]) == override_key.split("=")[1]:
+        # 2. Tag-Overrides (nur für erlaubte Basis-Tags)
+        overrides = mappings.get("tag_overrides")
+        scope = mappings.get("tag_overrides_only_for")
+        if overrides and (scope is None or base_tag in scope):
+            for override_key, override_value in overrides.items():
+                key, value = override_key.split("=", 1)
+                if osm_tags.get(key) == value:
                     return override_value
 
-        # 2. Landuse/Natural/Leisure
-        for tag_key in ["landuse", "natural", "leisure"]:
-            if tag_key not in mappings:
-                continue
-
-            tag_value = osm_tags.get(tag_key)
-            if tag_value and tag_value in mappings[tag_key]:
-                return mappings[tag_key][tag_value]
-
-        # 3. Fallback
-        return None
+        # 3. Basis-Typ (oder None)
+        return base_type
 
     def get_forest_properties(self, forest_type: str) -> Dict:
         """
