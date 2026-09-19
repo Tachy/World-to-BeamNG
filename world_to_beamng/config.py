@@ -136,9 +136,9 @@ GROUND_COVER_ROAD_MARGIN = 1.0
 GROUND_COVER_BUILDING_MARGIN = 0.5
 # Weinberg-Reben (Forest-Items) - benötigen FORESTS_ENABLED.
 VINEYARDS_ENABLED = True
-# Abstand der Reben zu Straßen/Gebäuden in Metern (ein Zeilensegment ist 5,6 m lang,
-# sein Mittelpunkt muss also mindestens eine halbe Länge entfernt bleiben).
-VINEYARD_EXCLUSION_MARGIN = 3.0
+# Abstand der Reben zum Rand von Straßen/Gebäuden in Metern. Die Zeilen laufen sonst bis exakt an die
+# Polygongrenze des Weinbergs und enden hier auf den Zentimeter an dieser Ausschlusszone.
+VINEYARD_EXCLUSION_MARGIN = 2.0
 
 # === LOGGING ===
 LOGGING_ENABLED = True

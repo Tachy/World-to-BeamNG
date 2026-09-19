@@ -29,7 +29,7 @@ ROWS = {
     "orientation": "gradient",
     "row_spacing": 2.5,
     "segment_length": 5.6,
-    "edge_margin": 1.5,
+    "edge_margin": 0.0,
     "min_slope_percent": 2.0,
     "scale_range": [1.0, 1.0],
 }
@@ -159,18 +159,61 @@ def test_segments_abut_along_the_row():
     one_row_y = instances[0]["pos"][1]
     xs = sorted(i["pos"][0] for i in instances if abs(i["pos"][1] - one_row_y) < 1e-6)
     assert len(xs) >= 5
-    # Die Segmentmitten liegen im horizontalen Raster segment_length; das Modell wird nur geneigt.
-    assert np.diff(xs) == pytest.approx(np.full(len(xs) - 1, ROWS["segment_length"]), abs=1e-3)
+    # Die Segmentmitten liegen im gleichmäßigen horizontalen Raster (Segmentlänge, auf die Zeilenlänge verteilt: höchstens
+    # wenige Prozent Abweichung); das Modell wird nur geneigt.
+    gaps = np.diff(xs)
+    assert gaps == pytest.approx(np.full(len(gaps), gaps[0]), abs=1e-6)
+    assert gaps[0] == pytest.approx(ROWS["segment_length"], rel=0.06)
 
 
 def test_instances_stay_inside_the_polygon_with_edge_margin():
     polygon = Polygon([(0, 0), (90, 10), (80, 70), (5, 60)])
-    instances = generate_vineyard_instances(polygon, _plane(slope_x=0.2, slope_y=0.05), ROWS)
+    rows = {**ROWS, "edge_margin": 1.5}
+    instances = generate_vineyard_instances(polygon, _plane(slope_x=0.2, slope_y=0.05), rows)
 
-    inner = polygon.buffer(-ROWS["edge_margin"] + 0.01)
+    inner = polygon.buffer(-rows["edge_margin"] + 0.01)
     assert instances
     for instance in instances:
         assert inner.contains(Point(instance["pos"][0], instance["pos"][1]))
+
+
+def _row_extents(instances, y, segment=ROWS["segment_length"]):
+    """Ausdehnung (x_min, x_max) der Segmente einer Zeile (bei Gefälle nach x laufen die Zeilen entlang x)."""
+    xs = [i["pos"][0] for i in instances if abs(i["pos"][1] - y) < 1e-6]
+    return min(xs) - segment / 2, max(xs) + segment / 2
+
+
+def test_rows_run_up_to_the_polygon_boundary():
+    # Länge 57 m ist kein Vielfaches von 5,6 m: die Segmente werden auf die Zeile verteilt, statt Reste zu lassen
+    instances = generate_vineyard_instances(box(0, 0, 57, 40), _plane(slope_x=0.2), ROWS)
+
+    ys = sorted({round(i["pos"][1], 6) for i in instances})
+    assert len(ys) > 5
+    for y in ys:
+        x0, x1 = _row_extents(instances, y)
+        assert x0 == pytest.approx(0.0, abs=0.4)
+        assert x1 == pytest.approx(57.0, abs=0.4)
+
+
+def test_rows_end_at_the_boundary_for_an_awkward_polygon_length():
+    for length in (23.0, 41.3, 62.9, 100.0):
+        instances = generate_vineyard_instances(box(0, 0, length, 12), _plane(slope_x=0.2), ROWS)
+        y = instances[0]["pos"][1]
+        x0, x1 = _row_extents(instances, y)
+        assert x0 == pytest.approx(0.0, abs=0.6) and x1 == pytest.approx(length, abs=0.6)
+
+
+def test_rows_stop_at_the_road_margin_where_a_road_crosses_the_polygon():
+    road_edge = box(30, -10, 36, 100)  # Straßenfläche quer durch den Weinberg
+    exclusion = build_exclusion_geometry([road_edge], 2.0)  # 2 m Abstand zum Straßenrand
+
+    instances = generate_vineyard_instances(box(0, 0, 80, 20), _plane(slope_x=0.2), ROWS, exclusion=exclusion)
+
+    for y in sorted({round(i["pos"][1], 6) for i in instances}):
+        left = [i["pos"][0] for i in instances if abs(i["pos"][1] - y) < 1e-6 and i["pos"][0] < 30]
+        right = [i["pos"][0] for i in instances if abs(i["pos"][1] - y) < 1e-6 and i["pos"][0] > 36]
+        assert max(left) + ROWS["segment_length"] / 2 == pytest.approx(28.0, abs=0.6)  # 30 - 2 m
+        assert min(right) - ROWS["segment_length"] / 2 == pytest.approx(38.0, abs=0.6)  # 36 + 2 m
 
 
 def test_exclusion_zone_keeps_instances_out_e_g_roads():

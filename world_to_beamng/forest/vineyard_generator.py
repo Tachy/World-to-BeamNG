@@ -25,6 +25,7 @@ HeightAt = Callable[[np.ndarray, np.ndarray], np.ndarray]
 
 GRADIENT_SAMPLE_STEP = 4.0  # Abstand der Stichproben für die Falllinie in Metern
 GRADIENT_DIFF_STEP = 1.0  # Schrittweite der zentralen Differenz in Metern
+MIN_ROW_FILL = 0.95  # kürzere Zeilenstücke (in Segmentlängen) bleiben leer
 
 
 def make_height_sampler(heights: np.ndarray, origin_x: float, origin_y: float, square_size: float) -> HeightAt:
@@ -265,11 +266,22 @@ def _polygon_instances(polygon: BaseGeometry, height_at: HeightAt, rows: Dict, e
         for part in _line_parts(line.intersection(area)):
             start, end = np.array(part.coords[0]), np.array(part.coords[-1])
             t0, t1 = sorted((float(start @ u), float(end @ u)))
-            count = int(np.floor((t1 - t0) / segment + 1e-9))
-            if count < 1:
+            # Die Zeile reicht bis exakt an Polygonrand bzw. Ausschlusszone (kein Rest an den Enden): die Segmente
+            # werden auf die ganze Länge verteilt, Anzahl = nächste ganze Zahl. Nach unten gerundet (Reste > 0,5
+            # Segment) rücken sie gleichmäßig auseinander, nach oben gerundet stehen die Endsegmente bündig am Rand
+            # und die inneren überlappen leicht - so ragt nie ein Segment über den Rand hinaus. Reststücke unter
+            # MIN_ROW_FILL Segmentlängen bleiben leer.
+            length = t1 - t0
+            if length < segment * MIN_ROW_FILL:
                 continue
-            first = t0 + ((t1 - t0) - count * segment) / 2.0
-            t = first + (np.arange(count) + 0.5) * segment
+            fill = length / segment
+            count = max(1, int(np.floor(fill + 0.5)))
+            if count == 1:
+                t = np.array([(t0 + t1) / 2.0])
+            elif fill >= count:
+                t = t0 + (np.arange(count) + 0.5) * (length / count)
+            else:
+                t = np.linspace(t0 + segment / 2.0, t1 - segment / 2.0, count)
             centers.append(t[:, None] * u + v_coord * v)
     if not centers:
         return []

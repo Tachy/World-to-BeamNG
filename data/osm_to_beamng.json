@@ -483,7 +483,7 @@
                 "orientation": "gradient",
                 "row_spacing": 2.5,
                 "segment_length": 5.6,
-                "edge_margin": 1.5,
+                "edge_margin": 0.0,
                 "min_slope_percent": 2.0,
                 "max_direction_spread_deg": 12.0,
                 "min_block_area": 1500.0,
@@ -491,7 +491,7 @@
                     0.97,
                     1.03
                 ],
-                "comment": "orientation: 'gradient' = Zeilen laufen entlang der Falllinie (Steigungsgradient), 'contour' = entlang der Höhenlinien. Bei fast ebenem Gelände (< min_slope_percent) richtet sich die Zeile nach der Längsachse der Fläche. Große Flächen werden in Blöcke geteilt (Mindestgröße min_block_area), wenn die Falllinie darin im Mittel mehr als max_direction_spread_deg schwankt; jeder Block bekommt dann seine eigene Zeilenrichtung. Alternative mit ca. 8x weniger Instanzen: item=grape_vine_group, segment_length=16.0, row_spacing=7.5 (ein Block = 3 Zeilen)."
+                "comment": "orientation: 'gradient' = Zeilen laufen entlang der Falllinie (Steigungsgradient), 'contour' = entlang der Höhenlinien. Bei fast ebenem Gelände (< min_slope_percent) richtet sich die Zeile nach der Längsachse der Fläche. Die Zeilen laufen bis exakt an den Polygonrand (edge_margin 0); die Segmente werden gleichmäßig auf die Zeilenlänge verteilt. Große Flächen werden in Blöcke geteilt (Mindestgröße min_block_area), wenn die Falllinie darin im Mittel mehr als max_direction_spread_deg schwankt; jeder Block bekommt dann seine eigene Zeilenrichtung. Alternative mit ca. 8x weniger Instanzen: item=grape_vine_group, segment_length=16.0, row_spacing=7.5 (ein Block = 3 Zeilen)."
             }
         },
         "orchard": {
