@@ -276,3 +276,127 @@ def test_embed_with_subcell_resolution_and_offset_origin_matches_reference():
     reference = _reference_embed(heights, 3.3, -2.7, 0.5, road)
 
     np.testing.assert_array_equal(result, reference)
+
+
+# --- Optimierung: identisch zur einfachen Referenzschleife ----------------------------------
+
+
+def _reference_project_onto_polyline(qx, qy, poly_x, poly_y, poly_z):
+    """Die ursprüngliche Schleife über alle Segmente (Referenz)."""
+    best_dist = np.full(qx.shape, np.inf)
+    best_z = np.zeros(qx.shape)
+    for i in range(len(poly_x) - 1):
+        ax, ay, az = poly_x[i], poly_y[i], poly_z[i]
+        bx, by, bz = poly_x[i + 1], poly_y[i + 1], poly_z[i + 1]
+        dx, dy = bx - ax, by - ay
+        seg_len_sq = dx * dx + dy * dy
+        if seg_len_sq < 1e-9:
+            continue
+        t = np.clip(((qx - ax) * dx + (qy - ay) * dy) / seg_len_sq, 0.0, 1.0)
+        dist = np.hypot(qx - (ax + t * dx), qy - (ay + t * dy))
+        z = az + t * (bz - az)
+        better = dist < best_dist
+        best_dist = np.where(better, dist, best_dist)
+        best_z = np.where(better, z, best_z)
+    return best_z
+
+
+def _polylines():
+    rng = np.random.RandomState(7)
+    lines = {}
+    t = np.linspace(0, 300, 200)
+    lines["kurve"] = (t, 40 * np.sin(t / 30.0), 100 + 0.1 * t)
+    # Haarnadel: die Linie läuft zurück und kommt sich selbst nahe
+    u = np.linspace(0, 1, 120)
+    lines["haarnadel"] = (np.concatenate([u * 200, 200 - u * 200]), np.concatenate([np.zeros(120), np.full(120, 6.0)]), np.linspace(50, 80, 240))
+    # doppelte Punkte (Nulllängen-Segmente) und wenige Punkte
+    lines["doppelte"] = (np.array([0, 0, 10, 10, 10, 30.0]), np.array([0, 0, 5, 5, 5, -4.0]), np.array([1, 2, 3, 4, 5, 6.0]))
+    lines["zwei"] = (np.array([0.0, 50.0]), np.array([0.0, 20.0]), np.array([10.0, 30.0]))
+    lines["zufall"] = (np.cumsum(rng.uniform(0.5, 4, 150)), np.cumsum(rng.uniform(-3, 3, 150)), rng.uniform(0, 100, 150))
+    return lines
+
+
+def test_project_onto_polyline_is_identical_to_the_reference_loop():
+    from world_to_beamng.terrain.road_embedding import _project_onto_polyline
+
+    rng = np.random.RandomState(3)
+    for name, (px, py, pz) in _polylines().items():
+        lo_x, hi_x, lo_y, hi_y = px.min() - 15, px.max() + 15, py.min() - 15, py.max() + 15
+        qx = rng.uniform(lo_x, hi_x, 3000)
+        qy = rng.uniform(lo_y, hi_y, 3000)
+        # auch Punkte exakt auf Stützpunkten und in gleichem Abstand zu zwei Segmenten
+        n_on = min(5, len(px))
+        qx[:n_on], qy[:n_on] = px[:n_on], py[:n_on]
+
+        np.testing.assert_array_equal(
+            _project_onto_polyline(qx, qy, px, py, pz), _reference_project_onto_polyline(qx, qy, px, py, pz), err_msg=name
+        )
+
+
+def test_project_onto_polyline_keeps_the_shape_and_handles_no_valid_segment():
+    from world_to_beamng.terrain.road_embedding import _project_onto_polyline
+
+    qx, qy = np.array([1.0, 2.0, 3.0]), np.array([0.0, 0.0, 0.0])
+    same = np.array([5.0, 5.0, 5.0])
+    np.testing.assert_array_equal(_project_onto_polyline(qx, qy, same, same, same), np.zeros(3))
+    assert _project_onto_polyline(np.empty(0), np.empty(0), np.array([0.0, 1.0]), np.array([0.0, 1.0]), np.array([1.0, 2.0])).shape == (0,)
+
+
+def _reference_blend_one_side(heights, origin_x, origin_y, square_size, size_x, size_y, edge_xyz, slope_width, natural_z):
+    """Die ursprüngliche Variante: alle Zellen der Bounding Box abfragen (Referenz)."""
+    from scipy.spatial import cKDTree
+
+    if len(edge_xyz) == 0:
+        return
+    max_width = float(np.max(slope_width)) if len(slope_width) else 0.0
+    if max_width <= 0:
+        return
+    min_x = float(np.min(edge_xyz[:, 0])) - max_width
+    max_x = float(np.max(edge_xyz[:, 0])) + max_width
+    min_y = float(np.min(edge_xyz[:, 1])) - max_width
+    max_y = float(np.max(edge_xyz[:, 1])) + max_width
+    col_start = max(0, int(np.floor((min_x - origin_x) / square_size)))
+    col_end = min(size_x - 1, int(np.ceil((max_x - origin_x) / square_size)))
+    row_start = max(0, int(np.floor((min_y - origin_y) / square_size)))
+    row_end = min(size_y - 1, int(np.ceil((max_y - origin_y) / square_size)))
+    if col_start > col_end or row_start > row_end:
+        return
+    tree = cKDTree(edge_xyz[:, :2])
+    gx, gy = np.meshgrid(origin_x + np.arange(col_start, col_end + 1) * square_size, origin_y + np.arange(row_start, row_end + 1) * square_size)
+    query_points = np.column_stack([gx.ravel(), gy.ravel()])
+    dist, idx = tree.query(query_points, distance_upper_bound=max_width + 1e-9)
+    near = np.isfinite(dist)
+    dist, idx = dist[near], idx[near]
+    nearest_edge_z, nearest_slope_width, nearest_natural_z = edge_xyz[idx, 2], slope_width[idx], natural_z[idx]
+    with np.errstate(divide="ignore", invalid="ignore"):
+        t = np.where(nearest_slope_width > 0, dist / nearest_slope_width, 1.0)
+    t = np.clip(t, 0.0, 1.0)
+    blended = nearest_edge_z + (nearest_natural_z - nearest_edge_z) * t
+    in_corridor = (dist > 0) & (dist <= nearest_slope_width)
+    sub_shape = (row_end - row_start + 1, col_end - col_start + 1)
+    sub = heights[row_start : row_end + 1, col_start : col_end + 1].reshape(-1)
+    sub[np.flatnonzero(near)[in_corridor]] = blended[in_corridor]
+    heights[row_start : row_end + 1, col_start : col_end + 1] = sub.reshape(sub_shape)
+
+
+def test_blend_one_side_is_identical_to_the_full_bounding_box_reference():
+    from world_to_beamng.terrain.road_embedding import _blend_one_side
+
+    rng = np.random.RandomState(11)
+    size = 500
+    heights = 200.0 + rng.rand(size, size) * 5
+    cases = []
+    t = np.linspace(20, 470, 300)
+    diagonal = np.column_stack([t, 0.9 * t + 12 * np.sin(t / 25.0), 100 + 0.05 * t])  # lange Diagonale
+    cases.append((diagonal, rng.uniform(1.0, 9.0, len(t)), 200 + rng.rand(len(t))))
+    short = np.column_stack([np.linspace(100, 130, 30), np.linspace(50, 60, 30), np.full(30, 210.0)])
+    cases.append((short, np.full(30, 4.0), np.full(30, 205.0)))
+    cases.append((diagonal[::-1].copy(), np.zeros(300), np.zeros(300)))  # Böschungsbreite 0
+    cases.append((np.array([[-50.0, -50.0, 1.0], [-40.0, -45.0, 1.0]]), np.array([5.0, 5.0]), np.array([2.0, 2.0])))  # außerhalb
+
+    for origin_x, origin_y, square in ((0.0, 0.0, 1.0), (3.3, -2.7, 0.5), (-10.0, 5.0, 2.0)):
+        for edge, width, natural in cases:
+            expected, actual = heights.copy(), heights.copy()
+            _reference_blend_one_side(expected, origin_x, origin_y, square, size, size, edge, width, natural)
+            _blend_one_side(actual, origin_x, origin_y, square, size, size, edge, width, natural)
+            np.testing.assert_array_equal(actual, expected)

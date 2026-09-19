@@ -364,6 +364,9 @@ def apply_embankment_blend(heights: np.ndarray, origin_x: float, origin_y: float
     return result
 
 
+BLEND_BLOCK = 32  # Kantenlänge der Zellblöcke, die _blend_one_side auf Nähe zur Straße vorprüft
+
+
 def _blend_one_side(heights, origin_x, origin_y, square_size, size_x, size_y, edge_xyz, slope_width, natural_z):
     """Überblendet eine Straßenseite (links oder rechts) in-place in heights."""
     if len(edge_xyz) == 0:
@@ -388,16 +391,38 @@ def _blend_one_side(heights, origin_x, origin_y, square_size, size_x, size_y, ed
 
     tree = cKDTree(edge_xyz[:, :2])
 
-    cols = np.arange(col_start, col_end + 1)
-    rows = np.arange(row_start, row_end + 1)
-    cell_x = origin_x + cols * square_size
-    cell_y = origin_y + rows * square_size
-    grid_x, grid_y = np.meshgrid(cell_x, cell_y)
-    query_points = np.column_stack([grid_x.ravel(), grid_y.ravel()])
+    # Der Korridor endet spätestens bei max_width. Bei langen, diagonalen Straßen ist die Bounding Box aber riesig
+    # und fast leer: statt alle ihre Zellen abzufragen, werden nur Blöcke von BLEND_BLOCK x BLEND_BLOCK Zellen
+    # berücksichtigt, deren Mittelpunkt nah genug an einem Kantenpunkt liegt (jede Zelle des Blocks ist höchstens
+    # die halbe Blockdiagonale vom Mittelpunkt entfernt - weiter entfernte Blöcke enthalten garantiert keine
+    # Korridorzelle). Das Ergebnis je Zelle ist unverändert.
+    limit = max_width + 1e-9
+    n_rows = row_end - row_start + 1
+    n_cols = col_end - col_start + 1
+    block_r0 = np.arange(0, n_rows, BLEND_BLOCK)
+    block_c0 = np.arange(0, n_cols, BLEND_BLOCK)
+    r0, c0 = np.meshgrid(block_r0, block_c0, indexing="ij")
+    r0, c0 = r0.ravel(), c0.ravel()
+    r1 = np.minimum(r0 + BLEND_BLOCK, n_rows) - 1
+    c1 = np.minimum(c0 + BLEND_BLOCK, n_cols) - 1
+    center_x = origin_x + (col_start + (c0 + c1) / 2.0) * square_size
+    center_y = origin_y + (row_start + (r0 + r1) / 2.0) * square_size
+    half_diagonal = 0.5 * np.hypot(c1 - c0, r1 - r0) * square_size
+    block_dist, _ = tree.query(np.column_stack([center_x, center_y]), distance_upper_bound=limit + half_diagonal.max() + 1e-6)
+    keep = np.isfinite(block_dist) & (block_dist <= limit + half_diagonal + 1e-6)
+    if not keep.any():
+        return
 
-    # Der Korridor endet spätestens bei max_width: weiter entfernte Zellen (bei langen,
-    # diagonalen Straßen der Großteil der Bounding-Box) bricht der Baum sofort ab (dist=inf).
-    dist, idx = tree.query(query_points, distance_upper_bound=max_width + 1e-9)
+    row_parts, col_parts = [], []
+    for br0, br1, bc0, bc1 in zip(r0[keep], r1[keep], c0[keep], c1[keep]):
+        rr, cc = np.meshgrid(np.arange(br0, br1 + 1), np.arange(bc0, bc1 + 1), indexing="ij")
+        row_parts.append(rr.ravel())
+        col_parts.append(cc.ravel())
+    rows = np.concatenate(row_parts) + row_start
+    cols = np.concatenate(col_parts) + col_start
+    query_points = np.column_stack([origin_x + cols * square_size, origin_y + rows * square_size])
+
+    dist, idx = tree.query(query_points, distance_upper_bound=limit)
     near = np.isfinite(dist)
     dist, idx = dist[near], idx[near]
 
@@ -413,8 +438,6 @@ def _blend_one_side(heights, origin_x, origin_y, square_size, size_x, size_y, ed
 
     in_corridor = (dist > 0) & (dist <= nearest_slope_width)
 
-    sub_shape = (row_end - row_start + 1, col_end - col_start + 1)
-    sub = heights[row_start : row_end + 1, col_start : col_end + 1].reshape(-1)
-    target = np.flatnonzero(near)[in_corridor]
-    sub[target] = blended[in_corridor]
-    heights[row_start : row_end + 1, col_start : col_end + 1] = sub.reshape(sub_shape)
+    target_rows = rows[near][in_corridor]
+    target_cols = cols[near][in_corridor]
+    heights[target_rows, target_cols] = blended[in_corridor]
