@@ -84,9 +84,9 @@ WATER_POND_CUBEMAP = "DefaultSkyCubemap"  # Engine-eigene Cubemap (die der Vorla
 ROAD_WIDTH = 7.0
 
 # === FOREST GENERATION PARAMETERS ===
-FOREST_ROAD_MARGIN = 5.0  # Puffer um Straßen zur Baum-Filterung (in Metern, links & rechts)
+FOREST_ROAD_MARGIN = 2.0  # Puffer um die OSM-Mittellinie (Rückfallebene; die Fahrbahnkante unten ist maßgeblich), in Metern
 FOREST_BUILDING_MARGIN = 2.5  # Puffer um Gebäude: dort stehen keine Bäume/Büsche (in Metern)
-FOREST_ROAD_SURFACE_MARGIN = 4.0  # Abstand zur Kante der eingebetteten Fahrbahn (Kronen großer Gruppen-Bäume ragen mehrere Meter aus)
+FOREST_ROAD_SURFACE_MARGIN = 2.0  # Abstand zur Kante der eingebetteten Fahrbahn (gilt für jeden Stamm, auch von Gruppen-Bäumen)
 FOREST_ROW_SURFACE_MARGIN = 1.0  # dasselbe für Baumreihen: Stämme nicht auf der Fahrbahn
 FOREST_ROW_ROAD_MARGIN = 3.0  # Baumreihen (Alleen) stehen näher an Straßen als Wald: kleinerer Puffer (in Metern)
 # Gruppen-Assets haben mehrere Stämme bis ~9 m neben dem Ursprung. Die Abstände oben gelten auch für jeden Stamm

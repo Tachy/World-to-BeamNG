@@ -160,7 +160,8 @@ def test_a_line_shorter_than_the_spacing_still_gets_a_tree():
 
 
 def test_rows_use_a_smaller_road_margin_than_forests():
-    assert 0 < config.FOREST_ROW_ROAD_MARGIN < config.FOREST_ROAD_MARGIN
+    # maßgeblich ist der Abstand zur Fahrbahnkante; die Mittellinien-Puffer sind nur die Rückfallebene
+    assert 0 < config.FOREST_ROW_SURFACE_MARGIN < config.FOREST_ROAD_SURFACE_MARGIN
 
 
 def test_row_exclusion_contains_buildings_and_is_none_without_anything():
