@@ -343,14 +343,17 @@ class BeamNGExporter:
             timer.begin("Buildings Export")
 
             # Gebäude: EIN Objekt auf der Gesamtfläche (wie die Straßen) oder - wenn abgeschaltet - je 500-m-Kachel
-            from ..workflow.building_workflow import SINGLE_BUILDINGS_NAME, group_buildings, remove_stale_building_daes
+            from ..workflow.building_workflow import plan_building_shapes, remove_stale_building_daes
 
-            one_object = config.BUILDINGS_AS_ONE_OBJECT
-            buildings_by_tile = group_buildings(all_buildings, None if one_object else config.TILE_SIZE)
-            name = SINGLE_BUILDINGS_NAME if one_object else None
+            # Mehr als 2048 Nodes je Shape verwirft BeamNG -> Gesamtfläche in Teil-Shapes (buildings, buildings_part_N)
+            shapes = plan_building_shapes(
+                all_buildings,
+                None if config.BUILDINGS_AS_ONE_OBJECT else config.TILE_SIZE,
+                config.MAX_BUILDINGS_PER_SHAPE,
+            )
 
             written = set()
-            for (tile_x, tile_y), tile_buildings in buildings_by_tile.items():
+            for tile_x, tile_y, name, tile_buildings in shapes:
                 dae_path = self.buildings.export_buildings(tile_buildings, tile_x, tile_y, grid_bounds=None, name=name)
                 if dae_path:
                     written.add(Path(dae_path).stem)

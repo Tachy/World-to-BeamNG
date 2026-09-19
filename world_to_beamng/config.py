@@ -168,6 +168,7 @@ CLIP_ROAD_FACES_AT_BOUNDS = True  # True = Entferne Straßen-Dreiecke, die kompl
 
 # === TILE-EXPORT (DAE) ===
 BUILDINGS_AS_ONE_OBJECT = True  # True: ALLE Gebäude in EINER DAE/EINEM Objekt auf der Gesamtfläche (wie die Straßen)
+MAX_BUILDINGS_PER_SHAPE = 1500  # BeamNG verwirft ab 2048 Nodes je Shape alles Weitere (1 Node je Gebäude) -> aufteilen
 TILE_SIZE = 500  # Größe pro DAE-Tile in Metern (nur bei BUILDINGS_AS_ONE_OBJECT = False)
 
 # Pixel-Kantenlänge des EINEN zusammengesetzten Luftbilds für die gesamte

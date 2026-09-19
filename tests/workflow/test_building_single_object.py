@@ -16,6 +16,7 @@ from world_to_beamng.workflow.building_workflow import (
     SINGLE_BUILDINGS_NAME,
     BuildingWorkflow,
     group_buildings,
+    plan_building_shapes,
     remove_stale_building_daes,
 )
 
@@ -108,6 +109,56 @@ def test_stale_tile_daes_are_removed_but_the_current_one_stays(tmp_path):
 
     assert sorted(p.name for p in tmp_path.iterdir()) == ["buildings.dae", "other.txt"]
     assert removed == 3
+
+
+def test_shapes_stay_below_the_beamng_node_limit():
+    # BeamNG verwirft ab 2048 Nodes pro Shape alles Weitere (ein Node je Gebäude)
+    assert 0 < config.MAX_BUILDINGS_PER_SHAPE < 2048
+
+
+def test_many_buildings_are_split_into_shapes_within_the_node_limit():
+    buildings = [_building(i * 20 % 1000, i // 50 * 20) for i in range(2611)]
+
+    shapes = plan_building_shapes(buildings, None, max_per_shape=1000)
+
+    assert [len(s[3]) for s in shapes] == [1000, 1000, 611]
+    assert [s[2] for s in shapes] == ["buildings", "buildings_part_2", "buildings_part_3"]
+    # kein Gebäude geht verloren oder doppelt ein
+    assert sorted(id(b) for s in shapes for b in s[3]) == sorted(id(b) for b in buildings)
+
+
+def test_few_buildings_stay_one_shape_with_the_single_name():
+    shapes = plan_building_shapes(BUILDINGS, None, max_per_shape=1000)
+
+    assert len(shapes) == 1 and shapes[0][2] == SINGLE_BUILDINGS_NAME and len(shapes[0][3]) == 4
+
+
+def test_split_shapes_are_spatially_compact():
+    # zwei weit auseinanderliegende Cluster dürfen nicht durchmischt werden
+    west = [_building(x, 0) for x in range(0, 100, 10)]
+    east = [_building(5000 + x, 0) for x in range(0, 100, 10)]
+
+    shapes = plan_building_shapes(east + west, None, max_per_shape=10)
+
+    assert [b["bounds"][0] < 1000 for b in shapes[0][3]] == [True] * 10
+    assert [b["bounds"][0] > 1000 for b in shapes[1][3]] == [True] * 10
+
+
+def test_tiled_mode_keeps_tile_names():
+    shapes = plan_building_shapes(BUILDINGS, 500, max_per_shape=1000)
+
+    assert sorted((s[0], s[1]) for s in shapes) == [(-1000, 1500), (0, 0), (500, 0)]
+    assert all(s[2] is None for s in shapes)
+
+
+def test_part_daes_are_kept_and_stale_ones_removed(tmp_path):
+    for name in ("buildings.dae", "buildings_part_2.dae", "buildings_part_3.dae", "buildings_part_3.cdae"):
+        (tmp_path / name).write_bytes(b"x")
+
+    removed = remove_stale_building_daes(tmp_path, keep={"buildings", "buildings_part_2"})
+
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["buildings.dae", "buildings_part_2.dae"]
+    assert removed == 2
 
 
 def test_switching_back_to_tiles_removes_the_single_dae(tmp_path):

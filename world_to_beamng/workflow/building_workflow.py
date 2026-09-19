@@ -45,10 +45,42 @@ def group_buildings(buildings: List[Dict], tile_size: Optional[float]) -> Dict[T
     return dict(groups)
 
 
+def plan_building_shapes(
+    buildings: List[Dict], tile_size: Optional[float], max_per_shape: int
+) -> List[Tuple[int, int, Optional[str], List[Dict]]]:
+    """
+    Plant die DAE-Shapes: (tile_x, tile_y, name, Gebäude).
+
+    BeamNG lädt höchstens 2048 Nodes je Shape und ignoriert den Rest ("Shape exceeds the maximum node count") -
+    jedes Gebäude ist ein Node. Ohne Kacheln wird die Gesamtfläche deshalb in räumlich zusammenhängende Teile mit
+    höchstens `max_per_shape` Gebäuden zerlegt: "buildings", "buildings_part_2", ... (Teil 1 behält den Namen des
+    Einzelobjekts). Mit Kacheln bleibt es bei buildings_tile_<x>_<y> (name = None).
+    """
+    if tile_size:
+        return [(x, y, None, group) for (x, y), group in group_buildings(buildings, tile_size).items()]
+
+    if not buildings:
+        return []
+
+    def _cell(building: Dict) -> Tuple[int, float]:
+        # Gebäude ohne bounds ans Ende; sonst Streifen von 250 m (Süd->Nord), darin West->Ost
+        bounds = building.get("bounds")
+        if not bounds:
+            return (1 << 30, 0.0)
+        return (int(((bounds[1] + bounds[4]) / 2) // 250), (bounds[0] + bounds[3]) / 2)
+
+    ordered = sorted(buildings, key=_cell) if len(buildings) > max_per_shape else list(buildings)
+    shapes = []
+    for index, start in enumerate(range(0, len(ordered), max_per_shape)):
+        name = SINGLE_BUILDINGS_NAME if index == 0 else f"{SINGLE_BUILDINGS_NAME}_part_{index + 1}"
+        shapes.append((0, 0, name, ordered[start : start + max_per_shape]))
+    return shapes
+
+
 def remove_stale_building_daes(directory, keep: Set[str]) -> int:
     """
-    Entfernt Gebäude-DAEs (und kompilierte .cdae) einer früheren Aufteilung: buildings_tile_*.dae bzw.
-    buildings.dae, die nicht zu `keep` (Dateinamen ohne Endung) gehören.
+    Entfernt Gebäude-DAEs (und kompilierte .cdae) einer früheren Aufteilung: buildings_tile_*.dae, buildings.dae
+    bzw. buildings_part_*.dae, die nicht zu `keep` (Dateinamen ohne Endung) gehören.
 
     Returns:
         Anzahl entfernter Dateien
@@ -60,7 +92,7 @@ def remove_stale_building_daes(directory, keep: Set[str]) -> int:
     for path in directory.iterdir():
         if path.suffix.lower() not in (".dae", ".cdae"):
             continue
-        if re.fullmatch(r"buildings(_tile_-?\d+_-?\d+)?", path.stem) and path.stem not in keep:
+        if re.fullmatch(r"buildings(_tile_-?\d+_-?\d+|_part_\d+)?", path.stem) and path.stem not in keep:
             path.unlink()
             removed += 1
     return removed
