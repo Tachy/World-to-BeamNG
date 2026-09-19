@@ -89,6 +89,10 @@ FOREST_BUILDING_MARGIN = 2.5  # Puffer um Gebäude: dort stehen keine Bäume/Bü
 FOREST_ROAD_SURFACE_MARGIN = 4.0  # Abstand zur Kante der eingebetteten Fahrbahn (Kronen großer Gruppen-Bäume ragen mehrere Meter aus)
 FOREST_ROW_SURFACE_MARGIN = 1.0  # dasselbe für Baumreihen: Stämme nicht auf der Fahrbahn
 FOREST_ROW_ROAD_MARGIN = 3.0  # Baumreihen (Alleen) stehen näher an Straßen als Wald: kleinerer Puffer (in Metern)
+# Gruppen-Assets haben mehrere Stämme bis ~9 m neben dem Ursprung. Die Abstände oben gelten auch für jeden Stamm
+# (forest/tree_footprints.py), nicht nur für den Ursprung.
+FOREST_TRUNK_MAX_FLOAT = 0.5  # so weit darf ein Stammfuß nach dem Absenken über dem Boden stehen (in Metern)
+FOREST_TRUNK_MAX_SINK = 1.0  # so weit darf ein Baum höchstens abgesenkt werden, sonst Typwechsel (in Metern)
 
 # Böschungs-Geometrie entsteht NICHT im Mesh - Straßen selbst werden seit der
 # DecalRoad-Umstellung überhaupt nicht mehr als Mesh exportiert (siehe

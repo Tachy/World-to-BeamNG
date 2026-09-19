@@ -190,6 +190,7 @@ class ForestInstanceGenerator:
         forest_points_3d: Dict[int, List[Tuple[float, float, float]]],
         forests: List[Dict],
         forest_properties_map: Dict[str, Dict],
+        fitter=None,
     ) -> List[Dict]:
         """
         Generiere Instanzen für mehrere Waldpolygone.
@@ -198,11 +199,13 @@ class ForestInstanceGenerator:
             forest_points_3d: Dict forest_index → Liste von (x, y, z) Punkten
             forests: Liste von Forest-Dicts (aus Normalizer) mit "type"
             forest_properties_map: Dict forest_type → properties
+            fitter: Optional - TrunkFitter: prüft die Stämme jeder Instanz gegen Ausschlusszone und Boden
 
         Returns:
             Liste aller generierten Instanzen (flache Liste)
         """
         all_instances = []
+        dropped = 0
 
         for forest_idx, points_3d in forest_points_3d.items():
             if forest_idx >= len(forests):
@@ -223,9 +226,17 @@ class ForestInstanceGenerator:
             instances = self.generate_instances(
                 points_3d=points_3d, forest_type=forest_type, forest_properties=properties
             )
+            if fitter is not None:
+                before = len(instances)
+                instances = fitter.fit(
+                    instances, properties.get("preferred_trees", {}), row=bool(properties.get("row_spacing"))
+                )
+                dropped += before - len(instances)
 
             all_instances.extend(instances)
 
         logger.info(f"✓ {len(all_instances)} Baum-Instanzen generiert")
+        if dropped:
+            logger.info(f"  [Trunk] {dropped} Instanzen entfallen (kein Typ passt: Stamm auf Weg oder frei in der Luft)")
 
         return all_instances

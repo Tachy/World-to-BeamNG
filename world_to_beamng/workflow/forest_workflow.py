@@ -21,6 +21,7 @@ from world_to_beamng.forest.forest_point_generator import ForestPointGenerator
 from world_to_beamng.forest.forest_height_calculator import ForestHeightCalculator
 from world_to_beamng.forest.forest_instance_generator import ForestInstanceGenerator
 from world_to_beamng.forest.forest_json_writer import ForestJSONWriter
+from world_to_beamng.forest.tree_footprints import TrunkFitter, load_trunk_feet
 
 logger = LoggerConfig.get_logger()
 
@@ -57,6 +58,9 @@ class ForestWorkflow:
         # Sammle Tree-Instances über alle Tiles (wird in process_tile() gefüllt)
         self.all_tree_instances = []
 
+        # Stammfüße je Baumtyp (wird in set_forest_config() gefüllt)
+        self.trunk_feet = {}
+
     def set_forest_config(self, forest_config: Dict, osm_mapper, registered_trees: Optional[Dict] = None):
         """
         Setze Forest-Konfiguration vor Tile-Loop.
@@ -83,6 +87,18 @@ class ForestWorkflow:
         # BeamNG erwartet *.forest4.json Platzierungsdateien im Level-Unterordner "forest/" (nicht "main/")
         output_dir = config.BEAMNG_DIR / "forest"
         self.json_writer = ForestJSONWriter(output_dir)
+
+        # Stammfüße der Baumtypen, die in Wäldern vorkommen (aus dem Kollisionsmodell der .dae): Gruppen-Assets haben
+        # Stämme bis ~9 m neben dem Ursprung, die Ausschlusszonen und der Boden müssen für jeden Stamm gelten
+        used_types = {
+            name
+            for template in (forest_config.get("forest_type_templates") or {}).values()
+            for name in template.get("preferred_trees", {})
+        }
+        # dae_path ist relativ zum BeamNG-Benutzerordner ("current"), der über "levels/<level>" liegt
+        self.trunk_feet = load_trunk_feet(
+            {name: info for name, info in registered_trees.items() if name in used_types}, config.BEAMNG_DIR.parent.parent
+        )
 
     def _transform_osm_to_local(self, osm_data, global_offset: Tuple[float, float]):
         """
@@ -533,10 +549,9 @@ class ForestWorkflow:
 
                 exclusion = unary_union([exclusion, surface_exclusion]) if exclusion is not None else surface_exclusion
             row_surface_exclusion = self._create_road_surface_exclusion(road_surfaces, self.config.FOREST_ROW_SURFACE_MARGIN)
+            row_exclusion = self._create_row_exclusion(osm_data, building_buffer, row_surface_exclusion)
             self.point_generator.set_road_buffer(exclusion)
-            self.point_generator.set_row_exclusion(
-                self._create_row_exclusion(osm_data, building_buffer, row_surface_exclusion)
-            )
+            self.point_generator.set_row_exclusion(row_exclusion)
 
             forest_properties = {
                 ft: self.normalizer.get_forest_properties(ft)
@@ -573,6 +588,16 @@ class ForestWorkflow:
 
             # Phase 4: Instance Generation (Type, Rotation, Scale)
             logger.info(f"  [→] Generiere Baum-Instanzen...")
+            # Die Ursprünge halten die Abstände ein; die Stämme von Gruppen-Assets (bis ~9 m daneben) müssen es auch,
+            # und sie dürfen nicht in der Luft hängen. Dieselben Zonen und Abstände wie oben, nur pro Stamm geprüft.
+            fitter = TrunkFitter(
+                self.trunk_feet,
+                exclusion=exclusion,
+                row_exclusion=row_exclusion,
+                height_at=height_at,
+                max_float=self.config.FOREST_TRUNK_MAX_FLOAT,
+                max_sink=self.config.FOREST_TRUNK_MAX_SINK,
+            )
             tree_instances = self.instance_generator.generate_instances_for_forests(
                 forest_points_3d=forest_points_3d,
                 forests=forests,
@@ -580,6 +605,7 @@ class ForestWorkflow:
                     ft: self.normalizer.get_forest_properties(ft)
                     for ft in self.forest_config.get("forest_type_templates", {}).keys()
                 },
+                fitter=fitter,
             )
 
             # Sammle Instances für finalen Export
