@@ -86,6 +86,8 @@ ROAD_WIDTH = 7.0
 # === FOREST GENERATION PARAMETERS ===
 FOREST_ROAD_MARGIN = 5.0  # Puffer um Straßen zur Baum-Filterung (in Metern, links & rechts)
 FOREST_BUILDING_MARGIN = 2.5  # Puffer um Gebäude: dort stehen keine Bäume/Büsche (in Metern)
+FOREST_ROAD_SURFACE_MARGIN = 4.0  # Abstand zur Kante der eingebetteten Fahrbahn (Kronen großer Gruppen-Bäume ragen mehrere Meter aus)
+FOREST_ROW_SURFACE_MARGIN = 1.0  # dasselbe für Baumreihen: Stämme nicht auf der Fahrbahn
 FOREST_ROW_ROAD_MARGIN = 3.0  # Baumreihen (Alleen) stehen näher an Straßen als Wald: kleinerer Puffer (in Metern)
 
 # Böschungs-Geometrie entsteht NICHT im Mesh - Straßen selbst werden seit der

@@ -92,12 +92,34 @@ class ForestHeightCalculator:
 
         return result
 
+    def calculate_heights_from_sampler(
+        self,
+        points: List[Tuple[float, float]],
+        height_at,
+    ) -> List[Tuple[float, float, float]]:
+        """
+        Z-Koordinaten aus einer Höhenabfrage der FERTIGEN Terrain-Heightmap (bilinear, nach Straßen-Einbettung).
+
+        So stehen die Bäume exakt auf dem, was BeamNG rendert - nicht auf den rohen DGM1-Punkten
+        (Nearest-Neighbor wich am Hang bis über 1 m ab, an eingebetteten Straßen ebenso).
+
+        Args:
+            points: Liste von (x, y) Punkten
+            height_at: Callable (x_array, y_array) -> z_array (siehe make_height_sampler)
+        """
+        if not points:
+            return []
+        xy = np.asarray(points, dtype=float)
+        z = np.asarray(height_at(xy[:, 0], xy[:, 1]), dtype=float)
+        return [(float(x), float(y), float(h)) for (x, y), h in zip(points, z)]
+
     def calculate_heights_for_forest_points(
         self,
         forest_points: Dict[int, List[Tuple[float, float]]],
         height_points: np.ndarray,
         height_elevations: np.ndarray,
         grid_info: Optional[Dict] = None,
+        height_at=None,
     ) -> Dict[int, List[Tuple[float, float, float]]]:
         """
         Berechne Höhen für mehrere Waldpolygone - OPTIMIERT.
@@ -109,6 +131,7 @@ class ForestHeightCalculator:
             height_points: Terrain-Grid Punkte
             height_elevations: Terrain-Grid Z-Werte
             grid_info: Optional - Grid-Metadaten
+            height_at: Optional - Höhenabfrage der fertigen Heightmap; hat Vorrang vor den rohen Punkten
 
         Returns:
             Dict forest_index → Liste von (x, y, z) Punkten
@@ -116,12 +139,15 @@ class ForestHeightCalculator:
         result = {}
 
         for forest_idx, points in forest_points.items():
-            points_3d = self.calculate_heights(
-                points=points,
-                height_points=height_points,
-                height_elevations=height_elevations,
-                grid_info=grid_info,
-            )
+            if height_at is not None:
+                points_3d = self.calculate_heights_from_sampler(points, height_at)
+            else:
+                points_3d = self.calculate_heights(
+                    points=points,
+                    height_points=height_points,
+                    height_elevations=height_elevations,
+                    grid_info=grid_info,
+                )
             result[forest_idx] = points_3d
 
         total_points = sum(len(pts) for pts in result.values())

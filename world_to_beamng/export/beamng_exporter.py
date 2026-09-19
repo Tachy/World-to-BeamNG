@@ -299,6 +299,10 @@ class BeamNGExporter:
                 np.column_stack([np.atleast_1d(x), np.atleast_1d(y)]),
             )
 
+            from ..forest.vineyard_generator import make_height_sampler
+
+            terrain_height_at_1d = make_height_sampler(heightmap, hm_origin[0], hm_origin[1], config.TERRAIN_SQUARE_SIZE)
+
             # Gesamt-BBox in lokalen Koordinaten für Horizon-Clipping
             x_min, x_max, y_min, y_max = result["grid_bounds_local"]
             tile_bounds_local.append((x_min, y_min, x_max, y_max))
@@ -316,6 +320,10 @@ class BeamNGExporter:
                     },
                     height_hash=result.get("height_hash"),  # Für Cache-Konsistenz
                     global_offset=global_offset,  # NEU: Für WGS84-Transformation
+                    # Bäume stehen auf der fertigen Heightmap (nach Straßen-Einbettung), nicht auf rohen DGM1-Punkten,
+                    # und meiden die tatsächlich eingebetteten Straßenflächen
+                    height_at=terrain_height_at_1d,
+                    road_surfaces=result.get("road_slope_polygons_2d"),
                 )
                 if forest_result["status"] == "success":
                     stats["trees_generated"] += forest_result.get("tree_count", 0)

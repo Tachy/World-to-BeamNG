@@ -229,6 +229,35 @@ class ForestWorkflow:
         #     logger.debug(f"  [Forest] Stack Trace: {traceback.format_exc()}")
         #     return None
 
+    def _create_road_surface_exclusion(self, road_slope_polygons_2d, margin: float):
+        """
+        Gepufferte Vereinigung der tatsächlich eingebetteten Straßenflächen (geglättet, mit echter Breite).
+
+        Der OSM-Linienpuffer kennt weder die Fahrbahnbreite noch die Glättung der Mittellinie; die
+        Straßenpolygone entsprechen dem, was BeamNG als DecalRoad auf das Terrain projiziert.
+
+        Args:
+            road_slope_polygons_2d: Liste von Dicts mit "road_polygon" ((M, 2) Array, lokale Koordinaten)
+            margin: Abstand zur Fahrbahnkante in Metern
+
+        Returns:
+            shapely-Geometrie oder None
+        """
+        from shapely.geometry import Polygon
+        from shapely.ops import unary_union
+
+        shapes = []
+        for road in road_slope_polygons_2d or []:
+            coords = road.get("road_polygon")
+            if coords is None or len(coords) < 3:
+                continue
+            polygon = Polygon(coords)
+            if not polygon.is_valid:
+                polygon = polygon.buffer(0)
+            if not polygon.is_empty:
+                shapes.append(polygon.buffer(margin))
+        return unary_union(shapes) if shapes else None
+
     def _create_building_buffer(self, osm_data, margin: float = None):
         """
         Gepufferte Vereinigung aller OSM-Gebäudegrundrisse: dort stehen keine Bäume/Büsche.
@@ -262,7 +291,7 @@ class ForestWorkflow:
 
         return unary_union(shapes) if shapes else None
 
-    def _create_row_exclusion(self, osm_data, building_buffer):
+    def _create_row_exclusion(self, osm_data, building_buffer, surface_exclusion=None):
         """
         Ausschluss für Baumreihen: Gebäude und Straßen mit dem KLEINEREN Puffer FOREST_ROW_ROAD_MARGIN
         (Alleen stehen wenige Meter neben der Straße, nicht auf der Fahrbahn).
@@ -273,7 +302,7 @@ class ForestWorkflow:
         from shapely.ops import unary_union
 
         road_buffer = self._create_road_buffer(osm_data, road_margin=self.config.FOREST_ROW_ROAD_MARGIN) if osm_data else None
-        parts = [g for g in (road_buffer, building_buffer) if g is not None]
+        parts = [g for g in (road_buffer, building_buffer, surface_exclusion) if g is not None]
         return unary_union(parts) if parts else None
 
     def _single_tree_points(self, osm_data, tile_bounds, global_offset, exclusion=None):
@@ -314,6 +343,8 @@ class ForestWorkflow:
         height_grid_info: Optional[Dict] = None,
         height_hash: Optional[str] = None,
         global_offset: Optional[Tuple[float, float]] = None,
+        height_at=None,
+        road_surfaces=None,
     ) -> Dict:
         """
         PHASE 1b: Verarbeite Wälder für ein 2×2km Tile.
@@ -335,6 +366,10 @@ class ForestWorkflow:
             height_hash: Optional - Hash für Cache-Konsistenz (vom Terrain-Workflow)
             global_offset: Optional - (utm_x_origin, utm_y_origin) für WGS84-Transformation
                           WICHTIG: Muss der UTM-Ursprung sein, nicht der Tile-Zentroid!
+            height_at: Optional - Höhenabfrage (x, y) -> z der FERTIGEN Terrain-Heightmap (nach Straßen-Einbettung).
+                       Ohne sie fallen die Höhen auf die rohen DGM1-Punkte (Nearest-Neighbor) zurück.
+            road_surfaces: Optional - Liste von Dicts mit "road_polygon" (eingebettete Straßenflächen, lokal);
+                           dort und in FOREST_ROAD_SURFACE_MARGIN Umgebung stehen keine Bäume
 
         Returns:
             {
@@ -495,8 +530,17 @@ class ForestWorkflow:
                 exclusion = unary_union([road_buffer, building_buffer]) if road_buffer else building_buffer
             else:
                 exclusion = road_buffer
+            # Tatsächlich eingebettete (geglättete, echt breite) Straßenflächen zusätzlich zum rohen OSM-Linienpuffer
+            surface_exclusion = self._create_road_surface_exclusion(road_surfaces, self.config.FOREST_ROAD_SURFACE_MARGIN)
+            if surface_exclusion is not None:
+                from shapely.ops import unary_union
+
+                exclusion = unary_union([exclusion, surface_exclusion]) if exclusion is not None else surface_exclusion
+            row_surface_exclusion = self._create_road_surface_exclusion(road_surfaces, self.config.FOREST_ROW_SURFACE_MARGIN)
             self.point_generator.set_road_buffer(exclusion)
-            self.point_generator.set_row_exclusion(self._create_row_exclusion(osm_data, building_buffer))
+            self.point_generator.set_row_exclusion(
+                self._create_row_exclusion(osm_data, building_buffer, row_surface_exclusion)
+            )
 
             forest_properties = {
                 ft: self.normalizer.get_forest_properties(ft)
@@ -526,6 +570,7 @@ class ForestWorkflow:
                 height_points=elevation_data,
                 height_elevations=height_grid_info.get("elevations") if height_grid_info else None,
                 grid_info=height_grid_info,
+                height_at=height_at,
             )
 
             logger.info(f"  [→] Höhen für {total_points} Punkte interpoliert")
