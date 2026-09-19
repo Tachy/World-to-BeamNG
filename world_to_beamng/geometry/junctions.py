@@ -6,6 +6,7 @@ Diese Module erkennt Kreuzungen und T-Junctions direkt aus den Centerline-Koordi
 """
 
 import numpy as np
+import shapely
 from scipy.spatial import cKDTree
 from shapely.geometry import LineString, Point, MultiPoint, GeometryCollection, box
 from shapely.strtree import STRtree
@@ -14,6 +15,62 @@ from .. import config
 import logging
 from world_to_beamng.logging_config import LoggerConfig
 logger = LoggerConfig.get_logger()
+
+
+def _nearest_vertex_to_line(coords, line):
+    """Der Eckpunkt aus `coords`, der `line` am nächsten liegt (der erste bei Gleichstand), als Point - oder None."""
+    if len(coords) == 0:
+        return None
+    xy = np.array([(c[0], c[1]) for c in coords], dtype=float)
+    shapely.prepare(line)  # vorbereitete Geometrie: Punkt-Linie-Abstände über Index statt Segment für Segment
+    dists = shapely.distance(line, shapely.points(xy))
+    best = int(np.argmin(dists))
+    if not np.isfinite(dists[best]):
+        return None
+    return Point(xy[best, 0], xy[best, 1])
+
+
+class _JunctionIndex:
+    """
+    Räumlicher Index der Junction-Positionen für "gibt es schon eine Junction innerhalb der Toleranz?".
+
+    Ersetzt die lineare Suche über alle Junctions (mit je einem np.array/np.sum pro Vergleich, bei tausenden
+    Junctions und Kandidaten der Hauptkostenpunkt). Liefert wie die lineare Suche die ERSTE Junction in
+    Listenreihenfolge, die innerhalb der Toleranz liegt (Positionen ändern sich nach dem Anlegen nicht).
+    """
+
+    def __init__(self, junctions, tolerance):
+        self.junctions = junctions
+        self.tolerance = tolerance
+        self.tolerance_sq = tolerance * tolerance
+        self.cells = {}
+        self.indexed = 0
+
+    def _cell(self, x, y):
+        return int(np.floor(x / self.tolerance)), int(np.floor(y / self.tolerance))
+
+    def _sync(self):
+        """Nimmt seit dem letzten Aufruf angehängte Junctions auf."""
+        while self.indexed < len(self.junctions):
+            position = self.junctions[self.indexed]["position"]
+            self.cells.setdefault(self._cell(position[0], position[1]), []).append(self.indexed)
+            self.indexed += 1
+
+    def find(self, x, y):
+        """Erste Junction (Listenreihenfolge) mit Abstand <= Toleranz zu (x, y) oder None."""
+        self._sync()
+        cx, cy = self._cell(x, y)
+        best = None
+        for gx in (cx - 1, cx, cx + 1):
+            for gy in (cy - 1, cy, cy + 1):
+                for index in self.cells.get((gx, gy), ()):
+                    if best is not None and index >= best:
+                        continue
+                    position = self.junctions[index]["position"]
+                    dx, dy = position[0] - x, position[1] - y
+                    if dx * dx + dy * dy <= self.tolerance_sq:
+                        best = index
+        return None if best is None else self.junctions[best]
 
 
 def detect_junctions_in_centerlines(road_polygons, height_points=None, height_elevations=None):
@@ -279,6 +336,7 @@ def detect_junctions_in_centerlines(road_polygons, height_points=None, height_el
     t_line_tol_sq = t_line_tol * t_line_tol
     merge_tol = 1.0  # Zusammenführungs-Toleranz zu bestehenden Junctions (1.0m)
     merge_tol_sq = merge_tol * merge_tol
+    junction_index = _JunctionIndex(junctions, merge_tol)
     t_count = 0
 
     # Sammle alle Linienpunkte mit ihrem Straßen-Index und baue LineStrings/Indexe
@@ -312,32 +370,36 @@ def detect_junctions_in_centerlines(road_polygons, height_points=None, height_el
 
         t_count = 0
 
-        for ep_x, ep_y, ep_z, road_idx, is_start in endpoints:
-            # STUFE 1: KDTree-Vorauswahl - finde Linienpunkte in 10m Umkreis (Performance!)
-            nearby_dists, nearby_indices = line_kdtree.query([ep_x, ep_y], k=50, distance_upper_bound=t_search_radius)
+        # STUFE 1: KDTree-Vorauswahl - Linienpunkte im Umkreis, für alle Endpunkte in EINER Abfrage
+        endpoint_xy = np.array([(ep[0], ep[1]) for ep in endpoints], dtype=float)
+        all_dists, all_indices = line_kdtree.query(endpoint_xy, k=50, distance_upper_bound=t_search_radius)
+        n_line_points = len(all_line_points)
 
-            # nearby_indices can be a single index or array depending on k value
-            if np.isscalar(nearby_indices):
-                nearby_indices = [nearby_indices]
-                nearby_dists = [nearby_dists]
-            else:
-                nearby_indices = [i for i, d in zip(nearby_indices, nearby_dists) if d <= t_search_radius]
+        for ep_number, (ep_x, ep_y, ep_z, road_idx, is_start) in enumerate(endpoints):
+            nearby_indices = [
+                i for i, d in zip(all_indices[ep_number].tolist(), all_dists[ep_number].tolist()) if d <= t_search_radius
+            ]
+            # Pro Endpunkt genügt jede andere Straße einmal: die Projektion hängt nur von Endpunkt und Straße ab,
+            # eine Wiederholung träfe dieselbe Junction und änderte nichts mehr.
+            seen_roads = set()
 
             for line_pt_idx in nearby_indices:
-                if line_pt_idx >= len(all_line_points):
+                if line_pt_idx >= n_line_points:
                     continue
 
                 lx, ly, other_road_idx, pt_idx_on_line = all_line_points[line_pt_idx]
 
                 if other_road_idx == road_idx:
                     continue  # Gleiche Straße
+                if other_road_idx in seen_roads:
+                    continue
+                seen_roads.add(other_road_idx)
 
                 # STUFE 2: Projiziere auf die gesamte Linie und prüfe Punkt-zu-Linie Entfernung
-                other_coords = road_polygons[other_road_idx].get("coords", [])
-                if len(other_coords) < 2:
+                other_line = line_strings[other_road_idx]
+                if other_line is None:
                     continue
 
-                other_line = LineString([(c[0], c[1]) for c in other_coords])
                 proj_dist = other_line.project(Point(ep_x, ep_y))
                 proj_pt = other_line.interpolate(proj_dist)
                 proj_xy = (proj_pt.x, proj_pt.y)
@@ -354,14 +416,7 @@ def detect_junctions_in_centerlines(road_polygons, height_points=None, height_el
 
                 # Prüfe ob bereits eine Junction an DIESER Position existiert (positionsbasiert!)
                 # Erlaubt mehrere Junctions zwischen denselben Straßen an verschiedenen Positionen
-                existing_junction = None
-                proj_xy_vec = np.array([proj_xy[0], proj_xy[1]])
-                for j in junctions:
-                    j_pos = np.array(j["position"][:2])
-                    if np.sum((j_pos - proj_xy_vec) ** 2) <= merge_tol_sq:
-                        # Junction existiert bereits an dieser Position
-                        existing_junction = j
-                        break
+                existing_junction = junction_index.find(proj_xy[0], proj_xy[1])
 
                 # Wenn Junction existiert, versuche Straßen hinzuzufügen statt zu überspringen
                 if existing_junction is not None:
@@ -403,21 +458,18 @@ def detect_junctions_in_centerlines(road_polygons, height_points=None, height_el
 
                 # Versuche mit bestehender Junction zu mergen
                 merged = False
-                new_junc_xy = np.array(new_junc_pos[:2])
-                for j in junctions:
-                    j_pos = np.array(j["position"][:2])
-                    if np.sum((j_pos - new_junc_xy) ** 2) <= merge_tol_sq:
-                        if road_idx not in j["road_indices"]:
-                            j["road_indices"].append(road_idx)
-                            j["connection_types"][road_idx] = ["start" if is_start else "end"]
-                            j["direction_vectors"][road_idx] = _direction_at_endpoint(road_idx, is_start)
-                        if other_road_idx not in j["road_indices"]:
-                            j["road_indices"].append(other_road_idx)
-                            j["connection_types"][other_road_idx] = ["mid"]
-                            j["direction_vectors"][other_road_idx] = through_dir
-                        merged = True
-                        t_count += 1
-                        break
+                j = junction_index.find(new_junc_pos[0], new_junc_pos[1])
+                if j is not None:
+                    if road_idx not in j["road_indices"]:
+                        j["road_indices"].append(road_idx)
+                        j["connection_types"][road_idx] = ["start" if is_start else "end"]
+                        j["direction_vectors"][road_idx] = _direction_at_endpoint(road_idx, is_start)
+                    if other_road_idx not in j["road_indices"]:
+                        j["road_indices"].append(other_road_idx)
+                        j["connection_types"][other_road_idx] = ["mid"]
+                        j["direction_vectors"][other_road_idx] = through_dir
+                    merged = True
+                    t_count += 1
 
                 if not merged:
                     extra_conns = [
@@ -458,38 +510,27 @@ def detect_junctions_in_centerlines(road_polygons, height_points=None, height_el
                 road_bounds[3] + pad,
             )
 
-            candidates = tree.query(query_geom)
+            # Nur Kandidaten mit größerer Straßen-Nummer, und deren Abstand zur Linie EINMAL vektorisiert prüfen
+            # (Reihenfolge der Kandidaten bleibt die des STRtree, damit die Junction-Reihenfolge gleich bleibt).
+            candidates = [c for c in tree.query(query_geom).tolist() if c > road_idx]
+            if not candidates:
+                continue
+            # dwithin über den STRtree (Index + vorbereitete Geometrie) statt distance() je Paar
+            near = set(tree.query(road_line, predicate="dwithin", distance=ll_line_tol).tolist())
 
             for other_idx in candidates:
                 other_road_idx = other_idx  # tree.query() returns indices in newer Shapely
-                if other_road_idx is None or other_road_idx <= road_idx:
-                    continue
 
                 other_line = line_strings[other_road_idx]
-                line_dist = road_line.distance(other_line)
 
-                if line_dist > ll_line_tol:
-                    continue
+                if other_idx not in near:
+                    continue  # Abstand > ll_line_tol
 
                 intersection = road_line.intersection(other_line)
 
                 if intersection.is_empty:
-                    nearest_dist = float("inf")
-                    nearest_pt1 = None
-                    for coord in road.get("coords", []):
-                        dist = other_line.distance(Point(coord[0], coord[1]))
-                        if dist < nearest_dist:
-                            nearest_dist = dist
-                            nearest_pt1 = Point(coord[0], coord[1])
-
-                    nearest_dist = float("inf")
-                    nearest_pt2 = None
-                    other_coords = road_polygons[other_road_idx].get("coords", [])
-                    for coord in other_coords:
-                        dist = road_line.distance(Point(coord[0], coord[1]))
-                        if dist < nearest_dist:
-                            nearest_dist = dist
-                            nearest_pt2 = Point(coord[0], coord[1])
+                    nearest_pt1 = _nearest_vertex_to_line(road.get("coords", []), other_line)
+                    nearest_pt2 = _nearest_vertex_to_line(road_polygons[other_road_idx].get("coords", []), road_line)
 
                     if nearest_pt1 and nearest_pt2:
                         cross_x = (nearest_pt1.x + nearest_pt2.x) / 2
@@ -508,16 +549,8 @@ def detect_junctions_in_centerlines(road_polygons, height_points=None, height_el
                     else:
                         continue
 
-                already_exists_here = False
-                cross_xy = np.array([cross_x, cross_y])
-                for j in junctions:
-                    j_pos = np.array(j["position"][:2])
-                    if np.sum((j_pos - cross_xy) ** 2) <= merge_tol_sq:
-                        already_exists_here = True
-                        break
-
-                if already_exists_here:
-                    continue
+                if junction_index.find(cross_x, cross_y) is not None:
+                    continue  # an dieser Stelle gibt es schon eine Junction
 
                 best_z1 = _get_z_at_point(road_idx, (cross_x, cross_y))
                 best_z2 = _get_z_at_point(other_road_idx, (cross_x, cross_y))
@@ -529,21 +562,18 @@ def detect_junctions_in_centerlines(road_polygons, height_points=None, height_el
                 new_junc_pos = (cross_x, cross_y, cross_z)
 
                 merged = False
-                new_ll_xy = np.array(new_junc_pos[:2])
-                for j in junctions:
-                    j_pos = np.array(j["position"][:2])
-                    if np.sum((j_pos - new_ll_xy) ** 2) <= merge_tol_sq:
-                        if road_idx not in j["road_indices"]:
-                            j["road_indices"].append(road_idx)
-                            j["connection_types"][road_idx] = ["mid"]
-                            j["direction_vectors"][road_idx] = dir1
-                        if other_road_idx not in j["road_indices"]:
-                            j["road_indices"].append(other_road_idx)
-                            j["connection_types"][other_road_idx] = ["mid"]
-                            j["direction_vectors"][other_road_idx] = dir2
-                        merged = True
-                        ll_count += 1
-                        break
+                j = junction_index.find(new_junc_pos[0], new_junc_pos[1])
+                if j is not None:
+                    if road_idx not in j["road_indices"]:
+                        j["road_indices"].append(road_idx)
+                        j["connection_types"][road_idx] = ["mid"]
+                        j["direction_vectors"][road_idx] = dir1
+                    if other_road_idx not in j["road_indices"]:
+                        j["road_indices"].append(other_road_idx)
+                        j["connection_types"][other_road_idx] = ["mid"]
+                        j["direction_vectors"][other_road_idx] = dir2
+                    merged = True
+                    ll_count += 1
 
                 if not merged:
                     extra_conns = [
