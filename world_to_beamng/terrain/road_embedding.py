@@ -92,6 +92,9 @@ def _cells_in_polygon(qx: np.ndarray, qy: np.ndarray, polygon: np.ndarray) -> np
     return intersects_xy(shape, qx, qy)
 
 
+PROJECT_CHUNK = 96  # Zellen je Block in _project_onto_polyline
+
+
 def _project_onto_polyline(
     qx: np.ndarray, qy: np.ndarray, poly_x: np.ndarray, poly_y: np.ndarray, poly_z: np.ndarray
 ) -> np.ndarray:
@@ -100,27 +103,57 @@ def _project_onto_polyline(
     nächstgelegene Position entlang der durch (poly_x, poly_y, poly_z)
     definierten Polylinie und gibt die dort linear interpolierte Z-Höhe
     zurück (gleiche Shape wie qx/qy).
+
+    Ergebnisgleich zur einfachen Schleife über alle Segmente (bei Gleichstand gewinnt das erste Segment), aber
+    nur mit den Segmenten, die für einen Block räumlich benachbarter Zellen überhaupt in Frage kommen: der
+    nächste Segment-Endpunkt liegt auf der Polylinie und begrenzt damit die Entfernung zum nächsten Segment von
+    oben; Segmente, deren Bounding Box weiter als diese Schranke vom Block entfernt ist, können nicht gewinnen.
     """
-    best_dist = np.full(qx.shape, np.inf)
-    best_z = np.zeros(qx.shape)
+    shape = np.shape(qx)
+    points = np.column_stack([np.ravel(qx), np.ravel(qy)]).astype(np.float64)
+    count = len(points)
+    best_z = np.zeros(count)
+    if count == 0 or len(poly_x) < 2:
+        return best_z.reshape(shape)
 
-    for i in range(len(poly_x) - 1):
-        ax, ay, az = poly_x[i], poly_y[i], poly_z[i]
-        bx, by, bz = poly_x[i + 1], poly_y[i + 1], poly_z[i + 1]
-        dx, dy = bx - ax, by - ay
-        seg_len_sq = dx * dx + dy * dy
-        if seg_len_sq < 1e-9:
-            continue
-        t = np.clip(((qx - ax) * dx + (qy - ay) * dy) / seg_len_sq, 0.0, 1.0)
-        proj_x = ax + t * dx
-        proj_y = ay + t * dy
-        dist = np.hypot(qx - proj_x, qy - proj_y)
-        z = az + t * (bz - az)
-        better = dist < best_dist
-        best_dist = np.where(better, dist, best_dist)
-        best_z = np.where(better, z, best_z)
+    ax, ay, az = poly_x[:-1], poly_y[:-1], poly_z[:-1]
+    bx, by, bz = poly_x[1:], poly_y[1:], poly_z[1:]
+    dx, dy = bx - ax, by - ay
+    seg_len_sq = dx * dx + dy * dy
+    valid = np.flatnonzero(~(seg_len_sq < 1e-9))  # Nulllängen-Segmente entfallen
+    if len(valid) == 0:
+        return best_z.reshape(shape)
+    ax, ay, az, bx, by, bz, dx, dy, seg_len_sq = (a[valid] for a in (ax, ay, az, bx, by, bz, dx, dy, seg_len_sq))
+    segments = len(valid)
 
-    return best_z
+    seg_min_x, seg_max_x = np.minimum(ax, bx), np.maximum(ax, bx)
+    seg_min_y, seg_max_y = np.minimum(ay, by), np.maximum(ay, by)
+
+    endpoints = np.concatenate([np.column_stack([ax, ay]), np.column_stack([bx, by])])
+    endpoint_dist, nearest_endpoint = cKDTree(endpoints).query(points)
+    # Nach Lage entlang der Linie sortieren: aufeinanderfolgende Zellen bilden kompakte Blöcke
+    order = np.argsort(nearest_endpoint % segments, kind="stable")
+
+    for start in range(0, count, PROJECT_CHUNK):
+        cells = order[start : start + PROJECT_CHUNK]
+        cx, cy = points[cells, 0], points[cells, 1]
+        bound = endpoint_dist[cells].max() + 1e-9
+        candidates = np.flatnonzero(
+            (seg_max_x >= cx.min() - bound)
+            & (seg_min_x <= cx.max() + bound)
+            & (seg_max_y >= cy.min() - bound)
+            & (seg_min_y <= cy.max() + bound)
+        )
+        cax, cay, cdx, cdy, clen = ax[candidates], ay[candidates], dx[candidates], dy[candidates], seg_len_sq[candidates]
+        col_x, col_y = cx[:, None], cy[:, None]
+        t = np.clip(((col_x - cax) * cdx + (col_y - cay) * cdy) / clen, 0.0, 1.0)
+        dist = np.hypot(col_x - (cax + t * cdx), col_y - (cay + t * cdy))
+        nearest = np.argmin(dist, axis=1)  # erstes Minimum wie die Schleife mit "dist < best"
+        t_best = t[np.arange(len(cells)), nearest]
+        seg = candidates[nearest]
+        best_z[cells] = az[seg] + t_best * (bz[seg] - az[seg])
+
+    return best_z.reshape(shape)
 
 
 def _embed_road(
