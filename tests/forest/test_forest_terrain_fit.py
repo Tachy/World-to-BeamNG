@@ -49,3 +49,13 @@ def test_road_surface_exclusion_ignores_degenerate_polygons_and_returns_none_wit
     assert workflow._create_road_surface_exclusion([], margin=4.0) is None
     assert workflow._create_road_surface_exclusion(None, margin=4.0) is None
     assert workflow._create_road_surface_exclusion([_road([(0, 0), (1, 1)])], margin=4.0) is None
+
+
+def test_road_surface_exclusion_accepts_an_already_merged_surface():
+    from shapely.geometry import box
+
+    workflow = ForestWorkflow(config)
+    from_list = workflow._create_road_surface_exclusion([_road([(0, -3), (10, -3), (10, 3), (0, 3)])], margin=4.0)
+    from_union = workflow._create_road_surface_exclusion(box(0, -3, 10, 3), margin=4.0)
+
+    assert from_union.symmetric_difference(from_list).area < 0.5

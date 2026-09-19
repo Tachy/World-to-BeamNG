@@ -329,11 +329,11 @@ class TerrainWorkflow:
         # Straßen- und Gebäudeflächen: (1) Bodenbewuchs wächst auf dem Layer - dort geht es
         # zurück aufs Luftbild, sonst wächst Gras durch Decals und Häuser; (2) Ausschlusszone
         # für die Weinberg-Reben.
-        from shapely.geometry import Polygon
+        from ..geometry.road_surfaces import union_road_surfaces
 
-        road_shapes = [
-            Polygon(road["road_polygon"]) for road in road_slope_polygons_2d if len(road["road_polygon"]) >= 3
-        ]
+        # Alle Straßenflächen EINMAL vereinigt (vereinfacht): dient Maske, Reben-Ausschluss und dem Wald
+        road_surface_union = union_road_surfaces(road_slope_polygons_2d)
+        road_shapes = [road_surface_union] if road_surface_union is not None else []
         building_shapes = [
             p["geometry"]
             for p in build_landuse_polygons(osm_data, make_local_transform(global_offset), tag_keys=("building",))
@@ -444,6 +444,7 @@ class TerrainWorkflow:
             "grid": grid,
             "road_polygons": road_polygons,
             "road_slope_polygons_2d": road_slope_polygons_2d,  # Für DecalRoad-Export
+            "road_surface_union": road_surface_union,  # vereinigte Straßenfläche für Ausschlusszonen (oder None)
             "grid_bounds_local": grid_bounds_local,
             "global_offset": global_offset,
             "buildings_data": buildings_data,  # Übergebe Gebäude-Daten

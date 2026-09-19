@@ -323,7 +323,7 @@ class BeamNGExporter:
                     # Bäume stehen auf der fertigen Heightmap (nach Straßen-Einbettung), nicht auf rohen DGM1-Punkten,
                     # und meiden die tatsächlich eingebetteten Straßenflächen
                     height_at=terrain_height_at_1d,
-                    road_surfaces=result.get("road_slope_polygons_2d"),
+                    road_surfaces=result.get("road_surface_union"),
                 )
                 if forest_result["status"] == "success":
                     stats["trees_generated"] += forest_result.get("tree_count", 0)

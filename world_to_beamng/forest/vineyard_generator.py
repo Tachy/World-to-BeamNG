@@ -205,8 +205,11 @@ def split_by_direction(
 
 def build_exclusion_geometry(shapes: Sequence[BaseGeometry], margin: float) -> Optional[BaseGeometry]:
     """Vereinigung der um `margin` Meter gepufferten Flächen (Wege, Gebäude) oder None."""
-    buffered = [shape.buffer(margin) for shape in shapes if shape is not None and not shape.is_empty]
-    return unary_union(buffered) if buffered else None
+    # Ungültige Polygone (Selbstüberschneidung) reparieren: die Vereinigung würde daran scheitern, die Pufferung
+    # je Polygon hat sie bisher stillschweigend bereinigt.
+    parts = [shape if shape.is_valid else shape.buffer(0) for shape in shapes if shape is not None and not shape.is_empty]
+    # Erst vereinigen, dann einmal puffern (Minkowski-Summe: gleiches Ergebnis, aber deutlich schneller)
+    return unary_union(parts).buffer(margin) if parts else None
 
 
 def _line_parts(geometry: BaseGeometry) -> List[LineString]:

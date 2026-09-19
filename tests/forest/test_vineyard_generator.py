@@ -430,3 +430,22 @@ def test_generate_vineyards_passes_exclusion_through():
     instances = generate_vineyards(polygons, MAPPINGS, _plane(slope_y=0.2), exclusion=road)
 
     assert not any(road.contains(Point(i["pos"][0], i["pos"][1])) for i in instances)
+
+
+def test_exclusion_geometry_equals_union_of_individually_buffered_shapes():
+    from shapely.ops import unary_union
+
+    shapes = [box(0, 0, 10, 4), box(8, 2, 20, 6), Polygon([(40, 40), (52, 44), (46, 55)])]
+
+    zone = build_exclusion_geometry(shapes, margin=2.0)
+    reference = unary_union([shape.buffer(2.0) for shape in shapes])
+
+    assert zone.symmetric_difference(reference).area < 0.5
+
+
+def test_exclusion_geometry_repairs_self_intersecting_polygons():
+    bowtie = Polygon([(0, 0), (10, 10), (10, 0), (0, 10)])  # ungültig: Schleife
+
+    zone = build_exclusion_geometry([bowtie, box(30, 0, 40, 10)], margin=1.0)
+
+    assert zone is not None and zone.contains(Point(35, 5))

@@ -237,26 +237,22 @@ class ForestWorkflow:
         Straßenpolygone entsprechen dem, was BeamNG als DecalRoad auf das Terrain projiziert.
 
         Args:
-            road_slope_polygons_2d: Liste von Dicts mit "road_polygon" ((M, 2) Array, lokale Koordinaten)
+            road_slope_polygons_2d: bereits vereinigte Straßenfläche (shapely-Geometrie, siehe
+                geometry.road_surfaces.union_road_surfaces) oder eine Liste von Dicts mit "road_polygon"
+                ((M, 2) Array, lokale Koordinaten)
             margin: Abstand zur Fahrbahnkante in Metern
 
         Returns:
             shapely-Geometrie oder None
         """
-        from shapely.geometry import Polygon
-        from shapely.ops import unary_union
+        from ..geometry.road_surfaces import union_road_surfaces
 
-        shapes = []
-        for road in road_slope_polygons_2d or []:
-            coords = road.get("road_polygon")
-            if coords is None or len(coords) < 3:
-                continue
-            polygon = Polygon(coords)
-            if not polygon.is_valid:
-                polygon = polygon.buffer(0)
-            if not polygon.is_empty:
-                shapes.append(polygon.buffer(margin))
-        return unary_union(shapes) if shapes else None
+        if hasattr(road_slope_polygons_2d, "geom_type"):
+            surface = road_slope_polygons_2d
+        else:
+            surface = union_road_surfaces(road_slope_polygons_2d)
+        # Erst vereinigen, dann einmal puffern (Minkowski-Summe: gleiches Ergebnis wie Pufferung je Polygon)
+        return surface.buffer(margin) if surface is not None and not surface.is_empty else None
 
     def _create_building_buffer(self, osm_data, margin: float = None):
         """
@@ -368,8 +364,8 @@ class ForestWorkflow:
                           WICHTIG: Muss der UTM-Ursprung sein, nicht der Tile-Zentroid!
             height_at: Optional - Höhenabfrage (x, y) -> z der FERTIGEN Terrain-Heightmap (nach Straßen-Einbettung).
                        Ohne sie fallen die Höhen auf die rohen DGM1-Punkte (Nearest-Neighbor) zurück.
-            road_surfaces: Optional - Liste von Dicts mit "road_polygon" (eingebettete Straßenflächen, lokal);
-                           dort und in FOREST_ROAD_SURFACE_MARGIN Umgebung stehen keine Bäume
+            road_surfaces: Optional - vereinigte eingebettete Straßenfläche (shapely, lokal) oder Liste von Dicts
+                           mit "road_polygon"; dort und in FOREST_ROAD_SURFACE_MARGIN Umgebung stehen keine Bäume
 
         Returns:
             {
