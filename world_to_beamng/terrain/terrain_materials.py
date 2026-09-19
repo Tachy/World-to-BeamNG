@@ -154,17 +154,39 @@ def paint_landuse_materials(
                 names.append(internal_name)
             material_index = names.index(internal_name)
 
-        mask = rasterize(
-            [(geometry, material_index)],
-            out_shape=(size, size),
-            transform=transform,
-            fill=EMPTY_RASTER_VALUE,
-            dtype="uint8",
-        )
-        hit = mask != EMPTY_RASTER_VALUE
-        result[hit] = mask[hit]
+        _burn_geometry(result, geometry, material_index, transform, size)
 
     return result, names
+
+
+def _burn_geometry(target: np.ndarray, geometry, value: int, transform: Affine, size: int) -> None:
+    """
+    Brennt eine Geometrie in `target` (size x size), nur im Fenster ihrer Bounding Box.
+
+    Ergebnisgleich zur Rasterisierung über die ganze Karte, aber je Polygon nur so groß wie das Polygon selbst
+    (bei 4096² Zellen und über tausend Polygonen sonst mehrere Sekunden für Leerlauf).
+    """
+    if geometry is None or geometry.is_empty:
+        return
+    inverse = ~transform
+    x0, y0, x1, y1 = geometry.bounds
+    cols = [inverse * (x0, y0), inverse * (x1, y1)]
+    col_lo = max(0, int(np.floor(min(c[0] for c in cols))) - 1)
+    col_hi = min(size, int(np.ceil(max(c[0] for c in cols))) + 2)
+    row_lo = max(0, int(np.floor(min(c[1] for c in cols))) - 1)
+    row_hi = min(size, int(np.ceil(max(c[1] for c in cols))) + 2)
+    if col_lo >= col_hi or row_lo >= row_hi:
+        return
+    window = rasterize(
+        [(geometry, value)],
+        out_shape=(row_hi - row_lo, col_hi - col_lo),
+        transform=transform * Affine.translation(col_lo, row_lo),
+        fill=EMPTY_RASTER_VALUE,
+        dtype="uint8",
+    )
+    hit = window != EMPTY_RASTER_VALUE
+    view = target[row_lo:row_hi, col_lo:col_hi]
+    view[hit] = window[hit]
 
 
 def mask_layer_map_with_photo(

@@ -439,3 +439,60 @@ def test_photo_materials_have_an_explicit_ground_model():
     )
 
     assert entries["aerial_photo_0"]["groundmodelName"] == entries["aerial_photo_1"]["groundmodelName"] == "ASPHALT"
+
+
+def _reference_paint(layer_map, size, origin_x, origin_y, square_size, shapes):
+    """Bisheriges Verfahren: jedes Polygon über die volle Karte rasterisieren."""
+    from affine import Affine
+    from rasterio.features import rasterize
+
+    transform = Affine.translation(origin_x, origin_y) * Affine.scale(square_size, square_size)
+    result = layer_map.copy()
+    for geometry, index in shapes:
+        mask = rasterize([(geometry, index)], out_shape=(size, size), transform=transform, fill=255, dtype="uint8")
+        hit = mask != 255
+        result[hit] = mask[hit]
+    return result
+
+
+def test_paint_landuse_matches_full_grid_rasterization_for_windowed_burning():
+    from shapely.geometry import MultiPolygon, box
+
+    size, origin_x, origin_y, square_size = 64, -30.0, 12.5, 2.0  # Karte deckt x -30..98, y 12.5..140.5
+    rng = np.random.RandomState(4)
+    geometries = [
+        box(0, 20, 40, 60),
+        box(-60, -40, -10, 30),  # ragt links/unten über die Karte hinaus
+        box(80, 120, 200, 300),  # ragt rechts/oben hinaus
+        box(500, 500, 520, 520),  # komplett außerhalb
+        Polygon([(10, 30), (70, 40), (50, 100)], holes=[[(30, 45), (45, 48), (38, 60)]]),
+        MultiPolygon([box(-20, 60, 0, 80), box(60, 60, 90, 90)]),
+        box(20.3, 33.7, 20.9, 34.1),  # kleiner als eine Zelle
+    ]
+    for _ in range(12):
+        x, y = rng.uniform(-40, 100), rng.uniform(0, 150)
+        geometries.append(Polygon(np.column_stack([x + rng.uniform(0, 30, 5), y + rng.uniform(0, 30, 5)])).convex_hull)
+
+    categories = ["forest", "meadow", "farmland", "urban"]
+    polygons = [
+        {"osm_tags": {"landuse": {"forest": "forest", "meadow": "meadow", "farmland": "farmland", "urban": "residential"}[categories[i % 4]]}, "geometry": g}
+        for i, g in enumerate(geometries)
+    ]
+    layer_map = np.full((size, size), 7, dtype=np.uint8)
+    names = ["aerial_photo"] * 1
+
+    result, result_names = paint_landuse_materials(
+        layer_map, names, size, origin_x, origin_y, square_size, polygons, LANDUSE_MAPPINGS_FIXTURE
+    )
+
+    scored = []
+    for polygon in polygons:
+        category = get_landuse_category(polygon["osm_tags"], LANDUSE_MAPPINGS_FIXTURE)
+        data = LANDUSE_MAPPINGS_FIXTURE[category]
+        index = 0 if data.get("keep_photo") else result_names.index(data["internal_name"])
+        scored.append((data["priority"], polygon["geometry"], index))
+    scored.sort(key=lambda item: item[0])
+    expected = _reference_paint(layer_map, size, origin_x, origin_y, square_size, [(g, i) for _, g, i in scored])
+
+    assert (result == expected).all()
+    assert (result != 7).any()
