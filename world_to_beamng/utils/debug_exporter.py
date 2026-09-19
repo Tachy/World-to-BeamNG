@@ -552,8 +552,10 @@ class DebugNetworkExporter:
             "grid_colors": self.grid_colors,
         }
 
+        # Ohne indent: json.dump mit indent nutzt den langsamen Python-Encoder (bei ~10 MB Debug-Netz mehrere
+        # Sekunden), die Datei wird nur maschinell (tools/dae_viewer.py) gelesen.
         with open(output_path, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2)
+            f.write(json.dumps(data))
 
         logger.debug(f"  [Debug] Exportiert: {len(self.primitives)} Primitive")
         logger.debug(f"  [Debug] Datei: {output_path}")

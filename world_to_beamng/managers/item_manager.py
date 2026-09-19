@@ -447,7 +447,6 @@ class ItemManager:
         from .. import config
         from ..geometry.coordinates import transformer_to_utm
         import numpy as np
-        from scipy.interpolate import griddata
 
         if not config.SPAWN_POINT or not global_offset:
             return [0, 0, 400]  # Fallback
@@ -469,11 +468,19 @@ class ItemManager:
         # Interpoliere Höhe an diesem Punkt
         if len(height_points) > 0 and len(height_elevations) > 0:
             try:
-                height_points_array = np.array(height_points)
-                height_elevations_array = np.array(height_elevations)
+                height_points_array = np.asarray(height_points)
+                height_elevations_array = np.asarray(height_elevations)
 
-                # Nutze nearest-neighbor Interpolation
-                z_value = griddata(height_points_array, height_elevations_array, (x_local, y_local), method="nearest")
+                # Nächster Höhenpunkt, blockweise per NumPy (ein KD-Tree über alle ~16 Mio. Punkte
+                # aufzubauen dauerte für diese eine Abfrage ~3 s)
+                best_index, best_dist = 0, np.inf
+                for start in range(0, len(height_points_array), 2_000_000):
+                    block = height_points_array[start : start + 2_000_000]
+                    dist = (block[:, 0] - x_local) ** 2 + (block[:, 1] - y_local) ** 2
+                    local = int(np.argmin(dist))
+                    if dist[local] < best_dist:
+                        best_index, best_dist = start + local, float(dist[local])
+                z_value = height_elevations_array[best_index]
 
                 if z_value is not None and not np.isnan(z_value):
                     z_height = float(z_value)
@@ -527,23 +534,22 @@ class ItemManager:
             spawn_position = self._get_spawn_position_with_height(height_points, height_elevations, global_offset)
 
         # Schreibe main/items.level.json im JSONL-Format (nur MissionGroup)
+        # (json.dumps statt json.dump auf die Datei: der C-Encoder ist ~5x schneller)
+        encode = json.JSONEncoder(ensure_ascii=False).encode
         main_items_dir.mkdir(exist_ok=True)
         with open(main_items, "w", encoding="utf-8") as f:
-            json.dump(self.MISSION_GROUP_LINE, f, ensure_ascii=False)
-            f.write("\n")
+            f.write(encode(self.MISSION_GROUP_LINE) + "\n")
 
         # Schreibe main/MissionGroup/items.level.json im JSONL-Format
         missiongroup_dir.mkdir(exist_ok=True)
         with open(missiongroup_items, "w", encoding="utf-8") as f:
             # OTHER_BASE_LINES (the_level_info, the_sky, tod, clouds1, rain_coverage, PlayerDropPoints-SimGroup)
             for base_line in self.base_lines:
-                json.dump(base_line, f, ensure_ascii=False)
-                f.write("\n")
+                f.write(encode(base_line) + "\n")
 
             # Alle neu hinzugefügten Items (Terrain, Buildings, etc.)
             for item in self.items.values():
-                json.dump(item, f, ensure_ascii=False)
-                f.write("\n")
+                f.write(encode(item) + "\n")
 
         # Schreibe main/MissionGroup/PlayerDropPoints/items.level.json im JSONL-Format
         playerdroppoints_dir.mkdir(exist_ok=True)
@@ -554,8 +560,7 @@ class ItemManager:
                     # Überschreibe Position mit berechneter Position
                     spawn_line = spawn_line.copy()
                     spawn_line["position"] = spawn_position
-                json.dump(spawn_line, f, ensure_ascii=False)
-                f.write("\n")
+                f.write(encode(spawn_line) + "\n")
 
     def save_info_json(self) -> None:
         """
