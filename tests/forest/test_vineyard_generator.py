@@ -449,3 +449,24 @@ def test_exclusion_geometry_repairs_self_intersecting_polygons():
     zone = build_exclusion_geometry([bowtie, box(30, 0, 40, 10)], margin=1.0)
 
     assert zone is not None and zone.contains(Point(35, 5))
+
+
+def test_exclusion_far_away_and_partially_overlapping_give_the_same_rows_as_the_full_difference():
+    from world_to_beamng.forest import vineyard_generator as vg
+
+    plane = _plane(slope_x=0.2)
+    polygon = box(0, 0, 80, 40)
+    far = box(1000, 1000, 1100, 1100).buffer(3)  # weit entfernt: ändert nichts
+    assert generate_vineyard_instances(polygon, plane, ROWS, exclusion=far) == generate_vineyard_instances(polygon, plane, ROWS)
+
+    # teilweise überlappende, komplizierte Zone (viele Eckpunkte) über den Rand hinaus
+    zone = Point(40, 50).buffer(30, quad_segs=64).union(box(20, 10, 24, 60))
+    clipped = generate_vineyard_instances(polygon, plane, ROWS, exclusion=zone)
+    rows = {**ROWS}
+    rng_seed_area = polygon.difference(zone)
+    assert clipped
+    assert not any(zone.contains(Point(i["pos"][0], i["pos"][1])) for i in clipped)
+    # jede Instanz liegt im verbleibenden Gebiet (bis auf die halbe Segmentlänge Toleranz an den Enden)
+    allowed = rng_seed_area.buffer(rows["segment_length"] / 2 + 0.1)
+    assert all(allowed.contains(Point(i["pos"][0], i["pos"][1])) for i in clipped)
+    assert vg.shapely.clip_by_rect(zone, 0, 0, 80, 40).symmetric_difference(zone.intersection(polygon)).area < 1e-6

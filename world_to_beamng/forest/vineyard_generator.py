@@ -14,6 +14,7 @@ Format pro Instanz (BeamNG .forest4.json Schema, wie ForestInstanceGenerator):
 from typing import Callable, Dict, List, Optional, Sequence
 
 import numpy as np
+import shapely
 from shapely import contains_xy
 from shapely.geometry import GeometryCollection, LineString, MultiLineString, Polygon
 from shapely.geometry.base import BaseGeometry
@@ -246,9 +247,14 @@ def _polygon_instances(polygon: BaseGeometry, height_at: HeightAt, rows: Dict, e
     segment = float(rows["segment_length"])
     scale_min, scale_max = rows.get("scale_range", [1.0, 1.0])
 
-    area = polygon.buffer(-float(rows.get("edge_margin", 0.0)))
-    if exclusion is not None:
-        area = area.difference(exclusion)
+    edge_margin = float(rows.get("edge_margin", 0.0))
+    area = polygon.buffer(-edge_margin) if edge_margin else (polygon if polygon.is_valid else polygon.buffer(0))
+    if exclusion is not None and not area.is_empty:
+        # Die Ausschlusszone umfasst das ganze Straßennetz (hunderttausende Eckpunkte): erst auf die Bounding Box
+        # dieses Blocks zuschneiden (linear, ohne Topologie-Operation), dann erst die Differenz bilden.
+        local_exclusion = shapely.clip_by_rect(exclusion, *area.bounds)
+        if not local_exclusion.is_empty:
+            area = area.difference(local_exclusion)
     if area.is_empty:
         return []
 
