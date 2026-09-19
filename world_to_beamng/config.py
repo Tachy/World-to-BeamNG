@@ -61,6 +61,12 @@ HORIZON_FLANGE_SINK = 15.0  # Tiefe des Flansches unter der Terrainhöhe in Mete
 # Größere Werte zeigen mehr vom Horizont, kosten aber Tiefenpräzision (nicht getestet über 25000).
 LEVEL_VISIBLE_DISTANCE = 25000  # Sichtweite in Metern (LevelInfo.visibleDistance)
 LEVEL_FOG_DENSITY = 0.0002  # Nebeldichte (LevelInfo.fogDensity), kleiner = klarere Fernsicht
+# Licht/Wetter: Sonnenstand, Himmel und Wolken kommen aus BeamNGs eigenen Vorgaben (data/environment_defaults.json,
+# managers/environment.py). Startzustand = "sonnig"; Uhrzeit, Wolken und Wetter sind im Spiel regelbar.
+ENV_FOG_COLOR = [0.741176, 0.815686, 0.92549, 1.0]  # Dunstfarbe (hellblau, wie die meisten Original-Level; ohne wird der ferne Horizont grau)
+ENV_FOG_HEIGHT_MARGIN = 50.0  # fogAtmosphereHeight = höchster Terrainpunkt + diese Marge in m (Originale: ca. Geländehöhe)
+ENV_DATE = (2026, 6, 21)  # Datum für den Sonnenstand (Sommer: die DOP20-Luftbilder sind Sommeraufnahmen)
+ENV_CLOCK_TIME = "11:00"  # Start-Uhrzeit "HH:MM" (Ortszeit; 12:00 = höchster Sonnenstand)
 
 # === WASSER (echte BeamNG-Objekte: River für Bäche, WaterBlock für Teiche/Seen) ===
 WATER_ENABLED = True

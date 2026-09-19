@@ -23,3 +23,77 @@ def test_level_info_sets_visible_distance_from_config():
 
 def test_level_info_sets_fog_density_from_config():
     assert _level_info()["fogDensity"] == config.LEVEL_FOG_DENSITY
+
+
+# --- Umgebungsobjekte (Licht/Wetter aus BeamNGs Vorgaben) ---------------------------------------------
+
+
+def _classes(lines):
+    return [line["class"] for line in lines]
+
+
+def test_base_lines_have_the_environment_objects_and_no_guessed_sun():
+    classes = _classes(ItemManager.OTHER_BASE_LINES)
+
+    assert {"LevelInfo", "ScatterSky", "TimeOfDay", "CloudLayer", "Precipitation", "SimGroup"} <= set(classes)
+    assert "Sun" not in classes  # der ScatterSky liefert die Sonne
+
+
+def test_level_info_has_the_fog_color_and_the_engines_spelling_of_the_environment_map():
+    info = _level_info()
+
+    assert info["fogColor"] == config.ENV_FOG_COLOR
+    assert info["globalEnviromentMap"] and "globalEnvironmentMap" not in info
+
+
+def test_set_base_line_fields_changes_only_this_instance(tmp_path):
+    ItemManager.reset_instance()
+    items = ItemManager.get_instance(tmp_path)
+    original = _level_info().get("fogAtmosphereHeight")
+
+    items.set_base_line_fields("the_level_info", fogAtmosphereHeight=812.5)
+
+    changed = next(l for l in items.base_lines if l["name"] == "the_level_info")
+    assert changed["fogAtmosphereHeight"] == 812.5
+    assert _level_info().get("fogAtmosphereHeight") == original  # Klassen-Liste bleibt unverändert
+    ItemManager.reset_instance()
+    assert next(l for l in ItemManager.get_instance(tmp_path).base_lines if l["name"] == "the_level_info").get("fogAtmosphereHeight") == original
+    ItemManager.reset_instance()
+
+
+def test_set_base_line_fields_rejects_unknown_objects(tmp_path):
+    import pytest
+
+    ItemManager.reset_instance()
+    items = ItemManager.get_instance(tmp_path)
+
+    with pytest.raises(KeyError):
+        items.set_base_line_fields("gibt_es_nicht", foo=1)
+    ItemManager.reset_instance()
+
+
+def test_save_writes_the_exported_fog_height_and_all_environment_objects(tmp_path):
+    import json
+
+    ItemManager.reset_instance()
+    items = ItemManager.get_instance(tmp_path)
+    items.set_base_line_fields("the_level_info", fogAtmosphereHeight=777.0)
+
+    items.save()
+
+    lines = [json.loads(l) for l in (tmp_path / "main" / "MissionGroup" / "items.level.json").read_text(encoding="utf-8").splitlines() if l.strip()]
+    by_class = {l["class"]: l for l in lines}
+    assert by_class["LevelInfo"]["fogAtmosphereHeight"] == 777.0
+    assert {"ScatterSky", "TimeOfDay", "CloudLayer", "Precipitation"} <= set(by_class)
+    assert "Sun" not in by_class
+    ItemManager.reset_instance()
+
+
+def test_info_json_declares_time_of_day_support(tmp_path):
+    import json
+
+    ItemManager.reset_instance()
+    ItemManager.get_instance(tmp_path).save_info_json()
+
+    assert json.loads((tmp_path / "info.json").read_text(encoding="utf-8"))["supportsTimeOfDay"] is True
+    ItemManager.reset_instance()

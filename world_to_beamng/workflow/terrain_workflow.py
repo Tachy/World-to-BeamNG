@@ -516,6 +516,15 @@ class TerrainWorkflow:
         )
         return {"rivers": rivers, "ponds": ponds}
 
+    def _set_fog_height(self, heights: np.ndarray) -> None:
+        """
+        fogAtmosphereHeight (Höhe, ab der der Höhennebel ausdünnt) = höchster Terrainpunkt + Marge. Alle Original-Level
+        setzen einen Wert in der Größenordnung ihrer Geländehöhe; ein fester Wert wäre für unser Gelände (hier 236-689 m
+        absolut) falsch.
+        """
+        height = float(np.max(heights)) + float(config.ENV_FOG_HEIGHT_MARGIN)
+        self.items.set_base_line_fields("the_level_info", fogAtmosphereHeight=round(height, 1))
+
     def export_water(self, mesh_data: Dict) -> int:
         """
         Registriert Bäche (`River`) und Teiche/Seen (`WaterBlock`) als BeamNG-Objekte. Die Render-
@@ -553,6 +562,8 @@ class TerrainWorkflow:
                 fields = copy.deepcopy(templates["pond"]["fields"])
                 fields.pop("class", None)
                 fields["cubemap"] = config.WATER_POND_CUBEMAP
+                # Das Wasser-Raster darf nicht größer als der Block sein (sonst warnt BeamNG und kürzt selbst)
+                fields["gridElementSize"] = float(min(fields.get("gridElementSize", 5.0), block["scale"][0], block["scale"][1]))
                 self.items.add_item(
                     f"{pond['name']}_{index}",
                     item_class="WaterBlock",
@@ -740,6 +751,7 @@ class TerrainWorkflow:
             DETAIL_TEX_SIZE,
         )
 
+        self._set_fog_height(heights)
         heightmap_u16 = encode_heights_to_u16(heights, z_min, max_height)
         ter_filename = f"{config.LEVEL_NAME}.ter"
         ter_path = config.BEAMNG_DIR / ter_filename

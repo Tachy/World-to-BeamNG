@@ -259,13 +259,14 @@ def test_landuse_material_sets_ground_model_uppercase():
     assert entries["mat_dirt"]["groundmodelName"] == "DIRT"
 
 
-def test_photo_layer_entry_has_no_ground_model():
+def test_photo_layer_entry_keeps_the_asphalt_grip_explicitly():
     entries = build_terrain_material_entries(
         ["aerial_photo"], ["aerial_photo"], LANDUSE_MAPPINGS_FIXTURE, "world_to_beamng", 2048.0, _FAKE_PLACEHOLDERS
     )
 
-    # Fallback-Verhalten bleibt unverändert (Straßen brauchen den Asphalt-Grip)
-    assert "groundmodelName" not in entries["aerial_photo"]
+    # Verhalten unverändert (Straßen brauchen den Asphalt-Grip): früher war es der stille Engine-Fallback,
+    # jetzt steht ASPHALT explizit da (sonst loggt BeamNG "ground model not found ... using asphalt")
+    assert entries["aerial_photo"]["groundmodelName"] == "ASPHALT"
 
 
 def test_ensure_flat_pbr_placeholders_matches_declared_tex_sizes(tmp_path):
@@ -428,3 +429,13 @@ def test_single_photo_mode_is_unchanged_without_variants():
 
     assert entries["mat_forest"]["baseColorBaseTex"].endswith("/aerial_photo.png")
     assert entries["mat_forest"]["baseColorBaseTexSize"] == 2048.0
+
+
+def test_photo_materials_have_an_explicit_ground_model():
+    # Ohne Boden-Modell loggt BeamNG "ground model not found for collision: 'AERIAL_PHOTO_0' - using asphalt"
+    entries = build_terrain_material_entries(
+        ["aerial_photo_0", "aerial_photo_1"], ["aerial_photo_0", "aerial_photo_1"], LANDUSE_MAPPINGS_FIXTURE,
+        "world_to_beamng", 4096.0, _FAKE_PLACEHOLDERS,
+    )
+
+    assert entries["aerial_photo_0"]["groundmodelName"] == entries["aerial_photo_1"]["groundmodelName"] == "ASPHALT"

@@ -70,6 +70,7 @@ def get_landuse_category(osm_tags: Dict, landuse_mappings: Dict) -> Optional[str
 
 
 AERIAL_PHOTO_MATERIAL_NAME = "aerial_photo"
+PHOTO_GROUND_MODEL = "ASPHALT"  # groundmodels.json kennt nur GROSSGESCHRIEBENE Namen; entspricht dem bisherigen Engine-Fallback
 
 
 def build_photo_fallback_layer(size: int) -> Tuple[np.ndarray, List[str]]:
@@ -413,6 +414,8 @@ def build_terrain_material_entries(
                 # Quelltextur und cached sie selbst zu DDS (siehe io/aerial.py).
                 "baseColorBaseTex": f"/levels/{level_name}/art/shapes/textures/{name}.png",
                 "baseColorBaseTexSize": photo_extents.get(name, photo_extent_size),
+                # Bebaute/unkartierte Flächen; ohne Angabe loggt BeamNG "ground model not found ... using asphalt"
+                "groundmodelName": PHOTO_GROUND_MODEL,
             }
             _add_required_pbr_slots(entry, placeholders)
             entries[name] = entry

@@ -8,6 +8,7 @@ Verwaltet Items für:
 - Decals, Prefabs, etc.
 """
 
+import copy
 import json
 import uuid
 import shutil
@@ -15,6 +16,7 @@ from typing import Dict, Any, Optional, List, Tuple
 from pathlib import Path
 import logging
 from world_to_beamng import config
+from world_to_beamng.managers.environment import build_environment_lines, load_environment_defaults
 from world_to_beamng.logging_config import LoggerConfig
 logger = LoggerConfig.get_logger()
 
@@ -45,86 +47,20 @@ class ItemManager:
         "persistentId": MISSION_GROUP_ID,
     }
 
-    # Weitere Base-Items - werden in main/items.level.json geschrieben
-    OTHER_BASE_LINES = [
-        {
-            "name": "the_level_info",
-            "class": "LevelInfo",
-            "persistentId": "64e00688-24f4-417d-a0c8-25e1e7d59cce",
-            "gravity": -9.81,
-            "parentId": "MissionGroup",
-            "levelName": "world_to_beamng",
-            "decalsEnabled": True,
-            "canSave": True,
-            "globalEnvironmentMap": "BNG_Sky_02_cubemap",
-            "visibleDistance": config.LEVEL_VISIBLE_DISTANCE,
-            "fogDensity": config.LEVEL_FOG_DENSITY,
-        },
-        {
-            "name": "the_sky",
-            "class": "ScatterSky",
-            "persistentId": "f0c7b6f6-7e4a-4b2a-8c4f-5c6f0c2a9c55",
-            "ambientScale": [1, 0.894117653, 0.78039217, 1],
-            "ambientScaleGradientFile": "/levels/italy/art/sky_gradients/default/gradient_ambient.png",
-            "azimuth": 52.9285278,
-            "colorize": [0.215686277, 0.349019617, 0.603921592, 1],
-            "colorizeGradientFile": "/levels/italy/art/sky_gradients/default/gradient_colorize.png",
-            "elevation": 55.432579,
-            "enableFogFallBack": False,
-            "fadeStartDistance": 1000,
-            "flareScale": 5,
-            "flareType": "BNG_Sunflare_3",
-            "fogScale": [0.396078438, 0.666666687, 1, 1],
-            "fogScaleGradientFile": "/levels/italy/art/sky_gradients/default/gradient_fog.png",
-            "lastSplitTerrainOnly": True,
-            "logWeight": 0.980000019,
-            "mieScattering": 0.000634325785,
-            "moonLightColor": [0.0980392024, 0.0980392024, 0.0980392024, 1],
-            "moonMat": "Moon_Glow_Mat",
-            "moonScale": 0.0299999993,
-            "nightColor": [1, 0.894117653, 0.78039217, 1],
-            "nightCubemap": "nightCubemap",
-            "nightFogColor": [0.396078438, 0.666666687, 1, 1],
-            "nightFogGradientFile": "/levels/italy/art/sky_gradients/default/gradient_fog.png",
-            "nightGradientFile": "/levels/italy/art/sky_gradients/default/gradient_ambient.png",
-            "occlusionScale": 0.0250000004,
-            "overDarkFactor": [40000, 8000, 5000, 650],
-            "shadowDarkenColor": [0, 0, 0, 0],
-            "shadowDistance": 1600,
-            "shadowSoftness": 0.200000003,
-            "skyBrightness": 20,
-            "sunScale": [0.996078432, 0.870588243, 0.784313738, 1],
-            "sunScaleGradientFile": "/levels/italy/art/sky_gradients/default/gradient_sunscale.png",
-            "texSize": 1024,
-            "useNightCubemap": True,
-            # "cloudHeight": 2000,
-            # "cloudCover": 0.5,
-            # "cloudSpeed": [0.0005, 0.0],
-            # "sunScale": 1.2,
-            # "colorize": [1.0, 0.9, 0.8, 1.0],  # Leichter Gelb/Warmstich
-            # "ambient": [0.12, 0.12, 0.15, 1.0],
-            # "brightness": 0.8,  # Etwas dunkler für mehr Atmosphäre
-            # "skyBrightness": 0.4,
-            # "fogHeight": 800,
-            # "fogDensity": 0.0005,
-            # "rayleighScattering": 0.005,  # Verstärkt den rötlichen Effekt am Horizont
-            # "mieScattering": 0.001,  # Mehr "Dunst" in der Luft
-            # "sunSize": 1.5,  # Die Sonne wirkt tiefer stehend größer
-            # "exposure": 1.1,
-            # "nightBrightness": 0.05,
-            "parentId": "MissionGroup",
-        },
-        {
-            "name": "the_sun",
-            "class": "Sun",
-            "persistentId": "e75fc72e-4ec9-42ca-b08a-24eca2141534",
-            "azimuth": 0,
-            "elevation": 60,  # Erhöht von 45 für höhere Sonne
-            "brightness": 0.6,  # Erhöht für stärkere Sonne
-            "castShadows": True,
-            "coronaEnabled": True,
-            "parentId": "MissionGroup",
-        },
+    # Weitere Base-Items - werden in main/MissionGroup/items.level.json geschrieben: LevelInfo, ScatterSky (Sonne/Himmel),
+    # TimeOfDay, CloudLayer, Precipitation aus BeamNGs eigenen Vorgaben (managers/environment.py) + die PlayerDropPoints-
+    # SimGroup. Ein separates Sun-Objekt gibt es bewusst nicht: der ScatterSky liefert die Sonne (wie in den Original-Leveln).
+    OTHER_BASE_LINES = build_environment_lines(
+        load_environment_defaults(),
+        latitude=config.SPAWN_POINT[0],
+        longitude=config.SPAWN_POINT[1],
+        date=config.ENV_DATE,
+        clock=config.ENV_CLOCK_TIME,
+        fog_color=config.ENV_FOG_COLOR,
+        fog_density=config.LEVEL_FOG_DENSITY,
+        visible_distance=config.LEVEL_VISIBLE_DISTANCE,
+        environment_map="BNG_Sky_02_cubemap",
+    ) + [
         {
             "name": "PlayerDropPoints",  # SimGroup für Spawn-Punkte (BeamNG-Standard)
             "class": "SimGroup",
@@ -158,7 +94,7 @@ class ItemManager:
         "size": [2000, 2000],
         "authors": "Tachy AI",
         "supportsTraffic": False,
-        "supportsTimeOfDay": False,
+        "supportsTimeOfDay": True,  # TimeOfDay-Objekt vorhanden (managers/environment.py)
         "spawnPointName": "PlayerDropPoints",  # BeamNG sucht nach dieser SimGroup
     }
 
@@ -198,6 +134,26 @@ class ItemManager:
     def reset_instance(cls) -> None:
         """Setze Singleton-Instanz zurück (für neuen Export-Lauf)."""
         cls._instance = None
+
+    @property
+    def base_lines(self) -> List[Dict[str, Any]]:
+        """Basis-Objekte (LevelInfo, ScatterSky, ...) dieser Instanz: eine Kopie, damit Export-Werte die Klasse nicht ändern."""
+        if not hasattr(self, "_base_lines"):
+            self._base_lines = copy.deepcopy(self.OTHER_BASE_LINES)
+        return self._base_lines
+
+    def set_base_line_fields(self, name: str, **fields) -> None:
+        """
+        Setzt Felder eines Basis-Objekts zur Exportzeit (z.B. fogAtmosphereHeight aus der Terrainhöhe).
+
+        Raises:
+            KeyError: wenn es kein Basis-Objekt dieses Namens gibt
+        """
+        for line in self.base_lines:
+            if line.get("name") == name:
+                line.update(fields)
+                return
+        raise KeyError(f"Kein Basis-Objekt '{name}'")
 
     def add_item(
         self,
@@ -579,8 +535,8 @@ class ItemManager:
         # Schreibe main/MissionGroup/items.level.json im JSONL-Format
         missiongroup_dir.mkdir(exist_ok=True)
         with open(missiongroup_items, "w", encoding="utf-8") as f:
-            # OTHER_BASE_LINES (the_level_info, the_sky, the_sun, PlayerDropPoints-SimGroup)
-            for base_line in self.OTHER_BASE_LINES:
+            # OTHER_BASE_LINES (the_level_info, the_sky, tod, clouds1, rain_coverage, PlayerDropPoints-SimGroup)
+            for base_line in self.base_lines:
                 json.dump(base_line, f, ensure_ascii=False)
                 f.write("\n")
 
@@ -645,7 +601,7 @@ class ItemManager:
         self.items = {}
 
         # Namen der BASE_LINES die beim Load übersprungen werden sollen
-        base_line_names = {line.get("name") for line in self.OTHER_BASE_LINES}
+        base_line_names = {line.get("name") for line in self.base_lines}
         base_line_names.add("PlayerDropPoint")  # Alter Name falls noch vorhanden
         base_line_names.add("spawn")  # Auch spawn überspringen (wird mit OTHER_BASE_LINES geschrieben)
 
