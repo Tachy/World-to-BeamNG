@@ -249,24 +249,20 @@
         "single_tree": {
             "tree_density": 1.0,
             "average_height": [
-                16.0,
-                26.0
+                17.0,
+                23.0
             ],
             "underground_material": "grassland",
             "lod_distance": 180.0,
             "collision_enabled": true,
             "preferred_trees": {
-                "tree_aspen_small_a": 0.1111111111111111,
-                "tree_aspen_small_b": 0.1111111111111111,
-                "tree_aspen_small_c": 0.1111111111111111,
-                "tree_aspen_small_d": 0.1111111111111111,
-                "tree_beech_small_b": 0.1111111111111111,
-                "tree_beech_small_c": 0.1111111111111111,
-                "tree_beech_small_d": 0.1111111111111111,
-                "tree_oak_sml_a": 0.1111111111111111,
-                "tree_oak_sml_b": 0.1111111111111111
+                "tree_oak_large_a": 0.2,
+                "tree_oak_large_b": 0.2,
+                "tree_oak_large_c": 0.2,
+                "tree_beech_large_b": 0.2,
+                "tree_beech_large_c": 0.2
             },
-            "comment": "Einzelbäume (OSM natural=tree als Punkt)"
+            "comment": "Einzelbäume (OSM natural=tree als Punkt): große, breitkronige Laubbäume (Eiche/Buche, 13-21 m); average_height wirkt als Skalierung (Zielhöhe/20 m)"
         },
         "tree_row": {
             "tree_density": 1.0,
@@ -317,25 +313,18 @@
         "orchard_area": {
             "tree_density": 0.3,
             "average_height": [
-                8.0,
-                15.0
+                10.0,
+                12.0
             ],
             "underground_material": "grassland",
             "lod_distance": 150.0,
             "collision_enabled": true,
             "preferred_trees": {
-                "generibush_small": 0.1,
-                "tree_aspen_small_a": 0.1,
-                "tree_aspen_small_b": 0.1,
-                "tree_aspen_small_c": 0.1,
-                "tree_aspen_small_d": 0.1,
-                "tree_aspen_small_low": 0.1,
-                "tree_aspen_small_low_group": 0.1,
-                "tree_beech_small_b": 0.1,
-                "tree_beech_small_c": 0.1,
-                "tree_beech_small_d": 0.1
+                "tree_oak_sml_a": 0.3333333333333333,
+                "tree_oak_sml_b": 0.3333333333333333,
+                "tree_beech_small_c": 0.3333333333333333
             },
-            "comment": "Obstplantage - niedrige und kleine Bäume"
+            "comment": "Obstplantage - ca. 5 m hohe, breitkronige (rundliche) Laubbäume in ca. 9 m Abstand; average_height wirkt als Skalierung (Zielhöhe/20 m, min. 0,5): Modelle 8,5-9,9 m x 0,5-0,6"
         },
         "hedgerow": {
             "tree_density": 0.2,

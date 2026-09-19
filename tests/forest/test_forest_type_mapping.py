@@ -260,7 +260,31 @@ def test_single_tree_template_exists_and_is_configured(forest_config):
     template = forest_config["forest_type_templates"][SINGLE]
 
     assert forest_config["forest_mappings"]["single_trees"] == {"forest_type": SINGLE}
-    assert all(any(kind in n for kind in ("aspen_small", "beech_small", "oak_sml")) for n in template["preferred_trees"])
+    assert sum(template["preferred_trees"].values()) == pytest.approx(1.0)
+
+
+def test_single_trees_are_large_broad_deciduous_trees(forest_config):
+    # OSM natural=tree: freistehende große Laubbäume (Eiche/Buche mit breiter Krone), keine kleinen Bäume,
+    # keine schlanken Waldstämme (*_forest_*), keine Espen (nur ca. 10 m) und keine Nadelbäume
+    trees = forest_config["forest_type_templates"][SINGLE]["preferred_trees"]
+
+    assert len(trees) >= 4
+    for name in trees:
+        assert name.startswith(("tree_oak_large_", "tree_beech_large_")), name
+
+
+def test_single_trees_are_scaled_up_not_down(forest_config):
+    # average_height wirkt als Skalierung (Zielhöhe / 20 m); die Assets sind 13-21 m hoch
+    low, high = forest_config["forest_type_templates"][SINGLE]["average_height"]
+
+    assert low / 20.0 >= 0.8  # nicht unter ca. 80 % der Originalgröße
+    assert high / 20.0 <= 1.3  # und nicht überproportional groß
+
+
+def test_tree_rows_keep_their_small_trees(forest_config):
+    trees = forest_config["forest_type_templates"]["tree_row"]["preferred_trees"]
+
+    assert all(any(kind in n for kind in ("aspen_small", "beech_small", "oak_sml")) for n in trees)
 
 
 def test_holes_of_non_forest_relations_are_not_planted_as_clearings(forest_config):
@@ -287,4 +311,57 @@ def test_generator_produces_garden_rules_too(forest_config):
     assert mappings["landuse"]["allotments"] == GARDEN
     assert mappings["landuse"]["residential"] == RESIDENTIAL
     assert mappings["single_trees"] == {"forest_type": SINGLE}
+    assert set(types[SINGLE]["preferred_trees"]) <= set(gen.LARGE_DECIDUOUS_TREES)
+    assert all("large" not in t for t in types["tree_row"]["preferred_trees"])  # Reihen bleiben klein
     assert mappings["clearings"]["only_for"]  # Lichtungen nur für Wald-Relationen
+
+
+# --- Obstplantagen: ca. 5 m hohe, rundkronige Laubbäume ----------------------------------------------
+
+ORCHARD = "orchard_area"
+# gemessene Modellhöhen der Assets (Z-Ausdehnung der DAE) - breitkronige kleine Laubbäume, Krone ca. halb so breit wie hoch
+ORCHARD_MODEL_HEIGHTS = {"tree_oak_sml_a": 8.5, "tree_oak_sml_b": 9.5, "tree_beech_small_c": 9.9}
+
+
+def test_orchard_maps_to_the_orchard_template(normalizer):
+    assert normalizer._map_to_forest_type({"landuse": "orchard"}) == ORCHARD
+
+
+def test_orchard_has_only_broad_crowned_deciduous_trees_no_bushes_no_slender_aspens(forest_config):
+    trees = forest_config["forest_type_templates"][ORCHARD]["preferred_trees"]
+
+    assert set(trees) <= set(ORCHARD_MODEL_HEIGHTS) and len(trees) >= 3
+    assert sum(trees.values()) == pytest.approx(1.0)
+    assert not any(bad in name for name in trees for bad in ("bush", "aspen", "douglasfir", "large", "forest"))
+
+
+def test_orchard_trees_end_up_about_5_m_tall(forest_config):
+    # Endhöhe = Modellhöhe x Skalierung; Skalierung = Zielhöhe / 20 m, begrenzt auf 0,5..2,0 (ForestInstanceGenerator)
+    template = forest_config["forest_type_templates"][ORCHARD]
+    low, high = template["average_height"]
+    scale_low, scale_high = (min(2.0, max(0.5, v / 20.0)) for v in (low, high))
+    heights = [ORCHARD_MODEL_HEIGHTS[n] * s for n in template["preferred_trees"] for s in (scale_low, scale_high)]
+    mean = sum(ORCHARD_MODEL_HEIGHTS[n] * (scale_low + scale_high) / 2 for n in template["preferred_trees"]) / len(template["preferred_trees"])
+
+    assert 4.6 <= mean <= 5.6  # ca. 5 m
+    assert min(heights) >= 3.8 and max(heights) <= 6.5  # keine Zwerge, keine Riesen
+
+
+def test_orchard_spacing_looks_like_an_orchard_not_a_forest(forest_config):
+    spacing = 5.0 / forest_config["forest_type_templates"][ORCHARD]["tree_density"] ** 0.5  # ForestWorkflow: 5 m Mindestabstand
+
+    assert 7.0 <= spacing <= 11.0
+
+
+def test_generator_emits_the_same_orchard_rules(forest_config):
+    import generate_forest_assets as gen
+
+    every_tree = set()
+    for template in forest_config["forest_type_templates"].values():
+        every_tree |= set(template["preferred_trees"])
+    types = gen.generate_forest_types({t: [t] for t in every_tree})
+    committed = forest_config["forest_type_templates"][ORCHARD]
+
+    assert set(types[ORCHARD]["preferred_trees"]) == set(committed["preferred_trees"]) <= set(gen.ORCHARD_TREES)
+    assert types[ORCHARD]["average_height"] == committed["average_height"]
+    assert types[ORCHARD]["tree_density"] == committed["tree_density"]

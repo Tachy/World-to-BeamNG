@@ -306,7 +306,15 @@ GARDEN_BUSHES = [
     "tree_beech_bush_b",
     "generibush_small",
 ]
-SINGLE_TREES = [
+# Obstplantagen (landuse=orchard): breitkronige kleine Laubbäume (Modellhöhe 8,5-9,9 m, Krone ca. halb so breit wie hoch).
+# Espen sind zu schlank, beech_small_d wäre mit 6-7 m zu hoch, Büsche sind keine Bäume.
+ORCHARD_TREES = [
+    "tree_oak_sml_a",
+    "tree_oak_sml_b",
+    "tree_beech_small_c",
+]
+# Baumreihen (natural=tree_row): kleine Laubbäume
+TREE_ROW_TREES = [
     "tree_aspen_small_a",
     "tree_aspen_small_b",
     "tree_aspen_small_c",
@@ -316,6 +324,15 @@ SINGLE_TREES = [
     "tree_beech_small_d",
     "tree_oak_sml_a",
     "tree_oak_sml_b",
+]
+# Einzelbäume (natural=tree): große, breitkronige Laubbäume (gemessene Modellhöhe 13-21 m). Die Espen "large" sind
+# nur 10 m hoch und schmal, die "*_forest_*"-Bäume schlanke Waldstämme - beide passen nicht für freistehende Bäume.
+LARGE_DECIDUOUS_TREES = [
+    "tree_oak_large_a",
+    "tree_oak_large_b",
+    "tree_oak_large_c",
+    "tree_beech_large_b",
+    "tree_beech_large_c",
 ]
 
 
@@ -394,17 +411,20 @@ def generate_forest_types(trees_by_type: dict) -> dict:
             "preferred_trees": create_tree_distribution(garden_bushes),
             "comment": "Wohngebiete - lichte Büsche zwischen den Häusern (Straßen/Gebäude werden ausgespart)",
         }
-    single_trees = [t for t in SINGLE_TREES if t in all_tree_keys]
+    single_trees = [t for t in LARGE_DECIDUOUS_TREES if t in all_tree_keys]
     if single_trees:
         forest_types["single_tree"] = {
             "tree_density": 1.0,
-            "average_height": [16.0, 26.0],
+            "average_height": [17.0, 23.0],
             "underground_material": "grassland",
             "lod_distance": 180.0,
             "collision_enabled": True,
             "preferred_trees": create_tree_distribution(single_trees),
-            "comment": "Einzelbäume (OSM natural=tree als Punkt)",
+            "comment": "Einzelbäume (OSM natural=tree als Punkt): große, breitkronige Laubbäume (Eiche/Buche, 13-21 m); "
+            "average_height wirkt als Skalierung (Zielhöhe/20 m)",
         }
+    row_trees = [t for t in TREE_ROW_TREES if t in all_tree_keys]
+    if row_trees:
         # Baumreihe: natural=tree_row ist eine LINIE - Bäume im Abstand row_spacing entlang der Linie
         forest_types["tree_row"] = {
             "tree_density": 1.0,
@@ -413,7 +433,7 @@ def generate_forest_types(trees_by_type: dict) -> dict:
             "underground_material": "grassland",
             "lod_distance": 180.0,
             "collision_enabled": True,
-            "preferred_trees": create_tree_distribution(single_trees),
+            "preferred_trees": create_tree_distribution(row_trees),
             "comment": "Baumreihe (OSM natural=tree_row ist eine LINIE): Bäume im Abstand row_spacing entlang der Linie",
         }
 
@@ -430,17 +450,19 @@ def generate_forest_types(trees_by_type: dict) -> dict:
             "comment": "Lichter Laubwald - überwiegend Busch- und kleinere Bäume",
         }
 
-    # 4. Orchard Area
-    orchard_trees = [t for t in all_tree_keys if "small" in t or "sml" in t][:10]
+    # 4. Orchard Area: ca. 5 m hohe, breitkronige (rundliche) Laubbäume. Skalierung = Zielhöhe / 20 m, mindestens 0,5:
+    # Modelle 8,5-9,9 m x 0,5-0,6 ergeben 4,2-6 m. Explizite Liste (gemessene Höhen), keine Namens-Heuristik.
+    orchard_trees = [t for t in ORCHARD_TREES if t in all_tree_keys]
     if orchard_trees:
         forest_types["orchard_area"] = {
             "tree_density": 0.3,
-            "average_height": [8.0, 15.0],
+            "average_height": [10.0, 12.0],
             "underground_material": "grassland",
             "lod_distance": 150.0,
             "collision_enabled": True,
             "preferred_trees": create_tree_distribution(orchard_trees),
-            "comment": "Obstplantage - niedrige und kleine Bäume",
+            "comment": "Obstplantage - ca. 5 m hohe, breitkronige (rundliche) Laubbäume in ca. 9 m Abstand; "
+            "average_height wirkt als Skalierung (Zielhöhe/20 m, min. 0,5): Modelle 8,5-9,9 m x 0,5-0,6",
         }
 
     # 5. Hedgerow
