@@ -475,7 +475,14 @@ def load_sentinel2_geotiff(sentinel2_dir, bbox_utm, tile_hash=None):
         return None
 
 
-def generate_horizon_mesh(height_points, height_elevations, local_offset, tile_bounds=None, vertex_manager=None):
+def generate_horizon_mesh(
+    height_points,
+    height_elevations,
+    local_offset,
+    tile_bounds=None,
+    vertex_manager=None,
+    terrain_height_at=None,
+):
     """
     Generiert Horizont-Mesh mit SEPARATEM VertexManager (saubere Architektur).
 
@@ -502,6 +509,10 @@ def generate_horizon_mesh(height_points, height_elevations, local_offset, tile_b
                      zum Überspringen von Quads die über Terrain liegen
         vertex_manager: Optional - Bestehender VertexManager (z.B. vom Terrain für Stitching)
                         Falls None, wird ein SEPARATER erstellt (EMPFOHLEN)
+        terrain_height_at: Optional - Höhenabfrage der Terrain-Heightmap. Mit tile_bounds
+                        wird der Horizont dann mit exakt passendem Loch, Randring und
+                        Höhenübergang gebaut (terrain/horizon_seam.py) - ohne Vernähen mit einem
+                        Terrain-Mesh. Ohne: altes Verhalten (grobes Loch, DGM30-Höhen).
 
     Returns:
         Tuple (mesh, nx, ny, horizon_vertex_indices, global_to_horizon_map)
@@ -514,6 +525,39 @@ def generate_horizon_mesh(height_points, height_elevations, local_offset, tile_b
     from ..mesh.mesh import Mesh
 
     _ = local_offset  # behalten für Aufrufer-Signatur; Daten sind bereits lokal
+
+    if terrain_height_at is not None and tile_bounds:
+        from ..mesh.vertex_manager import VertexManager
+        from ..mesh.mesh import Mesh
+        from .horizon_seam import build_horizon_geometry
+
+        hole = (
+            min(b[0] for b in tile_bounds),
+            min(b[1] for b in tile_bounds),
+            max(b[2] for b in tile_bounds),
+            max(b[3] for b in tile_bounds),
+        )
+        vertices, faces, nx, ny = build_horizon_geometry(
+            height_points,
+            height_elevations,
+            hole,
+            terrain_height_at,
+            spacing=config.HORIZON_GRID_SPACING,
+            seam_step=config.HORIZON_SEAM_STEP,
+            blend_distance=config.HORIZON_BLEND_DISTANCE,
+            flange_inset=config.HORIZON_FLANGE_INSET,
+            flange_sink=config.HORIZON_FLANGE_SINK,
+        )
+        vm = VertexManager(tolerance=0.001)
+        indices = vm.add_vertices_direct_nohash(vertices)
+        mesh = Mesh(vm)
+        mesh.faces = list(map(tuple, faces))
+        mesh.uvs = []
+        mesh.uv_indices = {}
+        logger.info(
+            f"  [OK] Horizont mit passendem Terrain-Loch {hole}: {len(vertices)} Vertices, {len(faces)} Dreiecke"
+        )
+        return mesh, nx, ny, list(indices), None
 
     # Punkte und Höhen liegen bereits lokal vor
     local_points = height_points
@@ -632,7 +676,7 @@ def generate_horizon_mesh(height_points, height_elevations, local_offset, tile_b
 
     if len(valid_quads) == 0:
         logger.error("  [!] Keine Quads zu generieren (alle gefiltert)")
-        return mesh, nx, ny
+        return mesh, nx, ny, vertex_indices.tolist(), global_to_horizon_map
 
     num_quads = len(valid_quads)
 

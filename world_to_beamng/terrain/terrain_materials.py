@@ -207,6 +207,30 @@ def mask_layer_map_with_photo(
     return result
 
 
+def mark_padding_as_holes(layer_map: np.ndarray, data_cols: int, data_rows: int) -> np.ndarray:
+    """
+    Markiert den aufgefüllten Überschussrand der Zweierpotenz-Heightmap als Terrain-Hole.
+
+    Die .ter-Größe ist eine Zweierpotenz (z.B. 2048), die echten Daten sind kleiner (2001).
+    Der Rand jenseits der Daten ist nur Extrapolation - als Hole (Layer 255) wird dort weder
+    Terrain gerendert noch kollidiert; der Horizont deckt diesen Streifen ab
+    (terrain/horizon_seam.py). Das sichtbare Terrain endet damit exakt am Datenrand.
+
+    Args:
+        layer_map: (size, size) Layer-Indizes, layer_map[row, col]
+        data_cols, data_rows: Anzahl echter Datenspalten (x) bzw. -zeilen (y)
+
+    Returns:
+        Neue layer_map (Eingabe bleibt unverändert)
+    """
+    from .ter_writer import EMPTY_LAYER_VALUE
+
+    result = layer_map.copy()
+    result[:, data_cols:] = EMPTY_LAYER_VALUE
+    result[data_rows:, :] = EMPTY_LAYER_VALUE
+    return result
+
+
 DETAIL_TEXTURE_KEYS = ("detailColorMap", "detailNormalMap")
 
 

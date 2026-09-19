@@ -347,3 +347,25 @@ if __name__ == "__main__":
     test_build_terrain_material_texture_set()
     print("[OK] test_build_terrain_material_texture_set")
     print("Alle Tests bestanden.")
+
+
+def test_mark_padding_as_holes_only_touches_cells_beyond_the_data():
+    from world_to_beamng.terrain.terrain_materials import mark_padding_as_holes
+    from world_to_beamng.terrain.ter_writer import EMPTY_LAYER_VALUE
+
+    layer_map = np.full((8, 8), 3, dtype=np.uint8)  # 8x8-Terrain, Daten nur 5 Spalten x 6 Zeilen
+
+    result = mark_padding_as_holes(layer_map, data_cols=5, data_rows=6)
+
+    assert (result[:6, :5] == 3).all()  # echte Daten bleiben unberührt
+    assert (result[:, 5:] == EMPTY_LAYER_VALUE).all()  # Spalten jenseits der Daten
+    assert (result[6:, :] == EMPTY_LAYER_VALUE).all()  # Zeilen jenseits der Daten
+    assert (layer_map == 3).all()  # Eingabe wird nicht verändert
+
+
+def test_mark_padding_as_holes_without_padding_is_a_noop():
+    from world_to_beamng.terrain.terrain_materials import mark_padding_as_holes
+
+    layer_map = np.full((4, 4), 1, dtype=np.uint8)
+
+    assert (mark_padding_as_holes(layer_map, data_cols=4, data_rows=4) == 1).all()

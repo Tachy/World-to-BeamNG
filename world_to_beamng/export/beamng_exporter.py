@@ -211,6 +211,7 @@ class BeamNGExporter:
         terrain_mesh = None
         terrain_vertex_manager = None
         terrain_grid_bounds = None
+        terrain_height_at = None
 
         # EIN zusammengesetztes Luftbild für die Gesamtfläche generieren (nicht
         # mehr eine Textur pro 500m-Kachel - siehe io/aerial.py::process_aerial_images()
@@ -279,6 +280,17 @@ class BeamNGExporter:
             self.height_elevations = result.get("height_elevations")
 
             self.terrain.export_tile(0, 0, result)
+
+            # Höhenabfrage der fertigen Heightmap: der Horizont bekommt daraus sein Terrain-Loch
+            # samt Randhöhen (kein Terrain-Mesh mehr, das vernäht werden könnte)
+            from ..terrain.road_embedding import sample_heightmap_bilinear
+
+            heightmap = result["heightmap"]
+            hm_origin = (result["terrain_origin_x"], result["terrain_origin_y"])
+            terrain_height_at = lambda x, y: sample_heightmap_bilinear(
+                heightmap, hm_origin[0], hm_origin[1], config.TERRAIN_SQUARE_SIZE,
+                np.column_stack([np.atleast_1d(x), np.atleast_1d(y)]),
+            )
 
             # Gesamt-BBox in lokalen Koordinaten für Horizon-Clipping
             x_min, x_max, y_min, y_max = result["grid_bounds_local"]
@@ -350,6 +362,7 @@ class BeamNGExporter:
                 terrain_mesh=terrain_mesh,
                 terrain_vertex_manager=terrain_vertex_manager,
                 terrain_grid_bounds=terrain_grid_bounds,
+                terrain_height_at=terrain_height_at,
             )
 
             if result is not None:

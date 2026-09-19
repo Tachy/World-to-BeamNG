@@ -5,6 +5,7 @@ Orchestriert den kompletten Terrain-Export-Prozess.
 """
 
 from typing import Dict, List, Optional, Tuple
+import json
 import numpy as np
 from pathlib import Path
 import logging
@@ -15,6 +16,15 @@ from ..managers import MaterialManager, ItemManager, DAEExporter
 from .tile_processor import TileProcessor
 
 logger = logging.getLogger(__name__)
+
+WATER_TEMPLATES_PATH = Path(__file__).parent.parent.parent / "data" / "water_templates.json"
+
+
+def make_height_sampler_for_water(heights, origin_x, origin_y):
+    """Bilineare Höhenabfrage auf der fertigen Heightmap (wie für die Weinberg-Reben)."""
+    from ..forest.vineyard_generator import make_height_sampler
+
+    return make_height_sampler(heights, origin_x, origin_y, config.TERRAIN_SQUARE_SIZE)
 
 
 class TerrainWorkflow:
@@ -251,6 +261,7 @@ class TerrainWorkflow:
         )
         from ..terrain.terrain_materials import (
             build_photo_fallback_layer,
+            mark_padding_as_holes,
             mask_layer_map_with_photo,
             paint_landuse_materials,
         )
@@ -348,6 +359,12 @@ class TerrainWorkflow:
                 buffer=config.GROUND_COVER_BUILDING_MARGIN,
             )
 
+        # Überschussrand der Zweierpotenz-Heightmap (nur Extrapolation) als Hole: das sichtbare
+        # Terrain endet exakt am Datenrand, den Streifen dahinter deckt der Horizont ab.
+        # Zuletzt, damit Malen/Maskieren oben unverändert auf der vollen Layer-Map laufen.
+        if config.TERRAIN_PADDING_AS_HOLES:
+            layer_map = mark_padding_as_holes(layer_map, data_cols=nx, data_rows=ny)
+
         # Weinberg-Reben (Forest-Items) entlang der Falllinie, auf der fertigen Heightmap
         vineyard_instances = []
         if config.VINEYARDS_ENABLED and config.FORESTS_ENABLED:
@@ -370,6 +387,17 @@ class TerrainWorkflow:
             )
             logger.info(f"  [OK] {len(vineyard_instances)} Rebzeilen-Segmente generiert")
 
+        # Echtes Wasser: Bäche als River-Splines, Wasserflächen als WaterBlocks (auf der fertigen Heightmap)
+        water = {"rivers": [], "ponds": []}
+        if config.WATER_ENABLED:
+            water = self._build_water(
+                osm_data,
+                landuse_polygons,
+                global_offset,
+                make_height_sampler_for_water(heights, terrain_origin_x, terrain_origin_y),
+                grid_bounds_local,
+            )
+
         z_min = float(heights.min())
         z_max = float(heights.max())
         max_height = (z_max - z_min) + config.TERRAIN_MAX_HEIGHT_BUFFER
@@ -386,6 +414,7 @@ class TerrainWorkflow:
             "terrain_material_names": terrain_material_names,
             "photo_tile_names": photo_tile_names,
             "vineyard_instances": vineyard_instances,  # Forest-Items (grape_vine)
+            "water": water,  # {"rivers": [...], "ponds": [...]} für export_water()
             "grid": grid,
             "road_polygons": road_polygons,
             "road_slope_polygons_2d": road_slope_polygons_2d,  # Für DecalRoad-Export
@@ -396,6 +425,120 @@ class TerrainWorkflow:
             "height_elevations": elevations,  # Für Spawn-Punkt-Berechnung
             "height_hash": tile_hash,  # Für Cache-Konsistenz in Forest-Workflow
         }
+
+    def _build_water(self, osm_data, landuse_polygons, global_offset, height_at, grid_bounds_local) -> Dict:
+        """
+        Berechnet Bach-Knoten und Teich-Blöcke (siehe terrain/water.py). Das Gelände bleibt unverändert;
+        die Wasserhöhen werden aus der fertigen Heightmap abgeleitet.
+
+        Returns:
+            {"rivers": [{"name", "waterway", "nodes"}], "ponds": [{"name", "blocks"}]}
+        """
+        from shapely.geometry import box
+
+        from ..osm.landuse_polygons import make_local_transform
+        from ..terrain.water import (
+            build_pond_blocks,
+            build_river_nodes,
+            clip_line_to_bounds,
+            select_waterways,
+            split_nodes,
+        )
+
+        margin = 2.0  # knapp innerhalb der echten Daten: dahinter ist das Terrain aufgefüllt
+        x_min, x_max, y_min, y_max = grid_bounds_local
+        bounds = (x_min + margin, y_min + margin, x_max - margin, y_max - margin)
+
+        rivers = []
+        for way in select_waterways(osm_data, make_local_transform(global_offset), config.WATERWAY_WIDTHS):
+            for part in clip_line_to_bounds(way["coords"], bounds):
+                if len(part) < 2:
+                    continue
+                nodes = build_river_nodes(
+                    part,
+                    height_at,
+                    width=way["width"],
+                    depth=config.WATER_RIVER_DEPTH,
+                    spacing=config.WATER_NODE_SPACING,
+                    lift=config.WATER_STREAM_LIFT,
+                )
+                for chunk in split_nodes(nodes, config.WATER_MAX_RIVER_NODES):
+                    if len(chunk) >= 2:
+                        rivers.append({"name": f"river_{len(rivers)}", "waterway": way["waterway"], "nodes": chunk})
+
+        ponds = []
+        terrain_box = box(*bounds)
+        for polygon in landuse_polygons:
+            tags = polygon["osm_tags"]
+            if tags.get("natural") != "water" and tags.get("landuse") not in ("basin", "reservoir"):
+                continue
+            geometry = polygon["geometry"].intersection(terrain_box)
+            blocks = build_pond_blocks(
+                geometry,
+                height_at,
+                lift=config.WATER_POND_LIFT,
+                depth=config.WATER_POND_DEPTH,
+                cell=config.WATER_POND_CELL,
+            )
+            if blocks:
+                ponds.append({"name": f"pond_{len(ponds)}", "blocks": blocks})
+
+        length = sum(sum(((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2) ** 0.5 for a, b in zip(r["nodes"], r["nodes"][1:])) for r in rivers)
+        logger.info(
+            f"  [OK] Wasser: {len(rivers)} River-Objekt(e) ({length:.0f} m Bachlauf), "
+            f"{len(ponds)} Wasserfläche(n) mit {sum(len(p['blocks']) for p in ponds)} WaterBlocks"
+        )
+        return {"rivers": rivers, "ponds": ponds}
+
+    def export_water(self, mesh_data: Dict) -> int:
+        """
+        Registriert Bäche (`River`) und Teiche/Seen (`WaterBlock`) als BeamNG-Objekte. Die Render-
+        Parameter stammen aus BeamNGs eigenem east_coast_usa-Level (data/water_templates.json,
+        nur core-Texturen), siehe tools/extract_water_templates.py.
+
+        Returns:
+            Anzahl der erzeugten Wasser-Objekte
+        """
+        water = mesh_data.get("water") or {}
+        if not config.WATER_ENABLED or not (water.get("rivers") or water.get("ponds")):
+            return 0
+
+        import copy
+
+        templates = json.loads(WATER_TEMPLATES_PATH.read_text(encoding="utf-8"))
+        count = 0
+
+        for river in water.get("rivers", []):
+            fields = copy.deepcopy(templates["stream"]["fields"])
+            fields.pop("class", None)
+            nodes = river["nodes"]
+            self.items.add_item(
+                river["name"],
+                item_class="River",
+                position=tuple(nodes[0][:3]),
+                overwrite=True,
+                nodes=nodes,
+                **fields,
+            )
+            count += 1
+
+        for pond in water.get("ponds", []):
+            for index, block in enumerate(pond["blocks"]):
+                fields = copy.deepcopy(templates["pond"]["fields"])
+                fields.pop("class", None)
+                fields["cubemap"] = config.WATER_POND_CUBEMAP
+                self.items.add_item(
+                    f"{pond['name']}_{index}",
+                    item_class="WaterBlock",
+                    position=tuple(block["position"]),
+                    scale=tuple(block["scale"]),
+                    overwrite=True,
+                    **fields,
+                )
+                count += 1
+
+        logger.info(f"  [OK] {count} Wasser-Objekt(e) exportiert")
+        return count
 
     def export_decal_roads(self, mesh_data: Dict) -> int:
         """
@@ -644,6 +787,7 @@ class TerrainWorkflow:
             Anzahl der erzeugten DecalRoad-Items
         """
         road_count = self.export_decal_roads(mesh_data)
+        self.export_water(mesh_data)
         self.export_merged_terrain(
             heights=mesh_data["heightmap"],
             layer_map=mesh_data["layer_map"],

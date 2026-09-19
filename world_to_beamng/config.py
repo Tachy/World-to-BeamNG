@@ -33,8 +33,8 @@ ITEMS_JSON = Path("main") / "MissionGroup" / "items.level.json"  # Items im Miss
 MATERIALS_JSON = Path("main") / "materials.json"  # Enthält Material-Definitionen
 
 # Ablaufsteuerung
-LOD2_ENABLED = False  # LoD2-Gebäude verarbeiten
-PHASE5_ENABLED = False  # Horizont-Layer aktivieren (erfordert DGM30 + DOP300 Daten)
+LOD2_ENABLED = True  # LoD2-Gebäude verarbeiten
+PHASE5_ENABLED = True  # Horizont-Layer aktivieren (erfordert DGM30 + DOP300 Daten)
 HORIZON_BOUNDARY_STITCHING = False  # Stitching zwischen Terrain und Horizon aktivieren
 FORESTS_ENABLED = True  # Wald-Export global aktivieren/deaktivieren
 
@@ -46,6 +46,33 @@ FORESTS_ENABLED = True  # Wald-Export global aktivieren/deaktivieren
 OPENTOPOGRAPHY_API_KEY = "9805a06e82a636afd885c07a2f2e1838"  # Registrierung: https://opentopography.org/
 OPENTOPOGRAPHY_ENABLED = False  # Automatischer Download von DGM30 aktivieren
 HORIZON_GRID_SPACING = 200  # Horizont-Grid Auflösung in Metern (200m)
+# Naht Terrain <-> Horizont (siehe terrain/horizon_seam.py): der Horizont hat ein exakt passendes Loch
+# für den Terrain-Block, feinen Randring mit den Terrain-Randhöhen und sanften Höhenübergang.
+TERRAIN_PADDING_AS_HOLES = True  # Aufgefüllten Heightmap-Rand (jenseits der Daten) als Hole - der Horizont deckt ihn ab
+HORIZON_SEAM_STEP = 1.0  # Punktabstand des Randrings am Terrain-Loch in Metern (= TERRAIN_SQUARE_SIZE: Naht exakt, DGM1 unverändert)
+HORIZON_BLEND_DISTANCE = 1000.0  # Länge des Höhenübergangs Terrain -> DGM30 in Metern
+HORIZON_FLANGE_INSET = 5.0  # Breite des Flansches unter dem Terrain (verdeckt Restrisse), 0 = aus
+HORIZON_FLANGE_SINK = 15.0  # Tiefe des Flansches unter der Terrainhöhe in Metern
+
+# === SICHTWEITE / NEBEL (LevelInfo) ===
+# Ohne visibleDistance nutzt BeamNG seinen Standard (~1 km) - alles dahinter wird geclippt.
+# Original-Level: utah 5000, east_coast 12000, west_coast 15667, italy 25000. Der Horizont reicht
+# +-50 km; der Nebel blendet die Kappung aus (bei 0.0002 sind nach 25 km nur noch ~0.7 % sichtbar).
+# Größere Werte zeigen mehr vom Horizont, kosten aber Tiefenpräzision (nicht getestet über 25000).
+LEVEL_VISIBLE_DISTANCE = 25000  # Sichtweite in Metern (LevelInfo.visibleDistance)
+LEVEL_FOG_DENSITY = 0.0002  # Nebeldichte (LevelInfo.fogDensity), kleiner = klarere Fernsicht
+
+# === WASSER (echte BeamNG-Objekte: River für Bäche, WaterBlock für Teiche/Seen) ===
+WATER_ENABLED = True
+WATERWAY_WIDTHS = {"stream": 2.5, "river": 8.0, "canal": 5.0}  # Standardbreite je Art in m (Tag "width" hat Vorrang); Gräben nicht
+WATER_RIVER_DEPTH = 1.0  # Tiefe des River-Volumens in m
+WATER_NODE_SPACING = 10.0  # Abstand der River-Knoten in m
+WATER_STREAM_LIFT = 0.2  # Wasserstand über dem Rinnenboden des DGM1 in m (Ufer liegen im Median 0,4 m höher)
+WATER_MAX_RIVER_NODES = 40  # längere Bäche werden in mehrere River-Objekte geteilt
+WATER_POND_LIFT = 0.15  # Teichspiegel über dem unteren Viertel des Geländes im Polygon in m
+WATER_POND_DEPTH = 3.0  # Tiefe der WaterBlocks in m
+WATER_POND_CELL = 6.0  # maximale Kantenlänge der Kacheln, mit denen Teiche gefüllt werden, in m
+WATER_POND_CUBEMAP = "DefaultSkyCubemap"  # Engine-eigene Cubemap (die der Vorlage ist level-spezifisch und fehlte)
 
 # === MESH-PARAMETER ===
 ROAD_WIDTH = 7.0

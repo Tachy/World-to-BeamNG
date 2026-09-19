@@ -14,6 +14,7 @@ import shutil
 from typing import Dict, Any, Optional, List, Tuple
 from pathlib import Path
 import logging
+from world_to_beamng import config
 from world_to_beamng.logging_config import LoggerConfig
 logger = LoggerConfig.get_logger()
 
@@ -56,6 +57,8 @@ class ItemManager:
             "decalsEnabled": True,
             "canSave": True,
             "globalEnvironmentMap": "BNG_Sky_02_cubemap",
+            "visibleDistance": config.LEVEL_VISIBLE_DISTANCE,
+            "fogDensity": config.LEVEL_FOG_DENSITY,
         },
         {
             "name": "the_sky",

@@ -44,6 +44,7 @@ class HorizonWorkflow:
         terrain_mesh=None,
         terrain_vertex_manager=None,
         terrain_grid_bounds: Optional[Tuple[float, float, float, float]] = None,
+        terrain_height_at=None,
     ) -> Optional[Tuple[str, list]]:
         """
         Generiere Horizon-Layer (wie in multitile.py phase5_generate_horizon_layer).
@@ -55,6 +56,9 @@ class HorizonWorkflow:
             terrain_mesh: Optional - Terrain-Mesh für Boundary-Stitching
             terrain_vertex_manager: Optional - Terrain VertexManager (für gemeinsamen VM)
             terrain_grid_bounds: Optional - (x_min, x_max, y_min, y_max) der Terrain-Tiles
+            terrain_height_at: Optional - Höhenabfrage der Terrain-Heightmap (x, y) -> z. Damit
+                bekommt der Horizont ein exakt passendes Loch samt Randring und Höhenübergang
+                (terrain/horizon_seam.py) - ganz ohne Terrain-Mesh-Stitching.
 
         Returns:
             Tuple (dae_path, stitching_faces) oder (None, [])
@@ -109,6 +113,7 @@ class HorizonWorkflow:
             global_offset,
             tile_bounds=tile_bounds,
             vertex_manager=None,  # ALWAYS separater VM (saubere Architektur)
+            terrain_height_at=terrain_height_at,
         )
 
         # === STEP 2: Boundary-Stitching (falls aktiviert) ===

@@ -1,0 +1,247 @@
+{
+  "stream": {
+    "source": "east_coast_usa/River (Bach, 15 Knoten)",
+    "class": "River",
+    "fields": {
+      "class": "River",
+      "Foam": [
+        {
+          "foamDir": [
+            0,
+            1
+          ],
+          "foamOpacity": null,
+          "foamSpeed": -0.100000001,
+          "foamTexScale": [
+            2,
+            2
+          ]
+        },
+        {
+          "foamDir": null,
+          "foamOpacity": 1,
+          "foamSpeed": -0.100000001,
+          "foamTexScale": [
+            1,
+            1
+          ]
+        }
+      ],
+      "Ripples (texture animation)": [
+        {
+          "rippleDir": [
+            0,
+            0.5
+          ],
+          "rippleMagnitude": 0.699999988,
+          "rippleSpeed": 0.100000001,
+          "rippleTexScale": [
+            8,
+            6
+          ]
+        },
+        {
+          "rippleDir": [
+            0,
+            1
+          ],
+          "rippleMagnitude": 0.899999976,
+          "rippleSpeed": 0.200000003,
+          "rippleTexScale": [
+            7,
+            5
+          ]
+        },
+        {
+          "rippleDir": [
+            0,
+            0.800000012
+          ],
+          "rippleMagnitude": 0.699999988,
+          "rippleSpeed": 0.699999988,
+          "rippleTexScale": [
+            6,
+            4
+          ]
+        }
+      ],
+      "Waves (vertex undulation)": [
+        {
+          "waveDir": [
+            0,
+            1
+          ],
+          "waveMagnitude": 0.200000003,
+          "waveSpeed": 3
+        },
+        {
+          "waveDir": [
+            0.707000017,
+            0.707000017
+          ],
+          "waveMagnitude": 0.200000003,
+          "waveSpeed": 5
+        },
+        {
+          "waveDir": [
+            0.5,
+            0.860000014
+          ],
+          "waveMagnitude": 0.200000003,
+          "waveSpeed": 5
+        }
+      ],
+      "baseColor": [
+        104,
+        97,
+        87,
+        255
+      ],
+      "cubemap": "GreySkyCubemap",
+      "depthGradientTex": "core/art/water/river_depthcolor_ramp_b.png",
+      "distortFullDepth": 5,
+      "foamAmbientLerp": 1,
+      "foamMaxDepth": 1,
+      "foamRippleInfluence": 0.100000001,
+      "foamTex": "core/art/water/waterfall_foam_d.dds",
+      "fresnelBias": 1,
+      "fullReflect": false,
+      "overallFoamOpacity": 4,
+      "overallRippleMagnitude": 20,
+      "overallWaveMagnitude": 0,
+      "reflectMaxRateMs": 1,
+      "reflectNormalUp": true,
+      "reflectTexSize": 64,
+      "rippleTex": "core/art/water/waterfall_foam_n.dds",
+      "segmentLength": 1,
+      "specularColor": [
+        0.992156982,
+        0.992156982,
+        0.992156982,
+        1
+      ],
+      "specularPower": 1,
+      "subdivideLength": 0.25,
+      "underwaterColor": [
+        108,
+        95,
+        75,
+        240
+      ],
+      "viscosity": 0.00100000005,
+      "waterFogDensity": 1,
+      "waterFogDensityOffset": 0.0500000007,
+      "wetDarkening": 0.699999988,
+      "wetDepth": 1
+    }
+  },
+  "pond": {
+    "source": "east_coast_usa/WaterBlock creek2",
+    "class": "WaterBlock",
+    "fields": {
+      "class": "WaterBlock",
+      "Foam": [
+        {
+          "foamTexScale": null
+        },
+        {
+          "foamTexScale": [
+            5,
+            5
+          ]
+        }
+      ],
+      "Ripples (texture animation)": [
+        {
+          "rippleDir": [
+            0,
+            -1
+          ],
+          "rippleMagnitude": 15,
+          "rippleSpeed": 0.00499999989,
+          "rippleTexScale": [
+            10,
+            10
+          ]
+        },
+        {
+          "rippleDir": [
+            -0.800000012,
+            0.300000012
+          ],
+          "rippleMagnitude": 15,
+          "rippleSpeed": 0.00999999978,
+          "rippleTexScale": [
+            15,
+            15
+          ]
+        },
+        {
+          "rippleDir": [
+            -1,
+            -1
+          ],
+          "rippleMagnitude": 4,
+          "rippleSpeed": 0.000500000024,
+          "rippleTexScale": [
+            30,
+            15
+          ]
+        }
+      ],
+      "Waves (vertex undulation)": [
+        {
+          "waveDir": [
+            -1,
+            -1
+          ],
+          "waveMagnitude": 1,
+          "waveSpeed": 3
+        },
+        {
+          "waveDir": [
+            0.707000017,
+            0.707000017
+          ],
+          "waveMagnitude": null,
+          "waveSpeed": 1
+        },
+        {
+          "waveDir": [
+            0.5,
+            0.860000014
+          ],
+          "waveMagnitude": 0.200000003,
+          "waveSpeed": 1
+        }
+      ],
+      "baseColor": [
+        89,
+        104,
+        19,
+        255
+      ],
+      "cubemap": "cubemap_river_reflection",
+      "depthGradientTex": "core/art/water/depthcolor_ramp.png",
+      "foamAmbientLerp": -1,
+      "foamMaxDepth": 0.5,
+      "foamRippleInfluence": 1,
+      "foamTex": "core/art/water/foam.dds",
+      "fresnelBias": 0.5,
+      "fresnelPower": 1,
+      "fullReflect": false,
+      "overallFoamOpacity": 1.5,
+      "overallRippleMagnitude": 0.200000003,
+      "overallWaveMagnitude": 0.00999999978,
+      "reflectMaxRateMs": 1,
+      "reflectTexSize": 512,
+      "reflectivity": 0.699999988,
+      "rippleTex": "core/art/water/ripple.dds",
+      "specularPower": 100,
+      "viscosity": 0.00100000005,
+      "waterFogDensity": 5,
+      "waterFogDensityOffset": 0,
+      "wetDarkening": 0.5
+    }
+  }
+}
