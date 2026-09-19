@@ -369,3 +369,62 @@ def test_mark_padding_as_holes_without_padding_is_a_noop():
     layer_map = np.full((4, 4), 1, dtype=np.uint8)
 
     assert (mark_padding_as_holes(layer_map, data_cols=4, data_rows=4) == 1).all()
+
+
+# --- Vier-Bilder-Modus: ein Foto und je Kachel eine Variante jeder Landnutzungs-Schicht ---------------
+
+
+def _tile_entries():
+    names = ["aerial_photo_0", "aerial_photo_1", "mat_forest_t0", "mat_grass_t1"]
+    parents = {"mat_forest_t0": ("mat_forest", "aerial_photo_0"), "mat_grass_t1": ("mat_grass", "aerial_photo_1")}
+    return build_terrain_material_entries(
+        names,
+        ["aerial_photo_0", "aerial_photo_1"],
+        LANDUSE_MAPPINGS_FIXTURE,
+        "world_to_beamng",
+        4096.0,
+        _FAKE_PLACEHOLDERS,
+        variant_parents=parents,
+        photo_extents={"aerial_photo_0": 2000.0, "aerial_photo_1": 2000.0},
+    )
+
+
+def test_each_tile_photo_is_its_own_material_with_the_tile_extent():
+    entries = _tile_entries()
+
+    for k in (0, 1):
+        photo = entries[f"aerial_photo_{k}"]
+        assert photo["internalName"] == f"aerial_photo_{k}"
+        assert photo["baseColorBaseTex"] == f"/levels/world_to_beamng/art/shapes/textures/aerial_photo_{k}.png"
+        assert photo["baseColorBaseTexSize"] == 2000.0  # Kachel, nicht die ganze Fläche (4096)
+
+
+def test_landuse_variants_use_the_photo_of_their_own_tile_and_keep_the_detail_texture():
+    entries = _tile_entries()
+
+    forest, grass = entries["mat_forest_t0"], entries["mat_grass_t1"]
+    assert forest["internalName"] == "mat_forest_t0" and grass["internalName"] == "mat_grass_t1"
+    assert forest["baseColorBaseTex"].endswith("/aerial_photo_0.png")
+    assert grass["baseColorBaseTex"].endswith("/aerial_photo_1.png")
+    assert forest["baseColorBaseTexSize"] == grass["baseColorBaseTexSize"] == 2000.0
+    assert forest["baseColorDetailTex"] == "a/forest_b.png"  # Detail kommt aus der Schicht, nicht aus dem Namen
+    assert grass["baseColorDetailTex"] == "a/grass_b.png"
+    assert forest["groundmodelName"] == "GRASS"
+
+
+def test_variants_have_unique_persistent_ids_and_all_required_slots():
+    entries = _tile_entries()
+
+    assert len({e["persistentId"] for e in entries.values()}) == len(entries)
+    for entry in entries.values():
+        for field in _REQUIRED_TERRAIN_TEX_FIELDS:
+            assert field in entry
+
+
+def test_single_photo_mode_is_unchanged_without_variants():
+    entries = build_terrain_material_entries(
+        ["aerial_photo", "mat_forest"], ["aerial_photo"], LANDUSE_MAPPINGS_FIXTURE, "world_to_beamng", 2048.0, _FAKE_PLACEHOLDERS
+    )
+
+    assert entries["mat_forest"]["baseColorBaseTex"].endswith("/aerial_photo.png")
+    assert entries["mat_forest"]["baseColorBaseTexSize"] == 2048.0

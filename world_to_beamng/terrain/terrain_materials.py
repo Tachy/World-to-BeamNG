@@ -367,6 +367,8 @@ def build_terrain_material_entries(
     level_name: str,
     photo_extent_size: float,
     placeholders: Dict[str, str],
+    variant_parents: Optional[Dict[str, Tuple[str, str]]] = None,
+    photo_extents: Optional[Dict[str, float]] = None,
 ) -> Dict[str, Dict]:
     """
     Baut TerrainMaterial-JSON-Einträge für materials.json (Schema verifiziert
@@ -386,10 +388,17 @@ def build_terrain_material_entries(
                           nicht, sondern deckt den kompletten Bereich einmal ab)
         placeholders: von ensure_flat_pbr_placeholders() - Pflicht-Texturslots,
                       für die wir keine echten Daten haben
+        variant_parents: Vier-Bilder-Modus (siehe terrain/photo_tiles.py): Variante -> (Schicht, Foto-
+                      Material der Kachel), z.B. {"mat_grass_t1": ("mat_grass", "aerial_photo_1")}. Die
+                      Variante nutzt das Foto ihrer Kachel als Basisfarbe und die Detail-Textur der Schicht.
+        photo_extents: Foto-Material -> Kantenlänge in Zellen (Kachelgröße); ohne Eintrag gilt
+                      photo_extent_size
 
     Returns:
         {material_name: {...TerrainMaterial JSON...}}
     """
+    variant_parents = variant_parents or {}
+    photo_extents = photo_extents or {}
     entries: Dict[str, Dict] = {}
     landuse_by_internal_name = {v["internal_name"]: v for v in landuse_mappings.values() if v.get("internal_name")}
     photo_tile_set = set(photo_tile_names)
@@ -403,13 +412,15 @@ def build_terrain_material_entries(
                 # .png, nicht .dds: BeamNGs Terrain-Atlas-Packer erwartet eine PNG-
                 # Quelltextur und cached sie selbst zu DDS (siehe io/aerial.py).
                 "baseColorBaseTex": f"/levels/{level_name}/art/shapes/textures/{name}.png",
-                "baseColorBaseTexSize": photo_extent_size,
+                "baseColorBaseTexSize": photo_extents.get(name, photo_extent_size),
             }
             _add_required_pbr_slots(entry, placeholders)
             entries[name] = entry
             continue
 
-        category_data = landuse_by_internal_name.get(name)
+        # Vier-Bilder-Modus: Variante einer Schicht mit dem Foto ihrer Kachel als Basisfarbe
+        layer_name, photo_name = variant_parents.get(name, (name, photo_tile_names[0]))
+        category_data = landuse_by_internal_name.get(layer_name)
         if category_data is None:
             continue
 
@@ -417,14 +428,13 @@ def build_terrain_material_entries(
         # die Landnutzung liegt als graue Detail-Textur darüber. BeamNGs
         # Terrain-Texturen sind Detail-Texturen (near-greyscale) - als Basis
         # ergäben sie einheitlich graue Flächen.
-        photo_name = photo_tile_names[0]
         strength = float(category_data.get("detailStrength", DEFAULT_DETAIL_STRENGTH))
         entry = {
             "internalName": name,
             "class": "TerrainMaterial",
             "persistentId": str(uuid4()),
             "baseColorBaseTex": f"/levels/{level_name}/art/shapes/textures/{photo_name}.png",
-            "baseColorBaseTexSize": photo_extent_size,
+            "baseColorBaseTexSize": photo_extents.get(photo_name, photo_extent_size),
             "baseColorDetailTex": category_data["detailColorMap"],
             "baseColorDetailStrength": [strength, 0.0],
         }

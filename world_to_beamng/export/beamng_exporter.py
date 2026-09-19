@@ -244,23 +244,30 @@ class BeamNGExporter:
         )
         textures_dir = config.BEAMNG_DIR_TEXTURES
         aerial_dir = Path("data/DOP20")
-        if textures_dir.exists() and (textures_dir / AERIAL_PHOTO_FILENAME).exists():
-            logger.info("[i] Gesamt-Luftbild bereits vorhanden - wird übersprungen")
-        elif aerial_dir.exists() and any(aerial_dir.glob("*.zip")):
-            logger.info("[i] Verarbeite Luftbilder für die Gesamtfläche...")
-            from ..io.aerial import process_aerial_images
+        from ..io.aerial import ensure_aerial_photos, SINGLE_PHOTO_NAME
+        from ..terrain.photo_tiles import photo_tile_specs
 
-            try:
-                num_textures = process_aerial_images(
-                    aerial_dir=str(aerial_dir),
-                    output_dir=textures_dir,
-                    grid_bounds=combined_grid_bounds_local,
-                    global_offset=global_offset,
-                )
-                if num_textures > 0:
-                    logger.info(f"[OK] Gesamt-Luftbild exportiert")
-            except Exception as e:
-                logger.error(f"[!] Fehler bei Luftbild-Verarbeitung: {e}")
+        # Vier-Bilder-Modus: bei mehreren DGM1-Kacheln ein eigenes Foto je Kachel (siehe terrain/photo_tiles.py),
+        # sonst ein Gesamtfoto. process_tile() nimmt dieselbe Aufteilung (photo_tile_specs) für die Layer-Map.
+        if config.AERIAL_PHOTO_PER_TILE and len(tiles) > 1:
+            photos = photo_tile_specs(tiles, global_offset)
+        else:
+            photos = [{"name": SINGLE_PHOTO_NAME, "bounds": combined_grid_bounds_local}]
+
+        # Die Fotos werden neu gebaut, sobald Fläche, Ursprung, Auflösung, Kachelaufteilung oder Quellbilder nicht
+        # mehr zu den vorhandenen passen (z.B. Umstellung von einer auf vier DGM1-Kacheln) - nicht nur, wenn sie fehlen.
+        try:
+            status = ensure_aerial_photos(
+                aerial_dir=aerial_dir, output_dir=textures_dir, photos=photos, global_offset=global_offset
+            )
+            if status == "current":
+                logger.info(f"[i] Luftbild(er) passen zur Fläche ({len(photos)}) - werden übernommen")
+            elif status == "built":
+                logger.info(f"[OK] {len(photos)} Luftbild(er) neu gebaut und exportiert")
+            elif status == "failed":
+                logger.error("[!] Luftbild konnte nicht gebaut werden")
+        except Exception as e:
+            logger.error(f"[!] Fehler bei Luftbild-Verarbeitung: {e}")
 
         # Phase 1: Terrain + Straßen - ALLE Kacheln als EINE zusammenhängende
         # Fläche verarbeiten (ein Grid, ein Straßennetz, ein Junction-Pass).

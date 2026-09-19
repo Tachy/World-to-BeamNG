@@ -218,3 +218,78 @@ def test_meadow_grass_is_much_denser_than_the_old_distant_only_setup():
     density = sum(_clumps_per_m2(templates[n]) for n in grass)
     old_density = _clumps_per_m2(templates["grass_short"]) + _clumps_per_m2(templates["grass_long"])
     assert density > 1.8 * old_density
+
+
+# --- Vier-Bilder-Modus: je Kachel-Variante ein eigenes Objekt --------------------------------------------
+# Ein GroundCover-Objekt trägt höchstens 8 Typen (alle 229 Objekte in BeamNGs Original-Levels haben genau 8;
+# Torque: MAX_COVERTYPES = 8). Werden die Typen für mehrere Kachel-Layer vervielfacht (24-32 Typen), fehlt
+# das Gras komplett. Deshalb bekommt jede Variante ein eigenes Objekt mit den Typen der Vorlage.
+
+MAX_COVER_TYPES = 8
+
+
+def test_each_tile_variant_gets_its_own_object_with_the_templates_own_types():
+    variants = {"mat_grass": ["mat_grass_t0", "mat_grass_t1"]}
+
+    items = build_ground_cover_items(
+        MAPPINGS, ["mat_grass"], TEMPLATES_DATA, max_elements=1000, max_radius=100, layer_variants=variants
+    )
+
+    short = [i for i in items if i["name"].endswith("grass_short")]
+    assert sorted(i["name"] for i in short) == ["gc_mat_grass_t0_grass_short", "gc_mat_grass_t1_grass_short"]
+    template_types = len(TEMPLATES_DATA["templates"]["grass_short"]["types"])
+    for item in short:
+        assert len(item["Types"]) == template_types  # nicht vervielfacht
+    assert {t["layer"] for t in short[0]["Types"]} == {"mat_grass_t0"}
+    assert {t["layer"] for t in short[1]["Types"]} == {"mat_grass_t1"}
+
+
+def test_variant_objects_share_material_and_settings_with_the_single_photo_object():
+    variants = {"mat_grass": ["mat_grass_t0", "mat_grass_t1"]}
+
+    tiled = build_ground_cover_items(
+        MAPPINGS, ["mat_grass"], TEMPLATES_DATA, max_elements=1000, max_radius=100, layer_variants=variants
+    )
+    single = build_ground_cover_items(MAPPINGS, ["mat_grass"], TEMPLATES_DATA, max_elements=1000, max_radius=100)
+
+    for item in tiled:
+        reference = next(i for i in single if i["name"] == item["name"].replace("_t0_", "_").replace("_t1_", "_"))
+        assert {k: v for k, v in item.items() if k not in ("name", "Types")} == {k: v for k, v in reference.items() if k not in ("name", "Types")}
+
+
+def test_layers_without_variants_keep_their_name_and_bind_to_themselves():
+    items = build_ground_cover_items(
+        MAPPINGS, ["mat_grass", "mat_forest"], TEMPLATES_DATA, max_elements=1000, max_radius=100,
+        layer_variants={"mat_grass": ["mat_grass_t0"]},
+    )
+
+    forest = next(i for i in items if i["name"].startswith("gc_mat_forest"))
+    grass = next(i for i in items if i["name"].startswith("gc_mat_grass"))
+    assert forest["name"] == "gc_mat_forest_grass_short" and {t["layer"] for t in forest["Types"]} == {"mat_forest"}
+    assert {t["layer"] for t in grass["Types"]} == {"mat_grass_t0"}
+
+
+def test_object_names_are_unique_with_variants():
+    variants = {"mat_grass": ["mat_grass_t0", "mat_grass_t1", "mat_grass_t2", "mat_grass_t3"]}
+
+    items = build_ground_cover_items(
+        MAPPINGS, ["mat_grass", "mat_forest"], TEMPLATES_DATA, max_elements=1000, max_radius=100, layer_variants=variants
+    )
+
+    names = [i["name"] for i in items]
+    assert len(names) == len(set(names))
+
+
+def test_no_object_exceeds_the_engine_limit_of_8_types_in_any_mode():
+    # mit den ECHTEN Vorlagen und Landnutzungs-Kategorien, Einzelfoto- und Vier-Bilder-Modus
+    import json
+
+    real = json.loads(REAL_TEMPLATES_PATH.read_text(encoding="utf-8"))
+    mappings = json.loads(REAL_MAPPINGS_PATH.read_text(encoding="utf-8"))["landuse_mappings"]
+    layers = [c["internal_name"] for c in mappings.values() if c.get("internal_name")]
+    variants = {layer: [f"{layer}_t{k}" for k in range(4)] for layer in layers}
+
+    for layer_variants in (None, variants):
+        items = build_ground_cover_items(mappings, layers, real, max_elements=1000, max_radius=100, layer_variants=layer_variants)
+        assert items
+        assert max(len(i["Types"]) for i in items) <= MAX_COVER_TYPES

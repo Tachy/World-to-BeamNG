@@ -2,6 +2,7 @@
 Aerial image processing - Extrahiert und kachelt Luftbildaufnahmen.
 """
 
+import json
 import zipfile
 import math
 from pathlib import Path
@@ -250,3 +251,166 @@ def process_aerial_images(aerial_dir, output_dir, grid_bounds, global_offset, ta
 
     logger.info(f"  [OK] Gesamt-Luftbild aus {pasted} Quellbildern gespeichert: {filepath}")
     return 1
+
+
+AERIAL_SIGNATURE_FILENAME = "aerial_photo.json"
+AERIAL_SIGNATURE_VERSION = 2
+SINGLE_PHOTO_NAME = AERIAL_PHOTO_FILENAME[: -len(".png")]  # "aerial_photo"
+
+
+def process_aerial_tiles(aerial_dir, output_dir, photos, global_offset, target_pixel_size=None):
+    """
+    Vier-Bilder-Modus: baut pro Eintrag in `photos` ein eigenes Luftbild (ein Foto je DGM1-Kachel).
+
+    Jedes Quellbild wird nur EINMAL gelesen und verbessert und dann in alle Fotos gesetzt, die es berührt
+    (ein Quellbild kann über eine Kachelgrenze reichen). Positioniert wird wie beim Gesamtfoto über die
+    .tfw-Georeferenz; jedes Foto wird von der nativen Auflösung (0,2 m/px) auf target_pixel_size skaliert.
+
+    Args:
+        photos: [{"name": "aerial_photo_0", "bounds": (x_min, x_max, y_min, y_max)}] in lokalen Koordinaten
+        global_offset: (utm_x, utm_y, ...) für die Umrechnung der Quellbild-Ursprünge nach lokal
+
+    Returns:
+        Anzahl der gespeicherten Fotos
+    """
+    if target_pixel_size is None:
+        target_pixel_size = config.TERRAIN_BASE_TEX_PIXEL_SIZE
+
+    images = [(n, d, i) for n, d, i in extract_images_from_zips(aerial_dir) if i is not None]
+    if not images:
+        logger.error("  [!] Keine georeferenzierten Luftbilder gefunden")
+        return 0
+
+    offset_x, offset_y = global_offset[:2]
+    native = abs(images[0][2]["pixel_size_x"])
+
+    canvases = []
+    for photo in photos:
+        x_min, x_max, y_min, y_max = photo["bounds"]
+        size = (max(1, round((x_max - x_min) / native)), max(1, round((y_max - y_min) / native)))
+        canvases.append(Image.new("RGB", size, (70, 95, 55)))  # gedecktes Grün für Lücken
+        logger.info(f"  [i] Baue {photo['name']}: {x_max - x_min:.0f}m x {y_max - y_min:.0f}m @ {native}m/px = {size[0]}x{size[1]}px -> {target_pixel_size}px")
+
+    for img_name, img_data, world_info in images:
+        try:
+            image = enhance_dop20_image(Image.open(BytesIO(img_data)))
+            pixel_size = abs(world_info["pixel_size_x"])
+            if not math.isclose(pixel_size, native, rel_tol=1e-6):
+                scale = pixel_size / native
+                image = image.resize(
+                    (max(1, round(image.width * scale)), max(1, round(image.height * scale))), Image.Resampling.LANCZOS
+                )
+            img_x = world_info["x_origin"] - offset_x  # .tfw-Ursprung = obere linke (nordwestliche) Pixelecke
+            img_y = world_info["y_origin"] - offset_y
+            for photo, canvas in zip(photos, canvases):
+                x_min, _, _, y_max = photo["bounds"]
+                px = round((img_x - x_min) / native)
+                py = round((y_max - img_y) / native)
+                if px >= canvas.width or py >= canvas.height or px + image.width <= 0 or py + image.height <= 0:
+                    continue  # Quellbild liegt außerhalb dieser Kachel
+                canvas.paste(image, (px, py))  # PIL schneidet an den Rändern ab
+        except Exception as e:
+            logger.error(f"  [!] Fehler beim Verarbeiten von {img_name}: {e}")
+
+    Path(output_dir).mkdir(parents=True, exist_ok=True)
+    saved = 0
+    for photo, canvas in zip(photos, canvases):
+        canvas.resize((target_pixel_size, target_pixel_size), Image.Resampling.LANCZOS).save(
+            Path(output_dir) / f"{photo['name']}.png", "PNG"
+        )
+        saved += 1
+    logger.info(f"  [OK] {saved} Kachel-Luftbilder gespeichert")
+    return saved
+
+
+def aerial_photos_signature(aerial_dir, photos, global_offset, target_pixel_size=None):
+    """
+    Beschreibt, WOFÜR die Luftbilder gebaut wurden: welche Fotos (Name + Fläche), Ursprung, Auflösung, Quellbilder.
+
+    Ohne diese Angabe erkennt der Exporter veraltete Fotos nicht - z.B. das 2-km-Foto einer einzelnen
+    DGM1-Kachel, das nach dem Umstellen auf vier Kacheln (4 km) einfach auf die doppelte Fläche gestreckt würde.
+    """
+    if target_pixel_size is None:
+        target_pixel_size = config.TERRAIN_BASE_TEX_PIXEL_SIZE
+    sources = [[path.name, path.stat().st_size] for path in sorted(Path(aerial_dir).glob("*.zip"))]
+    return {
+        "version": AERIAL_SIGNATURE_VERSION,
+        "photos": [{"name": p["name"], "bounds": [round(float(v), 3) for v in p["bounds"]]} for p in photos],
+        "global_offset": [round(float(v), 3) for v in global_offset[:2]],
+        "target_pixel_size": int(target_pixel_size),
+        "sources": sources,
+    }
+
+
+def aerial_photo_signature(aerial_dir, grid_bounds, global_offset, target_pixel_size=None):
+    """Signatur des EINEN Gesamtfotos (aerial_photo.png) für die Fläche grid_bounds."""
+    return aerial_photos_signature(
+        aerial_dir, [{"name": SINGLE_PHOTO_NAME, "bounds": grid_bounds}], global_offset, target_pixel_size
+    )
+
+
+def write_aerial_photo_signature(output_dir, signature):
+    (Path(output_dir) / AERIAL_SIGNATURE_FILENAME).write_text(json.dumps(signature, indent=2), encoding="utf-8")
+
+
+def aerial_photo_is_current(output_dir, signature):
+    """True, wenn ALLE Fotos existieren und genau mit dieser Signatur gebaut wurden (Fotos ohne Signatur gelten als veraltet)."""
+    signature_file = Path(output_dir) / AERIAL_SIGNATURE_FILENAME
+    if not signature_file.exists():
+        return False
+    photos = signature.get("photos") or [{"name": SINGLE_PHOTO_NAME}]
+    if not all((Path(output_dir) / f"{p['name']}.png").exists() for p in photos):
+        return False
+    try:
+        return json.loads(signature_file.read_text(encoding="utf-8")) == signature
+    except (OSError, ValueError):
+        return False
+
+
+def _remove_stale_photos(output_dir, keep_names):
+    """Entfernt Fotos des jeweils anderen Modus (aerial_photo.png bzw. aerial_photo_<k>.png) - je ca. 130 MB."""
+    import re
+
+    for path in Path(output_dir).glob("aerial_photo*.png"):
+        if re.fullmatch(r"aerial_photo(_\d+)?\.png", path.name) and path.stem not in keep_names:
+            path.unlink()
+            logger.info(f"  [i] Veraltetes Luftbild entfernt: {path.name}")
+
+
+def ensure_aerial_photos(aerial_dir, output_dir, photos, global_offset, target_pixel_size=None):
+    """
+    Baut die Luftbilder nur, wenn sie fehlen oder nicht zur aktuellen Fläche/Kachelaufteilung passen.
+
+    Args:
+        photos: [{"name", "bounds"}]; ein einziger Eintrag "aerial_photo" = Gesamtfoto, sonst ein Foto je Kachel
+
+    Returns:
+        "current" (passt, nichts zu tun), "built" (neu gebaut), "failed" (Bauen fehlgeschlagen)
+        oder "none" (keine Quellbilder - bestehende Fotos bleiben unverändert)
+    """
+    if not Path(aerial_dir).exists() or not any(Path(aerial_dir).glob("*.zip")):
+        return "none"
+
+    signature = aerial_photos_signature(aerial_dir, photos, global_offset, target_pixel_size)
+    names = {p["name"] for p in photos}
+    if aerial_photo_is_current(output_dir, signature):
+        _remove_stale_photos(output_dir, names)
+        return "current"
+
+    Path(output_dir).mkdir(parents=True, exist_ok=True)
+    if len(photos) == 1 and photos[0]["name"] == SINGLE_PHOTO_NAME:
+        built = process_aerial_images(aerial_dir, output_dir, photos[0]["bounds"], global_offset, target_pixel_size)
+    else:
+        built = process_aerial_tiles(aerial_dir, output_dir, photos, global_offset, target_pixel_size)
+    if built <= 0:
+        return "failed"
+    write_aerial_photo_signature(output_dir, signature)
+    _remove_stale_photos(output_dir, names)
+    return "built"
+
+
+def ensure_aerial_photo(aerial_dir, output_dir, grid_bounds, global_offset, target_pixel_size=None):
+    """Wie ensure_aerial_photos für das EINE Gesamtfoto der Fläche grid_bounds."""
+    return ensure_aerial_photos(
+        aerial_dir, output_dir, [{"name": SINGLE_PHOTO_NAME, "bounds": grid_bounds}], global_offset, target_pixel_size
+    )

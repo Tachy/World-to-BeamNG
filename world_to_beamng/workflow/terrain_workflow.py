@@ -365,6 +365,28 @@ class TerrainWorkflow:
         if config.TERRAIN_PADDING_AS_HOLES:
             layer_map = mark_padding_as_holes(layer_map, data_cols=nx, data_rows=ny)
 
+        # Vier-Bilder-Modus: erst jetzt (Malen, Masken und Löcher sind fertig) wird die Layer-Map pro Kachel in
+        # physische Materialien aufgeteilt - jede Kachel bekommt ihr eigenes Foto.
+        photo_tiles = None
+        if config.AERIAL_PHOTO_PER_TILE and len(tiles) > 1:
+            from ..terrain.photo_tiles import split_layers_by_tile
+
+            photo_tiles = split_layers_by_tile(
+                layer_map,
+                terrain_material_names,
+                tiles,
+                global_offset,
+                terrain_origin_x,
+                terrain_origin_y,
+                config.TERRAIN_SQUARE_SIZE,
+            )
+            layer_map = photo_tiles["layer_map"]
+            terrain_material_names = photo_tiles["material_names"]
+            photo_tile_names = photo_tiles["photo_tile_names"]
+            logger.info(
+                f"  [OK] Vier-Bilder-Modus: {len(photo_tile_names)} Luftbilder, {len(terrain_material_names)} Terrain-Materialien"
+            )
+
         # Weinberg-Reben (Forest-Items) entlang der Falllinie, auf der fertigen Heightmap
         vineyard_instances = []
         if config.VINEYARDS_ENABLED and config.FORESTS_ENABLED:
@@ -413,6 +435,10 @@ class TerrainWorkflow:
             "layer_map": layer_map,
             "terrain_material_names": terrain_material_names,
             "photo_tile_names": photo_tile_names,
+            # Vier-Bilder-Modus (sonst None): Kachel-Varianten der Schichten, ihr Foto und die Foto-Größe je Kachel
+            "layer_variants": photo_tiles["layer_variants"] if photo_tiles else None,
+            "variant_parents": photo_tiles["variant_parents"] if photo_tiles else None,
+            "photo_extents": photo_tiles["photo_extents"] if photo_tiles else None,
             "vineyard_instances": vineyard_instances,  # Forest-Items (grape_vine)
             "water": water,  # {"rivers": [...], "ponds": [...]} für export_water()
             "grid": grid,
@@ -630,7 +656,9 @@ class TerrainWorkflow:
         logger.info(f"  [OK] {count} DecalRoad-Item(s) exportiert ({len(unique_materials)} Materialien)")
         return count
 
-    def export_ground_cover(self, layer_map: np.ndarray, terrain_material_names: List[str]) -> int:
+    def export_ground_cover(
+        self, layer_map: np.ndarray, terrain_material_names: List[str], layer_variants: Optional[Dict] = None
+    ) -> int:
         """
         Registriert Bodenbewuchs (Gras, Blumen, Farn, Unkraut) als GroundCover-
         Objekte für jeden Terrain-Layer, der in der Layer-Map tatsächlich vorkommt,
@@ -639,6 +667,7 @@ class TerrainWorkflow:
         Args:
             layer_map: fertige globale Layer-Map (Index in terrain_material_names)
             terrain_material_names: Layer-Namen in Index-Reihenfolge
+            layer_variants: Vier-Bilder-Modus: Schicht -> Kachel-Varianten (Namen in terrain_material_names)
 
         Returns:
             Anzahl der erzeugten GroundCover-Objekte
@@ -652,7 +681,10 @@ class TerrainWorkflow:
             load_ground_cover_templates,
         )
 
-        used_layers = [terrain_material_names[i] for i in np.unique(layer_map) if i < len(terrain_material_names)]
+        used_physical = [terrain_material_names[i] for i in np.unique(layer_map) if i < len(terrain_material_names)]
+        # Im Vier-Bilder-Modus stehen in der Layer-Map nur Varianten (mat_grass_t0 ...): zurück auf die Schicht
+        logical_of = {variant: layer for layer, variants in (layer_variants or {}).items() for variant in variants}
+        used_layers = list(dict.fromkeys(logical_of.get(name, name) for name in used_physical))
         templates_data = load_ground_cover_templates()
         items = build_ground_cover_items(
             config.OSM_MAPPER.config.get("landuse_mappings", {}),
@@ -660,6 +692,7 @@ class TerrainWorkflow:
             templates_data,
             max_elements=config.GROUND_COVER_MAX_ELEMENTS,
             max_radius=config.GROUND_COVER_MAX_RADIUS,
+            layer_variants=layer_variants,
         )
         for item in items:
             fields = dict(item)
@@ -680,6 +713,9 @@ class TerrainWorkflow:
         z_min: float,
         max_height: float,
         photo_tile_names: List[str],
+        layer_variants: Optional[Dict] = None,
+        variant_parents: Optional[Dict] = None,
+        photo_extents: Optional[Dict] = None,
     ) -> None:
         """
         Schreibt EIN .ter und registriert TerrainBlock + TerrainMaterials.
@@ -748,6 +784,8 @@ class TerrainWorkflow:
             config.LEVEL_NAME,
             photo_extent_size,
             placeholders,
+            variant_parents=variant_parents,
+            photo_extents=photo_extents,
         )
         texture_set_name = f"{config.LEVEL_NAME}TerrainMaterialTextureSet"
         terrain_material_entries.update(
@@ -757,7 +795,7 @@ class TerrainWorkflow:
         )
         self.materials.add_terrain_materials(terrain_material_entries)
 
-        self.export_ground_cover(layer_map, terrain_material_names)
+        self.export_ground_cover(layer_map, terrain_material_names, layer_variants=layer_variants)
 
         self.items.add_terrain_block(
             name="theTerrain",
@@ -798,5 +836,8 @@ class TerrainWorkflow:
             z_min=mesh_data["z_min"],
             max_height=mesh_data["max_height"],
             photo_tile_names=mesh_data["photo_tile_names"],
+            layer_variants=mesh_data.get("layer_variants"),
+            variant_parents=mesh_data.get("variant_parents"),
+            photo_extents=mesh_data.get("photo_extents"),
         )
         return road_count

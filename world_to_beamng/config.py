@@ -181,6 +181,12 @@ TILE_SIZE = 500  # Größe pro DAE-Tile in Metern
 TERRAIN_BASE_TEX_PIXEL_SIZE = 8192
 
 
+# Vier-Bilder-Modus: bei mehreren DGM1-Kacheln bekommt jede Kachel ihr EIGENES Foto (TERRAIN_BASE_TEX_PIXEL_SIZE px
+# für 2 km = 0,244 m/px statt EINES Gesamtfotos mit 0,5 m/px bei 4x4 km). Kosten: die Landnutzungs-Schichten und die
+# GroundCover-Typen werden je Kachel geführt (siehe terrain/photo_tiles.py). False = ein Gesamtfoto (bei einer
+# Kachel ohnehin immer ein Foto).
+AERIAL_PHOTO_PER_TILE = True
+
 # === VERZEICHNISSE ===
 CACHE_DIR = Path("cache")  # Verzeichnis fuer Cache-Dateien
 HEIGHT_DATA_DIR = Path("data/DGM1")  # Verzeichnis mit Hoehendaten

@@ -42,6 +42,7 @@ def build_ground_cover_items(
     templates_data: Dict,
     max_elements: int,
     max_radius: float,
+    layer_variants: Optional[Dict[str, List[str]]] = None,
 ) -> List[Dict]:
     """
     Baut je Terrain-Layer und Vorlage ein GroundCover-Objekt.
@@ -54,12 +55,18 @@ def build_ground_cover_items(
         templates_data: Ergebnis von load_ground_cover_templates()
         max_elements: Obergrenze gleichzeitig gezeichneter Elemente je Objekt
         max_radius: Obergrenze für die Sichtweite (Meter) je Objekt
+        layer_variants: Vier-Bilder-Modus: Schicht -> ihre Kachel-Varianten (z.B. {"mat_grass": ["mat_grass_t0",
+            "mat_grass_t1"]}). Jede Variante bekommt ein EIGENES Objekt (gc_<variante>_<vorlage>) mit den Typen der
+            Vorlage. Die Typen dürfen nicht für mehrere Varianten in EIN Objekt vervielfacht werden: ein Objekt
+            trägt höchstens 8 Typen (alle 229 Objekte in BeamNGs Original-Levels haben genau 8), bei mehr fehlt das
+            Gras komplett.
 
     Returns:
         Liste von Item-Feldern ("name", "material", "radius", "Types", ...)
         für ItemManager.add_ground_cover().
     """
     templates = templates_data["templates"]
+    layer_variants = layer_variants or {}
     used = set(used_layers)
     items = []
 
@@ -73,21 +80,23 @@ def build_ground_cover_items(
                 continue
 
             radius = min(float(template.get("radius", max_radius)), float(max_radius))
-            item = {
-                "name": f"gc_{layer}_{template_name}",
-                "material": template["material"],
-                "radius": radius,
-                "maxElements": int(max_elements),
-                # Ohne layer würde ein Typ auf ALLEN Terrain-Materialien wachsen
-                "Types": [dict(t, layer=layer) for t in template["types"]],
-            }
-            for field in _PASSTHROUGH_FIELDS:
-                if field in template:
-                    item[field] = template[field]
-            for field in ("dissolveRadius", "shapeCullRadius"):
-                if field in template:
-                    item[field] = min(float(template[field]), radius)
-            items.append(item)
+            # Ein Objekt je Layer bzw. (Vier-Bilder-Modus) je Kachel-Variante des Layers
+            for bound in layer_variants.get(layer, [layer]):
+                item = {
+                    "name": f"gc_{bound}_{template_name}",
+                    "material": template["material"],
+                    "radius": radius,
+                    "maxElements": int(max_elements),
+                    # Ohne layer würde ein Typ auf ALLEN Terrain-Materialien wachsen
+                    "Types": [dict(t, layer=bound) for t in template["types"]],
+                }
+                for field in _PASSTHROUGH_FIELDS:
+                    if field in template:
+                        item[field] = template[field]
+                for field in ("dissolveRadius", "shapeCullRadius"):
+                    if field in template:
+                        item[field] = min(float(template[field]), radius)
+                items.append(item)
 
     return items
 

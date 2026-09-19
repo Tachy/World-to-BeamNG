@@ -88,3 +88,22 @@ def test_disabled_ground_cover_exports_nothing(monkeypatch):
 
     assert count == 0
     assert stub.items.objects == {}
+
+
+def test_ground_cover_creates_one_object_per_tile_variant_and_finds_the_used_layers_by_their_variants():
+    # Vier-Bilder-Modus: die Layer-Map enthält nur Varianten (mat_grass_t0 ...), nicht den Schicht-Namen
+    layer_map = np.zeros((4, 4), dtype=np.uint8)
+    layer_map[:, :2] = 1
+    layer_map[:, 2:] = 2
+    names = ["aerial_photo_0", "mat_grass_t0", "mat_grass_t1"]
+    variants = {"mat_grass": ["mat_grass_t0", "mat_grass_t1"]}
+    stub = SimpleNamespace(items=_RecordingItems(), materials=SimpleNamespace(materials={}))
+
+    count = TerrainWorkflow.export_ground_cover(stub, layer_map, names, layer_variants=variants)
+
+    assert count == len(stub.items.objects) > 0
+    assert all(name.startswith(("gc_mat_grass_t0_", "gc_mat_grass_t1_")) for name in stub.items.objects)
+    for name, obj in stub.items.objects.items():
+        layer = "mat_grass_t0" if name.startswith("gc_mat_grass_t0_") else "mat_grass_t1"
+        assert {t["layer"] for t in obj["Types"]} == {layer}  # ein Objekt = eine Kachel-Variante
+        assert len(obj["Types"]) <= 8  # Engine-Grenze: 8 Typen je Objekt
