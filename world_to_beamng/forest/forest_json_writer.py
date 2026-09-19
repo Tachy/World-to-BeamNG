@@ -11,6 +11,8 @@ from typing import List, Dict, Optional
 
 logger = logging.getLogger(__name__)
 
+WRITE_BLOCK = 20000  # Instanzen je Schreibblock
+
 
 class ForestJSONWriter:
     """
@@ -56,14 +58,18 @@ class ForestJSONWriter:
             filepath = self.output_dir / filename
 
             # Schreibe im JSONL-Format: jede Instanz als separate Zeile
+            # json.dumps nutzt den C-Encoder (json.dump auf einer Datei dagegen den reinen Python-Encoder, ~5x
+            # langsamer); die Zeilen werden blockweise gesammelt und geschrieben.
+            encode = json.JSONEncoder(separators=(",", ":"), ensure_ascii=False).encode
             with open(filepath, "w", encoding="utf-8") as f:
-                for instance in tree_instances:
-                    # Füge ctxid:0 hinzu (BeamNG-Feld für Forest-Context)
-                    instance["ctxid"] = 0
-                    # Schreibe einzelne Instanz als JSON
-                    json.dump(instance, f, separators=(",", ":"), ensure_ascii=False)
+                for start in range(0, len(tree_instances), WRITE_BLOCK):
+                    lines = []
+                    for instance in tree_instances[start : start + WRITE_BLOCK]:
+                        # Füge ctxid:0 hinzu (BeamNG-Feld für Forest-Context)
+                        instance["ctxid"] = 0
+                        lines.append(encode(instance))
                     # Zeilentrennung nach jedem Objekt
-                    f.write("\n")
+                    f.write("\n".join(lines) + "\n")
 
             logger.info(f"✓ forest.forest4.json (JSONL-Format) geschrieben: {filepath} ({len(tree_instances)} Bäume)")
 

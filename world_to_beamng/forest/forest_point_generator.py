@@ -7,12 +7,19 @@ Berücksichtigung der Baumdichte (tree_density aus forest_types).
 
 import logging
 import numpy as np
+import shapely
 from typing import List, Tuple, Dict, Optional
-from shapely.geometry import Point, Polygon, MultiPolygon
-from shapely.prepared import prep
+from scipy.spatial import cKDTree
+from shapely.geometry import Polygon, MultiPolygon
 from world_to_beamng.logging_config import LoggerConfig
 
 logger = LoggerConfig.get_logger()
+
+POISSON_CANDIDATES_PER_CELL = 3.0  # Kandidaten je Runde und min_distance² Polygonfläche
+POISSON_MIN_CANDIDATES = 64  # Untergrenze je Runde (kleine Polygone)
+POISSON_MAX_DRAWS = 3_000_000  # Obergrenze der Zufallspunkte je Runde (Speicher bei sehr dünnen Polygonen)
+POISSON_MAX_ROUNDS = 40
+POISSON_STOP_FRACTION = 0.004  # Runden, die weniger als diesen Anteil neuer Punkte bringen, gelten als gesättigt
 
 
 class ForestPointGenerator:
@@ -36,10 +43,10 @@ class ForestPointGenerator:
         self.min_distance = min_distance
         self.max_attempts = max_attempts
 
-        # Prepared geometry für schnelle Straßen-Abfragen
-        self.prep_road_buffer = prep(road_buffer) if road_buffer is not None else None
+        # Vorbereitete Geometrie für schnelle Straßen-Abfragen (shapely.prepare wirkt in place)
+        self.road_buffer = self._prepared(road_buffer)
         self.has_roads = road_buffer is not None
-        self.prep_row_exclusion = None  # nur für Baumreihen, siehe set_row_exclusion()
+        self.row_exclusion = None  # nur für Baumreihen, siehe set_row_exclusion()
 
     def set_road_buffer(self, road_buffer: Optional[Polygon]) -> None:
         """
@@ -50,8 +57,14 @@ class ForestPointGenerator:
         Args:
             road_buffer: Shapely Polygon mit bufferten Straßen oder None
         """
-        self.prep_road_buffer = prep(road_buffer) if road_buffer is not None else None
+        self.road_buffer = self._prepared(road_buffer)
         self.has_roads = road_buffer is not None
+
+    @staticmethod
+    def _prepared(geometry):
+        if geometry is not None:
+            shapely.prepare(geometry)
+        return geometry
 
     def set_row_exclusion(self, exclusion) -> None:
         """
@@ -59,7 +72,7 @@ class ForestPointGenerator:
 
         Baumreihen (Alleen) stehen näher an Straßen als Wald; der breite Wald-Straßenpuffer würde sie löschen.
         """
-        self.prep_row_exclusion = prep(exclusion) if exclusion is not None else None
+        self.row_exclusion = self._prepared(exclusion)
 
     def generate_points_along_line(self, line, spacing: float, jitter: float = 0.12) -> List[Tuple[float, float]]:
         """
@@ -83,7 +96,7 @@ class ForestPointGenerator:
             for d in distances:
                 d = min(max(d + random.uniform(-jitter, jitter) * spacing, 0.0), part.length)
                 x, y = part.interpolate(d).coords[0]
-                if self.prep_row_exclusion is not None and self.prep_row_exclusion.intersects(Point(x, y)):
+                if self.row_exclusion is not None and shapely.intersects_xy(self.row_exclusion, x, y):
                     continue
                 points.append((x, y))
         return points
@@ -146,7 +159,7 @@ class ForestPointGenerator:
             points = self._filter_points_on_roads(points)
             points_after = len(points)
             logger.debug(
-                f"      [Road Filter] {points_before} → {points_after} Punkte ({points_before - points_after} gefiltert, {self.prep_road_buffer is not None})"
+                f"      [Road Filter] {points_before} → {points_after} Punkte ({points_before - points_after} gefiltert)"
             )
             if points_before > points_after:
                 logger.debug(
@@ -163,9 +176,7 @@ class ForestPointGenerator:
 
     def _filter_points_on_roads(self, points: List[Tuple[float, float]]) -> List[Tuple[float, float]]:
         """
-        Filtert Punkte, die auf Straßen liegen (mit Puffer).
-
-        Nutzt prepared geometry für O(1) Spatial Index Abfragen.
+        Filtert Punkte, die auf Straßen liegen (mit Puffer) - vektorisiert über alle Punkte auf einmal.
 
         Args:
             points: Liste von (x, y) Punkt-Koordinaten
@@ -173,41 +184,26 @@ class ForestPointGenerator:
         Returns:
             Gefilterte Liste ohne Punkte auf Straßen
         """
-        if not self.has_roads or self.prep_road_buffer is None:
+        if not self.has_roads or self.road_buffer is None or not points:
             return points
 
-        # Schnelle Filterung mit prepared geometry
-        filtered = []
-        on_roads = 0
-
-        # DEBUG: Sample ersten Punkt auf Straße
-        first_road_point = None
-
-        for pt in points:
-            if self.prep_road_buffer.intersects(Point(pt[0], pt[1])):
-                on_roads += 1
-                if first_road_point is None:
-                    first_road_point = pt
-            else:
-                filtered.append(pt)
-
-        if on_roads > 0:
-            logger.debug(
-                f"        [Road Filter DEBUG] {on_roads} Punkte auf Straßen gefunden! Beispiel: {first_road_point}"
-            )
-
-        return filtered
+        xy = np.asarray(points, dtype=float)
+        on_roads = shapely.intersects_xy(self.road_buffer, xy[:, 0], xy[:, 1])
+        if on_roads.any():
+            logger.debug(f"        [Road Filter] {int(on_roads.sum())} Punkte auf Straßen gefunden")
+        return [pt for pt, blocked in zip(points, on_roads.tolist()) if not blocked]
 
     def _poisson_disk_sampling(
         self, polygon: Polygon, min_distance: float, bounds: Tuple[float, float, float, float]
     ) -> List[Tuple[float, float]]:
         """
-        Poisson-Disk-Sampling-Algorithmus (Bridson's Algorithm - OPTIMIERT).
+        Poisson-Disk-Sampling in vektorisierten Runden (statt Bridson mit einer Python-Schleife je Kandidat).
 
-        Optimierungen:
-        - Prepared geometry für schnelle contains()-Abfragen
-        - Effizientere Active List Management
-        - Begrenzte Nachbarschaftssuche mit frühem Exit
+        Jede Runde: Kandidaten gleichverteilt in der Bounding Box, alle außerhalb des Polygons oder näher als
+        `min_distance` an bereits gesetzten Punkten verworfen, aus dem Rest eine zufällige unabhängige Menge
+        (kein Paar näher als `min_distance`) gewählt. Das ist zufälliges sequentielles Setzen (Dart-Throwing) in
+        wenigen NumPy-Schritten; die Dichte liegt wie bei Bridson bei etwa 0,7 Punkten je min_distance².
+        Alle Geometrieabfragen laufen vektorisiert (shapely.contains_xy, cKDTree).
 
         Args:
             polygon: Shapely Polygon
@@ -218,167 +214,73 @@ class ForestPointGenerator:
             Liste von (x, y) Punkten
         """
         minx, miny, maxx, maxy = bounds
-        width = maxx - minx
-        height = maxy - miny
+        area = polygon.area
+        box_area = (maxx - minx) * (maxy - miny)
+        shapely.prepare(polygon)
 
-        # OPTIMIERUNG: Prepared geometry für schnelle contains()-Abfragen
-        prep_polygon = prep(polygon)
+        # Kandidaten je Runde: POISSON_CANDIDATES_PER_CELL je min_distance² Polygonfläche; die Bounding Box wird
+        # entsprechend der Füllung überzogen (dünne Polygone in großer Box), gedeckelt gegen Speicherspitzen.
+        inside_target = max(POISSON_MIN_CANDIDATES, int(POISSON_CANDIDATES_PER_CELL * area / min_distance**2))
+        draws = int(min(POISSON_MAX_DRAWS, inside_target * box_area / max(area, 1e-9)))
 
-        # Grid-Zellgröße (für schnelle Nachbarschaftssuche)
-        cell_size = min_distance / np.sqrt(2)
-        grid_width = int(np.ceil(width / cell_size))
-        grid_height = int(np.ceil(height / cell_size))
+        accepted = np.empty((0, 2))
+        idle_rounds = 0
+        for _ in range(POISSON_MAX_ROUNDS):
+            x = np.random.uniform(minx, maxx, draws)
+            y = np.random.uniform(miny, maxy, draws)
+            keep = shapely.contains_xy(polygon, x, y)
+            candidates = np.column_stack([x[keep], y[keep]])
+            if len(accepted) and len(candidates):
+                free = cKDTree(accepted).query(candidates, distance_upper_bound=min_distance)[0] >= min_distance
+                candidates = candidates[free]
+            if len(candidates) == 0:
+                idle_rounds += 1
+            else:
+                fresh = candidates[self._independent_subset(candidates, min_distance)]
+                accepted = np.vstack([accepted, fresh])
+                # Sättigung: die Runde bringt kaum noch etwas
+                idle_rounds = idle_rounds + 1 if len(fresh) < POISSON_STOP_FRACTION * len(accepted) else 0
+            if idle_rounds >= 2:
+                break
 
-        # Grid für schnelle Nachbarschaftssuche (None = leer)
-        grid = [[None for _ in range(grid_height)] for _ in range(grid_width)]
-
-        # Resultat
-        points = []
-
-        # Active list für Kandidaten (verwendet Index für O(1) Removal)
-        active_indices = []
-
-        # Startpunkt (zufällig innerhalb des Polygons)
-        start_point = self._random_point_in_polygon(polygon, prep_polygon)
-        if start_point is None:
+        if len(accepted) == 0:
             logger.warning(
-                f"Konnte keinen Startpunkt im Polygon finden "
-                f"(bounds={bounds}, area={polygon.area:.2f}m², is_valid={polygon.is_valid})"
+                f"Konnte keinen Punkt im Polygon finden "
+                f"(bounds={bounds}, area={area:.2f}m², is_valid={polygon.is_valid})"
             )
             return []
+        return [tuple(p) for p in accepted.tolist()]
 
-        points.append(start_point)
-        active_indices.append(0)
-
-        # Grid-Position
-        gx = int((start_point[0] - minx) / cell_size)
-        gy = int((start_point[1] - miny) / cell_size)
-        if 0 <= gx < grid_width and 0 <= gy < grid_height:
-            grid[gx][gy] = start_point
-
-        # Hauptschleife
-        while active_indices:
-            # OPTIMIERUNG: Wähle zufälligen Punkt aus Active List
-            idx_in_active = np.random.randint(len(active_indices))
-            point_idx = active_indices[idx_in_active]
-            point = points[point_idx]
-
-            found = False
-
-            # Versuche max_attempts neue Punkte um diesen Punkt
-            for _ in range(self.max_attempts):
-                # Zufälliger Winkel und Abstand
-                angle = np.random.uniform(0, 2 * np.pi)
-                distance = np.random.uniform(min_distance, 2 * min_distance)
-
-                new_x = point[0] + distance * np.cos(angle)
-                new_y = point[1] + distance * np.sin(angle)
-                new_point = (new_x, new_y)
-
-                # Prüfe ob innerhalb Bounds
-                if not (minx <= new_x <= maxx and miny <= new_y <= maxy):
-                    continue
-
-                # OPTIMIERUNG: Nutze prepared geometry für schnellere contains()
-                if not prep_polygon.contains(Point(new_x, new_y)):
-                    continue
-
-                # Grid-Position
-                gx = int((new_x - minx) / cell_size)
-                gy = int((new_y - miny) / cell_size)
-
-                if not (0 <= gx < grid_width and 0 <= gy < grid_height):
-                    continue
-
-                # Prüfe Nachbarschaft im Grid
-                if self._is_valid_point(new_point, grid, gx, gy, cell_size, min_distance, (minx, miny)):
-                    points.append(new_point)
-                    active_indices.append(len(points) - 1)
-                    grid[gx][gy] = new_point
-                    found = True
-                    break
-
-            # Wenn kein neuer Punkt gefunden wurde, entferne aus Active List
-            if not found:
-                active_indices.pop(idx_in_active)
-
-        return points
-
-    def _is_valid_point(
-        self,
-        point: Tuple[float, float],
-        grid: List[List],
-        gx: int,
-        gy: int,
-        cell_size: float,
-        min_distance: float,
-        grid_origin: Tuple[float, float],
-    ) -> bool:
+    @staticmethod
+    def _independent_subset(points: np.ndarray, min_distance: float) -> np.ndarray:
         """
-        Prüfe ob Punkt gültigen Abstand zu allen Nachbarn hat.
-
-        Args:
-            point: (x, y) zu prüfender Punkt
-            grid: Grid mit existierenden Punkten
-            gx, gy: Grid-Koordinaten
-            cell_size: Größe einer Grid-Zelle
-            min_distance: Mindestabstand
-            grid_origin: (minx, miny) des Grids
-
-        Returns:
-            True wenn Punkt gültigen Abstand hat
+        Indizes einer zufälligen Teilmenge, in der kein Punktepaar näher als min_distance liegt (maximal: jeder
+        nicht gewählte Punkt hat einen gewählten Nachbarn). Zufällige Rangfolge, in jeder Runde gewinnt der
+        ranghöchste Punkt seiner verbleibenden Nachbarschaft (Luby) - vollständig vektorisiert.
         """
-        grid_width = len(grid)
-        grid_height = len(grid[0]) if grid else 0
-
-        # Prüfe 5×5 Nachbarschaft (2 Zellen in jede Richtung)
-        for i in range(max(0, gx - 2), min(grid_width, gx + 3)):
-            for j in range(max(0, gy - 2), min(grid_height, gy + 3)):
-                neighbor = grid[i][j]
-                if neighbor is not None:
-                    dx = point[0] - neighbor[0]
-                    dy = point[1] - neighbor[1]
-                    dist = np.sqrt(dx * dx + dy * dy)
-                    if dist < min_distance:
-                        return False
-
-        return True
-
-    def _random_point_in_polygon(
-        self, polygon: Polygon, prep_polygon=None, max_tries: int = 100
-    ) -> Optional[Tuple[float, float]]:
-        """
-        Generiere zufälligen Punkt innerhalb eines Polygons.
-
-        Nutzt Rejection Sampling (Monte Carlo).
-
-        Args:
-            polygon: Shapely Polygon
-            prep_polygon: Optional - prepared geometry für schnellere contains()
-            max_tries: Maximale Versuche
-
-        Returns:
-            (x, y) oder None wenn kein Punkt gefunden
-        """
-        minx, miny, maxx, maxy = polygon.bounds
-
-        # Nutze prepared geometry wenn vorhanden
-        if prep_polygon is None:
-            prep_polygon = prep(polygon)
-
-        for _ in range(max_tries):
-            x = np.random.uniform(minx, maxx)
-            y = np.random.uniform(miny, maxy)
-
-            if prep_polygon.contains(Point(x, y)):
-                return (x, y)
-
-        logger.warning(
-            f"Konnte keinen Punkt in Polygon finden nach {max_tries} Versuchen "
-            f"(bounds={polygon.bounds}, area={polygon.area:.2f}m², "
-            f"geom_type={polygon.geom_type}, is_valid={polygon.is_valid})"
-        )
-        return None
+        count = len(points)
+        if count < 2:
+            return np.arange(count)
+        rank = np.random.permutation(count)
+        pairs = cKDTree(points).query_pairs(min_distance, output_type="ndarray")
+        first, second = pairs[:, 0], pairs[:, 1]
+        alive = np.ones(count, dtype=bool)
+        chosen = np.zeros(count, dtype=bool)
+        while True:
+            both = alive[first] & alive[second]
+            first, second = first[both], second[both]
+            if len(first) == 0:
+                chosen |= alive
+                break
+            blocked = np.zeros(count, dtype=bool)
+            blocked[np.where(rank[first] > rank[second], second, first)] = True
+            winners = alive & ~blocked
+            chosen |= winners
+            dead = winners.copy()
+            dead[second[winners[first]]] = True
+            dead[first[winners[second]]] = True
+            alive &= ~dead
+        return np.flatnonzero(chosen)
 
     def generate_points_for_forests(
         self, forests: List[Dict], forest_properties: Dict[str, Dict]
