@@ -166,6 +166,14 @@ BUILDINGS_AS_ONE_OBJECT = True  # True: ALLE Gebäude in EINER DAE/EINEM Objekt 
 MAX_BUILDINGS_PER_SHAPE = 1500  # BeamNG verwirft ab 2048 Nodes je Shape alles Weitere (1 Node je Gebäude) -> aufteilen
 TILE_SIZE = 500  # Größe pro DAE-Tile in Metern (nur bei BUILDINGS_AS_ONE_OBJECT = False)
 
+# === MAUERN (OSM barrier=wall / retaining_wall, nur mit height-Tag) ===
+WALLS_ENABLED = True
+WALL_THICKNESS = 0.5  # Mauerdicke in Metern (Bruchsteinmauer)
+WALL_SINK = 0.3  # so tief reicht die Unterkante unter den Boden (kein Spalt am Fuß), in Metern
+WALL_MAX_SEGMENT = 1.0  # längste Teilstrecke, damit die Mauer dem Gelände folgt, in Metern
+WALL_TEXTURE_TILE_M = 1.2  # so viele Meter deckt eine Wiederholung der Bruchstein-Textur (ca. 6 Steinlagen)
+WALL_MATERIAL_NAME = "rubble_stone_wall"  # "wall" im Namen wählt das Wand-Template; Texturen in osm_to_beamng.json (buildings.wall_rubble_stone)
+
 # === LOD2-DACH-TEXTUR ===
 # t_roof_slates_rounded_b.color.dds (256 px) zeigt 5 Biberschwanz-Ziegel nebeneinander je Wiederholung (6 Reihen
 # übereinander). Die UVs sind metrisch: eine Wiederholung = ROOF_REPEAT_M Meter in der Dachebene, ein Ziegel ist

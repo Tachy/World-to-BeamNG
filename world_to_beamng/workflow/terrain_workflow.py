@@ -452,6 +452,15 @@ class TerrainWorkflow:
                 rim_height_at=make_height_sampler_for_water(natural_heights, terrain_origin_x, terrain_origin_y),
             )
 
+        # Bruchsteinmauern (OSM barrier=wall mit height) auf der fertigen Heightmap
+        wall_meshes = []
+        if config.WALLS_ENABLED:
+            wall_meshes, _ = self._build_wall_meshes(
+                osm_data,
+                global_offset,
+                make_height_sampler_for_water(heights, terrain_origin_x, terrain_origin_y),
+            )
+
         z_min = float(heights.min())
         z_max = float(heights.max())
         max_height = (z_max - z_min) + config.TERRAIN_MAX_HEIGHT_BUFFER
@@ -473,6 +482,7 @@ class TerrainWorkflow:
             "photo_extents": photo_tiles["photo_extents"] if photo_tiles else None,
             "vineyard_instances": vineyard_instances,  # Forest-Items (grape_vine)
             "water": water,  # {"rivers": [...], "ponds": [...]} für export_water()
+            "wall_meshes": wall_meshes,  # Mesh-Dicts der Bruchsteinmauern für export_walls()
             "grid": grid,
             "road_polygons": road_polygons,
             "road_slope_polygons_2d": road_slope_polygons_2d,  # Für DecalRoad-Export
@@ -549,6 +559,33 @@ class TerrainWorkflow:
         )
         return {"rivers": rivers, "ponds": ponds}
 
+    def _build_wall_meshes(self, osm_data, global_offset, height_at):
+        """
+        Bruchsteinmauern aus OSM (barrier=wall/retaining_wall, nur mit height-Tag), dem Gelände folgend (siehe
+        walls/wall_mesh.py).
+
+        Returns:
+            (Mesh-Dicts für den DAE-Export, Statistik {"built", "length", "without_height"})
+        """
+        from ..osm.landuse_polygons import make_local_transform
+        from ..walls.wall_mesh import build_walls
+
+        meshes, stats = build_walls(
+            osm_data,
+            make_local_transform(global_offset),
+            height_at,
+            config.WALL_MATERIAL_NAME,
+            thickness=config.WALL_THICKNESS,
+            sink=config.WALL_SINK,
+            max_step=config.WALL_MAX_SEGMENT,
+            tile_m=config.WALL_TEXTURE_TILE_M,
+        )
+        logger.info(
+            f"  [OK] Mauern: {stats['built']} Bruchsteinmauer(n) mit Höhenangabe ({stats['length']:.0f} m), "
+            f"{stats['without_height']} ohne Höhenangabe übersprungen"
+        )
+        return meshes, stats
+
     def _set_fog_height(self, heights: np.ndarray) -> None:
         """
         fogAtmosphereHeight (Höhe, ab der der Höhennebel ausdünnt) = höchster Terrainpunkt + Marge. Alle Original-Level
@@ -609,6 +646,42 @@ class TerrainWorkflow:
 
         logger.info(f"  [OK] {count} Wasser-Objekt(e) exportiert")
         return count
+
+    def export_walls(self, mesh_data: Dict) -> int:
+        """
+        Exportiert die Bruchsteinmauern als EINE DAE (jede Mauer ein Node) mit EINEM TSStatic und registriert das
+        Stein-Material. Ohne Mauern werden Reste eines früheren Exports entfernt.
+
+        Returns:
+            Anzahl exportierter Mauern
+        """
+        walls_dir = config.BEAMNG_DIR_SHAPES / "walls"
+        meshes = mesh_data.get("wall_meshes") or []
+        if not config.WALLS_ENABLED or not meshes:
+            for suffix in (".dae", ".cdae"):
+                (walls_dir / f"walls{suffix}").unlink(missing_ok=True)
+            return 0
+
+        hints = self.materials.get_templates().get("buildings", {}).get("wall", {}).get("material_hints", {})
+        self.materials.add_building_material(
+            config.WALL_MATERIAL_NAME,
+            textures=config.OSM_MAPPER.get_building_properties("wall_rubble_stone").get("textures"),
+            groundType=hints.get("groundType", "concrete"),
+            materialTag0=hints.get("materialTag0", "beamng"),
+            materialTag1=hints.get("materialTag1", "Building"),
+        )
+        self.dae.export_multi_mesh(output_path=walls_dir / "walls.dae", meshes=meshes, with_uv=True)
+        self.items.add_item(
+            "walls",
+            item_class="TSStatic",
+            shape_name=str(config.RELATIVE_DIR_SHAPES / "walls" / "walls.dae"),
+            position=(0, 0, 0),
+            rotation=(0, 0, 1, 0),
+            overwrite=True,
+            collisionType="Visible Mesh Final",
+        )
+        logger.info(f"  [OK] {len(meshes)} Mauer(n) exportiert (walls.dae)")
+        return len(meshes)
 
     def export_decal_roads(self, mesh_data: Dict) -> int:
         """
@@ -871,6 +944,7 @@ class TerrainWorkflow:
         """
         road_count = self.export_decal_roads(mesh_data)
         self.export_water(mesh_data)
+        self.export_walls(mesh_data)
         self.export_merged_terrain(
             heights=mesh_data["heightmap"],
             layer_map=mesh_data["layer_map"],
