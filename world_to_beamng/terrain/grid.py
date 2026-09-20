@@ -7,7 +7,6 @@ from scipy.interpolate import NearestNDInterpolator
 
 from .. import config
 from .elevation import get_height_data_hash
-import logging
 from world_to_beamng.logging_config import LoggerConfig
 logger = LoggerConfig.get_logger()
 

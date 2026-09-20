@@ -1,9 +1,8 @@
 """Tests für OSMMapper.generate_materials_json_entry() - groundType/materialTag-Mapping.
 
-Dies ist der tatsächlich aktive Code-Pfad für Straßen-Materialien im
-Haupt-Export (workflow/terrain_workflow.py::export_decal_roads() ruft ihn
-direkt auf und schreibt das Ergebnis in MaterialManager.materials, OHNE über
-MaterialManager.add_road_material() zu gehen).
+Das ist der Code-Pfad für Straßen-Materialien im Haupt-Export
+(workflow/terrain_workflow.py::export_decal_roads() ruft ihn direkt auf und
+schreibt das Ergebnis in MaterialManager.materials).
 """
 
 import sys

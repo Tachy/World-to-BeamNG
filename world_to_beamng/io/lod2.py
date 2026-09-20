@@ -9,7 +9,6 @@ Format: CityGML 2km x 2km Kacheln in ZIP-Archiven
 Ausgabe: .dae-Dateien pro Tile + main.items.json Einträge
 """
 
-import os
 import json
 import pickle
 from pathlib import Path
@@ -17,7 +16,6 @@ from typing import List, Dict, Tuple, Optional
 import numpy as np
 from lxml import etree
 import zipfile
-import logging
 from world_to_beamng.logging_config import LoggerConfig
 logger = LoggerConfig.get_logger()
 
@@ -179,96 +177,6 @@ def _extract_surface_geometry(
     return geometries
 
 
-def transform_to_local_coords(vertices: np.ndarray, local_offset: Tuple[float, float]) -> np.ndarray:
-    """
-    Transformiert UTM-Koordinaten ins lokale System.
-
-    Args:
-        vertices: (N, 3) Array mit UTM-Koordinaten
-        local_offset: (x_offset, y_offset)
-
-    Returns:
-        (N, 3) Array mit lokalen Koordinaten
-    """
-    result = vertices.copy()
-    result[:, 0] -= local_offset[0]
-    result[:, 1] -= local_offset[1]
-    return result
-
-
-def snap_buildings_to_terrain_batch(
-    buildings: List[Dict], height_points: np.ndarray, height_elevations: np.ndarray
-) -> List[Dict]:
-    """
-    Setzt mehrere Gebäude auf das Terrain (Batch-Normalisierung).
-
-    ZENTRALE Z-KOORDINATEN-NORMALISIERUNG (Optimierte Version):
-    Diese Funktion wird zentral nach dem Import aller Daten aufgerufen.
-    Erstellt den KDTree EINMAL für alle Gebäude (sehr effizient).
-
-    Args:
-        buildings: Liste von Gebäude-Dicts
-        height_points: (N, 2) Array mit XY-Koordinaten des Terrains (lokale Koordinaten)
-        height_elevations: (N,) Array mit Z-Werten des Terrains (normalisiert)
-
-    Returns:
-        Liste von modifizierten Gebäude-Dicts mit normalisierter Z-Höhe
-    """
-    from scipy.spatial import cKDTree
-
-    # Erstelle KDTree EINMAL (sehr teuer!)
-    logger.debug("  [i] Erstelle KDTree für Terrain-Abfragen...")
-    tree = cKDTree(height_points)
-    logger.info(f"  [✓] KDTree erstellt ({len(height_points):,} Punkte)")
-
-    snapped_buildings = []
-    for building_idx, building in enumerate(buildings):
-        # Alle Vertices sammeln
-        all_verts = []
-        for verts, _ in building.get("walls", []):
-            all_verts.append(verts)
-        for verts, _ in building.get("roofs", []):
-            all_verts.append(verts)
-
-        if not all_verts:
-            snapped_buildings.append(building)
-            continue
-
-        all_verts = np.vstack(all_verts)
-        min_z = np.min(all_verts[:, 2])
-
-        # Ermittle Terrain-Höhe am niedrigsten Punkt
-        min_point_xy = all_verts[np.argmin(all_verts[:, 2]), :2]
-
-        _, idx = tree.query(min_point_xy)
-        terrain_z = height_elevations[idx]
-
-        # Z-Offset berechnen
-        z_offset = terrain_z - min_z
-
-        # Alle Vertices anpassen
-        building_copy = {
-            "id": building.get("id"),
-            "walls": [],
-            "roofs": [],
-            "bounds": building.get("bounds"),
-        }
-
-        for verts, faces in building.get("walls", []):
-            building_copy["walls"].append((verts + [0, 0, z_offset], faces))
-
-        for verts, faces in building.get("roofs", []):
-            building_copy["roofs"].append((verts + [0, 0, z_offset], faces))
-
-        snapped_buildings.append(building_copy)
-
-        # Progress-Ausgabe alle 100 Gebäude
-        if (building_idx + 1) % 100 == 0:
-            logger.info(f"    {building_idx + 1}/{len(buildings)} Gebäude normalisiert")
-
-    return snapped_buildings
-
-
 def normalize_buildings_full(
     buildings: List[Dict],
     local_offset: Tuple[float, float, float],
@@ -367,7 +275,6 @@ def cache_lod2_buildings(
     Returns:
         Pfad zur Cache-Datei
     """
-    import hashlib
     from pyproj import Transformer
 
     # BBOX von WGS84 (Lat/Lon) zu UTM konvertieren
@@ -451,48 +358,6 @@ def load_buildings_from_cache(cache_file: str) -> List[Dict]:
 
     with open(cache_file, "rb") as f:
         return pickle.load(f)
-
-
-def cache_normalized_buildings(
-    buildings: List[Dict],
-    height_points: np.ndarray,
-    height_elevations: np.ndarray,
-    cache_dir: str,
-    tile_hash: str,
-) -> Optional[str]:
-    """
-    Normalisiert Gebäude ans Terrain und cached sie.
-
-    Args:
-        buildings: Rohe Gebäude-Dicts
-        height_points: (N, 2) Array mit XY-Koordinaten des Terrains
-        height_elevations: (N,) Array mit Z-Werten des Terrains
-        cache_dir: Cache-Verzeichnis
-        tile_hash: Hash für Cache-Validierung
-
-    Returns:
-        Pfad zur normalisierten Cache-Datei oder None
-    """
-    if not buildings:
-        return None
-
-    cache_file = Path(cache_dir) / f"lod2_normalized_{tile_hash}.pkl"
-
-    if cache_file.exists():
-        logger.debug(f"  [i] Normalisierte LoD2-Cache gefunden: {cache_file.name}")
-        return str(cache_file)
-
-    # Normalisiere Gebäude
-    normalized_buildings = snap_buildings_to_terrain_batch(buildings, height_points, height_elevations)
-
-    # Cache schreiben
-    cache_file.parent.mkdir(parents=True, exist_ok=True)
-    with open(cache_file, "wb") as f:
-        pickle.dump(normalized_buildings, f)
-
-    logger.info(f"  [✓] {len(normalized_buildings)} normalisierte Gebäude gecached")
-
-    return str(cache_file)
 
 
 def create_items_json_entry(dae_path: str, tile_x: int, tile_y: int, item_manager, item_name: str = None) -> Dict:

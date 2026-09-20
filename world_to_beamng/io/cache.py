@@ -11,7 +11,6 @@ import hashlib
 from pathlib import Path
 
 from .. import config
-import logging
 from world_to_beamng.logging_config import LoggerConfig
 logger = LoggerConfig.get_logger()
 
@@ -103,56 +102,6 @@ def save_to_cache(bbox, data_type, data, height_hash=None):
         logger.error(f"  [!] Fehler beim Speichern des Caches: {e}")
 
 
-def load_height_hashes():
-    """
-    Lädt die Hash-Registry für Height-Daten (Multi-Tile-System).
-
-    Format der height_data_hash.txt:
-    __GLOBAL_TILES_HASH__: abc123def456  (globaler Hash über alle Tiles)
-    dgm1_4658000_5394000.xyz.zip: abc123def456
-    dgm1_4660000_5394000.xyz.zip: xyz789
-
-    Returns:
-        Dict: {filename: hash_value} (enthält auch "__GLOBAL_TILES_HASH__" als Key)
-    """
-    hash_file = config.CACHE_DIR / "height_data_hash.txt"
-    hashes = {}
-
-    if hash_file.exists():
-        try:
-            with open(hash_file, "r", encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if not line or ":" not in line:
-                        continue
-                    filename, hash_value = line.split(":", 1)
-                    hashes[filename.strip()] = hash_value.strip()
-            logger.info(f"  [OK] {len(hashes)} Height-Data-Hashes geladen aus height_data_hash.txt")
-        except Exception as e:
-            logger.error(f"  [!] Fehler beim Laden von height_data_hash.txt: {e}")
-
-    return hashes
-
-
-def save_height_hashes(hashes):
-    """
-    Speichert die Hash-Registry für Height-Daten.
-
-    Args:
-        hashes: Dict {filename: hash_value}
-    """
-    config.CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    hash_file = config.CACHE_DIR / "height_data_hash.txt"
-
-    try:
-        with open(hash_file, "w", encoding="utf-8") as f:
-            for filename in sorted(hashes.keys()):
-                f.write(f"{filename}: {hashes[filename]}\n")
-        logger.info(f"  [OK] {len(hashes)} Height-Data-Hashes in height_data_hash.txt gespeichert")
-    except Exception as e:
-        logger.error(f"  [!] Fehler beim Speichern von height_data_hash.txt: {e}")
-
-
 def calculate_file_hash(filepath: Path, chunk_size=8192):
     """
     Berechnet MD5-Hash einer Datei.
@@ -210,42 +159,3 @@ def calculate_global_tiles_hash(tiles):
     # Berechne globalen Hash
     global_hash = hashlib.md5(hash_input.encode()).hexdigest()[:12]
     return global_hash
-
-
-def clear_all_caches():
-    """
-    Löscht alle Cache-Dateien (bei globalem Tiles-Hash-Wechsel).
-
-    Betroffen:
-    - height_raw_*.npz
-    - grid_v3_*.npz
-    - grid_v2_*.npz  # Alte Version
-    - elevations_*.json
-    - osm_all_*.json
-    - lod2_*.pkl
-    - lod2_normalized_*.pkl
-    """
-
-    patterns = [
-        "height_raw_*.npz",
-        "grid_v3_*.npz",
-        "grid_v2_*.npz",  # Alte Version
-        "elevations_*.json",
-        "osm_all_*.json",
-        "lod2_*.pkl",
-        "lod2_normalized_*.pkl",
-    ]
-
-    deleted_count = 0
-    for pattern in patterns:
-        for cache_file_path in config.CACHE_DIR.glob(pattern):
-            try:
-                cache_file_path.unlink()
-                deleted_count += 1
-            except Exception as e:
-                logger.error(f"  [!] Fehler beim Löschen von {cache_file_path.name}: {e}")
-
-    if deleted_count > 0:
-        logger.info(f"  [OK] {deleted_count} Cache-Datei(en) gelöscht")
-
-    return deleted_count

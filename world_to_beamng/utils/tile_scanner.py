@@ -9,7 +9,6 @@ Diese Funktion scannet das data/DGM1-Verzeichnis und extrahiert die Koordinaten.
 
 import re
 import logging
-import numpy as np
 from pathlib import Path
 
 logger = logging.getLogger(__name__)

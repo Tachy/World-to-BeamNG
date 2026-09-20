@@ -269,60 +269,6 @@ class DAEExporter:
         f.write("          </technique_common>\n")
         f.write("        </source>\n")
 
-    def _write_triangles_with_normals(
-        self,
-        f,
-        material_name: str,
-        faces: Dict[str, np.ndarray],
-        vertices_id: str,
-        normals_id: str,
-        uv_id: Optional[str] = None,
-    ) -> None:
-        """
-        Schreibe <triangles> Block mit Normals.
-
-        Args:
-            f: File handle
-            material_name: Material-Symbol
-            faces: Dict {mat_name: (M, 3)} Face-Indizes
-            vertices_id: ID des <vertices> Elements
-            normals_id: ID der Normals <source>
-            uv_id: Optional ID der UV <source>
-        """
-        # Sammle alle Faces aus allen Materialien
-        all_faces = []
-        for mat_name, face_array in faces.items():
-            if mat_name == material_name:
-                all_faces = face_array
-                break
-
-        if len(all_faces) == 0:
-            return
-
-        f.write(f'        <triangles material="{material_name}" count="{len(all_faces)}">\n')
-        f.write(f'          <input semantic="VERTEX" source="#{vertices_id}" offset="0"/>\n')
-        f.write(f'          <input semantic="NORMAL" source="#{normals_id}" offset="1"/>\n')
-
-        if uv_id:
-            f.write(f'          <input semantic="TEXCOORD" source="#{uv_id}" offset="2" set="0"/>\n')
-
-        f.write("          <p>")
-
-        # Alle Indizes mit Normals
-        # Format mit offsets 0,1,2: v0 n0 uv0 v1 n1 uv1 v2 n2 uv2
-        # Normals-Index = Vertex-Index (per-vertex normals)
-        # UV-Index = Vertex-Index (per-vertex UVs)
-        if uv_id:
-            # Mit Normals + UV: v0 n0 uv0 v1 n1 uv1 v2 n2 uv2
-            indices_str = " ".join(f"{v0} {v0} {v0} {v1} {v1} {v1} {v2} {v2} {v2}" for v0, v1, v2 in all_faces)
-        else:
-            # Nur Normals: v0 n0 v1 n1 v2 n2
-            indices_str = " ".join(f"{v0} {v0} {v1} {v1} {v2} {v2}" for v0, v1, v2 in all_faces)
-
-        f.write(f"\n{indices_str}")
-        f.write("\n          </p>\n")
-        f.write("        </triangles>\n")
-
     def _write_triangles(
         self,
         f,
@@ -399,122 +345,6 @@ class DAEExporter:
         f.write("\n          </p>\n")
         f.write("        </triangles>\n")
 
-    def export_single_mesh(
-        self,
-        output_path: str,
-        vertices: np.ndarray,
-        faces: List[Tuple[int, int, int]],
-        material_name: str,
-        mesh_id: str = "mesh",
-        with_uv: bool = False,
-        uv_offset: Tuple[float, float] = (0.0, 0.0),
-        uv_scale: Tuple[float, float] = (1.0, 1.0),
-    ) -> str:
-        """
-        Exportiere Single-Mesh DAE (z.B. Horizon).
-
-        Args:
-            output_path: Ziel-Dateipfad
-            vertices: (N, 3) Vertices
-            faces: Liste von (v0, v1, v2)
-            material_name: Material-Name
-            mesh_id: Mesh-ID
-            with_uv: UV-Koordinaten generieren?
-            uv_offset: UV-Offset
-            uv_scale: UV-Skalierung
-
-        Returns:
-            output_path
-        """
-        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-
-        with open(output_path, "w", encoding="utf-8") as f:
-            self._write_header(f)
-
-            # Materials
-            self._write_material_library(f, [material_name])
-            self._write_effect_library(f, [material_name], colors=None, material_textures=None)
-
-            # Geometries
-            f.write("  <library_geometries>\n")
-            f.write(f'    <geometry id="{mesh_id}_geometry" name="{mesh_id}">\n')
-            f.write("      <mesh>\n")
-
-            # Vertices Source
-            vert_src_id = f"{mesh_id}_vertices"
-            self._write_vertices_source(f, vert_src_id, vertices)
-
-            # Normals Source (NEW: Smooth Normals für BeamNG)
-            normal_src_id = f"{mesh_id}_normals"
-            smooth_normals = self._compute_smooth_normals(vertices, faces)
-            self._write_normals_source(f, normal_src_id, smooth_normals)
-
-            # UV Source (optional)
-            if with_uv:
-                uv_src_id = f"{mesh_id}_uvs"
-                # UVs müssen vorhanden sein - kein Fallback!
-                if "uvs" in mesh_data and mesh_data["uvs"] is not None:
-                    uv_coords = mesh_data["uvs"]
-                else:
-                    raise ValueError(f"Mesh {mesh_id} hat with_uv=True aber keine UVs definiert!")
-                self._write_uv_source(f, uv_src_id, uv_coords)
-            else:
-                uv_src_id = None
-
-            # Vertices Element
-            vert_elem_id = f"{mesh_id}_vertices_input"
-            f.write(f'        <vertices id="{vert_elem_id}">\n')
-            f.write(f'          <input semantic="POSITION" source="#{vert_src_id}"/>\n')
-            f.write("        </vertices>\n")
-
-            # Triangles mit Normals
-            f.write(f'        <triangles material="{material_name}" count="{len(faces)}">\n')
-            f.write(f'          <input semantic="VERTEX" source="#{vert_elem_id}" offset="0"/>\n')
-            f.write(f'          <input semantic="NORMAL" source="#{normal_src_id}" offset="1"/>\n')
-
-            if uv_src_id:
-                f.write(f'          <input semantic="TEXCOORD" source="#{uv_src_id}" offset="2" set="0"/>\n')
-
-            f.write("          <p>")
-
-            if uv_src_id:
-                # Mit Normals + UV: v0 n0 uv0 v1 n1 uv1 v2 n2 uv2
-                indices_str = " ".join(
-                    f"{face[0]} {face[0]} {face[0]} {face[1]} {face[1]} {face[1]} {face[2]} {face[2]} {face[2]}"
-                    for face in faces
-                )
-            else:
-                # Mit Normals nur: v0 n0 v1 n1 v2 n2
-                indices_str = " ".join(f"{face[0]} {face[0]} {face[1]} {face[1]} {face[2]} {face[2]}" for face in faces)
-
-            f.write(f"\n{indices_str}")
-            f.write("\n          </p>\n")
-            f.write("        </triangles>\n")
-            f.write("        </triangles>\n")
-
-            f.write("      </mesh>\n")
-            f.write("    </geometry>\n")
-            f.write("  </library_geometries>\n")
-
-            # Visual Scene
-            f.write("  <library_visual_scenes>\n")
-            f.write('    <visual_scene id="Scene" name="Scene">\n')
-            f.write(f'      <node id="{mesh_id}_node" name="{mesh_id}" type="NODE">\n')
-            f.write(f'        <instance_geometry url="#{mesh_id}_geometry">\n')
-            f.write("          <bind_material>\n")
-            f.write("            <technique_common>\n")
-            f.write(f'              <instance_material symbol="{material_name}" target="#{material_name}"/>\n')
-            f.write("            </technique_common>\n")
-            f.write("          </bind_material>\n")
-            f.write("        </instance_geometry>\n")
-            f.write("      </node>\n")
-            f.write("    </visual_scene>\n")
-            f.write("  </library_visual_scenes>\n")
-
-            self._write_footer(f)
-
-        return output_path
-
     def export_multi_mesh(
         self,
         output_path: str,
@@ -573,8 +403,6 @@ class DAEExporter:
                 mesh_id = mesh_data["id"]
                 vertices = mesh_data["vertices"]
                 faces = mesh_data.get("faces", [])
-                uv_offset = mesh_data.get("uv_offset", (0.0, 0.0))
-                uv_scale = mesh_data.get("uv_scale", (1.0, 1.0))
 
                 f.write(f'    <geometry id="{mesh_id}_geometry" name="{mesh_id}">\n')
                 f.write("      <mesh>\n")

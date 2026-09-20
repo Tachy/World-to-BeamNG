@@ -116,18 +116,11 @@ print(f"Exportiert: {stats['tiles_processed']} Tiles")
 ### Einzelne Workflows nutzen
 
 ```python
-# Nur Terrain
-exporter.export_terrain_only(tiles, global_offset)
-
-# Nur ein Tile
-exporter.export_single_tile(tile, global_offset, tile_x=0, tile_y=0)
-
 # Nur Horizon
 exporter.horizon.generate_horizon(global_offset)
 
-# Nur Buildings
-buildings_data = exporter.buildings.cache_buildings(bbox, global_offset)
-exporter.buildings.export_buildings(buildings_data["buildings"], 0, 0)
+# Nur Buildings (Gebäude-Dicts wie sie io/lod2.py aus dem LOD2-Cache lädt)
+exporter.buildings.export_buildings(buildings, 0, 0)
 ```
 
 ### Config anpassen
@@ -143,8 +136,6 @@ config.mesh.road_width = 10.0   # Breitere Straßen
 config.workflow.debug_exports = True
 config.workflow.debug_verbose = True
 
-# API
-config.api.opentopography_enabled = True
 ```
 
 ## 🔧 Migration

@@ -14,7 +14,6 @@ import uuid
 import shutil
 from typing import Dict, Any, Optional, List, Tuple
 from pathlib import Path
-import logging
 from world_to_beamng import config
 from world_to_beamng.managers.environment import build_environment_lines, load_environment_defaults
 from world_to_beamng.logging_config import LoggerConfig
@@ -207,40 +206,6 @@ class ItemManager:
 
         self.items[name] = item
         return True
-
-    def add_terrain(
-        self,
-        name: str,
-        dae_filename: str,
-        position: Tuple[float, float, float] = (0, 0, 0),
-        overwrite: bool = False,
-    ) -> str:
-        """
-        Füge Terrain-Item hinzu (Convenience-Methode).
-
-        Args:
-            name: Item-Name (z.B. "terrain_0_0")
-            dae_filename: DAE-Dateiname (z.B. "terrain_0_0.dae")
-            position: Position (normalerweise [0, 0, 0])
-            overwrite: Überschreibe existierendes Item
-
-        Returns:
-            Item-Name
-        """
-        # Konstruiere relativen Pfad
-        from .. import config
-
-        shape_name = str(config.RELATIVE_DIR_SHAPES / dae_filename)
-
-        self.add_item(
-            name,
-            item_class="TSStatic",
-            shape_name=shape_name,
-            position=position,
-            overwrite=overwrite,
-            collisionType="Visible Mesh Final",
-        )
-        return name
 
     def add_terrain_block(
         self,
@@ -627,24 +592,6 @@ class ItemManager:
                         self.items[item_name] = item
                 except json.JSONDecodeError:
                     continue
-
-    def merge(self, other: "ItemManager", overwrite: bool = False) -> int:
-        """
-        Merge Items von anderem ItemManager.
-
-        Args:
-            other: Anderer ItemManager
-            overwrite: Überschreibe existierende Items
-
-        Returns:
-            Anzahl hinzugefügter Items
-        """
-        count = 0
-        for name, item in other.items.items():
-            if name not in self.items or overwrite:
-                self.items[name] = item
-                count += 1
-        return count
 
     def clear(self) -> None:
         """Lösche alle Items."""

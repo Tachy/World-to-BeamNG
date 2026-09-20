@@ -5,7 +5,6 @@ Generiert gleichmäßig verteilte Punkte innerhalb von Waldpolygonen unter
 Berücksichtigung der Baumdichte (tree_density aus forest_types).
 """
 
-import logging
 import numpy as np
 import shapely
 from typing import List, Tuple, Dict, Optional

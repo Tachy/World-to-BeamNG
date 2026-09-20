@@ -8,7 +8,6 @@ import math
 from pathlib import Path
 from PIL import Image, ImageEnhance
 from io import BytesIO
-import logging
 from world_to_beamng.logging_config import LoggerConfig
 from .. import config
 
@@ -342,13 +341,6 @@ def aerial_photos_signature(aerial_dir, photos, global_offset, target_pixel_size
     }
 
 
-def aerial_photo_signature(aerial_dir, grid_bounds, global_offset, target_pixel_size=None):
-    """Signatur des EINEN Gesamtfotos (aerial_photo.png) für die Fläche grid_bounds."""
-    return aerial_photos_signature(
-        aerial_dir, [{"name": SINGLE_PHOTO_NAME, "bounds": grid_bounds}], global_offset, target_pixel_size
-    )
-
-
 def write_aerial_photo_signature(output_dir, signature):
     (Path(output_dir) / AERIAL_SIGNATURE_FILENAME).write_text(json.dumps(signature, indent=2), encoding="utf-8")
 
@@ -407,10 +399,3 @@ def ensure_aerial_photos(aerial_dir, output_dir, photos, global_offset, target_p
     write_aerial_photo_signature(output_dir, signature)
     _remove_stale_photos(output_dir, names)
     return "built"
-
-
-def ensure_aerial_photo(aerial_dir, output_dir, grid_bounds, global_offset, target_pixel_size=None):
-    """Wie ensure_aerial_photos für das EINE Gesamtfoto der Fläche grid_bounds."""
-    return ensure_aerial_photos(
-        aerial_dir, output_dir, [{"name": SINGLE_PHOTO_NAME, "bounds": grid_bounds}], global_offset, target_pixel_size
-    )

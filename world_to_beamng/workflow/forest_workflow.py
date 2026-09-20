@@ -11,7 +11,6 @@ Orchestriert Wald-Generierung pro Tile (nach Asset-Scanning durch BeamNGExporter
 3. Forest.json-Finalisierung nach Tile-Loop
 """
 
-import logging
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 

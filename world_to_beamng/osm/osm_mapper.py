@@ -1,7 +1,5 @@
 import json
-import os
 import uuid
-import logging
 from world_to_beamng.logging_config import LoggerConfig
 logger = LoggerConfig.get_logger()
 
@@ -253,13 +251,11 @@ class OSMMapper:
 
         # 1. Finde passenden Forest-Type
         forest_type = None
-        matching_tag_key = None
 
         for tag_key, tag_values_dict in self.forest_mappings.items():
             tag_value = tags.get(tag_key)
             if tag_value in tag_values_dict:
                 forest_type = tag_values_dict[tag_value]
-                matching_tag_key = tag_key
                 break
 
         # Falls kein Forest-Type gefunden oder open_meadow: return None

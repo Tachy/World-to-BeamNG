@@ -11,13 +11,13 @@ from pathlib import Path
 import json
 import re
 import zipfile
-import configparser
 from collections import defaultdict
 import sys
 
 # Importiere config
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from world_to_beamng import config
+from world_to_beamng.io.beamng_install import get_beamng_install_dir
 
 
 # Mapping von Dateinamen-Patterns zu Baumarten
@@ -177,18 +177,6 @@ def copy_tree_assets(dest_dir: Path, install_dir: Path) -> int:
 
     print(f"[INFO] {fixed} Text-Dateien (.dae/.materials.json) auf eigenen Level-Pfad umgeschrieben")
     return extracted
-
-
-def get_beamng_install_dir() -> Path:
-    """Liest den BeamNG-Installationspfad aus BeamNG.drive.ini."""
-    ini_path = Path.home() / "AppData" / "Local" / "BeamNG" / "BeamNG.drive.ini"
-    if not ini_path.is_file():
-        raise FileNotFoundError(f"BeamNG.drive.ini nicht gefunden: {ini_path}")
-
-    raw = ini_path.read_text(encoding="utf-8-sig")
-    parser = configparser.ConfigParser()
-    parser.read_string("[main]\n" + raw)
-    return Path(parser["main"]["installpath"].strip().strip('"'))
 
 
 def scan_dae_files(dir_path: str, beamng_root: str) -> dict:

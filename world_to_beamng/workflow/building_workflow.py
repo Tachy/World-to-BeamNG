@@ -118,21 +118,6 @@ class BuildingWorkflow:
         self.items = ItemManager.get_instance()  # Singleton
         self.dae = dae_exporter
 
-    def cache_buildings(self, bbox: tuple, global_offset: tuple) -> Optional[Dict]:
-        """
-        Lade und cache LoD2-Gebäude.
-
-        Args:
-            bbox: (min_x, max_x, min_y, max_y)
-            global_offset: (origin_x, origin_y)
-
-        Returns:
-            Gebäude-Daten oder None
-        """
-        from ..io.lod2 import cache_lod2_buildings
-
-        return cache_lod2_buildings(bbox=bbox, local_offset=global_offset, cache_manager=self.cache)
-
     def export_buildings(
         self,
         buildings: List[Dict],

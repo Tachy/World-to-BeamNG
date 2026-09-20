@@ -2,10 +2,8 @@
 OSM Daten Parser und Datenextraktion.
 """
 
-import numpy as np
 
-from ..geometry.coordinates import transformer_to_wgs84, transformer_to_utm
-import logging
+from ..geometry.coordinates import transformer_to_wgs84
 from world_to_beamng.logging_config import LoggerConfig
 logger = LoggerConfig.get_logger()
 

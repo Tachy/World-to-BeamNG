@@ -5,13 +5,12 @@ Orchestriert die Horizon-Layer-Generierung.
 """
 
 from typing import Tuple, Optional
-from pathlib import Path
-import numpy as np
 import logging
 
 from .. import config
 from ..core.cache_manager import CacheManager
 from ..managers import MaterialManager, ItemManager, DAEExporter
+from ..terrain.horizon_image import horizon_area
 
 logger = logging.getLogger(__name__)
 
@@ -41,11 +40,8 @@ class HorizonWorkflow:
         global_offset: Tuple[float, float, float],
         tile_hash: Optional[str] = None,
         tile_bounds: Optional[list] = None,
-        terrain_mesh=None,
-        terrain_vertex_manager=None,
-        terrain_grid_bounds: Optional[Tuple[float, float, float, float]] = None,
         terrain_height_at=None,
-    ) -> Optional[Tuple[str, list]]:
+    ) -> Optional[str]:
         """
         Generiere Horizon-Layer (wie in multitile.py phase5_generate_horizon_layer).
 
@@ -53,15 +49,12 @@ class HorizonWorkflow:
             global_offset: (origin_x, origin_y, origin_z) - UTM Offset
             tile_hash: Optional - Hash für Cache
             tile_bounds: Optional - Liste von (x_min, y_min, x_max, y_max) Tuples
-            terrain_mesh: Optional - Terrain-Mesh für Boundary-Stitching
-            terrain_vertex_manager: Optional - Terrain VertexManager (für gemeinsamen VM)
-            terrain_grid_bounds: Optional - (x_min, x_max, y_min, y_max) der Terrain-Tiles
             terrain_height_at: Optional - Höhenabfrage der Terrain-Heightmap (x, y) -> z. Damit
                 bekommt der Horizont ein exakt passendes Loch samt Randring und Höhenübergang
                 (terrain/horizon_seam.py) - ganz ohne Terrain-Mesh-Stitching.
 
         Returns:
-            Tuple (dae_path, stitching_faces) oder (None, [])
+            Pfad der Horizont-DAE oder None (Horizont deaktiviert oder DGM30 fehlt)
         """
         from ..terrain.horizon import (
             load_dgm30_tiles,
@@ -70,19 +63,18 @@ class HorizonWorkflow:
             texture_horizon_mesh,
             export_horizon_dae,
         )
-        from ..mesh.stitch_boundary import stitch_terrain_horizon_boundary
 
         # Prüfe ob Phase 5 aktiviert ist
         if not config.PHASE5_ENABLED:
             logger.info("  [i] Phase 5 ist deaktiviert")
-            return None, []
+            return None
 
-        # Berechne Horizont-BBOX (±50km um Kerngebiet)
+        # Berechne Horizont-BBOX (config.HORIZON_HALF_SIZE_M um das Kerngebiet)
         ox, oy, oz = global_offset
-        horizon_bbox = (ox - 50000, ox + 50000, oy - 50000, oy + 50000)
+        horizon_bbox = horizon_area(global_offset)
         x_min, x_max, y_min, y_max = horizon_bbox
 
-        logger.info(f"  [i] Horizont-BBOX: ±50km um ({ox:.0f}, {oy:.0f})")
+        logger.info(f"  [i] Horizont-BBOX: ±{config.HORIZON_HALF_SIZE_M / 1000:.0f}km um ({ox:.0f}, {oy:.0f})")
         logger.info(f"      UTM (EPSG:25832): X=[{x_min:.0f}..{x_max:.0f}], Y=[{y_min:.0f}..{y_max:.0f}]")
         logger.info(f"      Breite: {x_max - x_min:.0f}m, Höhe: {y_max - y_min:.0f}m")
 
@@ -95,57 +87,22 @@ class HorizonWorkflow:
 
         if height_points is None:
             logger.warning("  [!] DGM30-Daten nicht gefunden - Phase 5 übersprungen")
-            return None, []
+            return None
 
         # === Mesh generieren ===
         logger.info("  [i] Generiere Horizont-Mesh...")
 
-        # Nutze GEMEINSAMEN VertexManager nur wenn Boundary-Stitching aktiviert ist
-        # Sonst: Separater VertexManager für saubere Architektur
         # === STEP 1: Generiere Horizont-Mesh (separater VM, OHNE UVs noch) ===
         logger.info("  [i] Generiere Horizont-Mesh...")
 
-        # WICHTIG: IMMER separater VM!
-        # Boundary-Stitching arbeitet NUR mit dem Horizon-VM
-        horizon_mesh, nx, ny, horizon_vertex_indices, global_to_horizon_map = generate_horizon_mesh(
+        # WICHTIG: IMMER separater VM
+        horizon_mesh, nx, ny = generate_horizon_mesh(
             height_points,
             height_elevations,
             global_offset,
             tile_bounds=tile_bounds,
-            vertex_manager=None,  # ALWAYS separater VM (saubere Architektur)
             terrain_height_at=terrain_height_at,
         )
-
-        # === STEP 2: Boundary-Stitching (falls aktiviert) ===
-        stitching_faces = []
-        if terrain_mesh is not None and terrain_vertex_manager is not None and config.HORIZON_BOUNDARY_STITCHING:
-            logger.info(f"  [i] Generiere Boundary-Stitching zwischen Terrain und Horizon...")
-
-            stitching_faces = stitch_terrain_horizon_boundary(
-                terrain_mesh,
-                terrain_vertex_manager,
-                horizon_mesh,
-                horizon_mesh.vertex_manager,  # Separater VertexManager des Horizon-Meshes
-                None,  # grid_bounds wird ignoriert - wird aus Boundary-Vertices berechnet!
-                grid_spacing=200.0,
-            )
-
-            # Füge Stitching-Faces zum Horizon-Mesh hinzu
-            if len(stitching_faces) > 0:
-                logger.info(f"  [i] Füge {len(stitching_faces)} Stitching-Faces zu Horizon-Mesh hinzu...")
-                for v0, v1, v2 in stitching_faces:
-                    # === Füge Face hinzu ===
-                    current_face_idx = len(horizon_mesh.faces)
-                    horizon_mesh.faces.append((v0, v1, v2))
-
-                    # === Setze Face-Properties ===
-                    if not hasattr(horizon_mesh, "face_props"):
-                        horizon_mesh.face_props = {}
-                    horizon_mesh.face_props[current_face_idx] = {"material": "horizon"}
-
-                logger.info(f"  [✓] {len(stitching_faces)} Stitching-Faces integriert")
-
-            logger.info(f"  [i] {len(stitching_faces)} Stitching-Faces generiert")
 
         # === Sentinel-2 laden (optional) ===
         logger.info("  [i] Lade Sentinel-2 Satellitenbilder...")
@@ -174,8 +131,8 @@ class HorizonWorkflow:
             logger.info("  [i] Texturiere Horizont-Mesh...")
             texture_info = texture_horizon_mesh(vertices, horizon_image, nx, ny, bounds_utm, transform, global_offset)
 
-        # === STEP 3: UVs generieren NACH Stitching (für ALL Vertices + Faces!) ===
-        logger.info("  [i] Generiere UVs für Horizont-Mesh (inklusive Stitching)...")
+        # === STEP 2: UVs generieren (für alle Vertices) ===
+        logger.info("  [i] Generiere UVs für Horizont-Mesh...")
         horizon_vertices = horizon_mesh.vertex_manager.vertices
         mesh_x_min = horizon_vertices[:, 0].min()
         mesh_x_max = horizon_vertices[:, 0].max()
@@ -185,7 +142,7 @@ class HorizonWorkflow:
         mesh_width = mesh_x_max - mesh_x_min
         mesh_height = mesh_y_max - mesh_y_min
 
-        # Generiere UVs für ALLE Vertices (Original-Horizon + Stitching)
+        # Generiere UVs für ALLE Vertices
         horizon_mesh.uvs = []
         for vertex in horizon_vertices:
             u = (vertex[0] - mesh_x_min) / max(mesh_width, 1e-10)
@@ -214,6 +171,5 @@ class HorizonWorkflow:
         self.items.add_horizon(
             dae_filename=dae_filename,
         )
-        logger.info(f"  [i] {len(stitching_faces)} Stitching-Faces für Horizon-Terrain-Verbindung")
 
-        return str(config.BEAMNG_DIR_SHAPES / dae_filename), stitching_faces
+        return str(config.BEAMNG_DIR_SHAPES / dae_filename)

@@ -12,10 +12,6 @@ class StepTimer:
         self._counter = 0
         self._global_start = time.time()
 
-    @property
-    def current_label(self):
-        return self.steps[-1]["label"] if self.steps else None
-
     def begin(self, title: str):
         now = time.time()
         self._close_open(now)
@@ -26,13 +22,6 @@ class StepTimer:
         logger.info(f"\n{'='*60}")
         logger.info(f"[{label}] {title}...")
         logger.info(f"{'='*60}")
-
-    def set_duration(self, duration: float):
-        """Setze Dauer manuell (z.B. bei Skips nach begin)."""
-        for step in reversed(self.steps):
-            if step["duration"] is None:
-                step["duration"] = duration
-                return
 
     def report(self):
         """Finalisiere offenen Schritt und drucke eine Zeitübersicht."""
@@ -50,10 +39,6 @@ class StepTimer:
             bar = "█" * bar_length + "░" * (50 - bar_length)
             logger.info(f"  {step_display:.<35} {step_time:>6.2f}s ({percentage:>5.1f}%) {bar}")
         logger.info(f"{'=' * 60}")
-
-    def results(self):
-        """Gibt Liste der Schritte inkl. Dauer zurück."""
-        return self.steps
 
     def _close_open(self, now: float | None = None):
         if now is None:

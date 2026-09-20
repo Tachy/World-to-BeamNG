@@ -9,7 +9,6 @@ import time
 
 from .. import config
 from ..io.cache import load_from_cache, save_to_cache
-import logging
 from world_to_beamng.logging_config import LoggerConfig
 logger = LoggerConfig.get_logger()
 

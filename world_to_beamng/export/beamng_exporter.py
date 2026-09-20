@@ -4,8 +4,7 @@ Zentrale BeamNG-Exporter-Fassade.
 Bietet eine einheitliche API für den gesamten Export-Workflow.
 """
 
-import logging
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Tuple
 from pathlib import Path
 import json
 
@@ -17,7 +16,6 @@ from ..managers import MaterialManager, ItemManager, DAEExporter
 from ..io.beamng_install import get_beamng_install_dir
 from ..io.vineyard_assets import ITEM_NAMES as VINEYARD_ITEM_NAMES, ensure_vineyard_assets
 from ..workflow import TileProcessor, TerrainWorkflow, BuildingWorkflow, HorizonWorkflow, ForestWorkflow
-import logging
 from world_to_beamng.logging_config import LoggerConfig
 
 logger = LoggerConfig.get_logger()
@@ -207,10 +205,7 @@ class BeamNGExporter:
         all_buildings = []
         tile_bounds_local = []  # Sammle Tile-Grenzen für Horizon-Clipping
 
-        # Speichere Terrain-Daten für Horizon-Stitching
-        terrain_mesh = None
-        terrain_vertex_manager = None
-        terrain_grid_bounds = None
+        # Höhenabfrage der fertigen Terrain-Heightmap (Naht und Höhenübergang des Horizonts)
         terrain_height_at = None
 
         # EIN zusammengesetztes Luftbild für die Gesamtfläche generieren (nicht
@@ -218,7 +213,6 @@ class BeamNGExporter:
         # Docstring: BeamNGs Terrain-Atlas-Packer verdreht Kacheln sichtbar, wenn
         # ihm zu viele große, einzigartige Materialien übergeben werden).
         from ..utils.tile_scanner import compute_global_bbox
-        from ..io.aerial import AERIAL_PHOTO_FILENAME
         from ..terrain.heightmap import next_power_of_two_size
 
         utm_min_x, utm_max_x, utm_min_y, utm_max_y = compute_global_bbox(tiles)
@@ -338,7 +332,6 @@ class BeamNGExporter:
 
         # Phase 2: Buildings (nach Terrain-Export, wie im alten multitile.py)
         if include_buildings and all_buildings:
-            from collections import defaultdict
 
             timer.begin("Buildings Export")
 
@@ -370,25 +363,14 @@ class BeamNGExporter:
         timer.begin("Horizon Export")
 
         # Phase 3: Horizon-Layer (optional)
-        stitching_faces = []
         if include_horizon:
-            # Übergebe Tile-Grenzen und Terrain-Daten für Boundary-Stitching
-            result = self.horizon.generate_horizon(
+            # Tile-Grenzen (Terrain-Loch) und Höhenabfrage der Terrain-Heightmap (Naht, Höhenübergang)
+            horizon_dae = self.horizon.generate_horizon(
                 global_offset=global_offset,
                 tile_bounds=tile_bounds_local,
-                terrain_mesh=terrain_mesh,
-                terrain_vertex_manager=terrain_vertex_manager,
-                terrain_grid_bounds=terrain_grid_bounds,
                 terrain_height_at=terrain_height_at,
             )
-
-            if result is not None:
-                horizon_dae, stitching_faces = result
-                stats["horizon_exported"] = horizon_dae is not None
-                if stitching_faces:
-                    logger.debug(f"  [i] {len(stitching_faces)} Stitching-Faces für Horizon-Terrain-Verbindung")
-            else:
-                stats["horizon_exported"] = False
+            stats["horizon_exported"] = horizon_dae is not None
 
         timer.begin("Finalisierung")
 
@@ -398,49 +380,6 @@ class BeamNGExporter:
         timer.report()
 
         return stats
-
-    def export_single_tile(
-        self, tile: Dict, global_offset: Tuple[float, float], tile_x: int = 0, tile_y: int = 0
-    ) -> Optional[int]:
-        """
-        Exportiere einzelnes Tile.
-
-        Args:
-            tile: Tile-Metadaten
-            global_offset: (origin_x, origin_y)
-            tile_x, tile_y: unbenutzt, nur für Aufrufer-Kompatibilität
-
-        Returns:
-            Anzahl der erzeugten DecalRoad-Items oder None
-        """
-        result = self.terrain.process_tile(tiles=[tile], global_offset=global_offset)
-
-        if result["status"] != "success":
-            return None
-
-        return self.terrain.export_tile(tile_x, tile_y, result)
-
-    def export_terrain_only(self, tiles: List[Dict], global_offset: Tuple[float, float]) -> int:
-        """
-        Exportiere nur Terrain (keine Buildings/Horizon) - alle Kacheln als
-        eine zusammenhängende Fläche (siehe TerrainWorkflow.process_tile()).
-
-        Args:
-            tiles: Liste von Tile-Metadaten
-            global_offset: (origin_x, origin_y)
-
-        Returns:
-            Anzahl der in den Export einbezogenen Kacheln (0 bei Fehlschlag)
-        """
-        result = self.terrain.process_tile(tiles=tiles, global_offset=global_offset)
-
-        count = 0
-        if result["status"] == "success":
-            self.terrain.export_tile(0, 0, result)
-            count = len(tiles)
-
-        self._finalize_export()
-        return count
 
     def _add_lod2_materials(self):
         """
@@ -557,28 +496,3 @@ class BeamNGExporter:
         # Debug-Netzwerk-Export (auskommentiert für Performance)
         if config.DEBUG_EXPORTS:
             self.debug_exporter.export(config.CACHE_DIR)
-
-    def clear_cache(self):
-        """Lösche gesamten Cache."""
-        self.cache.clear_all()
-        logger.info("[✓] Cache gelöscht")
-
-    def reset_export(self):
-        """Reset: Lösche Materials/Items JSON."""
-        mat_path = config.BEAMNG_DIR / config.MATERIALS_JSON
-        items_path = config.BEAMNG_DIR / config.ITEMS_JSON
-
-        if mat_path.exists():
-            mat_path.unlink()
-
-        if items_path.exists():
-            items_path.unlink()
-
-        # Reset Singleton-Instanzen
-        MaterialManager.reset_instance()
-        self.materials = MaterialManager.get_instance(config.BEAMNG_DIR)
-
-        ItemManager.reset_instance()
-        self.items = ItemManager.get_instance(config.BEAMNG_DIR)
-
-        logger.info("[✓] Export zurückgesetzt")

@@ -2,30 +2,6 @@
     "version": "1.0",
     "description": "BeamNG Material-Templates für Terrain, Straßen, Gebäude und Horizont",
     "templates": {
-        "terrain": {
-            "description": "Terrain-Tiles mit Texturen (DOP20 - Orthofotos)",
-            "class": "Material",
-            "version": 2,
-            "Stages": [
-                {
-                    "specularPower": 0.5,
-                    "pixelSpecular": false
-                }
-            ],
-            "groundModelName": "grass",
-            "note": "Matte, naturgetreue Texturen für Bodenorthofotos"
-        },
-        "road": {
-            "description": "Standard-Straßen-Material (OSM-Mapping)",
-            "class": "Material",
-            "version": 2,
-            "Stages": [
-                {
-                    "specularPower": 1,
-                    "pixelSpecular": true
-                }
-            ]
-        },
         "building_wall": {
             "description": "LoD2 Gebäude-Wände",
             "class": "Material",

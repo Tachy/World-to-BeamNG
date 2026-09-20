@@ -47,50 +47,10 @@ Der `MaterialManager` lädt diese Templates beim Initialisieren automatisch und 
 
 ## Eingebaute Templates
 
-### 1. **terrain**
-Für Terrain-Tiles mit Texturen.
+Terrain-Materialien entstehen in `terrain/terrain_materials.py`, Straßen-Materialien in
+`OSMMapper.generate_materials_json_entry()`; beide brauchen kein Template.
 
-```json
-{
-  "class": "Material",
-  "version": 2,
-  "Stages": [{"specularPower": 1, "pixelSpecular": true}],
-  "groundModelName": "grass"
-}
-```
-
-**Nutzung:**
-```python
-materials.add_terrain_material(tile_x, tile_y, texture_path)
-```
-
----
-
-### 2. **road**
-Für OSM-Straßen (residential, primary, motorway, etc.).
-
-```json
-{
-  "class": "Material",
-  "version": 2,
-  "Stages": [{"specularPower": 1, "pixelSpecular": true}]
-}
-```
-
-**Nutzung:**
-```python
-road_props = config.OSM_MAPPER.get_road_properties(osm_tags)
-materials.add_road_material(road_name, road_props)
-```
-
-**OSM-Mapper fügt hinzu:**
-- `friction` (aus data/osm_to_beamng.json)
-- `groundType` (ASPHALT, DIRT, etc.)
-- `color` oder `baseColorMap` (falls Texturen vorhanden)
-
----
-
-### 3. **building_wall**
+### 1. **building_wall**
 Für Gebäude-Wände (LoD2).
 
 ```json
@@ -119,7 +79,7 @@ Zusätzliche Stage-Eigenschaften (z. B. `roughnessFactor`, `metallicFactor`) geh
 
 ---
 
-### 4. **building_roof**
+### 2. **building_roof**
 Für Gebäude-Dächer (LoD2).
 
 Identisch mit `building_wall`, aber typischerweise mit:
@@ -132,7 +92,7 @@ entstehen in `facade/building_textures.py` (`ensure_building_textures()`), nicht
 
 ---
 
-### 5. **horizon**
+### 3. **horizon**
 Für Horizont-Layer (distant terrain).
 
 ```json

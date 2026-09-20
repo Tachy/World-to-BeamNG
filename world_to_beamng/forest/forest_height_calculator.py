@@ -25,7 +25,6 @@ class ForestHeightCalculator:
     def __init__(self):
         """Initialisiere HeightCalculator."""
         self._kdtree_cache = {}  # {id(height_points) → cKDTree}
-        self._grid_cache = {}  # Gecachte Grid-Strukturen
 
     def _get_or_build_kdtree(self, height_points: np.ndarray) -> cKDTree:
         """

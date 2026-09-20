@@ -12,7 +12,6 @@ import json
 import uuid
 from typing import Dict, Any, Optional, List
 from pathlib import Path
-import logging
 from world_to_beamng.logging_config import LoggerConfig
 logger = LoggerConfig.get_logger()
 
@@ -174,7 +173,7 @@ class MaterialManager:
 
         Args:
             name: Material-Name (eindeutig)
-            template: Template-Name ("terrain", "road", "building_wall", etc.) oder None
+            template: Template-Name ("building_wall", "building_roof", "horizon") oder None
             overwrite: Überschreibe existierendes Material
             **kwargs: Zusätzliche/Override Properties
 
@@ -208,91 +207,6 @@ class MaterialManager:
 
         self.materials[name] = material
         return True
-
-    def remove_material(self, name: str) -> bool:
-        """
-        Entferne Material aus dem Manager.
-
-        Args:
-            name: Material-Name
-
-        Returns:
-            True wenn Material entfernt wurde, False wenn nicht vorhanden
-        """
-        if name in self.materials:
-            del self.materials[name]
-            return True
-        return False
-
-    def add_terrain_material(self, tile_x: int, tile_y: int, texture_path: str, overwrite: bool = False) -> str:
-        """
-        Füge Terrain-Material für Tile hinzu (Convenience-Methode).
-
-        Args:
-            tile_x: Tile X-Koordinate (in Metern)
-            tile_y: Tile Y-Koordinate (in Metern)
-            texture_path: Relativer Pfad zur Textur (z.B. "/levels/.../textures/tile_0_0.dds")
-            overwrite: Überschreibe existierendes Material
-
-        Returns:
-            Material-Name
-        """
-        mat_name = f"tile_{tile_x}_{tile_y}"
-        self.add_material(mat_name, template="terrain", overwrite=overwrite, Stages={"baseColorMap": texture_path})
-        return mat_name
-
-    def add_road_material(self, road_type: str, properties: Dict[str, Any], overwrite: bool = False) -> str:
-        """
-        Füge Straßen-Material hinzu (Convenience-Methode).
-
-        Args:
-            road_type: Road-Typ (z.B. "road_residential", "road_motorway")
-            properties: OSM-Properties-Dict (color, friction, textures, etc.)
-            overwrite: Überschreibe existierendes Material
-
-        Returns:
-            Material-Name
-        """
-        mat_name = properties.get("internal_name", road_type)
-
-        # Prüfe ob Texturen vorhanden sind
-        textures = properties.get("textures", {})
-        stages_dict = {}
-
-        if textures:
-            # Verwende Texturen (baseColorMap, normalMap, etc.)
-            stages_dict.update(textures)
-        else:
-            # Fallback: Color
-            color = properties.get("color", [0.5, 0.5, 0.5, 1.0])
-            if len(color) == 3:
-                color.append(1.0)  # Alpha hinzufügen
-            stages_dict["diffuseColor"] = color
-
-        # groundType MUSS einer der ~32 offiziellen Bezeichner aus BeamNGs
-        # art/groundmodels.json sein (z.B. "ASPHALT", "DIRT", GROSSGESCHRIEBEN),
-        # sonst greift stillschweigend der ASPHALT-Fallback für Reifenphysik/
-        # -sound. Unsere eigene osm_mapper.py liefert den Wert unter dem Key
-        # "groundModelName" (nicht "groundType"!) und kleingeschrieben.
-        ground_model = str(properties.get("groundModelName", "asphalt")).upper()
-        # materialTag0/1 + annotation nach dem Schema von BeamNGs eigenen
-        # DecalRoad-Materialien (east_coast_usa/art/road/main.materials.json):
-        # materialTag0="RoadAndPath" macht die Fläche für Traffic-KI/Navmesh
-        # als befahrbar erkennbar, annotation steuert die Kamera-Segmentierung.
-        annotation = "ASPHALT" if ground_model.startswith("ASPHALT") else "NATURE"
-
-        self.add_material(
-            mat_name,
-            template="road",
-            overwrite=overwrite,
-            Stages=stages_dict,
-            friction=properties.get("friction", 1.0),
-            groundType=ground_model,
-            materialTag0="RoadAndPath",
-            materialTag1="beamng",
-            annotation=annotation,
-        )
-        return mat_name
 
     def add_building_material(
         self,
@@ -390,38 +304,6 @@ class MaterialManager:
             True wenn Material existiert
         """
         return name in self.materials
-
-    def get_all_materials(self) -> Dict[str, Dict[str, Any]]:
-        """
-        Gebe alle Materials zurück (für DAE-Export).
-
-        Returns:
-            Dict {mat_name: mat_data}
-        """
-        return self.materials.copy()
-
-    def iter_materials(self):
-        """
-        Iterator über alle Materials.
-
-        Yields:
-            Tuple[str, Dict[str, Any]]: (mat_name, mat_data)
-        """
-        return iter(self.materials.items())
-
-    def extract_textures(self) -> Dict[str, str]:
-        """
-        Extrahiere {mat_name: texture_path} für alle Materials mit Texturen.
-
-        Returns:
-            Dict mapping Material-Namen zu Textur-Pfaden
-        """
-        textures = {}
-        for mat_name, mat_data in self.materials.items():
-            stages = mat_data.get("Stages", [])
-            if stages and "baseColorMap" in stages[0]:
-                textures[mat_name] = stages[0]["baseColorMap"]
-        return textures
 
     def save(self, filepath: Optional[str] = None) -> None:
         """

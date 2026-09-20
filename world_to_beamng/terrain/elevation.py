@@ -8,10 +8,8 @@ import zipfile
 import io
 import json
 import numpy as np
-from scipy.interpolate import NearestNDInterpolator
 
 from .. import config
-import logging
 from world_to_beamng.logging_config import LoggerConfig
 logger = LoggerConfig.get_logger()
 
@@ -128,7 +126,6 @@ def load_height_data():
     # Pruefe ob gecachte Rohdaten existieren
     height_hash = get_height_data_hash()
     cache_file = None
-    loaded_from_cache = False
 
     if height_hash:
         cache_file = config.CACHE_DIR / f"height_raw_{height_hash}.npz"
@@ -139,7 +136,6 @@ def load_height_data():
             points = data["points"]
             elevations = data["elevations"]
             logger.info(f"  [OK] {len(elevations)} Hoehenpunkte aus Cache geladen")
-            loaded_from_cache = True
             # Rückgabe: needs_aerial_processing=False (aus Cache geladen)
             return points, elevations, False
         else:

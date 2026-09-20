@@ -17,15 +17,27 @@ import pytest
 from world_to_beamng.io import aerial
 from world_to_beamng.io.aerial import (
     AERIAL_PHOTO_FILENAME,
+    SINGLE_PHOTO_NAME,
     aerial_photo_is_current,
-    aerial_photo_signature,
-    ensure_aerial_photo,
+    aerial_photos_signature,
+    ensure_aerial_photos,
     write_aerial_photo_signature,
 )
 
 ONE_TILE = (-1000.0, 1048.0, -1000.0, 1048.0)
 FOUR_TILES = (-2000.0, 2096.0, -2000.0, 2096.0)
 OFFSET = (401000.0, 5298000.0, 0.0)
+
+
+def aerial_photo_signature(aerial_dir, grid_bounds, global_offset, target_pixel_size=None):
+    """Signatur des EINEN Gesamtfotos für die Fläche grid_bounds (Ein-Kachel-Fall des Hauptprogramms)."""
+    return aerial_photos_signature(aerial_dir, [{"name": SINGLE_PHOTO_NAME, "bounds": grid_bounds}], global_offset, target_pixel_size)
+
+
+def ensure_aerial_photo(aerial_dir, output_dir, grid_bounds, global_offset, target_pixel_size=None):
+    """Wie ensure_aerial_photos für das EINE Gesamtfoto der Fläche grid_bounds."""
+    photos = [{"name": SINGLE_PHOTO_NAME, "bounds": grid_bounds}]
+    return ensure_aerial_photos(aerial_dir, output_dir, photos, global_offset, target_pixel_size)
 
 
 @pytest.fixture

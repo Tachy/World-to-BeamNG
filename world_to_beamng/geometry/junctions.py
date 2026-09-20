@@ -12,7 +12,6 @@ from shapely.geometry import LineString, Point, MultiPoint, GeometryCollection, 
 from shapely.strtree import STRtree
 
 from .. import config
-import logging
 from world_to_beamng.logging_config import LoggerConfig
 logger = LoggerConfig.get_logger()
 
@@ -335,9 +334,7 @@ def detect_junctions_in_centerlines(road_polygons, height_points=None, height_el
     t_line_tol = 1.0  # Meter - Toleranz für Punkt-zu-Linie Entfernung (1.0m)
     t_line_tol_sq = t_line_tol * t_line_tol
     merge_tol = 1.0  # Zusammenführungs-Toleranz zu bestehenden Junctions (1.0m)
-    merge_tol_sq = merge_tol * merge_tol
     junction_index = _JunctionIndex(junctions, merge_tol)
-    t_count = 0
 
     # Sammle alle Linienpunkte mit ihrem Straßen-Index und baue LineStrings/Indexe
     all_line_points = []  # [(x, y, road_idx, point_idx)]
@@ -368,7 +365,6 @@ def detect_junctions_in_centerlines(road_polygons, height_points=None, height_el
     else:
         line_kdtree = cKDTree(np.array(line_points_xy))
 
-        t_count = 0
 
         # STUFE 1: KDTree-Vorauswahl - Linienpunkte im Umkreis, für alle Endpunkte in EINER Abfrage
         endpoint_xy = np.array([(ep[0], ep[1]) for ep in endpoints], dtype=float)
@@ -469,7 +465,6 @@ def detect_junctions_in_centerlines(road_polygons, height_points=None, height_el
                         j["connection_types"][other_road_idx] = ["mid"]
                         j["direction_vectors"][other_road_idx] = through_dir
                     merged = True
-                    t_count += 1
 
                 if not merged:
                     extra_conns = [
@@ -481,16 +476,13 @@ def detect_junctions_in_centerlines(road_polygons, height_points=None, height_el
                         (other_road_idx, "mid", through_dir),
                     ]
                     _add_junction(new_junc_pos, [], extra_connections=extra_conns)
-                    t_count += 1
 
-        # Statistik-Ausgabe erfolgt zentral über junction_stats
 
     # ---- Dritte Erkennung: Line-on-Line Kreuzungen (X-Junctions ohne Endpoint-Match) ----
     # Erkennt Kreuzungen, wo zwei Straßen sich kreuzen, aber die Endpunkte nicht exakt aufeinander treffen
 
     ll_search_radius = config.GRID_SPACING * 2.5
     ll_line_tol = 1.0  # Meter - Toleranz für Line-zu-Line Entfernung (1m)
-    ll_count = 0
 
     # Verwende den bereits erstellten KDTree der Linienpunkte für Performance
     if line_points_xy and indexed_geoms:
@@ -573,7 +565,6 @@ def detect_junctions_in_centerlines(road_polygons, height_points=None, height_el
                         j["connection_types"][other_road_idx] = ["mid"]
                         j["direction_vectors"][other_road_idx] = dir2
                     merged = True
-                    ll_count += 1
 
                 if not merged:
                     extra_conns = [
@@ -581,9 +572,7 @@ def detect_junctions_in_centerlines(road_polygons, height_points=None, height_el
                         (other_road_idx, "mid", dir2),
                     ]
                     _add_junction(new_junc_pos, [], extra_connections=extra_conns)
-                    ll_count += 1
 
-        # Statistik-Ausgabe erfolgt zentral über junction_stats
 
     return junctions
 
@@ -615,63 +604,6 @@ def mark_junction_endpoints(road_polygons, junctions):
                         road_polygons[road_idx]["junction_indices"][conn_type] = junction_idx
 
     return road_polygons
-
-
-def analyze_junction_types(junctions):
-    """
-    Analysiert Junctions um deren Typ zu bestimmen (T, X, Einfädlung etc.).
-    Klassifiziert nach Anzahl der ankommenden Straßen.
-
-    Args:
-        junctions: Liste von Junctions
-
-    Returns:
-        Dict mit Statistiken und Klassifizierung:
-        {
-            'two_roads': count,        # 2 Strassen (Endpunkte treffen sich)
-            'three_roads': count,      # 3 Strassen (T-Junctions)
-            'four_roads': count,       # 4 Strassen (X-Junctions)
-            'five_plus': count,        # 5+ Strassen
-            'junction_details': [...]  # Details pro Junctions mit >4 Strassen
-        }
-    """
-    stats = {
-        "two_roads": 0,
-        "three_roads": 0,
-        "four_roads": 0,
-        "five_plus": 0,
-        "five_plus_details": [],
-    }
-
-    # Klassifiziere jede Junction
-    for junction_idx, junction in enumerate(junctions):
-        num_roads = len(junction["road_indices"])
-
-        if num_roads == 2:
-            stats["two_roads"] += 1
-        elif num_roads == 3:
-            stats["three_roads"] += 1
-        elif num_roads == 4:
-            stats["four_roads"] += 1
-        elif num_roads >= 5:
-            stats["five_plus"] += 1
-
-            # Sammle Details für 5+ Straßen Junctions
-            connection_info = []
-            for road_idx in junction["road_indices"]:
-                conn_types = junction["connection_types"].get(road_idx, [])
-                connection_info.append((road_idx, conn_types))
-
-            stats["five_plus_details"].append(
-                {
-                    "idx": junction_idx,
-                    "num_roads": num_roads,
-                    "position": junction["position"],
-                    "road_connections": connection_info,
-                }
-            )
-
-    return stats
 
 
 def split_roads_at_mid_junctions(road_polygons, junctions, merge_tol=0.5):
@@ -891,19 +823,3 @@ def split_roads_at_mid_junctions(road_polygons, junctions, merge_tol=0.5):
             )
 
     return new_roads, new_junctions
-
-
-def junction_stats(junctions, road_polygons):
-    """Gibt Statistik über erkannte Junctions aus (Produktiv-Einsatz)."""
-    if not junctions:
-        logger.debug("  [i] Keine Junctions erkannt")
-        return
-
-    stats = analyze_junction_types(junctions)
-    total_roads = len(road_polygons)
-
-    logger.debug(f"  [i] {len(junctions)} Junctions erkannt:")
-    logger.info(f"      - 2 Strassen (Endpunkte treffen):  {stats['two_roads']}")
-    logger.info(f"      - 3 Strassen (T-Junctions):        {stats['three_roads']}")
-    logger.info(f"      - 4 Strassen (X-Junctions):        {stats['four_roads']}")
-    logger.info(f"      - 5+ Strassen:                     {stats['five_plus']}")

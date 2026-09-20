@@ -19,7 +19,7 @@ nächsten Centerline-Punkten) und direkt gesetzt.
 """
 
 import math
-from typing import Dict, List, Tuple
+from typing import Dict, List
 
 import numpy as np
 from scipy.spatial import cKDTree
@@ -360,8 +360,7 @@ def apply_embankment_blend(heights: np.ndarray, origin_x: float, origin_y: float
     """
     Überblendet das Terrain zwischen Straßenkante und natürlicher Umgebung
     (Böschung) direkt im Heightmap-Raster - ersetzt die nie fertiggestellte
-    Böschungs-Mesh-Geometrie aus mesh/road_mesh.py (config.GENERATE_SLOPES
-    bleibt False).
+    Böschungs-Mesh-Geometrie.
 
     Für jede Rasterzelle im Böschungskorridor (zwischen Straßenkante und
     Kante+Böschungsbreite) wird linear zwischen der Straßenkanten-Höhe (an

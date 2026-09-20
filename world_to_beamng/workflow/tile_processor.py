@@ -5,13 +5,11 @@ Extrahiert die Tile-Lade und Verarbeitungslogik aus multitile.py.
 """
 
 import zipfile
-import logging
 from world_to_beamng.logging_config import LoggerConfig
 import numpy as np
 from pathlib import Path
 from typing import Tuple, Optional, Dict, List
 
-from .. import config
 from ..core.cache_manager import CacheManager
 
 logger = LoggerConfig.get_logger()
@@ -166,22 +164,3 @@ class TileProcessor:
         local_points[:, 1] -= origin_y
 
         return local_points, height_elevations
-
-    def expand_bbox(
-        self, bbox: Optional[Tuple[float, float, float, float]], margin: float
-    ) -> Optional[Tuple[float, float, float, float]]:
-        """
-        Erweitere BBox um Margin.
-
-        Args:
-            bbox: (min_x, max_x, min_y, max_y)
-            margin: Rand in Metern
-
-        Returns:
-            Erweiterte BBox
-        """
-        if not bbox:
-            return bbox
-
-        min_x, max_x, min_y, max_y = bbox
-        return (min_x - margin, max_x + margin, min_y - margin, max_y + margin)

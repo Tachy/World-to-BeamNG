@@ -30,7 +30,7 @@ class GridBuilder:
         ...     .with_points(height_points)
         ...     .with_elevations(height_elevations)
         ...     .with_spacing(2.0)
-        ...     .with_cache(cache_manager, cache_key)
+        ...     .with_cache_key(cache_key)
         ...     .build())
     """
 
@@ -38,9 +38,7 @@ class GridBuilder:
         self._points = None
         self._elevations = None
         self._spacing = 2.0
-        self._cache_manager = None
         self._cache_key = None
-        self._was_cached = False
 
     def with_points(self, points: np.ndarray) -> "GridBuilder":
         """
@@ -81,18 +79,16 @@ class GridBuilder:
         self._spacing = spacing
         return self
 
-    def with_cache(self, cache_manager, cache_key: str) -> "GridBuilder":
+    def with_cache_key(self, cache_key: str) -> "GridBuilder":
         """
-        Aktiviere Caching.
+        Setze den Cache-Schlüssel (Tile-Hash) für das Terrain-Grid.
 
         Args:
-            cache_manager: CacheManager-Instanz
             cache_key: Cache-Key
 
         Returns:
             Self für Method-Chaining
         """
-        self._cache_manager = cache_manager
         self._cache_key = cache_key
         return self
 
@@ -116,26 +112,12 @@ class GridBuilder:
         spacing = self._spacing if self._spacing is not None else 10.0
         tile_hash = self._cache_key
 
-        # Prüfe Cache BEVOR create_terrain_grid aufgerufen wird
-        if tile_hash and self._cache_manager:
-            cache_file = self._cache_manager.cache_dir / f"grid_v3_{tile_hash}_spacing{spacing:.1f}m.npz"
-            self._was_cached = cache_file.exists()
-
         return create_terrain_grid(
             self._points,
             self._elevations,
             grid_spacing=spacing,
             tile_hash=tile_hash,
         )
-
-    def was_cached(self) -> bool:
-        """
-        Prüfe ob Grid aus Cache geladen wurde.
-
-        Returns:
-            True wenn Grid aus Cache kam, False wenn neu generiert
-        """
-        return self._was_cached
 
 
 class BuildingMeshBuilder:

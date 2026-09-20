@@ -1,12 +1,13 @@
 """Findet die BeamNG-Installation (für Assets, die aus den Content-ZIPs übernommen werden)."""
 
 import configparser
+import os
 from pathlib import Path
 
 
 def get_beamng_install_dir() -> Path:
     """Liest den BeamNG-Installationspfad aus BeamNG.drive.ini (userPathWithouVersion-Nachbar)."""
-    ini_path = Path.home() / "AppData" / "Local" / "BeamNG" / "BeamNG.drive.ini"
+    ini_path = Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local") / "BeamNG" / "BeamNG.drive.ini"
     if not ini_path.is_file():
         raise FileNotFoundError(f"BeamNG.drive.ini nicht gefunden: {ini_path}")
 

@@ -3,6 +3,7 @@ Zentrale Konfiguration fuer World-to-BeamNG.
 """
 
 import logging
+import os
 from pathlib import Path, PurePosixPath
 
 from .osm.osm_mapper import OSMMapper
@@ -15,8 +16,10 @@ OSM_MAPPER = OSMMapper(config_path=Path("data/osm_to_beamng.json"))
 
 SPAWN_POINT = (47.842840, 7.684767)  # Standard-Spawn-Punkt (kann pro Level überschrieben werden)
 
-# BEAMNG Zielordner (Anpassbar)
-BEAMNG_DIR = Path("C:/Users/johan/AppData/Local/BeamNG/BeamNG.drive/current/levels/world_to_beamng")
+# BeamNG-Benutzerordner der aktuellen Version (legt BeamNG beim ersten Start an):
+# %LOCALAPPDATA%\BeamNG\BeamNG.drive\current. Das Level entsteht darin unter levels/<LEVEL_NAME>.
+BEAMNG_USER_DIR = Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local") / "BeamNG" / "BeamNG.drive" / "current"
+BEAMNG_DIR = BEAMNG_USER_DIR / "levels" / LEVEL_NAME
 BEAMNG_DIR_SHAPES = BEAMNG_DIR / "art" / "shapes"
 BEAMNG_DIR_TEXTURES = BEAMNG_DIR_SHAPES / "textures"
 BEAMNG_DIR_BUILDINGS = BEAMNG_DIR_SHAPES / "buildings"
@@ -35,17 +38,15 @@ MATERIALS_JSON = Path("main") / "materials.json"  # Enthält Material-Definition
 # Ablaufsteuerung
 LOD2_ENABLED = True  # LoD2-Gebäude verarbeiten
 PHASE5_ENABLED = True  # Horizont-Layer aktivieren (erfordert DGM30 + DOP300 Daten)
-HORIZON_BOUNDARY_STITCHING = False  # Stitching zwischen Terrain und Horizon aktivieren
 FORESTS_ENABLED = True  # Wald-Export global aktivieren/deaktivieren
 
 
 # === MATERIAL-EINSTELLUNGEN ===
 # Materialien verwenden IMMER Texturen (keine Farb-Fallbacks)
 
-# === OpenTopography API für Horizont ===
-OPENTOPOGRAPHY_API_KEY = "9805a06e82a636afd885c07a2f2e1838"  # Registrierung: https://opentopography.org/
-OPENTOPOGRAPHY_ENABLED = False  # Automatischer Download von DGM30 aktivieren
 HORIZON_GRID_SPACING = 200  # Horizont-Grid Auflösung in Metern (200m)
+HORIZON_HALF_SIZE_M = 50000  # Der Horizont reicht so weit von der Gebietsmitte in jede Richtung (also 100 x 100 km)
+HORIZON_IMAGE_SIZE_PX = 8192  # Kantenlänge der Horizont-Textur; das Satellitenbild wird darauf skaliert
 # Naht Terrain <-> Horizont (siehe terrain/horizon_seam.py): der Horizont hat ein exakt passendes Loch
 # für den Terrain-Block, feinen Randring mit den Terrain-Randhöhen und sanften Höhenübergang.
 TERRAIN_PADDING_AS_HOLES = True  # Aufgefüllten Heightmap-Rand (jenseits der Daten) als Hole - der Horizont deckt ihn ab
@@ -80,9 +81,6 @@ WATER_POND_DEPTH = 3.0  # Tiefe der WaterBlocks in m
 WATER_POND_CELL = 6.0  # maximale Kantenlänge der Kacheln, mit denen Teiche gefüllt werden, in m
 WATER_POND_CUBEMAP = "DefaultSkyCubemap"  # Engine-eigene Cubemap (die der Vorlage ist level-spezifisch und fehlte)
 
-# === MESH-PARAMETER ===
-ROAD_WIDTH = 7.0
-
 # === FOREST GENERATION PARAMETERS ===
 FOREST_ROAD_MARGIN = 2.0  # Puffer um die OSM-Mittellinie (Rückfallebene; die Fahrbahnkante unten ist maßgeblich), in Metern
 FOREST_BUILDING_MARGIN = 2.5  # Puffer um Gebäude: dort stehen keine Bäume/Büsche (in Metern)
@@ -94,13 +92,8 @@ FOREST_ROW_ROAD_MARGIN = 3.0  # Baumreihen (Alleen) stehen näher an Straßen al
 FOREST_TRUNK_MAX_FLOAT = 0.5  # so weit darf ein Stammfuß nach dem Absenken über dem Boden stehen (in Metern)
 FOREST_TRUNK_MAX_SINK = 1.0  # so weit darf ein Baum höchstens abgesenkt werden, sonst Typwechsel (in Metern)
 
-# Böschungs-Geometrie entsteht NICHT im Mesh - Straßen selbst werden seit der
-# DecalRoad-Umstellung überhaupt nicht mehr als Mesh exportiert (siehe
-# workflow/terrain_workflow.py::export_decal_roads()). Der Übergang zur
-# Umgebung entsteht direkt im Terrain-Heightmap, siehe
-# terrain/road_embedding.py:apply_embankment_blend(). Dieser Flag bleibt
-# dauerhaft False.
-GENERATE_SLOPES = False
+# Die Böschung entsteht NICHT im Mesh: Straßen sind DecalRoads (workflow/terrain_workflow.py::export_decal_roads()), der
+# Übergang zur Umgebung entsteht direkt im Terrain-Heightmap (terrain/road_embedding.py::apply_embankment_blend()).
 # Minimale Boeschungsbreite (Meter) unabhängig von Hoehenunterschieden
 MIN_SLOPE_WIDTH = 2
 # Obergrenze der Böschungsbreite (Meter), unabhängig davon, wie groß der
@@ -110,7 +103,6 @@ MAX_SLOPE_WIDTH = 30.0
 SLOPE_ANGLE = 45.0  # Neigungswinkel der Boeschung in Grad (45° = 1:1 Steigung)
 # Vorab-Reduktion ueber groeberes Grid (Strategie 2). Fuer feineres Terrain z.B. 1.0 setzen.
 GRID_SPACING = 1.0  # Abstand zwischen Grid-Punkten in Metern (native DGM1-Auflösung; 10.0 = grob)
-TERRAIN_REDUCTION = 0  # Decimation bleibt aus; steuern wir ueber GRID_SPACING
 
 # === NATIVES TERRAIN (.terrain-Heightmap) ===
 # Meter pro Heightmap-Rasterzelle. = GRID_SPACING für Auflösungs-Parität zum
@@ -145,7 +137,6 @@ VINEYARDS_ENABLED = True
 VINEYARD_EXCLUSION_MARGIN = 2.0
 
 # === LOGGING ===
-LOGGING_ENABLED = True
 LOGGING_FILE = None  # Path("logs/world_to_beamng.log")  # Optional; None = nur stdout
 LOGGING_LEVEL = logging.DEBUG if DEBUG_VERBOSE else logging.INFO
 
@@ -154,7 +145,6 @@ LoggerConfig.get_instance(log_file=LOGGING_FILE, level=LOGGING_LEVEL, verbose=DE
 
 # === STRASSENGLÄTTUNG / OPTIONEN ===
 ENABLE_ROAD_SMOOTHING = True  # False = Spline-Glättung komplett aus
-ROAD_SMOOTH_ANGLE_THRESHOLD = 10.0  # Winkel in Grad - ab diesem Wert werden Kurven unterteilt
 SAMPLE_SPACING_FACTOR = 0.5  # Faktor für Segment-Spacing: road_width * SAMPLE_SPACING_FACTOR
 ROAD_SMOOTH_ITERATIONS = 1  # Anzahl Smoothing-Iterationen (1-3; höher = glatter)
 ROAD_SMOOTH_WEIGHT = 0.6  # Chaikin-Filter Gewicht (0.5-0.9; höher = weniger Glättung, 0.75 = mild)
@@ -168,7 +158,6 @@ DECAL_ROAD_MIN_NODE_SPACING = 0.5
 # === CLIPPING ===
 ENABLE_ROAD_CLIPPING = True  # True = Clip + Segment-Unterteilung am Grid-Rand, False = Skip (Testbetrieb)
 ROAD_CLIP_MARGIN = -20.0  # Clipping-Abstand vom Grid-Rand in Metern (Faces < 3m vom Rand werden entfernt)
-CLIP_ROAD_FACES_AT_BOUNDS = True  # True = Entferne Straßen-Dreiecke, die komplett außerhalb der Grid-Bounds liegen
 
 # === TILE-EXPORT (DAE) ===
 BUILDINGS_AS_ONE_OBJECT = True  # True: ALLE Gebäude in EINER DAE/EINEM Objekt auf der Gesamtfläche (wie die Straßen)
@@ -273,21 +262,6 @@ DOP300_DATA_DIR = Path("data/DOP300")  # Verzeichnis mit Sentinel-2 RGB Bildern
 # weitere .tif im Ordner (z. B. der Web-Mercator-Rohdownload) nie versehentlich gewählt werden.
 SENTINEL2_FILE = "horizon_temp.tif"
 
-
-# === MULTIPROCESSING ===
-# WARNUNG: Unter Windows kann Multiprocessing hängen bleiben!
-# Bei Problemen: False setzen
-USE_MULTIPROCESSING = True  # False = Single-Thread (langsamer, aber stabil)
-NUM_WORKERS = 4  # None = Automatisch (alle CPU-Kerne), oder Anzahl (z.B. 4)
-# Hoehenabfrage: "kdtree" (schnell, NN) oder "interpolator" (NearestNDInterpolator)
-HEIGHT_LOOKUP_MODE = "kdtree"
-# Maximale Strassen pro Batch im Multiprocessing
-MAX_ROADS_PER_BATCH = 500
-
-# === GLOBALE ZUSTANDSVARIABLEN (werden in main() initialisiert) ===
-# WICHTIG: Nur echte GLOBALE Parameter hier! Keine Tile-spezifischen Werte!
-LOCAL_OFFSET = None  # Globaler Offset fuer lokale Koordinaten (zentral für alle Tiles)
-GRID_BOUNDS_LOCAL = None  # Grid Bounds in lokalen Koordinaten (wird pro Tile überschrieben)
 
 # === OVERPASS API ENDPOINTS ===
 OVERPASS_ENDPOINTS = [

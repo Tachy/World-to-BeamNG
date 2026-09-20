@@ -11,8 +11,12 @@ from world_to_beamng.terrain.ter_writer import (
     write_ter,
     read_ter,
     encode_heights_to_u16,
-    decode_heights_from_u16,
 )
+
+
+def decode_heights_from_u16(encoded, z_min, max_height):
+    """Kehrt encode_heights_to_u16() um (nur für den Rundlauf-Test)."""
+    return z_min + encoded.astype(np.float64) * (max_height / 65536.0)
 
 
 def test_round_trip_small_terrain(tmp_path):

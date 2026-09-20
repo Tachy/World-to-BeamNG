@@ -72,12 +72,6 @@ class LoggerConfig:
             cls.get_instance()
         return cls._logger
 
-    @classmethod
-    def reset(cls) -> None:
-        """Setze Singleton-Instanz zurück (für Tests)."""
-        cls._instance = None
-        cls._logger = None
-
     def _setup_logger(self) -> None:
         """Konfiguriere Logger mit Console- und optional File-Handler."""
         logger_instance = logging.getLogger("w2b")

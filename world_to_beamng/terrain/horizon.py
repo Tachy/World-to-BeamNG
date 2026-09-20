@@ -2,24 +2,20 @@
 Horizon Layer - Generiert niederauflösendes Horizont-Mesh aus DGM30 und Sentinel-2.
 
 Pipeline:
-1. Lade DGM30-Daten (30m Auflösung) für ±50km um Kerngebiet
-   - Option A: Manuell heruntergeladene XYZ/ZIP Dateien
-   - Option B: Automatischer Download via OpenTopography API
+1. Lade DGM30-Daten (30m Auflösung) aus data/DGM30/*.tif (Copernicus DEM GLO-30, selbst herunterladen, siehe README)
+   und schneide sie auf die Horizont-Fläche zu (±config.HORIZON_HALF_SIZE_M um das Kerngebiet)
 2. Lade Sentinel-2 RGB Satellitenbilder
-3. Generiere 1km Horizon-Grid (1000m Zellgröße)
+3. Generiere Horizon-Grid (config.HORIZON_GRID_SPACING)
 4. Texturiere mit Sentinel-2 RGB
 5. Export als DAE mit Materials
 """
 
-import os
+import hashlib
 import glob
 import numpy as np
 from pathlib import Path
-import zipfile
-import io
 from PIL import Image
 import json
-import logging
 from world_to_beamng.logging_config import LoggerConfig
 
 from .. import config
@@ -27,103 +23,7 @@ from .. import config
 logger = LoggerConfig.get_logger()
 
 
-def download_dgm30_from_opentopography(local_offset, tile_hash=None):
-    """
-    Lädt DGM30 (Copernicus 30m) automatisch via OpenTopography API.
-
-    BBOX: 100km × 100km, zentriert um LOCAL_OFFSET
-    - West:  LOCAL_OFFSET[0] - 50km
-    - East:  LOCAL_OFFSET[0] + 50km
-    - South: LOCAL_OFFSET[1] - 50km
-    - North: LOCAL_OFFSET[1] + 50km
-
-    Args:
-        local_offset: (ox, oy, oz) in UTM Koordinaten
-        tile_hash: Optional - Hash für Cache
-
-    Returns:
-        Tuple (height_points, height_elevations) oder (None, None) – immer in lokalen Koordinaten, falls local_offset gesetzt wurde
-    """
-    if not config.OPENTOPOGRAPHY_ENABLED:
-        return None, None
-
-    if not config.OPENTOPOGRAPHY_API_KEY or config.OPENTOPOGRAPHY_API_KEY == "YOUR_API_KEY_HERE":
-        logger.error("  [!] OpenTopography API-Key nicht konfiguriert")
-        return None, None
-
-    try:
-        from bmi_topography import Topography
-    except ImportError:
-        logger.error("  [!] bmi_topography nicht installiert. Install: pip install bmi-topography")
-        return None, None
-
-    ox, oy, oz = local_offset
-
-    # Konvertiere UTM zu lat/lon
-    from pyproj import Transformer
-
-    transformer = Transformer.from_crs("EPSG:25832", "EPSG:4326", always_xy=True)
-
-    # BBOX: ±50km um Origin
-    utm_west = ox - 50000
-    utm_east = ox + 50000
-    utm_south = oy - 50000
-    utm_north = oy + 50000
-
-    # Konvertiere zu lat/lon
-    lon_west, lat_south = transformer.transform(utm_west, utm_south)
-    lon_east, lat_north = transformer.transform(utm_east, utm_north)
-
-    logger.info(f"  [i] Lade DGM30 via OpenTopography API")
-    logger.info(f"      BBOX (lat/lon): N={lat_north:.4f} S={lat_south:.4f} E={lon_east:.4f} W={lon_west:.4f}")
-
-    # Erstelle Zielverzeichnis
-    config.DGM30_DATA_DIR.mkdir(parents=True, exist_ok=True)
-
-    try:
-        # Definiere Parameter mit explizitem Cache-Verzeichnis
-        import tempfile
-
-        cache_dir = config.DGM30_DATA_DIR
-
-        params = {
-            "dem_type": "COP30",
-            "south": lat_south,
-            "north": lat_north,
-            "west": lon_west,
-            "east": lon_east,
-            "output_format": "GTiff",
-            "api_key": config.OPENTOPOGRAPHY_API_KEY,
-            "cache_dir": str(cache_dir),  # API erwartet string
-        }
-
-        # Download starten
-        logger.info(f"  [i] Starte Download nach {cache_dir}...")
-        topo = Topography(**params)
-        filepath_str = topo.fetch()
-        filepath = Path(filepath_str) if filepath_str else None
-
-        if not filepath or not filepath.exists():
-            logger.error(f"  [!] Download fehlgeschlagen")
-            return None, None
-
-        # Verschiebe nach data/DGM30 falls nötig
-        target_path = config.DGM30_DATA_DIR / "dgm30_copernicus.tif"
-        if filepath != target_path:
-            shutil.move(str(filepath), str(target_path))
-            filepath = target_path
-
-        logger.info(f"  [OK] DGM30 heruntergeladen: {filepath.name}")
-
-        # Konvertiere GeoTIFF zu 200m Grid
-        return _load_geotiff_as_xyz(filepath, tile_hash, local_offset=local_offset)
-
-    except Exception as e:
-        logger.error(f"  [!] OpenTopography API Fehler: {e}")
-        return None, None
-
-
-def _load_geotiff_as_xyz(geotiff_path, tile_hash=None, local_offset=None):
+def _load_geotiff_as_xyz(geotiff_path, local_offset=None):
     """
     Konvertiert GeoTIFF zu XYZ Format (Koordinaten + Höhenwerte).
 
@@ -131,7 +31,6 @@ def _load_geotiff_as_xyz(geotiff_path, tile_hash=None, local_offset=None):
 
     Args:
         geotiff_path: Pfad zum GeoTIFF
-        tile_hash: Optional - Hash für Cache
         local_offset: Optional (ox, oy, oz) – konvertiert Punkte/Höhen direkt in lokale Koordinaten
 
     Returns:
@@ -236,13 +135,6 @@ def _load_geotiff_as_xyz(geotiff_path, tile_hash=None, local_offset=None):
                 height_points = height_points - np.array([ox, oy])
                 height_elevations = height_elevations - oz
 
-            # Cache speichern
-            if tile_hash:
-                cache_file = config.CACHE_DIR / f"dgm30_horizon_{tile_hash}.npz"
-                config.CACHE_DIR.mkdir(parents=True, exist_ok=True)
-                np.savez_compressed(cache_file, points=height_points, elevations=height_elevations)
-                logger.info(f"  [OK] DGM30-Cache erstellt: {cache_file.name}")
-
             return height_points, height_elevations
 
     except Exception as e:
@@ -250,53 +142,100 @@ def _load_geotiff_as_xyz(geotiff_path, tile_hash=None, local_offset=None):
         return None, None
 
 
+def _dgm30_cache_file(dgm30_path, tile_hash):
+    """
+    Cache-Datei der zugeschnittenen DGM30-Punkte (None ohne tile_hash).
+
+    Der Name enthält die DGM30-Dateien (Name, Größe, Änderungszeit): Wer fehlende Kacheln nachlegt, bekommt so nicht den
+    alten, unvollständigen Cache zurück.
+    """
+    if not tile_hash:
+        return None
+    files = sorted(list(dgm30_path.glob("*.tif")) + list(dgm30_path.glob("*.tiff"))) if dgm30_path.exists() else []
+    signature = "|".join(f"{f.name}:{f.stat().st_size}:{int(f.stat().st_mtime)}" for f in files)
+    return config.CACHE_DIR / f"dgm30_horizon_{tile_hash}_{hashlib.sha1(signature.encode('utf-8')).hexdigest()[:10]}.npz"
+
+
 def load_dgm30_tiles(dgm30_dir, bbox_utm, local_offset=None, tile_hash=None):
     """
-    Lädt DGM30-Höhendaten aus XYZ-Dateien oder ZIPs.
+    Lädt DGM30-Höhendaten aus GeoTIFF-Dateien (data/DGM30/*.tif) und schneidet sie auf die Horizont-Fläche zu.
 
-    Fallback-Strategie:
-    1. Prüfe Cache
-    2. Lade lokal gespeicherte Dateien (XYZ/ZIP)
-    3. Falls OPENTOPOGRAPHY_ENABLED: Download via API
-
-    DGM30 ist ähnlich strukturiert wie DGM1, aber mit 30m Auflösung statt 1m.
+    Es dürfen mehrere Dateien im Ordner liegen (z. B. mehrere 1°-Kacheln des Copernicus DEM GLO-30); ihre Punkte
+    werden kombiniert. Die Dateien selbst muss man herunterladen (siehe README).
 
     Args:
         dgm30_dir: Verzeichnis mit DGM30 Dateien (z.B. data/DGM30/)
-        bbox_utm: (min_x, max_x, min_y, max_y) in UTM Metern
-        local_offset: (ox, oy, oz) Optional - für OpenTopography API
+        bbox_utm: (min_x, max_x, min_y, max_y) in UTM Metern - die Horizont-Fläche
+        local_offset: (ox, oy, oz) Optional - Punkte werden direkt in lokale Koordinaten umgerechnet
         tile_hash: Optional - Hash für Cache-Konsistenz
 
     Returns:
         Tuple (height_points, height_elevations) oder (None, None)
     """
-    # Prüfe Cache zuerst (wir gehen davon aus, dass er bereits lokale Koordinaten enthält)
-    if tile_hash:
-        cache_file = config.CACHE_DIR / f"dgm30_horizon_{tile_hash}.npz"
-        if cache_file.exists():
-            logger.info(f"  [OK] DGM30-Cache gefunden: {cache_file.name} (bereits lokal)")
-            data = np.load(cache_file)
-            return data["points"], data["elevations"]
-
     dgm30_path = Path(dgm30_dir)
 
-    # Versuche lokal gespeicherte Dateien zu laden
+    # Prüfe Cache zuerst (wir gehen davon aus, dass er bereits lokale Koordinaten enthält)
+    cache_file = _dgm30_cache_file(dgm30_path, tile_hash)
+    if cache_file is not None and cache_file.exists():
+        logger.info(f"  [OK] DGM30-Cache gefunden: {cache_file.name} (bereits lokal)")
+        data = np.load(cache_file)
+        return data["points"], data["elevations"]
+
     if dgm30_path.exists():
-        height_points, height_elevations = _load_local_dgm30(dgm30_path, tile_hash, local_offset=local_offset)
+        height_points, height_elevations = _load_local_dgm30(
+            dgm30_path, tile_hash, local_offset=local_offset, area_utm=bbox_utm
+        )
         if height_points is not None:
             return height_points, height_elevations
 
-    # Fallback: Lade via OpenTopography API
-    if local_offset is not None:
-        height_points, height_elevations = download_dgm30_from_opentopography(local_offset, tile_hash)
-        if height_points is not None:
-            return height_points, height_elevations
-
-    logger.error(f"  [!] DGM30 nicht gefunden und OpenTopography nicht aktiviert")
+    logger.error(f"  [!] Keine DGM30-Dateien (*.tif) in {dgm30_path} - Kacheln herunterladen, siehe README")
     return None, None
 
 
-def _load_local_dgm30(dgm30_path, tile_hash=None, local_offset=None):
+# Ab dieser Lücke am Rand der Horizont-Fläche gilt eine Himmelsrichtung als nicht abgedeckt (das Raster ist 200 m fein,
+# eine Kachel endet selten genau am Rand)
+_DGM30_EDGE_TOLERANCE_M = 1000.0
+
+
+def clip_dgm30_to_area(points, elevations, area_utm, local_offset=None):
+    """
+    Verwirft DGM30-Punkte außerhalb der Horizont-Fläche und meldet, wo die Daten sie nicht abdecken.
+
+    Ohne Zuschnitt bestimmt die Ausdehnung der geladenen Kacheln die Größe des Horizonts: ganze 1°-Kacheln ergäben
+    einen deutlich größeren Horizont als die (100 km breite) Textur.
+
+    Args:
+        points: (N, 2) Punkte, lokal (mit local_offset) oder UTM (ohne)
+        elevations: (N,) Höhen
+        area_utm: (min_x, max_x, min_y, max_y) in UTM Metern
+        local_offset: (ox, oy[, oz]) - Ursprung der lokalen Koordinaten, sonst UTM
+
+    Returns:
+        (points, elevations, missing) mit missing = Himmelsrichtungen ("Westen", "Osten", "Süden", "Norden"), in denen die
+        Punkte mehr als _DGM30_EDGE_TOLERANCE_M vor dem Rand der Fläche enden
+    """
+    ox, oy = (local_offset[0], local_offset[1]) if local_offset is not None else (0.0, 0.0)
+    x_min, x_max, y_min, y_max = area_utm[0] - ox, area_utm[1] - ox, area_utm[2] - oy, area_utm[3] - oy
+
+    inside = (points[:, 0] >= x_min) & (points[:, 0] <= x_max) & (points[:, 1] >= y_min) & (points[:, 1] <= y_max)
+    points, elevations = points[inside], elevations[inside]
+    if not len(elevations):
+        return points, elevations, []
+
+    tolerance = _DGM30_EDGE_TOLERANCE_M
+    missing = []
+    if points[:, 0].min() > x_min + tolerance:
+        missing.append("Westen")
+    if points[:, 0].max() < x_max - tolerance:
+        missing.append("Osten")
+    if points[:, 1].min() > y_min + tolerance:
+        missing.append("Süden")
+    if points[:, 1].max() < y_max - tolerance:
+        missing.append("Norden")
+    return points, elevations, missing
+
+
+def _load_local_dgm30(dgm30_path, tile_hash=None, local_offset=None, area_utm=None):
     """
     Lädt DGM30 aus lokal gespeicherten GeoTIFF Dateien.
 
@@ -304,6 +243,7 @@ def _load_local_dgm30(dgm30_path, tile_hash=None, local_offset=None):
         dgm30_path: Path Objekt zum Verzeichnis
         tile_hash: Optional - Hash für Cache
         local_offset: Optional – speichere direkt in lokale Koordinaten
+        area_utm: Optional – (min_x, max_x, min_y, max_y) in UTM: Punkte außerhalb werden verworfen
 
     Returns:
         Tuple (height_points, height_elevations) oder (None, None)
@@ -323,7 +263,7 @@ def _load_local_dgm30(dgm30_path, tile_hash=None, local_offset=None):
 
     for tif_file in tif_files:
         logger.info(f"    - {tif_file.name}")
-        points, elevations = _load_geotiff_as_xyz(str(tif_file), tile_hash=None, local_offset=local_offset)
+        points, elevations = _load_geotiff_as_xyz(str(tif_file), local_offset=local_offset)
 
         if points is not None:
             all_points.append(points)
@@ -339,10 +279,22 @@ def _load_local_dgm30(dgm30_path, tile_hash=None, local_offset=None):
 
     logger.info(f"  [OK] {len(height_elevations)} Punkte (200m Grid) aus {len(tif_files)} GeoTIFF(s) geladen")
 
+    if area_utm is not None:
+        height_points, height_elevations, missing = clip_dgm30_to_area(height_points, height_elevations, area_utm, local_offset)
+        if not len(height_elevations):
+            logger.error("  [!] Die DGM30-Dateien liegen komplett außerhalb der Horizont-Fläche - falsche Kacheln?")
+            return None, None
+        if missing:
+            logger.warning(
+                f"  [!] Die DGM30-Dateien decken die Horizont-Fläche im {', '.join(missing)} nicht ab - "
+                "fehlende Kacheln herunterladen (siehe README); dort endet der Horizont früher"
+            )
+        logger.info(f"  [OK] auf die Horizont-Fläche zugeschnitten: {len(height_elevations)} Punkte")
+
     # Cache speichern
-    if tile_hash:
+    cache_file = _dgm30_cache_file(dgm30_path, tile_hash)
+    if cache_file is not None:
         config.CACHE_DIR.mkdir(parents=True, exist_ok=True)
-        cache_file = config.CACHE_DIR / f"dgm30_horizon_{tile_hash}.npz"
         np.savez_compressed(cache_file, points=height_points, elevations=height_elevations)
         logger.info(f"  [OK] DGM30-Cache erstellt: {cache_file.name}")
 
@@ -468,19 +420,13 @@ def generate_horizon_mesh(
     height_elevations,
     local_offset,
     tile_bounds=None,
-    vertex_manager=None,
     terrain_height_at=None,
 ):
     """
-    Generiert Horizont-Mesh mit SEPARATEM VertexManager (saubere Architektur).
+    Generiert Horizont-Mesh mit eigenem VertexManager.
 
     ARCHITEKTUR:
-    - IMMER separater VM (vertex_manager Parameter wird IGNORIERT für Sauberness)
-    - Stitching arbeitet NUR mit dem Horizon-VM
-    - UVs werden NACH dem Stitching generiert (in horizon_workflow.py)
-    - Rückgabe: (mesh, nx, ny, horizon_vertex_indices, global_to_horizon_map)
-      - horizon_vertex_indices: Alle Horizon-Vertices (im separaten VM)
-      - global_to_horizon_map: IMMER None (nur separater VM)
+    - UVs werden NACH dem Mesh generiert (in horizon_workflow.py)
 
     OPTIMIERUNGEN:
     - Vektorisierte Batch-VertexManager-Einfügung
@@ -495,19 +441,15 @@ def generate_horizon_mesh(
         local_offset: (ox, oy, oz) Transformation – hier nur noch für Konsistenz/Logging genutzt
         tile_bounds: Optional - Liste von (x_min, y_min, x_max, y_max) Tuples in lokalen Koordinaten
                      zum Überspringen von Quads die über Terrain liegen
-        vertex_manager: Optional - Bestehender VertexManager (z.B. vom Terrain für Stitching)
-                        Falls None, wird ein SEPARATER erstellt (EMPFOHLEN)
         terrain_height_at: Optional - Höhenabfrage der Terrain-Heightmap. Mit tile_bounds
                         wird der Horizont dann mit exakt passendem Loch, Randring und
                         Höhenübergang gebaut (terrain/horizon_seam.py) - ohne Vernähen mit einem
                         Terrain-Mesh. Ohne: altes Verhalten (grobes Loch, DGM30-Höhen).
 
     Returns:
-        Tuple (mesh, nx, ny, horizon_vertex_indices, global_to_horizon_map)
-        mesh: Mesh-Objekt mit VertexManager + deduplizierten UVs
+        Tuple (mesh, nx, ny)
+        mesh: Mesh-Objekt mit VertexManager
         nx, ny: Grid-Dimensionen (für Texturierung)
-        horizon_vertex_indices: Vertex-Indizes im VertexManager
-        global_to_horizon_map: Dict {global_index → local_index} (nur wenn shared VM gegeben)
     """
     from ..mesh.vertex_manager import VertexManager
     from ..mesh.mesh import Mesh
@@ -545,7 +487,7 @@ def generate_horizon_mesh(
         logger.info(
             f"  [OK] Horizont mit passendem Terrain-Loch {hole}: {len(vertices)} Vertices, {len(faces)} Dreiecke"
         )
-        return mesh, nx, ny, list(indices), None
+        return mesh, nx, ny
 
     # Punkte und Höhen liegen bereits lokal vor
     local_points = height_points
@@ -564,10 +506,6 @@ def generate_horizon_mesh(
     ny = len(y_coords)
 
     logger.debug(f"  [i] Erstelle Horizont-Mesh: {nx}×{ny} Grid")
-    if vertex_manager is None:
-        logger.info(f"      Mit SEPARATEM VertexManager (saubere Architektur)")
-    else:
-        logger.info(f"      Mit GEMEINSAMEN VertexManager (für Boundary-Stitching)")
 
     # Erstelle Grid mit Nearest-Neighbor-Interpolation
     from scipy.spatial import cKDTree
@@ -584,11 +522,7 @@ def generate_horizon_mesh(
     # Erstelle 3D Vertices - Horizont 50m unter Z-Level für Kern-Mesh Separation
     vertices = np.column_stack([grid_points_flat, grid_elevations])
 
-    # === ARCHITEKTUR: IMMER Separater VertexManager ===
-    # vertex_manager Parameter wird für Sauberness ignoriert
-    # Boundary-Stitching arbeitet mit Horizon-VM + kopiert Terrain-Ring in Horizon-VM
     vm = VertexManager(tolerance=0.001)
-    global_to_horizon_map = None  # Immer None (nur separater VM)
 
     mesh = Mesh(vm)
 
@@ -664,9 +598,7 @@ def generate_horizon_mesh(
 
     if len(valid_quads) == 0:
         logger.error("  [!] Keine Quads zu generieren (alle gefiltert)")
-        return mesh, nx, ny, vertex_indices.tolist(), global_to_horizon_map
-
-    num_quads = len(valid_quads)
+        return mesh, nx, ny
 
     # Erstelle Face-Arrays vektorisiert
     y_indices = valid_quads[:, 0]
@@ -696,11 +628,7 @@ def generate_horizon_mesh(
     logger.info(f"  [OK] {face_count} Dreiecke generiert")
     logger.info(f"  [OK] {len(mesh.uvs)} UVs (1 pro Vertex, ohne Deduplizierung)")
 
-    # Gebe Mesh, Grid-Dimensionen, Horizon-Vertex-Indizes UND Mapping zurück
-    # vertex_indices ist flaches Array - konvertiere zu Liste
-    horizon_vertex_indices = vertex_indices.tolist()
-
-    return mesh, nx, ny, horizon_vertex_indices, global_to_horizon_map
+    return mesh, nx, ny
 
 
 def texture_horizon_mesh(vertices, horizon_image, nx, ny, bounds_utm, transform, global_offset):
@@ -772,9 +700,9 @@ def texture_horizon_mesh(vertices, horizon_image, nx, ny, bounds_utm, transform,
         "-f",
         "BC1_UNORM",
         "-w",
-        "8192",
+        str(config.HORIZON_IMAGE_SIZE_PX),
         "-h",
-        "8192",
+        str(config.HORIZON_IMAGE_SIZE_PX),
         "-m",
         "0",
         "-y",

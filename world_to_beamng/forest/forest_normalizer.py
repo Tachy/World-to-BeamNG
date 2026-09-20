@@ -7,14 +7,10 @@ Pro Tile (2x2 km):
 - Ordne Forest-Type basierend auf Konfiguration zu
 """
 
-import logging
 from typing import Dict, List, Optional, Tuple
-from pathlib import Path
-from shapely.geometry import box, Polygon, MultiPolygon
+from shapely.geometry import box, Polygon
 
-from .. import config
 from ..osm.osm_mapper import OSMMapper
-import logging
 from world_to_beamng.logging_config import LoggerConfig
 
 logger = LoggerConfig.get_logger()
@@ -199,7 +195,7 @@ class ForestNormalizer:
         Returns:
             Liste von Dicts mit "geometry" (Shapely Polygon), "tags"
         """
-        from shapely.geometry import Polygon, MultiPolygon, LineString
+        from shapely.geometry import Polygon, LineString
         from shapely.ops import unary_union
 
         forests = []

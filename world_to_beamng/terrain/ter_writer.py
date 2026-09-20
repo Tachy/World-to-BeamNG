@@ -129,8 +129,3 @@ def encode_heights_to_u16(heights_m: np.ndarray, z_min: float, max_height: float
     relative = (heights_m - z_min) / max_height * 65536.0
     clamped = np.clip(relative, 0, 65535)
     return clamped.astype(np.uint16)
-
-
-def decode_heights_from_u16(encoded: np.ndarray, z_min: float, max_height: float) -> np.ndarray:
-    """Kehrt encode_heights_to_u16() um."""
-    return z_min + encoded.astype(np.float64) * (max_height / 65536.0)

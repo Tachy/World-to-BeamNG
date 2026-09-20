@@ -182,7 +182,6 @@ config.paths.shapes_dir
 config.mesh.grid_spacing
 config.mesh.road_width
 config.workflow.debug_exports
-config.api.opentopography_enabled
 ```
 
 ### 4. Cache-Manager

@@ -87,7 +87,6 @@ class TerrainWorkflow:
             mark_junction_endpoints,
             split_roads_at_mid_junctions,
         )
-        from ..terrain.grid import create_terrain_grid
         from ..io.cache import calculate_global_tiles_hash
 
         # 1. Höhendaten aller Kacheln zu einer Punktwolke kombinieren
@@ -120,10 +119,6 @@ class TerrainWorkflow:
 
         # 6. Road Polygons (konvertiert OSM-Daten zu coords)
         # WICHTIG: Übergebe LOKALE Koordinaten! Alle internen Berechnungen in lokal!
-        from ..io.cache import get_cache_path
-
-        elevation_cache_path = get_cache_path(osm_bbox, "elevations", tile_hash)
-        elevation_was_cached = elevation_cache_path.exists()
 
         road_polygons = get_road_polygons(roads, osm_bbox, local_points, elevations, global_offset, tile_hash=tile_hash)
 
@@ -179,9 +174,6 @@ class TerrainWorkflow:
             float(local_points[:, 1].min()),
             float(local_points[:, 1].max()),
         )
-
-        # Setze globales config.GRID_BOUNDS_LOCAL
-        config.GRID_BOUNDS_LOCAL = grid_bounds_local
 
         # Verwende ROAD_CLIP_MARGIN aus Config (negativ = erweitern!)
         road_polygons = clip_road_polygons(road_polygons, grid_bounds_local, margin=config.ROAD_CLIP_MARGIN)
@@ -247,7 +239,7 @@ class TerrainWorkflow:
             grid_builder.with_points(local_points)
             .with_elevations(elevations)
             .with_spacing(config.GRID_SPACING)
-            .with_cache(self.cache, f"grid_{tile_hash}")
+            .with_cache_key(f"grid_{tile_hash}")
             .build()
         )
 
@@ -283,8 +275,7 @@ class TerrainWorkflow:
         terrain_origin_y = heightmap_result["origin_y"]
 
         # Böschung: Übergang von Straßenkante zur natürlichen Umgebung direkt
-        # im Heightmap erzeugen (GENERATE_SLOPES bleibt False, das Mesh
-        # generiert keine Böschungs-Geometrie mehr - siehe Spec Abschnitt 4b).
+        # im Heightmap erzeugen (das Mesh generiert keine Böschungs-Geometrie mehr - siehe Spec Abschnitt 4b).
         # WICHTIG: muss auf den noch UNVERÄNDERTEN heights laufen, damit
         # "natürliche Höhe" wirklich natürlich ist (vor embed_roads_into_heightmap).
         embankment_profiles = build_road_embankment_profiles(

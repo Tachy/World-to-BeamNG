@@ -79,41 +79,6 @@ class ForestJSONWriter:
             logger.error(f"Fehler beim Schreiben von forest.forest4.json: {e}", exc_info=True)
             return {"status": "error", "filepath": "", "tree_count": 0, "error": str(e)}
 
-    def append_to_forest_json(self, new_instances: List[Dict], filename: str = "forest.forest4.json") -> Dict:
-        """
-        Füge neue Instanzen zu existierendem forest.forest4.json hinzu.
-
-        Unterstützt JSONL-Format (newline-delimited JSON).
-
-        Args:
-            new_instances: Neue Baum-Instanzen
-            filename: Dateiname
-
-        Returns:
-            Status-Dict
-        """
-        try:
-            filepath = self.output_dir / filename
-
-            # Lade existierende Daten aus JSONL-Format
-            existing_instances = []
-            if filepath.exists():
-                with open(filepath, "r", encoding="utf-8") as f:
-                    for line in f:
-                        line = line.strip()
-                        if line:  # Ignoriere leere Zeilen
-                            existing_instances.append(json.loads(line))
-
-            # Kombiniere
-            all_instances = existing_instances + new_instances
-
-            # Schreibe kombinierte Daten
-            return self.write_forest_json(all_instances, filename)
-
-        except Exception as e:
-            logger.error(f"Fehler beim Anhängen zu forest.forest4.json: {e}", exc_info=True)
-            return {"status": "error", "filepath": "", "tree_count": 0, "error": str(e)}
-
     def get_statistics(self, tree_instances: List[Dict]) -> Dict:
         """
         Berechne Statistiken über Baum-Instanzen.
