@@ -3,124 +3,127 @@
 
 # 🗺️ World-to-BeamNG
 
-Erzeugt aus offenen Geodaten ein **spielbares BeamNG.drive-Level**: Gelände, Luftbild, Straßen, Wald, Weinberge,
-Bäche und Teiche, Gebäude und einen Horizont. Alpha-Status, in Entwicklung.
+🇬🇧 English version (this file) · 🇩🇪 [Deutsche Version](README_DE.md)
 
-## 🎯 Was wird erzeugt
+Turns open geodata into a **playable BeamNG.drive level**: terrain, aerial photo, roads, forest, vineyards,
+streams and ponds, buildings and a horizon. Alpha status, under development.
 
-| Bestandteil | Quelle |
+## 🎯 What is generated
+
+| Component | Source |
 |---|---|
-| **Terrain** (natives `.terrain`, 1 m Raster) mit Luftbild-Textur | DGM1 + DOP20 |
-| **Straßen** als BeamNG-`DecalRoad`, eingebettet ins Gelände | OpenStreetMap + DGM1 |
-| **Wald, Einzelbäume, Weinberge, Bodenbewuchs** | OpenStreetMap |
-| **Bäche und Teiche** (`River`, `WaterBlock`) | OpenStreetMap + DGM1 |
-| **Gebäude** aus LOD2: verputzte Wände in Weiß/Beige/vereinzelt Rot, Fenster, Türen, Kellerfenster, Dächer mit Überstand, Kies auf Flachdächern, Kirchtürme mit Turmuhr | LOD2 (+ OpenStreetMap für Kirchen) |
-| **Horizont** bis 50 km (optional) | DGM30 + Satellitenbild |
+| **Terrain** (native `.terrain`, 1 m grid) with aerial photo texture | DGM1 + DOP20 |
+| **Roads** as BeamNG `DecalRoad`, embedded into the terrain | OpenStreetMap + DGM1 |
+| **Forest, single trees, vineyards, ground cover** | OpenStreetMap |
+| **Streams and ponds** (`River`, `WaterBlock`) | OpenStreetMap + DGM1 |
+| **Rubble stone walls** (50 cm thick, following the terrain) for `barrier=wall`/`retaining_wall` with a `height` tag | OpenStreetMap + DGM1 |
+| **Buildings** from LOD2: plastered walls in white/beige/occasionally red, windows, doors, basement windows, roofs with overhang, gravel on flat roofs, church towers with a tower clock | LOD2 (+ OpenStreetMap for churches) |
+| **Horizon** up to 50 km (optional) | DGM30 + satellite image |
 
-## 📋 Voraussetzungen
+## 📋 Requirements
 
 | | |
 |---|---|
-| Betriebssystem | **Windows 10/11** (BeamNG-Pfade unter `%LOCALAPPDATA%`, `texconv.exe`) |
-| BeamNG.drive | installiert und **mindestens einmal gestartet** (legt den Benutzerordner an) |
-| Python | **3.11 oder neuer**, getestet mit 3.13 |
-| Internet | für OpenStreetMap (Overpass API) und den einmaligen Download von `texconv.exe` |
-| Gebiet | **Baden-Württemberg**: Die Dateinamen und Formate sind die des LGL BW (UTM Zone 32, ETRS89). Andere Bundesländer oder Länder gehen nicht ohne Anpassung. |
-| Speicher | pro 2×2-km-Kachel etwa 250 MB Rohdaten (siehe unten) plus Cache und Ergebnis |
+| Operating system | **Windows 10/11** (BeamNG paths under `%LOCALAPPDATA%`, `texconv.exe`) |
+| BeamNG.drive | installed and **started at least once** (this creates the user folder) |
+| Python | **3.11 or newer**, tested with 3.13 |
+| Internet | for OpenStreetMap (Overpass API) and the one-time download of `texconv.exe` |
+| Area | **Baden-Württemberg (Germany)**: file names and formats are those of the LGL BW (UTM zone 32, ETRS89). Other German states or other countries do not work without adaptation. |
+| Disk space | about 250 MB of raw data per 2×2 km tile (see below), plus cache and result |
 
-## 🚀 Schnellstart
+## 🚀 Quick start
 
 ```powershell
-# 1. Repository holen
+# 1. Get the repository
 git clone https://github.com/Tachy/World-to-BeamNG.git
 cd World-to-BeamNG
 
-# 2. Virtuelle Umgebung, Pakete und texconv.exe
+# 2. Virtual environment, packages and texconv.exe
 python -m venv .venv
 .\.venv\Scripts\python.exe setup_project.py
 
-# 3. Basisdaten nach data/ legen (siehe "Basisdaten")
-# 4. SPAWN_POINT in world_to_beamng/config.py auf das eigene Gebiet setzen (siehe "Konfiguration")
+# 3. Put the base data into data/ (see "Base data")
+# 4. Set SPAWN_POINT in world_to_beamng/config.py to your own area (see "Configuration")
 
-# 5. Einmalig: Assets aus der BeamNG-Installation übernehmen
+# 5. One time: take over assets from the BeamNG installation
 .\.venv\Scripts\python.exe tools\generate_forest_assets.py
 .\.venv\Scripts\python.exe tools\vendor_shared_textures.py
 
-# 6. Level erzeugen
+# 6. Generate the level
 .\.venv\Scripts\python.exe world_to_beamng.py
 ```
 
-Danach BeamNG.drive starten und das Level **„World to BeamNG"** wählen. Der Level-Ordner liegt automatisch im
-BeamNG-Benutzerordner (`%LOCALAPPDATA%\BeamNG\BeamNG.drive\current\levels\world_to_beamng`), es muss kein Pfad
-eingestellt werden.
+Then start BeamNG.drive and choose the level **"World to BeamNG"**. The level folder is created automatically in the
+BeamNG user folder (`%LOCALAPPDATA%\BeamNG\BeamNG.drive\current\levels\world_to_beamng`), no path has to be set.
 
-`setup_project.py` installiert `requirements.txt` in den Python, mit dem es gestartet wird (hier die `.venv`) und
-lädt `texconv.exe` (Microsoft DirectXTex) nach `bin/`. Das Programm braucht `texconv.exe` für alle DDS-Texturen.
-Die Tests brauchen zusätzlich `pytest` (`.\.venv\Scripts\pip install pytest`).
+`setup_project.py` installs `requirements.txt` into the Python that runs it (here the `.venv`) and downloads
+`texconv.exe` (Microsoft DirectXTex) to `bin/`. The program needs `texconv.exe` for all DDS textures.
+The tests additionally need `pytest` (`.\.venv\Scripts\pip install pytest`).
 
-## 📦 Basisdaten
+## 📦 Base data
 
-Die Daten sind **nicht im Repository** (rund 1 GB je 4×4 km). Sie kommen vom
-**Landesamt für Geoinformation und Landentwicklung Baden-Württemberg (LGL)** aus dem Open-GeoData-Portal
-(<https://opengeodata.lgl-bw.de>) und werden als ZIP-Dateien **unverändert** in die Ordner unter `data/` gelegt. Die
-Ordner müssen selbst angelegt werden, weil sie nicht in Git stehen.
+The data is **not in the repository** (about 1 GB per 4×4 km). It comes from the
+**Landesamt für Geoinformation und Landentwicklung Baden-Württemberg (LGL)** open geodata portal
+(<https://opengeodata.lgl-bw.de>) and is put **unchanged** as ZIP files into the folders under `data/`. You have to
+create the folders yourself because they are not in Git.
 
-### Das Gebiet ergibt sich aus den DGM1-Kacheln
+### The area follows from the DGM1 tiles
 
-Alle Produkte kommen in **2×2-km-Kacheln**. Der Dateiname enthält die Koordinate der Südwest-Ecke in Kilometern
-(UTM 32, ETRS89): `…_32_399_5296_…` ist Rechtswert 399 000 m, Hochwert 5 296 000 m. Das Programm liest **alle**
-vorhandenen DGM1-ZIPs und bearbeitet genau diese Fläche. Für dieselben Kacheln müssen auch Luftbild und
-Gebäude vorliegen. Beispiel für ein 4×4-km-Gebiet: `399`/`401` × `5296`/`5298`.
+All products come in **2×2 km tiles**. The file name contains the coordinate of the south-west corner in kilometres
+(UTM 32, ETRS89): `…_32_399_5296_…` is easting 399 000 m, northing 5 296 000 m. The program reads **all**
+DGM1 ZIPs it finds and processes exactly that area. Aerial photos and buildings must exist for the same tiles.
+Example for a 4×4 km area: `399`/`401` × `5296`/`5298`.
 
-### Pflicht
+### Required
 
-| Ordner | Inhalt | Dateiname | Größe je Kachel |
+| Folder | Content | File name | Size per tile |
 |---|---|---|---|
-| `data/DGM1/` | Digitales Geländemodell 1 m (ZIP mit XYZ-Punkten) | `dgm1_32_<x>_<y>_2_bw.zip` | ca. 14 MB |
-| `data/DOP20/` | Digitale Orthophotos 20 cm, RGB (ZIP mit TIF + TFW) | `dop20rgb_32_<x>_<y>_2_bw.zip` | ca. 230 MB |
+| `data/DGM1/` | Digital terrain model, 1 m (ZIP with XYZ points) | `dgm1_32_<x>_<y>_2_bw.zip` | approx. 14 MB |
+| `data/DOP20/` | Digital orthophotos, 20 cm, RGB (ZIP with TIF + TFW) | `dop20rgb_32_<x>_<y>_2_bw.zip` | approx. 230 MB |
 
-Ohne DGM1 bricht der Export ab („Keine DGM1-Kacheln gefunden"). Fehlt das Luftbild, meldet der Export einen Fehler im Log.
+Without DGM1 the export aborts ("Keine DGM1-Kacheln gefunden" – no DGM1 tiles found). If the aerial photo is missing,
+the export reports an error in the log.
 
 ### Optional
 
-| Ordner | Inhalt | Dateiname | Wenn es fehlt |
+| Folder | Content | File name | If it is missing |
 |---|---|---|---|
-| `data/LOD2/` | 3D-Gebäudemodelle LoD2 (ZIP mit CityGML) | `LoD2_32_<x>_<y>_2_bw.zip` | keine Gebäude (`LOD2_ENABLED`) |
-| `data/DGM30/` | Höhenmodell 30 m als GeoTIFF: **Copernicus DEM GLO-30**, selbst herunterladen (siehe unten). Es dürfen mehrere `*.tif` im Ordner liegen. | beliebig, z. B. `Copernicus_DSM_COG_10_N47_00_E007_00_DEM.tif` | Horizont wird übersprungen |
-| `data/DOP300/` | Satellitenbild für die Horizont-Textur: **ein** georeferenziertes RGB-GeoTIFF in **UTM 32N (EPSG:25832)**, das die ±50 km um die Gebietsmitte abdeckt. Beliebige Auflösung, es wird auf 8192×8192 skaliert. | `horizon_temp.tif` (Name in `config.SENTINEL2_FILE`) | Horizont ohne Textur |
+| `data/LOD2/` | 3D building models LoD2 (ZIP with CityGML) | `LoD2_32_<x>_<y>_2_bw.zip` | no buildings (`LOD2_ENABLED`) |
+| `data/DGM30/` | 30 m elevation model as GeoTIFF: **Copernicus DEM GLO-30**, download it yourself (see below). Several `*.tif` files may be in the folder. | any, e.g. `Copernicus_DSM_COG_10_N47_00_E007_00_DEM.tif` | the horizon is skipped |
+| `data/DOP300/` | Satellite image for the horizon texture: **one** georeferenced RGB GeoTIFF in **UTM 32N (EPSG:25832)** covering ±50 km around the centre of the area. Any resolution, it is scaled to 8192×8192. | `horizon_temp.tif` (name in `config.SENTINEL2_FILE`) | horizon without texture |
 
-**DGM30 herunterladen:** Das Programm lädt es nicht selbst. Verwendet wird das **Copernicus DEM GLO-30** (30 m,
-weltweit, kostenlos). Am einfachsten ohne Konto aus dem öffentlichen AWS-Bucket `copernicus-dem-30m`
-(Region eu-central-1, Cloud-Optimized GeoTIFFs, je Kachel etwa 43 MB). Eine Kachel deckt 1° × 1° ab, der Name
-enthält ihre Südwest-Ecke:
+**Downloading DGM30:** The program does not download it. It uses the **Copernicus DEM GLO-30** (30 m, worldwide,
+free of charge). The easiest way without an account is the public AWS bucket `copernicus-dem-30m`
+(region eu-central-1, Cloud-Optimized GeoTIFFs, about 43 MB per tile). One tile covers 1° × 1°, the name contains its
+south-west corner:
 
 ```
 https://copernicus-dem-30m.s3.eu-central-1.amazonaws.com/Copernicus_DSM_COG_10_N47_00_E007_00_DEM/Copernicus_DSM_COG_10_N47_00_E007_00_DEM.tif
-                                                                                  └ 47° N ┘ └ 7° O ┘
+                                                                                  └ 47° N ┘ └ 7° E ┘
 ```
 
-Benötigt werden **alle Kacheln, die die Horizont-Fläche berühren** (±50 km um die Gebietsmitte, etwa ±0,7° in der
-Länge und ±0,45° in der Breite). Für ein Gebiet bei 47,8° N / 7,7° O sind das `N47` und `N48` jeweils mit `E007` und
-`E008` (vier Kacheln, zusammen etwa 170 MB). Die Dateien einfach in `data/DGM30/` legen; das Programm kombiniert sie und
-schneidet sie auf die Horizont-Fläche zu. Fehlt eine Kachel, meldet der Export, in welcher Himmelsrichtung die Daten
-enden, und der Horizont ist dort kürzer. Mit dem AWS-Kommandozeilenwerkzeug geht es auch ohne Konto:
+You need **all tiles that touch the horizon area** (±50 km around the centre of the area, about ±0.7° in longitude and
+±0.45° in latitude). For an area at 47.8° N / 7.7° E these are `N47` and `N48`, each with `E007` and `E008` (four
+tiles, about 170 MB in total). Simply put the files into `data/DGM30/`; the program combines them and clips them to the
+horizon area. If a tile is missing, the export reports in which compass direction the data ends, and the horizon is
+shorter there. With the AWS command-line tool it also works without an account:
 `aws s3 cp --no-sign-request s3://copernicus-dem-30m/Copernicus_DSM_COG_10_N47_00_E007_00_DEM/Copernicus_DSM_COG_10_N47_00_E007_00_DEM.tif data/DGM30/`.
-Alternativen sind das Copernicus Data Space Ecosystem (<https://dataspace.copernicus.eu>) und OpenTopography
+Alternatives are the Copernicus Data Space Ecosystem (<https://dataspace.copernicus.eu>) and OpenTopography
 (<https://opentopography.org>).
 
-**Horizont-Bild:** Es gibt keinen automatischen Download für das Satellitenbild, aber ein Werkzeug, das es aus
-jedem georeferenzierten RGB-Bild erzeugt (z. B. einem Sentinel-2-Export in Web-Mercator oder WGS84). Es schneidet
-genau die Horizont-Fläche (±50 km um die Gebietsmitte, sie ergibt sich aus den DGM1-Kacheln) aus, projiziert nach
-EPSG:25832 um und schreibt `data/DOP300/horizon_temp.tif`:
+**Horizon image:** There is no automatic download for the satellite image, but there is a tool that creates it from
+any georeferenced RGB image (e.g. a Sentinel-2 export in Web Mercator or WGS84). It cuts out exactly the horizon area
+(±50 km around the centre of the area, which follows from the DGM1 tiles), reprojects it to EPSG:25832 and writes
+`data/DOP300/horizon_temp.tif`:
 
 ```powershell
-.\.venv\Scripts\python.exe tools\make_horizon_image.py C:\pfad\zum\satellitenbild.tif
+.\.venv\Scripts\python.exe tools\make_horizon_image.py C:\path\to\satellite_image.tif
 ```
 
-Deckt das Quellbild nur einen Teil der Fläche ab, warnt das Werkzeug; der Rest bleibt schwarz. Ein Bild in einem
-anderen Koordinatensystem im selben Ordner wird beim Export nicht verwendet, nur die Datei `horizon_temp.tif`.
+If the source image covers only part of the area, the tool warns; the rest stays black. An image in a different
+coordinate system in the same folder is not used by the export, only the file `horizon_temp.tif`.
 
-Fertiges Beispiel-Layout:
+Finished example layout:
 
 ```
 World-to-BeamNG/
@@ -132,62 +135,64 @@ World-to-BeamNG/
     └── DOP300/  horizon_temp.tif
 ```
 
-### Was das Programm selbst besorgt
+### What the program fetches itself
 
-- **OpenStreetMap** (Straßen, Wald, Wasser, Landnutzung, Kirchen) über die Overpass API mit Ersatz-Servern. Die
-  Antworten liegen danach in `cache/`.
-- **Höhen für Gelände, Straßen und Wasser** kommen aus DGM1, die der Gebäude aus LOD2; dafür gibt es keinen
-  Download. Nur der Horizont braucht DGM30 (siehe oben).
-- **Putz-, Fenster- und Kiestexturen** der Gebäude erzeugt das Programm selbst.
+- **OpenStreetMap** (roads, forest, water, land use, churches) through the Overpass API with fallback servers. The
+  responses are then stored in `cache/`.
+- **Elevations for terrain, roads and water** come from DGM1, those of the buildings from LOD2; there is no download
+  for them. Only the horizon needs DGM30 (see above).
+- **Plaster, window and gravel textures** of the buildings are generated by the program itself.
 
-### Aus der BeamNG-Installation
+### From the BeamNG installation
 
-Der Installationspfad wird aus `%LOCALAPPDATA%\BeamNG\BeamNG.drive.ini` gelesen. Daraus werden BeamNG-eigene Inhalte
-übernommen, die nicht ins Repository dürfen:
+The installation path is read from `%LOCALAPPDATA%\BeamNG\BeamNG.drive.ini`. BeamNG's own content that must not be put
+into the repository is taken from there:
 
-| Was | Wie | Wenn es fehlt |
+| What | How | If it is missing |
 |---|---|---|
-| Baum-Modelle und `managedItemData.json` | einmalig `tools\generate_forest_assets.py` | kein Wald (Warnung im Log) |
-| Standard-Texturen (Straßen, Dachziegel) | einmalig `tools\vendor_shared_textures.py` | BeamNG zeigt „no Texture" |
-| Weinreben aus dem `italy`-Level | automatisch beim Export | Weinberge ohne Reben |
+| Tree models and `managedItemData.json` | once, `tools\generate_forest_assets.py` | no forest (warning in the log) |
+| Standard textures (roads, roof tiles) | once, `tools\vendor_shared_textures.py` | BeamNG shows "no Texture" |
+| Grape vines from the `italy` level | automatically during the export | vineyards without vines |
 
-Die Skripte sind wiederholbar. Neu ausführen nach einem BeamNG-Update oder wenn der Level-Ordner gelöscht wurde.
+The scripts can be repeated. Run them again after a BeamNG update or if the level folder has been deleted.
 
-## ⚙️ Konfiguration
+## ⚙️ Configuration
 
-Alle Einstellungen stehen in `world_to_beamng/config.py`.
+All settings are in `world_to_beamng/config.py`.
 
-| Einstellung | Bedeutung |
+| Setting | Meaning |
 |---|---|
-| **`SPAWN_POINT`** | Startposition als `(Breite, Länge)` in Grad. Muss im eigenen Gebiet liegen. |
-| `LOD2_ENABLED`, `FORESTS_ENABLED`, `VINEYARDS_ENABLED`, `WATER_ENABLED`, `GROUND_COVER_ENABLED`, `PHASE5_ENABLED` | einzelne Bestandteile ein- und ausschalten (`PHASE5_ENABLED` ist der Horizont) |
-| `BEAMNG_DIR` | Zielordner des Levels; wird aus `%LOCALAPPDATA%` abgeleitet, nur bei Sonderfällen ändern |
-| `GRID_SPACING` | Terrain-Auflösung in Metern (Standard 1,0 = native DGM1-Auflösung) |
-| `TERRAIN_BASE_TEX_PIXEL_SIZE` | Größe des Luftbilds je Kachel |
-| `ENV_DATE`, `ENV_CLOCK_TIME` | Datum und Uhrzeit für den Sonnenstand |
+| **`SPAWN_POINT`** | Start position as `(latitude, longitude)` in degrees. Must be inside your own area. |
+| `LOD2_ENABLED`, `FORESTS_ENABLED`, `VINEYARDS_ENABLED`, `WATER_ENABLED`, `GROUND_COVER_ENABLED`, `PHASE5_ENABLED` | switch individual components on and off (`PHASE5_ENABLED` is the horizon) |
+| `BEAMNG_DIR` | Target folder of the level; derived from `%LOCALAPPDATA%`, only change it in special cases |
+| `GRID_SPACING` | Terrain resolution in metres (default 1.0 = native DGM1 resolution) |
+| `TERRAIN_BASE_TEX_PIXEL_SIZE` | Size of the aerial photo per tile |
+| `ENV_DATE`, `ENV_CLOCK_TIME` | Date and time of day for the position of the sun |
 
-## ⏱️ Ablauf und Dauer
+## ⏱️ Process and duration
 
-Ein Lauf liest die DGM1-Kacheln, lädt (beim ersten Mal) die OSM-Daten, baut das Luftbild und das Terrain und
-schreibt Straßen, Wald, Wasser, Gebäude und Horizont in den Level-Ordner. Bei 4×4 km dauert ein Lauf mit gefüllten
-Caches etwa eine Minute. Der erste Lauf ist länger, weil OSM geladen und die Caches aufgebaut werden. Die Caches
-(`cache/`) werden bei geänderten Daten automatisch ungültig. Bei seltsamen Ergebnissen hilft es, `cache/` zu löschen.
+A run reads the DGM1 tiles, downloads the OSM data (the first time), builds the aerial photo and the terrain, and
+writes roads, forest, water, buildings and horizon into the level folder. For 4×4 km a run with filled caches takes
+about one minute. The first run takes longer because OSM is downloaded and the caches are built. The caches
+(`cache/`) become invalid automatically when the data changes. If results look strange, deleting `cache/` helps.
 
-## 🐛 Fehlersuche
+## 🐛 Troubleshooting
 
-| Meldung / Symptom | Ursache und Lösung |
+The program's messages are in German; they are quoted as they appear, followed by a translation.
+
+| Message / symptom | Cause and solution |
 |---|---|
-| `Keine DGM1-Kacheln gefunden` | `data/DGM1/` fehlt oder enthält keine ZIPs im Schema `dgm1_32_<x>_<y>_2_bw.zip` |
-| `texconv.exe nicht gefunden` | `setup_project.py` nicht gelaufen; oder Datei manuell nach `bin\texconv.exe` legen |
-| `BeamNG.drive.ini nicht gefunden` | BeamNG.drive wurde noch nie gestartet |
-| `managedItemData.json nicht gefunden` | einmalig `tools\generate_forest_assets.py` ausführen |
-| Straßen oder Dächer mit „no Texture" | einmalig `tools\vendor_shared_textures.py` ausführen |
-| Level erscheint nicht in BeamNG | prüfen, ob `%LOCALAPPDATA%\BeamNG\BeamNG.drive\current\levels\world_to_beamng` entstanden ist; sonst `BEAMNG_DIR` in `config.py` anpassen |
-| `DGM30-Dateien decken die Horizont-Fläche … nicht ab` | Kacheln für die genannte Himmelsrichtung nach `data/DGM30/` legen (siehe oben) |
-| `Keine DGM30-Dateien` | `data/DGM30/` ist leer; der Horizont wird sonst übersprungen |
-| Horizont ohne Textur oder verschoben | `tools\make_horizon_image.py` verwenden; die Datei muss genau die Horizont-Fläche in EPSG:25832 zeigen |
-| Absturz oder Fehler beim Laden des Levels | `C:\Users\<NAME>\AppData\Local\BeamNG\BeamNG.drive\current\beamng.log` auf `\|E\|`-Zeilen prüfen |
-| OSM-Zeitüberschreitung | das Programm probiert Ersatz-Server; erneut starten, erfolgreiche Antworten sind gecacht |
+| `Keine DGM1-Kacheln gefunden` (no DGM1 tiles found) | `data/DGM1/` is missing or contains no ZIPs following the scheme `dgm1_32_<x>_<y>_2_bw.zip` |
+| `texconv.exe nicht gefunden` (texconv.exe not found) | `setup_project.py` has not run; or put the file manually at `bin\texconv.exe` |
+| `BeamNG.drive.ini nicht gefunden` (BeamNG.drive.ini not found) | BeamNG.drive has never been started |
+| `managedItemData.json nicht gefunden` (not found) | run `tools\generate_forest_assets.py` once |
+| Roads or roofs with "no Texture" | run `tools\vendor_shared_textures.py` once |
+| Level does not appear in BeamNG | check whether `%LOCALAPPDATA%\BeamNG\BeamNG.drive\current\levels\world_to_beamng` was created; otherwise adjust `BEAMNG_DIR` in `config.py` |
+| `DGM30-Dateien decken die Horizont-Fläche … nicht ab` (DGM30 files do not cover the horizon area) | put the tiles for the compass direction named in the message into `data/DGM30/` (see above) |
+| `Keine DGM30-Dateien` (no DGM30 files) | `data/DGM30/` is empty; the horizon is skipped otherwise |
+| Horizon without texture or shifted | use `tools\make_horizon_image.py`; the file must show exactly the horizon area in EPSG:25832 |
+| Crash or error while loading the level | check `C:\Users\<NAME>\AppData\Local\BeamNG\BeamNG.drive\current\beamng.log` for `\|E\|` lines |
+| OSM timeout | the program tries fallback servers; start again, successful responses are cached |
 
 ## 🧪 Tests
 
@@ -196,49 +201,50 @@ Caches etwa eine Minute. Der erste Lauf ist länger, weil OSM geladen und die Ca
 .\.venv\Scripts\python.exe -m pytest tests
 ```
 
-## 🏗️ Projektstruktur
+## 🏗️ Project structure
 
 ```
-world_to_beamng.py        Einstiegspunkt
-setup_project.py          Pakete und texconv.exe installieren
+world_to_beamng.py        entry point
+setup_project.py          install packages and texconv.exe
 world_to_beamng/
-├── config.py             alle Einstellungen
-├── export/               Level-Export (BeamNGExporter)
-├── workflow/             Terrain-, Gebäude-, Wald- und Horizont-Ablauf
-├── terrain/              Höhenmodell, Straßeneinbettung, Luftbild, Horizont
-├── osm/                  OpenStreetMap-Download und -Auswertung
-├── io/                   LOD2-Einlesen, Luftbild, Caches
-├── facade/               Gebäude: Putzwände, Fenster, Dächer, Kirchtürme
-├── forest/               Wald, Weinberge, Bodenbewuchs
-├── managers/             Materialien, Level-Objekte, DAE-Export
-├── builders/, core/      Mesh-Builder, Cache-Verwaltung
+├── config.py             all settings
+├── export/               level export (BeamNGExporter)
+├── workflow/             terrain, building, forest and horizon workflow
+├── terrain/              elevation model, road embedding, aerial photo, horizon
+├── osm/                  OpenStreetMap download and evaluation
+├── io/                   LOD2 reading, aerial photo, caches
+├── facade/               buildings: plaster walls, windows, roofs, church towers
+├── forest/               forest, vineyards, ground cover
+├── walls/                rubble stone walls (OSM barrier=wall with height)
+├── managers/             materials, level objects, DAE export
+├── builders/, core/      mesh builders, cache management
 └── geometry/, mesh/, analysis/, utils/
-data/                     Konfigurations-JSONs (im Repository) und Basisdaten (nicht im Repository)
-tools/                    Hilfsskripte (Assets übernehmen, Horizont-Bild erzeugen, Prüfungen, Viewer)
+data/                     configuration JSONs (in the repository) and base data (not in the repository)
+tools/                    helper scripts (take over assets, create the horizon image, checks, viewer)
 tests/                    pytest
-docs/                     technische Dokumentation (z. B. MATERIAL_TEMPLATES.md)
+docs/                     technical documentation (e.g. MATERIAL_TEMPLATES.md)
 ```
 
-## 📄 Lizenz und Quellenangaben
+## 📄 License and attribution
 
-Der Code steht unter der **MIT License** (siehe [LICENSE](LICENSE)). Für die Daten gilt:
+The code is under the **MIT License** (see [LICENSE](LICENSE)). For the data the following applies:
 
-- **LGL Baden-Württemberg** (DGM1, DOP20, LoD2): **Datenlizenz Deutschland – Namensnennung – Version 2.0**
-  (dl-de/by-2.0, <https://www.govdata.de/dl-de/by-2-0>). Der Quellenvermerk lautet:
-  *„Datenquelle: LGL, www.lgl-bw.de, dl-de/by-2-0"*, dazu der Hinweis, dass die Daten verändert wurden. Wer
-  erzeugte Level weitergibt, muss das angeben. Die Lizenztexte liegen auch in den ZIP-Dateien.
-- **OpenStreetMap**: © OpenStreetMap-Mitwirkende, [ODbL](https://www.openstreetmap.org/copyright).
-- **Copernicus DEM GLO-30** (Horizont): frei nutzbar unter den Bedingungen der Copernicus-Lizenz, siehe
+- **LGL Baden-Württemberg** (DGM1, DOP20, LoD2): **Data licence Germany – Attribution – Version 2.0**
+  (dl-de/by-2.0, <https://www.govdata.de/dl-de/by-2-0>). The source note reads:
+  *"Datenquelle: LGL, www.lgl-bw.de, dl-de/by-2-0"* (data source), plus a note that the data has been modified.
+  Anyone who passes on generated levels has to state this. The licence texts are also contained in the ZIP files.
+- **OpenStreetMap**: © OpenStreetMap contributors, [ODbL](https://www.openstreetmap.org/copyright).
+- **Copernicus DEM GLO-30** (horizon): free to use under the terms of the Copernicus licence, see
   <https://dataspace.copernicus.eu/explore-data/data-collections/copernicus-contributing-missions/collections-description/COP-DEM>.
-- **BeamNG-Inhalte** (Texturen, Bäume) bleiben Eigentum von BeamNG und werden nur aus der eigenen Installation in das
-  eigene Level kopiert. Sie gehören nicht ins Repository.
+- **BeamNG content** (textures, trees) remains the property of BeamNG and is only copied from your own installation
+  into your own level. It does not belong in the repository.
 
-## 🤝 Beiträge
+## 🤝 Contributing
 
-Beiträge sind willkommen: Fork, Branch anlegen, Änderungen committen (Präfixe `feat:`, `fix:`, `perf:` …), Pull
-Request öffnen. Fehler und Wünsche bitte als [Issue](https://github.com/Tachy/World-to-BeamNG/issues) melden.
+Contributions are welcome: fork, create a branch, commit your changes (prefixes `feat:`, `fix:`, `perf:` …), open a
+pull request. Please report bugs and wishes as an [issue](https://github.com/Tachy/World-to-BeamNG/issues).
 
-## 🙏 Danksagungen
+## 🙏 Acknowledgements
 
-**OpenStreetMap** und die **Overpass API**, das **LGL Baden-Württemberg** für die offenen Geodaten, **BeamNG** und die
-Communities von **Shapely**, **NumPy**, **SciPy** und **Rasterio**.
+**OpenStreetMap** and the **Overpass API**, the **LGL Baden-Württemberg** for the open geodata, **BeamNG**, and the
+communities of **Shapely**, **NumPy**, **SciPy** and **Rasterio**.
