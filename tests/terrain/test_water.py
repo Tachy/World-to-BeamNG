@@ -1,8 +1,9 @@
 """Tests für world_to_beamng.terrain.water: Bäche (River) und Teiche/Seen (WaterBlock).
 
 Echtes Wasser sind in BeamNG eigene Objekte. Bäche werden als `River`-Spline entlang der OSM-Linie
-mit Höhen aus dem DGM1 gebaut, Wasserflächen als gekachelte `WaterBlock`-Quader innerhalb des
-Polygons. Das DGM1 selbst bleibt unverändert.
+mit Höhen aus dem DGM1 gebaut, Wasserflächen als gekachelte `WaterBlock`-Quader, die das Polygon
+samt Rand überdecken (der Spiegel ist der Mittelwert der drei tiefsten Randpunkte). Bäche enden am
+Teichufer. Das DGM1 selbst bleibt unverändert.
 """
 
 import sys
@@ -17,7 +18,12 @@ from shapely.geometry import Polygon, box
 from world_to_beamng.terrain.water import (
     build_pond_blocks,
     build_river_nodes,
+    carve_pond_basins,
     clip_line_to_bounds,
+    cut_line_by_area,
+    is_pond_area,
+    pond_level,
+    select_pond_areas,
     select_waterways,
     split_nodes,
 )
@@ -178,18 +184,50 @@ def _rect(block):
     return box(cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2)
 
 
-def test_pond_blocks_stay_inside_the_polygon_and_cover_most_of_it():
-    pond = box(0, 0, 40, 30)
+def _union(blocks):
+    from shapely.ops import unary_union
 
-    blocks = build_pond_blocks(pond, _flat(), lift=0.15, depth=3.0, cell=6.0)
+    return unary_union([_rect(b).buffer(1e-6) for b in blocks])  # Toleranz gegen Rundungsritzen beim Rekonstruieren
 
-    assert blocks
-    assert all(pond.buffer(1e-6).contains(_rect(b)) for b in blocks)
-    assert sum(_rect(b).area for b in blocks) > 0.7 * pond.area
+
+def test_only_water_and_wet_basins_are_ponds_dry_detention_basins_are_not():
+    assert is_pond_area({"natural": "water"})
+    assert is_pond_area({"natural": "water", "water": "reservoir"})
+    assert is_pond_area({"landuse": "basin", "name": "Rückhaltebecken Laufen"})
+    assert is_pond_area({"landuse": "reservoir"})
+    assert not is_pond_area({"landuse": "basin", "basin": "detention"})  # trockenes Hochwasserbecken
+    assert not is_pond_area({"landuse": "forest"})
+    assert not is_pond_area({"natural": "water", "basin": "detention"})  # Detention ist immer trocken (Wiese)
+
+
+def test_pond_level_is_the_mean_of_the_three_lowest_rim_points():
+    # Höhe = 100 + |y - 5|: am Rand liegen (0,5) und (10,5) auf 100, vier Punkte bei y=4/6 auf 101
+    height = lambda x, y: 100.0 + np.abs(np.asarray(y, float) - 5.0)
+
+    level = pond_level(box(0, 0, 10, 10), height, rim_step=1.0)
+
+    assert level == pytest.approx((100.0 + 100.0 + 101.0) / 3.0)
+
+
+def test_pond_level_ignores_the_terrain_inside_the_polygon():
+    # tiefe Grube in der Mitte des Polygons: nur der Rand zählt
+    pit = lambda x, y: np.where((np.asarray(x) > 3) & (np.asarray(x) < 7) & (np.asarray(y) > 3) & (np.asarray(y) < 7), 90.0, 100.0)
+
+    assert pond_level(box(0, 0, 10, 10), pit, rim_step=1.0) == pytest.approx(100.0)
+
+
+def test_pond_blocks_cover_the_whole_polygon_and_reach_a_little_beyond_it():
+    pond = Polygon([(0, 0), (30, 4), (26, 28), (5, 20)])
+
+    blocks = build_pond_blocks(pond, _flat(), depth=3.0, cell=6.0, margin=2.0)
+
+    assert _union(blocks).contains(pond)
+    assert all(_rect(b).intersects(pond.buffer(2.0)) for b in blocks)
+    assert not _union(blocks).contains(pond.buffer(8.0))
 
 
 def test_pond_blocks_do_not_overlap_each_other():
-    blocks = build_pond_blocks(box(0, 0, 40, 30), _flat(), lift=0.15, depth=3.0, cell=6.0)
+    blocks = build_pond_blocks(box(0, 0, 40, 30), _flat(), depth=3.0, cell=6.0, margin=2.0)
 
     total = sum(_rect(b).area for b in blocks)
     from shapely.ops import unary_union
@@ -197,41 +235,72 @@ def test_pond_blocks_do_not_overlap_each_other():
     assert unary_union([_rect(b) for b in blocks]).area == pytest.approx(total)
 
 
-def test_pond_water_level_sits_just_above_the_terrain_with_the_configured_depth():
-    blocks = build_pond_blocks(box(0, 0, 20, 20), _flat(281.0), lift=0.15, depth=3.0, cell=5.0)
+def test_pond_uses_one_flat_level_with_the_configured_depth():
+    blocks = build_pond_blocks(box(0, 0, 20, 20), _flat(281.0), depth=3.0, cell=5.0, margin=2.0)
 
-    assert all(b["position"][2] == pytest.approx(281.15) for b in blocks)  # Oberfläche = Position.z
+    assert all(b["position"][2] == pytest.approx(281.0) for b in blocks)  # Oberfläche = Position.z = Randhöhe
     assert all(b["scale"][2] == 3.0 for b in blocks)
     assert all(b["rotationMatrix"] == [1, 0, 0, 0, 1, 0, 0, 0, 1] for b in blocks)
 
 
-def test_pond_on_a_slope_uses_a_low_level_so_it_does_not_flood_the_downhill_side():
-    # Gelände fällt in +x um 4 m; ein Teichniveau am Maximum würde nichts füllen, am Minimum alles
-    sloped = lambda x, y: 100.0 - 0.1 * np.asarray(x, float)
-    blocks = build_pond_blocks(box(0, 0, 40, 20), sloped, lift=0.0, depth=3.0, cell=5.0)
+def test_pond_on_a_slope_takes_the_low_rim_so_it_does_not_flood_the_downhill_side():
+    sloped = lambda x, y: 100.0 - 0.1 * np.asarray(x, float)  # 96 (x=40) .. 100 (x=0)
 
-    level = blocks[0]["position"][2]
-    assert 96.0 <= level <= 98.0  # unteres Viertel der Geländehöhen (96..100), nicht das Maximum
+    blocks = build_pond_blocks(box(0, 0, 40, 20), sloped, depth=3.0, cell=5.0, margin=2.0)
+
+    assert blocks[0]["position"][2] == pytest.approx(96.0, abs=0.2)
 
 
-def test_tiny_pond_smaller_than_a_cell_still_gets_blocks_inside():
-    # Die Zellgröße passt sich der Teichgröße an (mindestens 1 m), auch ein 3x3-m-Teich wird gefüllt
+def test_tiny_pond_smaller_than_a_cell_is_still_covered():
     pond = Polygon([(0, 0), (3, 0), (3, 3), (0, 3)])
 
-    blocks = build_pond_blocks(pond, _flat(), lift=0.15, depth=3.0, cell=6.0)
+    blocks = build_pond_blocks(pond, _flat(), depth=3.0, cell=6.0, margin=2.0)
 
     assert blocks
-    assert all(pond.buffer(1e-6).contains(_rect(b)) for b in blocks)
-    assert sum(_rect(b).area for b in blocks) > 0.7 * pond.area
+    assert _union(blocks).contains(pond)
 
 
-def test_l_shaped_pond_leaves_the_notch_empty():
+def test_l_shaped_pond_leaves_the_far_notch_empty():
     pond = Polygon([(0, 0), (40, 0), (40, 10), (10, 10), (10, 40), (0, 40)])
 
-    blocks = build_pond_blocks(pond, _flat(), lift=0.15, depth=3.0, cell=5.0)
+    blocks = build_pond_blocks(pond, _flat(), depth=3.0, cell=5.0, margin=2.0)
 
-    assert all(pond.buffer(1e-6).contains(_rect(b)) for b in blocks)
-    assert not any(_rect(b).intersects(box(20, 20, 40, 40)) for b in blocks)
+    assert _union(blocks).contains(pond)
+    assert not any(_rect(b).intersects(box(25, 25, 40, 40)) for b in blocks)
+
+
+# --- Bäche enden am Teichufer -----------------------------------------------------------------
+
+
+def test_stream_running_through_a_pond_is_cut_at_both_shores():
+    pond = box(0, 0, 40, 10)
+
+    parts = cut_line_by_area([(-20.0, 5.0), (60.0, 5.0)], pond)
+
+    assert len(parts) == 2
+    assert parts[0][0] == pytest.approx((-20.0, 5.0)) and parts[0][-1] == pytest.approx((0.0, 5.0))
+    assert parts[1][0] == pytest.approx((40.0, 5.0)) and parts[1][-1] == pytest.approx((60.0, 5.0))
+
+
+def test_stream_starting_in_a_pond_begins_at_the_shore():
+    parts = cut_line_by_area([(20.0, 5.0), (60.0, 5.0)], box(0, 0, 40, 10))
+
+    assert len(parts) == 1
+    assert parts[0][0] == pytest.approx((40.0, 5.0)) and parts[0][-1] == pytest.approx((60.0, 5.0))
+
+
+def test_stream_entirely_inside_a_pond_and_tiny_stubs_disappear():
+    pond = box(0, 0, 40, 10)
+
+    assert cut_line_by_area([(5.0, 5.0), (30.0, 5.0)], pond) == []
+    assert cut_line_by_area([(-0.5, 5.0), (30.0, 5.0)], pond, min_length=1.0) == []  # nur 0,5 m draußen
+
+
+def test_stream_without_a_pond_is_unchanged():
+    line = [(0.0, 0.0), (10.0, 0.0), (20.0, 5.0)]
+
+    assert cut_line_by_area(line, None) == [line]
+    assert cut_line_by_area(line, box(100, 100, 110, 110)) == [line]
 
 
 def test_nodes_snap_sideways_onto_the_real_channel_when_the_osm_line_is_a_bit_off():
@@ -261,3 +330,77 @@ def test_snapping_does_not_make_the_stream_zigzag():
 
     ys = np.array([n[1] for n in nodes])
     assert np.abs(np.diff(ys)).max() < 1.5  # glatt, keine Sprünge von Rand zu Rand
+
+
+# --- Terrain unter den Teichen absenken --------------------------------------------------------
+
+
+def _carve(heights, polygons, square_size=0.25, **kwargs):
+    return carve_pond_basins(heights, 0.0, 0.0, square_size, polygons, **kwargs)
+
+
+def test_carving_lowers_the_inside_by_the_depth_and_leaves_the_outside_untouched():
+    heights = np.full((200, 200), 100.0)  # 0,25-m-Raster, 50 x 50 m
+
+    carved = _carve(heights, [box(10, 10, 30, 30)], depth=0.5, slope_deg=45.0)
+
+    assert carved[80, 80] == pytest.approx(99.5)  # (20, 20) mitten im Teich
+    assert carved[40, 40] == pytest.approx(100.0)  # (10, 10) auf dem Rand
+    assert carved[10, 10] == 100.0 and carved[190, 190] == 100.0  # außerhalb
+    assert carved.min() == pytest.approx(99.5)
+
+
+def test_bank_slopes_at_45_degrees_inward():
+    heights = np.full((200, 200), 100.0)
+
+    carved = _carve(heights, [box(10, 10, 30, 30)], depth=0.5, slope_deg=45.0)
+
+    # Abstand zum Rand d (x = 10 + d, y mitten): Absenkung = d bis zur vollen Tiefe bei 0,5 m
+    assert 100.0 - carved[80, 41] == pytest.approx(0.25)  # x = 10,25
+    assert 100.0 - carved[80, 42] == pytest.approx(0.5)  # x = 10,5
+    assert 100.0 - carved[80, 44] == pytest.approx(0.5)  # x = 11 (Boden der Mulde)
+
+
+def test_flatter_slope_makes_the_bank_wider():
+    heights = np.full((200, 200), 100.0)
+
+    carved = _carve(heights, [box(10, 10, 30, 30)], depth=0.5, slope_deg=30.0)
+
+    assert 100.0 - carved[80, 42] == pytest.approx(0.5 * np.tan(np.radians(30.0)))  # d = 0,5 m -> 0,29 m tief
+    assert 100.0 - carved[80, 48] == pytest.approx(0.5)  # erst ab d = 0,87 m volle Tiefe
+
+
+def test_carving_is_relative_to_the_terrain_and_does_not_touch_the_input():
+    heights = 100.0 + 0.1 * np.arange(200)[None, :] * np.ones((200, 1))  # Gefälle in x
+    before = heights.copy()
+
+    carved = _carve(heights, [box(10, 10, 30, 30)])
+
+    assert (heights == before).all()
+    assert before[80, 80] - carved[80, 80] == pytest.approx(0.5)
+
+
+def test_overlapping_ponds_are_lowered_once_and_islands_are_not_lowered():
+    heights = np.full((200, 200), 100.0)
+    island_pond = box(10, 10, 30, 30).difference(box(18, 18, 22, 22))
+
+    both = _carve(heights, [island_pond, box(15, 15, 35, 35)], depth=0.5)
+    only_island = _carve(heights, [island_pond], depth=0.5)
+
+    assert both.min() == pytest.approx(99.5)  # überlappende Teiche: nicht 99,0
+    assert only_island[80, 80] == 100.0  # (20, 20) liegt im Loch (Insel): unberührt
+    assert both[80, 80] == pytest.approx(99.5)  # ... außer ein zweiter Teich deckt die Stelle ab
+
+
+def test_select_pond_areas_keeps_only_water_clipped_to_the_terrain():
+    polygons = [
+        {"osm_tags": {"natural": "water"}, "geometry": box(-20, 0, 20, 10)},
+        {"osm_tags": {"landuse": "basin", "basin": "detention"}, "geometry": box(0, 0, 10, 10)},
+        {"osm_tags": {"landuse": "meadow"}, "geometry": box(0, 0, 10, 10)},
+        {"osm_tags": {"natural": "water"}, "geometry": box(100, 100, 110, 110)},  # außerhalb des Terrains
+    ]
+
+    areas = select_pond_areas(polygons, (-10.0, -10.0, 10.0, 20.0))
+
+    assert len(areas) == 1
+    assert areas[0].bounds == pytest.approx((-10.0, 0.0, 10.0, 10.0))

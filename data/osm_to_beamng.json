@@ -585,6 +585,9 @@
                     "garden",
                     "pitch",
                     "playground"
+                ],
+                "basin": [
+                    "detention"
                 ]
             },
             "priority": 4,
@@ -640,9 +643,14 @@
                     "reservoir"
                 ]
             },
+            "osm_exclude_tags": {
+                "basin": [
+                    "detention"
+                ]
+            },
             "priority": 15,
-            "keep_photo": true,
-            "comment": "Wasserflächen: das Luftbild bleibt (echtes Wasser erfordert ein WaterPlane-Objekt)."
+            "use_material_of": "meadow",
+            "comment": "Wasserflächen: der Boden unter dem Wasser ist Wiese (Material und Bodenbewuchs der Kategorie meadow). Das Wasser selbst sind WaterBlock-/River-Objekte (terrain/water.py), das Terrain wird dort vorher tiefergelegt."
         }
     }
 }

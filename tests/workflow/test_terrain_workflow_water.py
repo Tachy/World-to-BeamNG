@@ -95,4 +95,38 @@ def test_build_water_clips_to_the_terrain_and_uses_the_heightmap():
     nodes = water["rivers"][0]["nodes"]
     assert all(abs(n[2] - 250.2) < 1e-6 for n in nodes)  # Rinnenboden 250 + Wasserstand 0,2
     assert len(water["ponds"]) == 1  # nur die Wasserfläche, nicht die Wiese
-    assert all(abs(b["position"][2] - 250.15) < 1e-6 for b in water["ponds"][0]["blocks"])
+    assert all(abs(b["position"][2] - 250.0) < 1e-6 for b in water["ponds"][0]["blocks"])  # Randhöhe des Teichs
+
+
+def test_dry_detention_basins_get_no_water_but_a_small_wet_basin_does():
+    stub = SimpleNamespace()
+    height_at = lambda x, y: np.full_like(np.asarray(x, float), 250.0)
+    detention = {"osm_tags": {"landuse": "basin", "basin": "detention"}, "geometry": box(0, 0, 200, 90)}
+    small_basin = {"osm_tags": {"landuse": "basin", "name": "Rückhaltebecken"}, "geometry": box(80, 30, 100, 44)}
+
+    water = TerrainWorkflow._build_water(stub, [], [detention, small_basin], (0.0, 0.0), height_at, (-500, 500, -500, 500))
+
+    assert len(water["ponds"]) == 1
+    xs = [b["position"][0] for b in water["ponds"][0]["blocks"]]
+    assert 70 < min(xs) and max(xs) < 110  # nur das kleine Becken, nicht die 200 m breite Fläche
+
+
+def test_streams_end_at_the_pond_shore():
+    stub = SimpleNamespace()
+    height_at = lambda x, y: np.full_like(np.asarray(x, float), 250.0)
+    from world_to_beamng.osm.landuse_polygons import make_local_transform
+
+    offset = (412000.0, 5297000.0)
+    to_local = make_local_transform(offset)
+    line = [{"lat": 47.83, "lon": 7.68}, {"lat": 47.83, "lon": 7.6812}]  # gut 90 m West-Ost
+    (x0, y0), (x1, _) = to_local(line)
+    mid = (x0 + x1) / 2
+    pond = {"osm_tags": {"natural": "water"}, "geometry": box(mid - 15, y0 - 10, mid + 15, y0 + 10)}
+    osm = [{"type": "way", "id": 1, "tags": {"waterway": "stream"}, "geometry": line}]
+
+    water = TerrainWorkflow._build_water(stub, osm, [pond], offset, height_at, (x0 - 500, x1 + 500, y0 - 500, y0 + 500))
+
+    assert len(water["rivers"]) == 2  # oberhalb und unterhalb des Teichs
+    for river in water["rivers"]:
+        for node in river["nodes"]:
+            assert not (mid - 15 + 0.5 < node[0] < mid + 15 - 0.5)  # kein Knoten im Teich (0,5 m Toleranz: seitliches Einrasten)

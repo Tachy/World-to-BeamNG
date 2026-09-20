@@ -76,8 +76,10 @@ WATER_RIVER_DEPTH = 1.0  # Tiefe des River-Volumens in m
 WATER_NODE_SPACING = 10.0  # Abstand der River-Knoten in m
 WATER_STREAM_LIFT = 0.2  # Wasserstand über dem Rinnenboden des DGM1 in m (Ufer liegen im Median 0,4 m höher)
 WATER_MAX_RIVER_NODES = 40  # längere Bäche werden in mehrere River-Objekte geteilt
-WATER_POND_LIFT = 0.15  # Teichspiegel über dem unteren Viertel des Geländes im Polygon in m
+WATER_POND_MARGIN = 2.0  # so weit reichen die WaterBlocks über den Rand des OSM-Polygons hinaus (füllen das ganze Loch), in m
 WATER_POND_DEPTH = 3.0  # Tiefe der WaterBlocks in m
+WATER_POND_BANK_DEPTH = 0.5  # innerhalb des OSM-Wasserpolygons wird das Terrain so viel tiefer gelegt, in m
+WATER_POND_BANK_SLOPE_DEG = 45.0  # Böschungswinkel der Mulde nach innen (45 Grad = 1 m tiefer je Meter nach innen)
 WATER_POND_CELL = 6.0  # maximale Kantenlänge der Kacheln, mit denen Teiche gefüllt werden, in m
 WATER_POND_CUBEMAP = "DefaultSkyCubemap"  # Engine-eigene Cubemap (die der Vorlage ist level-spezifisch und fehlte)
 
@@ -265,7 +267,6 @@ SENTINEL2_FILE = "horizon_temp.tif"
 
 # === OVERPASS API ENDPOINTS ===
 OVERPASS_ENDPOINTS = [
-    "https://overpass.private.coffee/api/interpreter",
     "https://overpass-api.de/api/interpreter",
     "https://overpass.osm.ch/api/interpreter",
 ]

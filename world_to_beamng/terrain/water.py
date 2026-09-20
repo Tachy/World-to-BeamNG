@@ -6,9 +6,12 @@ allein reicht nicht:
 
 - Bäche werden `River`-Splines: Knoten [x, y, z, Breite, Tiefe, nx, ny, nz] entlang der OSM-Linie.
 - Teiche/Seen werden `WaterBlock`-Quader (Oberfläche = Position.z, Tiefe nach unten). Ein Block ist
-  immer ein Rechteck, das Polygon deshalb mit kleinen Blöcken gekachelt, die komplett darin liegen.
+  immer ein Rechteck, das Polygon deshalb mit kleinen Blöcken gekachelt, die es samt einem Rand überdecken.
+  Der Spiegel ist der Mittelwert der drei tiefsten Randpunkte; wo das Gelände höher liegt, ist das Wasser
+  verdeckt, wo es tiefer liegt (das ganze Loch), sichtbar. Bäche enden am Ufer (cut_line_by_area).
 
-Das DGM1 bleibt unverändert: die Wasserhöhen werden aus dem Gelände abgeleitet. Bäche liegen
+Das DGM1 bleibt bis auf die Teichmulden unverändert (carve_pond_basins: innerhalb des OSM-Polygons 50 cm
+tiefer, Böschung 45 Grad nach innen); die Wasserhöhen werden aus dem Gelände abgeleitet. Bäche liegen
 knapp über dem Rinnenboden (Wasser nur in der Rinne sichtbar, wo das Gelände dahinter höher ist);
 das Wasser fällt flussabwärts nur und verschwindet unter Dämmen/Durchlässen im Gelände.
 """
@@ -19,6 +22,7 @@ from typing import Callable, Dict, List, Optional, Sequence, Tuple
 import numpy as np
 from shapely.geometry import LineString, MultiLineString, Polygon, box
 from shapely.geometry.base import BaseGeometry
+from shapely.prepared import prep
 
 HeightAt = Callable[[np.ndarray, np.ndarray], np.ndarray]
 ToLocal = Callable[[Sequence[Dict]], List[Tuple[float, float]]]
@@ -66,6 +70,23 @@ def clip_line_to_bounds(coords: Sequence[Tuple[float, float]], bounds: Bounds) -
         return []
     parts = list(clipped.geoms) if isinstance(clipped, MultiLineString) else [clipped]
     return [list(part.coords) for part in parts if isinstance(part, LineString) and part.length > 0]
+
+
+def cut_line_by_area(
+    coords: Sequence[Tuple[float, float]], area: Optional[BaseGeometry], min_length: float = 1.0
+) -> List[List[Tuple[float, float]]]:
+    """
+    Schneidet die Teile einer Linie weg, die in `area` (z.B. Teichfläche) liegen: ein Bach endet am Ufer.
+    Läuft er durch den Teich, entstehen zwei Stücke; Reststücke unter `min_length` Meter entfallen.
+    """
+    line = LineString(coords)
+    if area is None or area.is_empty:
+        return [list(coords)]
+    rest = line.difference(area)
+    if rest.is_empty:
+        return []
+    parts = list(rest.geoms) if hasattr(rest, "geoms") else [rest]
+    return [list(part.coords) for part in parts if isinstance(part, LineString) and part.length >= min_length]
 
 
 def _resample(coords: Sequence[Tuple[float, float]], spacing: float) -> np.ndarray:
@@ -149,19 +170,95 @@ def split_nodes(nodes: List[List[float]], max_nodes: int) -> List[List[List[floa
 IDENTITY_ROTATION = [1, 0, 0, 0, 1, 0, 0, 0, 1]
 
 
-def _cells_inside(polygon: BaseGeometry, cell: float) -> List[Tuple[float, float, float, float]]:
-    """Rasterzellen der Kantenlänge `cell`, die vollständig im Polygon liegen, zu Zeilen-Rechtecken verschmolzen."""
-    min_x, min_y, max_x, max_y = polygon.bounds
+def is_pond_area(tags: Dict[str, str]) -> bool:
+    """
+    Wasserfläche nach OSM-Tags: natürliches Wasser, Becken oder Stausee. Trockene Hochwasser-Rückhaltebecken
+    (`basin=detention`) sind nie Wasser, sondern Wiese (siehe landuse_mappings["meadow"]).
+    """
+    if tags.get("basin") == "detention":
+        return False
+    return tags.get("natural") == "water" or tags.get("landuse") in ("basin", "reservoir")
+
+
+def select_pond_areas(landuse_polygons: Sequence[Dict], bounds: Bounds) -> List[BaseGeometry]:
+    """Wasserflächen (siehe is_pond_area) als Geometrien, auf das Terrain (`bounds` = xmin, ymin, xmax, ymax) zugeschnitten."""
+    terrain_box = box(*bounds)
+    areas = []
+    for polygon in landuse_polygons:
+        if not is_pond_area(polygon["osm_tags"]):
+            continue
+        geometry = polygon["geometry"].intersection(terrain_box)
+        if not geometry.is_empty and geometry.area > 0:
+            areas.append(geometry)
+    return areas
+
+
+def carve_pond_basins(
+    heights: np.ndarray,
+    origin_x: float,
+    origin_y: float,
+    square_size: float,
+    areas: Sequence[BaseGeometry],
+    depth: float = 0.5,
+    slope_deg: float = 45.0,
+) -> np.ndarray:
+    """
+    Legt das Terrain innerhalb der Wasserflächen tiefer: alle Rasterpunkte im Polygon um `depth` Meter, mit einer
+    Böschung von `slope_deg` Grad nach innen (Absenkung = Abstand zum Rand * tan(Winkel), höchstens `depth`; bei
+    45 Grad also 1 m Absenkung je Meter nach innen, volle Tiefe nach 0,5 m). Außerhalb und auf dem Rand ändert sich
+    nichts. Überlappen sich Flächen, gilt je Punkt die größere Absenkung.
+
+    heights[i, j] gehört zur Weltposition (origin_x + j * square_size, origin_y + i * square_size).
+    Gibt eine neue Heightmap zurück, `heights` bleibt unverändert.
+    """
+    from shapely import contains_xy, distance, points
+
+    rows, cols = heights.shape
+    lowering = np.zeros_like(heights, dtype=float)
+    slope = float(np.tan(np.radians(slope_deg)))
+    for area in areas:
+        if area is None or area.is_empty:
+            continue
+        min_x, min_y, max_x, max_y = area.bounds
+        j0 = max(0, int(np.floor((min_x - origin_x) / square_size)))
+        j1 = min(cols, int(np.ceil((max_x - origin_x) / square_size)) + 1)
+        i0 = max(0, int(np.floor((min_y - origin_y) / square_size)))
+        i1 = min(rows, int(np.ceil((max_y - origin_y) / square_size)) + 1)
+        if j0 >= j1 or i0 >= i1:
+            continue
+        xs, ys = np.meshgrid(origin_x + np.arange(j0, j1) * square_size, origin_y + np.arange(i0, i1) * square_size)
+        inside = contains_xy(area, xs, ys)
+        if not inside.any():
+            continue
+        edge_distance = distance(points(xs[inside], ys[inside]), area.boundary)
+        window = lowering[i0:i1, j0:j1]
+        window[inside] = np.maximum(window[inside], np.minimum(depth, edge_distance * slope))
+    return heights - lowering
+
+
+def pond_level(polygon: BaseGeometry, height_at: HeightAt, count: int = 3, rim_step: float = 1.0) -> float:
+    """Wasserspiegel: Mittelwert der `count` tiefsten Höhenpunkte auf dem Polygonrand (Punkte alle `rim_step` m)."""
+    ring = polygon.exterior
+    samples = max(count, int(np.ceil(ring.length / rim_step)))
+    points = np.array([ring.interpolate(d).coords[0] for d in np.linspace(0.0, ring.length, samples, endpoint=False)])
+    heights = np.sort(np.asarray(height_at(points[:, 0], points[:, 1]), dtype=float))
+    return float(heights[:count].mean())
+
+
+def _cells_covering(shape: BaseGeometry, cell: float) -> List[Tuple[float, float, float, float]]:
+    """Rasterzellen der Kantenlänge `cell`, die `shape` berühren, zu Zeilen-Rechtecken verschmolzen."""
+    prepared = prep(shape)
+    min_x, min_y, max_x, max_y = shape.bounds
     rectangles = []
     y = min_y
-    while y + cell <= max_y + 1e-9:
+    while y < max_y - 1e-9:
         run_start = None
         x = min_x
-        while x + cell <= max_x + 1e-9:
-            inside = polygon.buffer(1e-6).contains(box(x, y, x + cell, y + cell))
-            if inside and run_start is None:
+        while x < max_x - 1e-9:
+            hit = prepared.intersects(box(x, y, x + cell, y + cell))
+            if hit and run_start is None:
                 run_start = x
-            if not inside and run_start is not None:
+            if not hit and run_start is not None:
                 rectangles.append((run_start, y, x, y + cell))
                 run_start = None
             x += cell
@@ -174,17 +271,18 @@ def _cells_inside(polygon: BaseGeometry, cell: float) -> List[Tuple[float, float
 def build_pond_blocks(
     polygon: BaseGeometry,
     height_at: HeightAt,
-    lift: float = 0.15,
     depth: float = 3.0,
     cell: float = 6.0,
+    margin: float = 2.0,
 ) -> List[Dict]:
     """
     `WaterBlock`-Quader (position = Mitte, Oberfläche auf position.z; scale = Breite, Länge, Tiefe), die das
-    Polygon lückenlos kacheln, soweit ganze Zellen hineinpassen.
+    Polygon samt `margin` Meter Rand lückenlos überdecken.
 
-    Ein Spiegel gilt für das ganze Gewässer: unteres Viertel der Geländehöhen im Polygon + `lift`. So flutet
-    er bei Hanglage nicht die Talseite. Die Zellgröße passt sich der Teichgröße an (mindestens 1 m), damit
-    auch kleine Teiche gefüllt werden.
+    Der Spiegel gilt für das ganze Gewässer: Mittelwert der drei tiefsten Randpunkte (siehe pond_level). Die
+    Blöcke reichen über den Rand hinaus, damit das Wasser das ganze Loch füllt, wo das Gelände unter dem
+    Spiegel liegt; wo es höher liegt, ist es verdeckt. Die Zellgröße passt sich der Teichgröße an (mindestens
+    1 m), damit auch kleine Teiche sauber gefüllt werden.
     """
     if polygon is None or polygon.is_empty:
         return []
@@ -194,17 +292,9 @@ def build_pond_blocks(
     for piece in pieces:
         if piece.area < 1.0:
             continue
-        xs, ys = np.meshgrid(np.linspace(piece.bounds[0], piece.bounds[2], 25), np.linspace(piece.bounds[1], piece.bounds[3], 25))
-        from shapely import contains_xy
-
-        inside = contains_xy(piece, xs, ys)
-        if not inside.any():
-            inside = np.ones_like(xs, dtype=bool)
-        level = float(np.percentile(np.asarray(height_at(xs[inside], ys[inside]), dtype=float), 25)) + lift
-
+        level = pond_level(piece, height_at)
         step = min(cell, max(1.0, np.sqrt(piece.area) / 3.0))
-        rectangles = _cells_inside(piece, step)
-        for x0, y0, x1, y1 in rectangles:
+        for x0, y0, x1, y1 in _cells_covering(piece.buffer(margin), step):
             blocks.append(
                 {
                     "position": [(x0 + x1) / 2.0, (y0 + y1) / 2.0, level],

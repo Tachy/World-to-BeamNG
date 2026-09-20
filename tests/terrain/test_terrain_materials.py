@@ -46,6 +46,8 @@ LANDUSE_MAPPINGS_FIXTURE = {
     },
     # Wohngebiete etc.: Luftbild bleibt, überdeckt aber darunterliegende Layer
     "urban": {"osm_tags": {"landuse": ["residential"]}, "priority": 12, "keep_photo": True},
+    # Wasser: eigener Bereich, aber der Boden darunter ist Wiese (Material der Kategorie "meadow")
+    "water": {"osm_tags": {"natural": ["water"]}, "priority": 15, "use_material_of": "meadow"},
     "disabled": {
         "osm_tags": {"landuse": ["quarry"]},
         "priority": 3,
@@ -496,3 +498,22 @@ def test_paint_landuse_matches_full_grid_rasterization_for_windowed_burning():
 
     assert (result == expected).all()
     assert (result != 7).any()
+
+
+def test_ground_under_water_is_meadow_even_inside_a_forest():
+    size = 20
+    layer_map, names = build_photo_fallback_layer(size=size)
+    forest = Polygon([(0, 0), (20, 0), (20, 20), (0, 20)])
+    pond = Polygon([(5, 5), (15, 5), (15, 15), (5, 15)])
+    landuse_polygons = [
+        {"osm_tags": {"landuse": "forest"}, "geometry": forest},
+        {"osm_tags": {"natural": "water"}, "geometry": pond},
+    ]
+
+    new_layer_map, new_names = paint_landuse_materials(
+        layer_map, names, size, 0.0, 0.0, 1.0, landuse_polygons, LANDUSE_MAPPINGS_FIXTURE
+    )
+
+    assert new_layer_map[10, 10] == new_names.index("mat_grass")  # unter dem Wasser: Wiese, nicht Wald oder Luftbild
+    assert new_layer_map[1, 1] == new_names.index("mat_forest")
+    assert "mat_water" not in new_names and len(new_names) == 3  # kein eigenes Wasser-Material

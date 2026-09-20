@@ -51,6 +51,8 @@ def get_landuse_category(osm_tags: Dict, landuse_mappings: Dict) -> Optional[str
     Kategorien (z.B. landuse=meadow + natural=wood), gewinnt die mit der
     höchsten "priority". Kategorien ohne "osm_tags" (z.B. der "base"-
     Fallback-Eintrag) oder mit "active": false werden nie zugeordnet.
+    "osm_exclude_tags" (gleiches Format) schließt Elemente wieder aus, z.B.
+    Wasser ohne die trockenen Rückhaltebecken (basin=detention).
 
     Returns:
         Kategoriename oder None, falls kein Treffer
@@ -62,6 +64,8 @@ def get_landuse_category(osm_tags: Dict, landuse_mappings: Dict) -> Optional[str
         if not category_tags or data.get("active", True) is False:
             continue
         if not any(osm_tags.get(key) in values for key, values in category_tags.items()):
+            continue
+        if any(osm_tags.get(key) in values for key, values in data.get("osm_exclude_tags", {}).items()):
             continue
         priority = data.get("priority", 0)
         if best_priority is None or priority > best_priority:
@@ -131,10 +135,15 @@ def paint_landuse_materials(
         if category is None:
             continue
         category_data = landuse_mappings[category]
-        # keep_photo-Kategorien (Wohn-/Gewerbegebiete, Wasser) haben kein eigenes
-        # Material: sie stellen das Luftbild (Index 0) über darunterliegenden
-        # Layern wieder her.
-        internal_name = None if category_data.get("keep_photo") else category_data["internal_name"]
+        # keep_photo-Kategorien (Gewerbegebiete) haben kein eigenes Material: sie stellen
+        # das Luftbild (Index 0) über darunterliegenden Layern wieder her.
+        # use_material_of (Wasser): eigener Bereich mit eigener Priorität, aber das Material
+        # einer anderen Kategorie (Wiesenboden unter dem Wasser).
+        if category_data.get("keep_photo"):
+            internal_name = None
+        else:
+            material_source = landuse_mappings[category_data.get("use_material_of", category)]
+            internal_name = material_source["internal_name"]
         scored.append((category_data.get("priority", 0), poly["geometry"], internal_name))
 
     # Aufsteigend nach Priorität sortieren -> hohe Priorität wird zuletzt (obenauf) gebrannt

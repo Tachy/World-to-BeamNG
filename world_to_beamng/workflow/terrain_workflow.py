@@ -27,6 +27,16 @@ def make_height_sampler_for_water(heights, origin_x, origin_y):
     return make_height_sampler(heights, origin_x, origin_y, config.TERRAIN_SQUARE_SIZE)
 
 
+WATER_BOUNDS_MARGIN = 2.0  # knapp innerhalb der echten Daten: dahinter ist das Terrain aufgefüllt
+
+
+def water_bounds(grid_bounds_local):
+    """(xmin, ymin, xmax, ymax) des Geländes mit echten Höhendaten, in dem Wasser entstehen darf."""
+    x_min, x_max, y_min, y_max = grid_bounds_local
+    m = WATER_BOUNDS_MARGIN
+    return (x_min + m, y_min + m, x_max - m, y_max - m)
+
+
 class TerrainWorkflow:
     """
     Orchestriert den Terrain-Export-Workflow.
@@ -314,6 +324,28 @@ class TerrainWorkflow:
         # (große Wald-/Weinberg-/Wohngebietsflächen sind in OSM meist Relationen).
         landuse_polygons = build_landuse_polygons(osm_data, make_local_transform(global_offset))
 
+        # Teichmulden: innerhalb der Wasserflächen das Terrain tiefer legen (vor allem, was die Höhen weiterverwendet:
+        # Bäche, Bäume, Reben). Der Wasserspiegel kommt aus dem natürlichen Rand, siehe _build_water().
+        natural_heights = heights
+        if config.WATER_ENABLED:
+            from ..terrain.water import carve_pond_basins, select_pond_areas
+
+            pond_areas = select_pond_areas(landuse_polygons, water_bounds(grid_bounds_local))
+            if pond_areas:
+                heights = carve_pond_basins(
+                    heights,
+                    terrain_origin_x,
+                    terrain_origin_y,
+                    config.TERRAIN_SQUARE_SIZE,
+                    pond_areas,
+                    depth=config.WATER_POND_BANK_DEPTH,
+                    slope_deg=config.WATER_POND_BANK_SLOPE_DEG,
+                )
+                logger.info(
+                    f"  [OK] Teichmulden: {len(pond_areas)} Wasserfläche(n), Terrain {config.WATER_POND_BANK_DEPTH * 100:.0f} cm tiefer "
+                    f"(Böschung {config.WATER_POND_BANK_SLOPE_DEG:.0f} Grad)"
+                )
+
         layer_map, terrain_material_names = paint_landuse_materials(
             layer_map,
             photo_tile_names,
@@ -417,6 +449,7 @@ class TerrainWorkflow:
                 global_offset,
                 make_height_sampler_for_water(heights, terrain_origin_x, terrain_origin_y),
                 grid_bounds_local,
+                rim_height_at=make_height_sampler_for_water(natural_heights, terrain_origin_x, terrain_origin_y),
             )
 
         z_min = float(heights.min())
@@ -452,62 +485,62 @@ class TerrainWorkflow:
             "height_hash": tile_hash,  # Für Cache-Konsistenz in Forest-Workflow
         }
 
-    def _build_water(self, osm_data, landuse_polygons, global_offset, height_at, grid_bounds_local) -> Dict:
+    def _build_water(self, osm_data, landuse_polygons, global_offset, height_at, grid_bounds_local, rim_height_at=None) -> Dict:
         """
-        Berechnet Bach-Knoten und Teich-Blöcke (siehe terrain/water.py). Das Gelände bleibt unverändert;
-        die Wasserhöhen werden aus der fertigen Heightmap abgeleitet.
+        Berechnet Bach-Knoten und Teich-Blöcke (siehe terrain/water.py). Die Wasserhöhen werden aus der fertigen
+        Heightmap abgeleitet; der Teichspiegel aus dem Rand der NATÜRLICHEN Heightmap (`rim_height_at`, ohne die
+        Teichmulde - sonst läge er um die Böschung zu tief), sonst aus `height_at`.
 
         Returns:
             {"rivers": [{"name", "waterway", "nodes"}], "ponds": [{"name", "blocks"}]}
         """
-        from shapely.geometry import box
+        from shapely.ops import unary_union
 
         from ..osm.landuse_polygons import make_local_transform
         from ..terrain.water import (
             build_pond_blocks,
             build_river_nodes,
             clip_line_to_bounds,
+            cut_line_by_area,
+            select_pond_areas,
             select_waterways,
             split_nodes,
         )
 
-        margin = 2.0  # knapp innerhalb der echten Daten: dahinter ist das Terrain aufgefüllt
-        x_min, x_max, y_min, y_max = grid_bounds_local
-        bounds = (x_min + margin, y_min + margin, x_max - margin, y_max - margin)
+        bounds = water_bounds(grid_bounds_local)
 
-        rivers = []
-        for way in select_waterways(osm_data, make_local_transform(global_offset), config.WATERWAY_WIDTHS):
-            for part in clip_line_to_bounds(way["coords"], bounds):
-                if len(part) < 2:
-                    continue
-                nodes = build_river_nodes(
-                    part,
-                    height_at,
-                    width=way["width"],
-                    depth=config.WATER_RIVER_DEPTH,
-                    spacing=config.WATER_NODE_SPACING,
-                    lift=config.WATER_STREAM_LIFT,
-                )
-                for chunk in split_nodes(nodes, config.WATER_MAX_RIVER_NODES):
-                    if len(chunk) >= 2:
-                        rivers.append({"name": f"river_{len(rivers)}", "waterway": way["waterway"], "nodes": chunk})
-
+        # Teiche zuerst: die Bäche enden an ihrem Ufer
         ponds = []
-        terrain_box = box(*bounds)
-        for polygon in landuse_polygons:
-            tags = polygon["osm_tags"]
-            if tags.get("natural") != "water" and tags.get("landuse") not in ("basin", "reservoir"):
-                continue
-            geometry = polygon["geometry"].intersection(terrain_box)
+        pond_areas = select_pond_areas(landuse_polygons, bounds)
+        for geometry in pond_areas:
             blocks = build_pond_blocks(
                 geometry,
-                height_at,
-                lift=config.WATER_POND_LIFT,
+                rim_height_at or height_at,
                 depth=config.WATER_POND_DEPTH,
                 cell=config.WATER_POND_CELL,
+                margin=config.WATER_POND_MARGIN,
             )
             if blocks:
                 ponds.append({"name": f"pond_{len(ponds)}", "blocks": blocks})
+        pond_area = unary_union(pond_areas) if pond_areas else None
+
+        rivers = []
+        for way in select_waterways(osm_data, make_local_transform(global_offset), config.WATERWAY_WIDTHS):
+            for clipped in clip_line_to_bounds(way["coords"], bounds):
+                for part in cut_line_by_area(clipped, pond_area):
+                    if len(part) < 2:
+                        continue
+                    nodes = build_river_nodes(
+                        part,
+                        height_at,
+                        width=way["width"],
+                        depth=config.WATER_RIVER_DEPTH,
+                        spacing=config.WATER_NODE_SPACING,
+                        lift=config.WATER_STREAM_LIFT,
+                    )
+                    for chunk in split_nodes(nodes, config.WATER_MAX_RIVER_NODES):
+                        if len(chunk) >= 2:
+                            rivers.append({"name": f"river_{len(rivers)}", "waterway": way["waterway"], "nodes": chunk})
 
         length = sum(sum(((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2) ** 0.5 for a, b in zip(r["nodes"], r["nodes"][1:])) for r in rivers)
         logger.info(

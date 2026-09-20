@@ -1,8 +1,8 @@
 """Konsistenz-Tests für data/osm_to_beamng.json["landuse_mappings"].
 
 Ziel: Jeder relevante OSM-Landnutzungstyp wird in BeamNG irgendwie gerendert
-(eigene Terrain-Schicht mit Bodenbewuchs) - außer Wohn-/Gewerbegebiete und
-Wasser, wo bewusst das Luftbild bleibt.
+(eigene Terrain-Schicht mit Bodenbewuchs) - außer Gewerbegebiete, wo bewusst das
+Luftbild bleibt. Wasserflächen haben Wiesenboden (use_material_of).
 """
 
 import json
@@ -23,7 +23,11 @@ LEVEL_TEXTURE_PREFIX = "levels/world_to_beamng/art/shapes/assets/materials/terra
 
 
 def _material_categories():
-    return {name: data for name, data in MAPPINGS.items() if data.get("osm_tags") and not data.get("keep_photo")}
+    return {
+        name: data
+        for name, data in MAPPINGS.items()
+        if data.get("osm_tags") and not data.get("keep_photo") and not data.get("use_material_of")
+    }
 
 
 def _photo_categories():
@@ -59,6 +63,10 @@ def _photo_categories():
         ({"landuse": "greenhouse_horticulture"}, "urban"),
         ({"natural": "water"}, "water"),
         ({"landuse": "basin"}, "water"),
+        # trockene Hochwasser-Rückhaltebecken: Wiese statt Wasser
+        ({"landuse": "basin", "basin": "detention"}, "meadow"),
+        ({"landuse": "basin", "basin": "detention", "layer": "-1"}, "meadow"),
+        ({"natural": "water", "basin": "detention"}, "meadow"),
     ],
 )
 def test_osm_tag_maps_to_expected_category(tags, expected):
@@ -71,9 +79,14 @@ def test_region_relations_and_unrelated_tags_are_not_mapped():
     assert get_landuse_category({"building": "yes"}, MAPPINGS) is None
 
 
-def test_commercial_and_water_keep_the_aerial_photo():
+def test_water_has_meadow_ground_and_wins_over_the_other_layers():
+    assert MAPPINGS["water"]["use_material_of"] == "meadow"
+    assert not MAPPINGS["water"].get("keep_photo")
+    assert MAPPINGS["water"]["priority"] > max(d["priority"] for d in _material_categories().values())
+
+
+def test_commercial_keeps_the_aerial_photo():
     assert MAPPINGS["urban"]["keep_photo"] is True
-    assert MAPPINGS["water"]["keep_photo"] is True
     # Foto-Kategorien müssen andere Schichten überdecken können
     assert MAPPINGS["urban"]["priority"] > max(d["priority"] for d in _material_categories().values())
     # Wohngebiete sind NICHT mehr Foto-Kategorie, sondern haben Rasen

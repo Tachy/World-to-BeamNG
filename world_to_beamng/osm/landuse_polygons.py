@@ -91,7 +91,8 @@ def _relation_polygon(element: Dict, to_local: ToLocal):
         return None
     geometry = unary_union(outer)
     inner = _rings_to_polygons(_member_lines(members, ("inner",), to_local))
-    if inner:
+    # Trockenes Rückhaltebecken: das Gewässer darin (inner-Ring) bleibt Teil der Wiese, sie soll durchgehen
+    if inner and element["tags"].get("basin") != "detention":
         geometry = geometry.difference(unary_union(inner))
     return _repair(geometry)
 

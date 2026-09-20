@@ -157,3 +157,22 @@ def test_self_intersecting_way_is_repaired_or_skipped_not_raised():
 
     for item in result:
         assert item["geometry"].is_valid
+
+
+def test_detention_basin_relation_is_filled_so_the_pond_lies_inside_the_meadow():
+    # trockenes Rückhaltebecken: das kleine Gewässer ist als inner-Ring eingetragen, die Wiese soll aber durchgehen
+    relation = _relation({"landuse": "basin", "basin": "detention"}, [_member("outer", SQUARE_10), _member("inner", SQUARE_4)])
+
+    result = build_landuse_polygons([relation], _to_local)
+
+    assert len(result) == 1
+    assert list(result[0]["geometry"].interiors) == []
+    assert result[0]["geometry"].area == pytest.approx(100.0)
+
+
+def test_other_relations_keep_their_holes():
+    relation = _relation({"landuse": "forest"}, [_member("outer", SQUARE_10), _member("inner", SQUARE_4)])
+
+    result = build_landuse_polygons([relation], _to_local)
+
+    assert result[0]["geometry"].area == pytest.approx(100.0 - 16.0)
