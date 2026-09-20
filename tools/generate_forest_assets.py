@@ -324,6 +324,11 @@ LARGE_DECIDUOUS_TREES = [
 ]
 
 
+# Gehölze (natural=wood, landuse=wood): dichter Wald aus großen Laubbäumen mit Unterholz
+BROADLEAF_UNDERGROWTH_TYPE = "german_broadleaf_undergrowth"
+BROADLEAF_CANOPY_SHARE = 0.65  # Anteil der großen Laubbäume, der Rest ist Unterholz (Büsche)
+
+
 def generate_forest_types(trees_by_type: dict) -> dict:
     """Generiere sinnvolle Waldtypen für deutsche Wälder."""
     forest_types = {}
@@ -357,7 +362,7 @@ def generate_forest_types(trees_by_type: dict) -> dict:
             "comment": "Mischwald - Buchen, Eichen und Espen (vielfältiger Bestand)",
         }
 
-    # 2b. German Low Deciduous: alles mit Bäumen außer landuse=forest bekommt nur niedrige Laubbäume.
+    # 2b. German Low Deciduous: alles mit Bäumen außer landuse=forest und Gehölzen (natural/landuse=wood) bekommt nur niedrige Laubbäume.
     # average_height wirkt als Skalierung (Zielhöhe / 20 m): 16-22 -> 0,8-1,1.
     low_trees = [t for t in LOW_DECIDUOUS_TREES if t in all_tree_keys]
     if low_trees:
@@ -368,7 +373,7 @@ def generate_forest_types(trees_by_type: dict) -> dict:
             "lod_distance": 200.0,
             "collision_enabled": True,
             "preferred_trees": create_tree_distribution(low_trees),
-            "comment": "Niedriger Laubwald (6-13 m) - alles mit Bäumen außer landuse=forest; "
+            "comment": "Niedriger Laubwald (6-13 m) - alles mit Bäumen außer landuse=forest und Gehölzen (natural/landuse=wood); "
             "average_height wirkt als Skalierung (Zielhöhe/20 m)",
         }
 
@@ -410,6 +415,23 @@ def generate_forest_types(trees_by_type: dict) -> dict:
             "preferred_trees": create_tree_distribution(single_trees),
             "comment": "Einzelbäume (OSM natural=tree als Punkt): große, breitkronige Laubbäume (Eiche/Buche, 13-21 m); "
             "average_height wirkt als Skalierung (Zielhöhe/20 m)",
+        }
+    # 2d. Dichter Wald aus 100 % großen, breitkronigen Laubbäumen mit Unterholz (natural=wood / landuse=wood).
+    # Dichte 3,6 -> Mindestabstand 5/sqrt(3,6) = 2,6 m (normaler Laubwald 0,7 = 6 m). Skalierung 10-13 m / 20 = 0,5-0,65:
+    # halbe Baumgröße, große Modelle (13-21 m) werden 6,5-14 m hoch (die ersten 1,0-1,3 hatten zu mächtige Stämme);
+    # die Büsche skalieren mit (gleiche Spanne je Polygon).
+    if single_trees and garden_bushes:
+        weights = {t: BROADLEAF_CANOPY_SHARE / len(single_trees) for t in single_trees}
+        weights.update({t: (1.0 - BROADLEAF_CANOPY_SHARE) / len(garden_bushes) for t in garden_bushes})
+        forest_types[BROADLEAF_UNDERGROWTH_TYPE] = {
+            "tree_density": 3.6,
+            "average_height": [10.0, 13.0],
+            "underground_material": "forest_floor",
+            "lod_distance": 220.0,
+            "collision_enabled": True,
+            "preferred_trees": weights,
+            "comment": "Dichter Laubwald aus großen, breitkronigen Eichen/Buchen (kein Nadelholz) mit Unterholz "
+            "(Büsche, ca. 35 %) - für Gehölze (natural=wood, landuse=wood)",
         }
     row_trees = [t for t in TREE_ROW_TREES if t in all_tree_keys]
     if row_trees:
@@ -507,8 +529,10 @@ def generate_forest_mappings(forest_types: dict) -> dict:
         }
 
     default_forest = "german_mixed_forest" if "german_mixed_forest" in forest_types else list(forest_types.keys())[0]
-    # Nur landuse=forest bekommt den hohen Mischwald, alles andere mit Bäumen den niedrigen Laubwald
+    # Nur landuse=forest bekommt den hohen Mischwald, Gehölze den dichten Laubwald, alles andere mit Bäumen den niedrigen Laubwald
     low_forest = "german_low_deciduous" if "german_low_deciduous" in forest_types else default_forest
+    # Gehölze (natural=wood, landuse=wood): dichter Laubwald mit Unterholz
+    wood_forest = BROADLEAF_UNDERGROWTH_TYPE if BROADLEAF_UNDERGROWTH_TYPE in forest_types else low_forest
 
     garden = "garden_mixed" if "garden_mixed" in forest_types else None
     residential = "residential_green" if "residential_green" in forest_types else None
@@ -516,13 +540,13 @@ def generate_forest_mappings(forest_types: dict) -> dict:
     mappings = {
         "landuse": {
             "forest": default_forest,
-            "wood": low_forest,
+            "wood": wood_forest,
             "orchard": "orchard_area" if "orchard_area" in forest_types else default_forest,
             **({"allotments": garden} if garden else {}),
             **({"residential": residential} if residential else {}),
         },
         "natural": {
-            "wood": low_forest,
+            "wood": wood_forest,
             "forest": low_forest,
             "scrub": "german_sparse_deciduous" if "german_sparse_deciduous" in forest_types else default_forest,
             "heath": "german_sparse_deciduous" if "german_sparse_deciduous" in forest_types else default_forest,

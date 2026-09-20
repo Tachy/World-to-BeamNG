@@ -192,7 +192,7 @@
                 "tree_oak_sml_a": 0.09090909090909091,
                 "tree_oak_sml_b": 0.09090909090909091
             },
-            "comment": "Niedriger Laubwald (6-13 m) - alles mit Bäumen außer landuse=forest; average_height wirkt als Skalierung (Zielhöhe/20 m)"
+            "comment": "Niedriger Laubwald (6-13 m) - alles mit Bäumen außer landuse=forest und Gehölzen (natural/landuse=wood); average_height wirkt als Skalierung (Zielhöhe/20 m)"
         },
         "garden_mixed": {
             "tree_density": 0.3,
@@ -263,6 +263,32 @@
                 "tree_beech_large_c": 0.2
             },
             "comment": "Einzelbäume (OSM natural=tree als Punkt): große, breitkronige Laubbäume (Eiche/Buche, 13-21 m); average_height wirkt als Skalierung (Zielhöhe/20 m)"
+        },
+        "german_broadleaf_undergrowth": {
+            "tree_density": 3.6,
+            "average_height": [
+                10.0,
+                13.0
+            ],
+            "underground_material": "forest_floor",
+            "lod_distance": 220.0,
+            "collision_enabled": true,
+            "preferred_trees": {
+                "tree_oak_large_a": 0.13,
+                "tree_oak_large_b": 0.13,
+                "tree_oak_large_c": 0.13,
+                "tree_beech_large_b": 0.13,
+                "tree_beech_large_c": 0.13,
+                "tree_beech_bush_a": 0.04375,
+                "tree_oak_bush_a": 0.04375,
+                "tree_aspen_bush_a": 0.04375,
+                "tree_aspen_bush_b": 0.04375,
+                "tree_aspen_bush_c": 0.04375,
+                "tree_oak_bush_c": 0.04375,
+                "tree_beech_bush_b": 0.04375,
+                "generibush_small": 0.04375
+            },
+            "comment": "Dichter Laubwald aus großen, breitkronigen Eichen/Buchen (kein Nadelholz) mit Unterholz (Büsche, ca. 35 %) - für Gehölze (natural=wood, landuse=wood)"
         },
         "tree_row": {
             "tree_density": 1.0,
@@ -369,13 +395,13 @@
     "forest_mappings": {
         "landuse": {
             "forest": "german_mixed_forest",
-            "wood": "german_low_deciduous",
+            "wood": "german_broadleaf_undergrowth",
             "orchard": "orchard_area",
             "allotments": "garden_mixed",
             "residential": "residential_green"
         },
         "natural": {
-            "wood": "german_low_deciduous",
+            "wood": "german_broadleaf_undergrowth",
             "forest": "german_low_deciduous",
             "scrub": "german_sparse_deciduous",
             "heath": "german_sparse_deciduous",

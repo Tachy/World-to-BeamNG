@@ -1,8 +1,9 @@
 """
 Tests für die Zuordnung OSM-Tags -> Waldtyp.
 
-Nur landuse=forest bekommt den hohen Mischwald; alles andere mit Bäumen (natural=wood,
-landuse=wood, Feuchtgebiet, Naturschutzgebiet, ...) bekommt nur niedrige Laubbäume.
+Nur landuse=forest bekommt den hohen Mischwald; Gehölze (natural=wood, landuse=wood) bekommen den dichten
+Laubwald aus großen Laubbäumen mit Unterholz; alles andere mit Bäumen (natural=forest, Feuchtgebiet,
+Naturschutzgebiet, ...) bekommt nur niedrige Laubbäume.
 """
 
 import json
@@ -20,6 +21,7 @@ CONFIG_PATH = Path(__file__).parent.parent.parent / "data" / "osm_to_beamng.json
 TALL_MIXED = "german_mixed_forest"
 TALL_DECIDUOUS = "german_deciduous_dense"
 LOW = "german_low_deciduous"
+BROADLEAF = "german_broadleaf_undergrowth"
 
 
 @pytest.fixture(scope="module")
@@ -37,16 +39,12 @@ def test_landuse_forest_gets_the_tall_mixed_forest(normalizer):
     assert normalizer._map_to_forest_type({"landuse": "forest"}) == TALL_MIXED
 
 
-@pytest.mark.parametrize(
-    "tags",
-    [
-        {"natural": "wood"},
-        {"landuse": "wood"},
-        {"natural": "forest"},
-        {"natural": "wetland"},
-        {"leisure": "nature_reserve"},
-    ],
-)
+@pytest.mark.parametrize("tags", [{"natural": "wood"}, {"landuse": "wood"}, {"natural": "wood", "layer": "-2"}])
+def test_woods_get_dense_broadleaf_with_undergrowth(normalizer, tags):
+    assert normalizer._map_to_forest_type(tags) == BROADLEAF
+
+
+@pytest.mark.parametrize("tags", [{"natural": "forest"}, {"natural": "wetland"}, {"leisure": "nature_reserve"}])
 def test_everything_else_with_trees_gets_only_low_deciduous_trees(normalizer, tags):
     assert normalizer._map_to_forest_type(tags) == LOW
 
@@ -55,9 +53,10 @@ def test_everything_else_with_trees_gets_only_low_deciduous_trees(normalizer, ta
     "extra",
     [{"trees": "conifer"}, {"trees": "broadleaf"}, {"leaf_type": "needleleaf"}, {"leaf_type": "broadleaved"}],
 )
-def test_tag_overrides_never_make_a_non_forest_polygon_tall(normalizer, extra):
-    # natural=wood mit Nadel-/Laubbaum-Tag darf nicht in einen hohen Waldtyp umgeleitet werden
-    assert normalizer._map_to_forest_type({"natural": "wood", **extra}) == LOW
+def test_tag_overrides_never_redirect_a_wood_to_another_type(normalizer, extra):
+    # natural=wood mit Nadel-/Laubbaum-Tag bleibt der dichte Laubwald (Overrides gelten nur für landuse=forest)
+    assert normalizer._map_to_forest_type({"natural": "wood", **extra}) == BROADLEAF
+    assert normalizer._map_to_forest_type({"natural": "forest", **extra}) == LOW
 
 
 def test_overrides_still_refine_landuse_forest(normalizer):
@@ -116,16 +115,20 @@ def test_generator_produces_the_same_rules_as_the_committed_json(forest_config):
     trees_by_type.update({t: [t] for t in forest_config["forest_type_templates"][TALL_MIXED]["preferred_trees"]})
     trees_by_type.update({t: [t] for t in forest_config["forest_type_templates"][TALL_DECIDUOUS]["preferred_trees"]})
     trees_by_type.update({t: [t] for t in forest_config["forest_type_templates"]["german_sparse_deciduous"]["preferred_trees"]})
+    trees_by_type.update({t: [t] for t in forest_config["forest_type_templates"][BROADLEAF]["preferred_trees"]})
     types = gen.generate_forest_types(trees_by_type)
     mappings = gen.generate_forest_mappings(types)
 
     assert LOW in types
     assert mappings["landuse"]["forest"] == TALL_MIXED
-    assert mappings["landuse"]["wood"] == LOW
-    assert mappings["natural"]["wood"] == LOW
+    assert mappings["landuse"]["wood"] == BROADLEAF
+    assert mappings["natural"]["wood"] == BROADLEAF
+    assert mappings["natural"]["forest"] == LOW
     assert mappings["tag_overrides_only_for"] == ["landuse=forest"]
     assert mappings["clearings"]["forest_type"] == LOW
     assert set(types[LOW]["preferred_trees"]) <= set(gen.LOW_DECIDUOUS_TREES)
+    assert types[BROADLEAF] == forest_config["forest_type_templates"][BROADLEAF]
+    assert "osm_id_overrides" not in mappings  # Regel statt Einzelfall-Ausnahme
 
 
 # --- Lichtungen (innere Ringe von Wald-Relationen) ------------------------------------------
@@ -365,3 +368,33 @@ def test_generator_emits_the_same_orchard_rules(forest_config):
     assert set(types[ORCHARD]["preferred_trees"]) == set(committed["preferred_trees"]) <= set(gen.ORCHARD_TREES)
     assert types[ORCHARD]["average_height"] == committed["average_height"]
     assert types[ORCHARD]["tree_density"] == committed["tree_density"]
+
+
+# --- Dichter Wald aus großen Laubbäumen mit Unterholz (natural=wood / landuse=wood) ---------------------------------
+
+
+def test_broadleaf_wood_is_all_large_deciduous_trees_plus_undergrowth(forest_config):
+    template = forest_config["forest_type_templates"][BROADLEAF]
+    trees = template["preferred_trees"]
+    canopy = {n: w for n, w in trees.items() if "bush" not in n}
+    undergrowth = {n: w for n, w in trees.items() if "bush" in n}
+
+    assert sum(trees.values()) == pytest.approx(1.0)
+    # alle Bäume breitkronig und groß (Eiche/Buche "large"), kein Nadelholz, keine Espen/Waldstämme/kleinen Bäume
+    assert canopy and all(any(kind in n for kind in ("oak_large", "beech_large")) for n in canopy)
+    assert not any(bad in n for n in trees for bad in ("douglasfir", "fir", "dead", "aspen_small", "forest", "group"))
+    # Unterholz: Büsche mit spürbarem Anteil
+    assert undergrowth and 0.2 <= sum(undergrowth.values()) <= 0.5
+
+
+def test_broadleaf_wood_is_much_denser_but_smaller_than_the_first_version(forest_config):
+    templates = forest_config["forest_type_templates"]
+    broadleaf, low = templates[BROADLEAF], templates[LOW]
+
+    # Mindestabstand im ForestWorkflow = 5 m / sqrt(Dichte): 2/3 von 5/sqrt(1,6) = 2,63 m -> Dichte 3,6
+    spacing = 5.0 / broadleaf["tree_density"] ** 0.5
+    assert spacing == pytest.approx(2.0 / 3.0 * 5.0 / 1.6**0.5, rel=0.01)
+    assert broadleaf["tree_density"] >= 3 * low["tree_density"]
+    # halbe Baumgröße: Skalierung (Zielhöhe / 20 m) 0,5-0,65 statt 1,0-1,3; nicht unter den Clamp von 0,5
+    assert min(broadleaf["average_height"]) / 20.0 == pytest.approx(0.5)
+    assert max(broadleaf["average_height"]) / 20.0 == pytest.approx(0.65)
