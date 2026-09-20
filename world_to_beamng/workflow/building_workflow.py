@@ -174,17 +174,6 @@ class BuildingWorkflow:
 
         return output_path
 
-    def export_materials(self) -> str:
-        """
-        Exportiere LoD2-Materialien.
-
-        Returns:
-            Pfad zur materials.json
-        """
-        from ..io.lod2 import export_materials_json
-
-        return export_materials_json(output_dir=config.BEAMNG_DIR, material_manager=self.materials)
-
     def add_items(self, buildings: List[Dict], tile_x: int, tile_y: int, name: Optional[str] = None):
         """
         Füge Gebäude-Items hinzu.

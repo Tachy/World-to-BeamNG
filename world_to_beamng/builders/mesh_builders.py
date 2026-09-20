@@ -7,6 +7,18 @@ Vereinfacht komplexe Mesh-Generierung mit einem klaren Builder-Pattern.
 from typing import Optional, List, Dict, Tuple
 import numpy as np
 
+from ..facade.facade_mapper import FacadeMapper
+from ..facade.flat_roof import FlatRoofRimBuilder
+from ..facade.material_names import (
+    FLAT_ROOF_MATERIAL,
+    ROOF_EDGE_MATERIAL,
+    ROOF_MATERIAL,
+    ROOF_TRIM_MATERIAL,
+    WALL_MATERIALS,
+    WINDOW_MATERIAL,
+)
+from ..facade.roof_mesh import RoofMeshBuilder
+
 
 class GridBuilder:
     """
@@ -141,6 +153,9 @@ class BuildingMeshBuilder:
     def __init__(self):
         self._buildings = None
         self._grid_bounds = None
+        self._facade_mapper = FacadeMapper()
+        self._roof_builder = RoofMeshBuilder()
+        self._rim_builder = FlatRoofRimBuilder()
 
     def with_buildings(self, buildings: List[Dict]) -> "BuildingMeshBuilder":
         """
@@ -208,44 +223,36 @@ class BuildingMeshBuilder:
         return min_x <= centroid_x <= max_x and min_y <= centroid_y <= max_y
 
     def _building_to_mesh(self, building: Dict, idx: int) -> Optional[Dict]:
-        """Konvertiere Building zu Mesh-Dict."""
-        from ..io.lod2 import _compute_wall_uvs, _compute_roof_uvs
+        """
+        Konvertiere Building zu Mesh-Dict.
 
-        all_vertices = []
-        all_uvs = []
-        vertex_offset = 0
-        wall_faces = []
-        roof_faces = []
+        Wände: fugenloser Putz (Farbe je Gebäude) plus Fenster/Türen als eigene Flächen. Schrägdächer: Biberschwanz mit
+        Überstand (Stirnbrett/Untersicht als Trim). Flachdächer: Kies plus Blechrand.
+        """
+        facade = self._facade_mapper.map_building(building)
+        roof = self._roof_builder.build(building)
+        rim = self._rim_builder.build(building)
 
-        # Wände
-        for verts, faces in building.get("walls", []):
-            for face in faces:
-                wall_faces.append([f + vertex_offset for f in face])
-            all_vertices.append(verts)
-            # UV für Wände: 3D-basiert (horizontale Distanz + Höhe), 4m Tiling
-            wall_uvs = _compute_wall_uvs(verts, tiling_scale=4.0)
-            all_uvs.append(wall_uvs)
-            vertex_offset += len(verts)
+        pieces = [
+            (facade.vertices, facade.uvs, {WALL_MATERIALS[facade.plaster]: facade.wall_faces, WINDOW_MATERIAL: facade.window_faces}),
+            (roof.sloped.vertices, roof.sloped.uvs, {ROOF_MATERIAL: roof.sloped.faces}),
+            (roof.flat.vertices, roof.flat.uvs, {FLAT_ROOF_MATERIAL: roof.flat.faces}),
+            (roof.trim.vertices, roof.trim.uvs, {ROOF_TRIM_MATERIAL: roof.trim.faces}),
+            (rim.vertices, rim.uvs, {ROOF_EDGE_MATERIAL: rim.faces}),
+        ]
 
-        # Dächer
-        for verts, faces in building.get("roofs", []):
-            for face in faces:
-                roof_faces.append([f + vertex_offset for f in face])
-            all_vertices.append(verts)
-            # UV für Dächer: planare XY-Projektion, 2m Tiling
-            roof_uvs = _compute_roof_uvs(verts, tiling_scale=2.0)
-            all_uvs.append(roof_uvs)
-            vertex_offset += len(verts)
+        vertices, uvs, faces = [], [], {}
+        offset = 0
+        for piece_vertices, piece_uvs, faces_by_material in pieces:
+            if not len(piece_vertices):
+                continue
+            vertices.append(piece_vertices)
+            uvs.append(piece_uvs)
+            for material, material_faces in faces_by_material.items():
+                if material_faces:
+                    faces.setdefault(material, []).extend([[i + offset for i in face] for face in material_faces])
+            offset += len(piece_vertices)
 
-        if not all_vertices:
+        if not vertices:
             return None
-
-        vertices_combined = np.vstack(all_vertices)
-        uvs_combined = np.vstack(all_uvs)
-
-        return {
-            "id": f"building_{idx}",
-            "vertices": vertices_combined,
-            "uvs": uvs_combined,
-            "faces": {"lod2_wall_white": wall_faces, "lod2_roof_red": roof_faces},
-        }
+        return {"id": f"building_{idx}", "vertices": np.vstack(vertices), "uvs": np.vstack(uvs), "faces": faces}

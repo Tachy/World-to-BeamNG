@@ -444,46 +444,75 @@ class BeamNGExporter:
 
     def _add_lod2_materials(self):
         """
-        Füge LoD2-Gebäude-Materialien hinzu (aus JSON-Templates und OSM_MAPPER Config).
+        Füge LoD2-Gebäude-Materialien hinzu.
 
-        Diese Methode mergt:
-        - buildings wall/roof Konfigurationen aus material_templates.json
-        - Farben/Texturen aus osm_to_beamng.json (OSM_MAPPER)
+        - Wände: je Putzfarbe ein Material (eigene Albedo-, gemeinsame Normal-/Roughness-Textur)
+        - Fenster: Sprite-Atlas für Fenster, Türen und Kellerfenster
+        - Dach: Biberschwanz aus osm_to_beamng.json (unverändert)
+        - Flachdach: Kiesfläche; Blechrand und Dachüberstand-Trim: untexturiert
+
+        Texturen der prozeduralen Materialien kommen aus ensure_building_textures(); Farben und Faktoren der
+        untexturierten aus osm_to_beamng.json (OSM_MAPPER), Template-Hinweise aus material_templates.json.
         """
         from ..config import OSM_MAPPER
-
-        # Hole Template-Konfigurationen
-        config = self.materials.get_templates()
-        buildings_config = config.get("buildings", {})
-
-        # Wall-Material: Zusammenführung von Template + OSM-Properties
-        wall_template = buildings_config.get("wall", {})
-        wall_props = OSM_MAPPER.get_building_properties("wall")
-        wall_name = wall_props.get("internal_name", "lod2_wall_white")
-
-        self.materials.add_building_material(
-            wall_name,
-            color=wall_props.get("diffuseColor"),
-            textures=wall_props.get("textures"),
-            tiling_scale=wall_template.get("tiling_scale", wall_props.get("tiling_scale", 4.0)),
-            groundType=wall_template.get("material_hints", {}).get("groundType", "concrete"),
-            materialTag0=wall_template.get("material_hints", {}).get("materialTag0", "beamng"),
-            materialTag1=wall_template.get("material_hints", {}).get("materialTag1", "Building"),
+        from ..facade.building_textures import ensure_building_textures
+        from ..facade.facade_styles import PLASTER_COLORS
+        from ..facade.material_names import (
+            FLAT_ROOF_MATERIAL,
+            ROOF_EDGE_MATERIAL,
+            ROOF_MATERIAL,
+            ROOF_TRIM_MATERIAL,
+            WALL_MATERIALS,
+            WINDOW_MATERIAL,
         )
 
-        # Roof-Material: Zusammenführung von Template + OSM-Properties
-        roof_template = buildings_config.get("roof", {})
-        roof_props = OSM_MAPPER.get_building_properties("roof")
-        roof_name = roof_props.get("internal_name", "lod2_roof_red")
+        templates = self.materials.get_templates().get("buildings", {})
 
+        def hints(kind: str) -> dict:
+            material_hints = templates.get(kind, {}).get("material_hints", {})
+            return {
+                "groundType": material_hints.get("groundType", "concrete"),
+                "materialTag0": material_hints.get("materialTag0", "beamng"),
+                "materialTag1": material_hints.get("materialTag1", "Building"),
+            }
+
+        def textured(prefix: str) -> dict:
+            return {
+                "normalMap": generated[f"{prefix}_normal"],
+                "roughnessMap": generated[f"{prefix}_roughness"],
+                "useAnisotropic": True,
+            }
+
+        def untextured(props: dict) -> dict:
+            return {
+                "color": props["diffuseColor"],
+                "stage_properties": {
+                    "baseColorFactor": props["diffuseColor"],
+                    "roughnessFactor": props["roughnessFactor"],
+                    "metallicFactor": props["metallicFactor"],
+                },
+            }
+
+        generated = ensure_building_textures()
+        roof_props = OSM_MAPPER.get_building_properties("roof")
+
+        for name, color in zip(WALL_MATERIALS, PLASTER_COLORS):
+            textures = {"baseColorMap": generated[f"plaster_color_{color.name}"], **textured("plaster")}
+            self.materials.add_building_material(name, textures=textures, **hints("wall"))
         self.materials.add_building_material(
-            roof_name,
-            color=roof_props.get("diffuseColor"),
-            textures=roof_props.get("textures"),
-            tiling_scale=roof_template.get("tiling_scale", roof_props.get("tiling_scale", 2.0)),
-            groundType=roof_template.get("material_hints", {}).get("groundType", "concrete"),
-            materialTag0=roof_template.get("material_hints", {}).get("materialTag0", "beamng"),
-            materialTag1=roof_template.get("material_hints", {}).get("materialTag1", "Building"),
+            WINDOW_MATERIAL, textures={"baseColorMap": generated["windows_color"], **textured("windows")}, **hints("wall")
+        )
+        self.materials.add_building_material(
+            ROOF_MATERIAL, color=roof_props.get("diffuseColor"), textures=roof_props.get("textures"), **hints("roof")
+        )
+        self.materials.add_building_material(
+            FLAT_ROOF_MATERIAL, textures={"baseColorMap": generated["gravel_color"], **textured("gravel")}, **hints("roof")
+        )
+        self.materials.add_building_material(
+            ROOF_EDGE_MATERIAL, **untextured(OSM_MAPPER.get_building_properties("roof_edge")), **hints("roof")
+        )
+        self.materials.add_building_material(
+            ROOF_TRIM_MATERIAL, **untextured(OSM_MAPPER.get_building_properties("roof_trim")), **hints("roof")
         )
 
     def _finalize_export(self, include_forests: bool = False):

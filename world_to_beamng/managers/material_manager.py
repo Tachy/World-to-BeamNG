@@ -301,17 +301,20 @@ class MaterialManager:
         textures: Dict[str, str] = None,
         tiling_scale: float = 1.0,
         overwrite: bool = False,
+        stage_properties: Dict = None,
         **kwargs,
     ) -> str:
         """
         Füge Gebäude-Material hinzu (Convenience-Methode).
 
         Args:
-            material_name: Material-Name (z.B. "lod2_wall_white", "lod2_roof_red")
+            material_name: Material-Name (z.B. "lod2_wall_plaster_white", "lod2_roof_red"); "wall" bzw. "roof" im Namen
+                wählt das Template
             color: RGBA Color [r, g, b, a] (0-1) - Optional wenn Texturen gegeben
-            textures: Dict mit Textur-Pfaden {baseColorMap, normalMap, roughnessMap}
-            tiling_scale: UV-Wiederholung in Metern (z.B. 4.0 = alle 4m wiederholen)
+            textures: Dict mit Textur-Pfaden {baseColorMap, normalMap, roughnessMap} und optional useAnisotropic
+            tiling_scale: 1.0 = keine Wiederholungs-Skala (UVs sind metrisch); != 1.0 setzt materialFactors
             overwrite: Überschreibe existierendes Material
+            stage_properties: Zusätzliche Eigenschaften der ersten Stage (z.B. roughnessFactor, metallicFactor)
             **kwargs: Zusätzliche Properties (groundType, materialTag0, etc.)
 
         Returns:
@@ -335,6 +338,8 @@ class MaterialManager:
                 stages_config["normalMap"] = textures["normalMap"]
             if textures.get("roughnessMap"):
                 stages_config["roughnessMap"] = textures["roughnessMap"]
+            if textures.get("useAnisotropic"):
+                stages_config["useAnisotropic"] = True  # Fassaden/Dächer werden flach betrachtet
 
             # Color-Tint: Einfärbung der Textur (kombiniert mit baseColorMap)
             if color:
@@ -348,6 +353,9 @@ class MaterialManager:
                 stages_config["diffuseColor"] = [0.6, 0.2, 0.1, 1.0]  # Rot
             else:
                 stages_config["diffuseColor"] = [0.9, 0.9, 0.9, 1.0]  # Weiß
+
+        if stage_properties:
+            stages_config.update(stage_properties)
 
         # Tiling-Skala hinzufügen (für UV-Wiederholung)
         if tiling_scale != 1.0:

@@ -175,6 +175,68 @@ BUILDINGS_AS_ONE_OBJECT = True  # True: ALLE Gebäude in EINER DAE/EINEM Objekt 
 MAX_BUILDINGS_PER_SHAPE = 1500  # BeamNG verwirft ab 2048 Nodes je Shape alles Weitere (1 Node je Gebäude) -> aufteilen
 TILE_SIZE = 500  # Größe pro DAE-Tile in Metern (nur bei BUILDINGS_AS_ONE_OBJECT = False)
 
+# === LOD2-DACH-TEXTUR ===
+# t_roof_slates_rounded_b.color.dds (256 px) zeigt 5 Biberschwanz-Ziegel nebeneinander je Wiederholung (6 Reihen
+# übereinander). Die UVs sind metrisch: eine Wiederholung = ROOF_REPEAT_M Meter in der Dachebene, ein Ziegel ist
+# damit immer ROOF_TILE_WIDTH_M breit, egal wie steil das Dach ist.
+ROOF_TILE_WIDTH_M = 0.20
+ROOF_TILES_PER_REPEAT = 5
+ROOF_REPEAT_M = ROOF_TILE_WIDTH_M * ROOF_TILES_PER_REPEAT
+
+# Schrägdächer ragen über Wände hinaus (die LOD2-Daten enden exakt an der Wand): an der Traufe ROOF_EAVE_OVERHANG_M,
+# am Giebel (Ortgang) ROOF_VERGE_OVERHANG_M. Der Überstand ist ROOF_OVERHANG_THICKNESS_M dick modelliert (Stirnbrett
+# und Untersicht).
+ROOF_EAVE_OVERHANG_M = 0.6
+ROOF_VERGE_OVERHANG_M = 0.3
+ROOF_OVERHANG_THICKNESS_M = 0.10
+
+# Flachdächer (Neigung bis FLAT_ROOF_MAX_SLOPE_DEG): Kiesfläche (kachelbare Textur, FLAT_ROOF_GRAVEL_REPEAT_M Meter je
+# Wiederholung) mit umlaufendem Blechrand als echte Geometrie.
+FLAT_ROOF_MAX_SLOPE_DEG = 5.0
+FLAT_ROOF_GRAVEL_REPEAT_M = 2.0
+FLAT_ROOF_GRAVEL_TEXTURE_PX = 1024
+FLAT_ROOF_EDGE_HEIGHT_M = 0.25
+FLAT_ROOF_EDGE_THICKNESS_M = 0.05
+
+# === LOD2-WÄNDE (verputzt) ===
+# Wand = EIN ungeschnittenes Polygon mit fugenloser, metrisch gekachelter Putztextur (FACADE_PLASTER_REPEAT_M Meter je
+# Wiederholung); es gibt keine Zellen oder Fugen im Putz. Die Farbe ist je Gebäude fest (gewichtete Auswahl, siehe
+# facade/facade_styles.py), jede Farbe ist ein eigenes Material auf derselben Normal-/Roughness-Textur.
+# Fenster und Türen sind eigene, kleine Flächen (Sprites aus einem Atlas), die FACADE_WINDOW_OFFSET_M vor der Wand liegen.
+FACADE_PLASTER_TEXTURE_PX = 1024
+FACADE_PLASTER_REPEAT_M = 3.0
+FACADE_STOREY_HEIGHT_M = 3.0  # Geschosshöhe; die Geschosse werden von der Traufe nach UNTEN gezählt
+FACADE_BAY_WIDTH_M = 2.5  # Soll-Achsbreite; real wird die Wandbreite gleichmäßig auf ganze Achsen verteilt
+FACADE_NARROW_WALL_M = 2.5  # schmalere Wände (Vorsprünge, Stirnseiten) bekommen keine Fenster
+FACADE_WINDOW_OFFSET_M = 0.03  # Fenster liegen so weit vor der Wand (gegen Z-Fighting)
+FACADE_WINDOW_SILL_M = 0.9  # Brüstungshöhe: Unterkante Fenster über dem Geschossboden
+FACADE_WINDOW_ATLAS_PX_PER_M = 200  # Auflösung der Fenster-Sprites
+FACADE_GUTTER_PX = 8  # Rand um jedes Sprite, in den die Kanten repliziert werden (gegen Bluten beim Filtern)
+FACADE_MAX_MIP_LEVELS = 6  # längere Mip-Ketten lassen Nachbar-Sprites ineinander bluten
+# Erhöhter Keller: bleibt unter den vollen Geschossen ein Rest von mindestens FACADE_BASEMENT_MIN_REMAINDER_M übrig,
+# ist das ein Kellergeschoss; Kellerfenster erscheinen dort, wo es über dem Boden mindestens
+# FACADE_BASEMENT_MIN_EXPOSED_M sichtbar ist, mit Unterkante FACADE_BASEMENT_SILL_M über dem Boden.
+FACADE_BASEMENT_MIN_REMAINDER_M = 0.6
+FACADE_BASEMENT_MIN_EXPOSED_M = 1.0
+FACADE_BASEMENT_SILL_M = 0.3
+FACADE_STOREY_ROUNDING = 0.2  # Anteil einer Geschosshöhe, um den das unterste Geschoss zu kurz sein darf
+FACADE_DOOR_MAX_HEIGHT_ABOVE_BASE_M = 0.5  # Türen nur, wo der Geschossboden höchstens so hoch über dem Boden liegt
+# Kirchtürme: keine Fenster, dafür eine Turmuhr an der Frontseite. Eine Kirche ist ein OSM-Polygon (building=church/
+# cathedral/chapel, amenity=place_of_worship), das mindestens CHURCH_OVERLAP_MIN eines LOD2-Gebäudes überdeckt. In den
+# LOD2-Daten sind Schiff und Turm EIN Gebäude; Turmwände sind die Wände, deren Oberkante mindestens
+# CHURCH_TOWER_HEIGHT_FRACTION des Wegs vom Median der Wandoberkanten zur höchsten Wand erreicht (und die höchste
+# Wand liegt mindestens CHURCH_TOWER_MIN_RISE_M über dem Median), dazu Wände in OSM-Glockenturm-Polygonen.
+CHURCH_OVERLAP_MIN = 0.5
+CHURCH_TOWER_HEIGHT_FRACTION = 0.6
+CHURCH_TOWER_MIN_RISE_M = 4.0
+CHURCH_CLOCK_MIN_WALL_M = 3.2  # schmalere Turmwände bekommen keine Uhr
+CHURCH_CLOCK_BELOW_TOP_M = 3.5  # Uhrmitte höchstens so weit unter der Wandoberkante (sonst tiefer, wo die Wand breit genug ist)
+CHURCH_CLOCK_MIN_HEIGHT_M = 6.0  # Uhrmitte mindestens so hoch über dem Wandfuß
+# Grüner Kanal der Normalmaps: True = grün zeigt nach oben (OpenGL). Gemessen an t_roof_slates_rounded_nm.normal.dds
+# (Korrelation von G mit dem vertikalen AO-Gradienten +0,61, von R mit dem horizontalen -0,80): BeamNG nutzt hier
+# Grün-nach-oben.
+TEXTURE_NORMAL_GREEN_UP = True
+
 # Pixel-Kantenlänge des EINEN zusammengesetzten Luftbilds für die gesamte
 # Fläche (io/aerial.py::process_aerial_images() - seit 2026-09-18 kein
 # Foto-Material mehr pro 500m-Kachel, siehe dortigen Docstring). MUSS mit dem

@@ -164,6 +164,14 @@ class TerrainWorkflow:
             if not buildings_data:
                 logger.info("  [i] Keine LoD2-Gebäude gefunden")
 
+        # Kirchtürme: keine Fenster, dafür eine Turmuhr (Kirche aus OSM, Turmwände aus der Geometrie)
+        if buildings_data:
+            from ..facade.church_towers import ChurchTowerFinder
+            from ..osm.landuse_polygons import make_local_transform
+
+            towers = ChurchTowerFinder.from_osm(osm_data, make_local_transform(global_offset)).mark(buildings_data)
+            logger.info(f"  [OK] {towers} Kirchen mit Turm erkannt (Turmuhr statt Fenster)")
+
         # Berechne Grid-Bounds aus lokalen Punkten für Clipping
         grid_bounds_local = (
             float(local_points[:, 0].min()),

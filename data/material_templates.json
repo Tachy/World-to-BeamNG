@@ -65,34 +65,6 @@
                 }
             ],
             "note": "Matte Satellitenbilder (etwas matter als DOP20 Bodenaufnahmen)"
-        },
-        "water": {
-            "description": "Wasser (Seen, Flüsse) - optional",
-            "class": "Material",
-            "version": 2,
-            "Stages": [
-                {
-                    "specularPower": 4,
-                    "pixelSpecular": true
-                }
-            ],
-            "groundModelName": "water",
-            "alpha": 0.3,
-            "note": "Aktiviert, sobald Wasser-Export implementiert ist"
-        },
-        "vegetation": {
-            "description": "Vegetation (Gras, Sträucher) - optional",
-            "class": "Material",
-            "version": 1.5,
-            "Stages": [
-                {
-                    "specularPower": 0.2,
-                    "pixelSpecular": true
-                }
-            ],
-            "groundModelName": "grass",
-            "groundType": "dirt",
-            "note": "Aktiviert, sobald Vegetation-Export implementiert ist"
         }
     },
     "buildings": {
@@ -100,18 +72,6 @@
         "wall": {
             "description": "Gebäude-Wand Konfiguration",
             "template": "building_wall",
-            "tiling_scale": 4.0,
-            "uv_mode": "wall",
-            "color_extraction": {
-                "method": "citygml_appearance",
-                "fallback_color": [
-                    0.9,
-                    0.9,
-                    0.9,
-                    1.0
-                ],
-                "note": "Versucht CityGML-Erscheinungen zu extrahieren, fallback auf weiß"
-            },
             "material_hints": {
                 "groundType": "concrete",
                 "materialTag0": "beamng",
@@ -121,41 +81,11 @@
         "roof": {
             "description": "Gebäude-Dach Konfiguration",
             "template": "building_roof",
-            "tiling_scale": 2.0,
-            "uv_mode": "roof",
-            "color_extraction": {
-                "method": "citygml_appearance",
-                "fallback_color": [
-                    0.6,
-                    0.2,
-                    0.1,
-                    1.0
-                ],
-                "note": "Versucht CityGML-Erscheinungen zu extrahieren, fallback auf rot"
-            },
             "material_hints": {
                 "groundType": "concrete",
                 "materialTag0": "beamng",
                 "materialTag1": "Building"
             }
-        },
-        "tree": {
-            "description": "Baum-Blätter mit Alpha-Test für Forest-System",
-            "class": "Material",
-            "version": 2,
-            "Stages": [
-                {
-                    "useAnisotropic": true,
-                    "specularPower": 0.5,
-                    "pixelSpecular": true
-                }
-            ],
-            "alphaTest": true,
-            "alphaRef": 128,
-            "translucent": false,
-            "doubleSided": true,
-            "groundModelName": "forest",
-            "note": "Für Baum-Instanzen im Forest-System. alphaTest für Blätter-Transparenz, doubleSided für beide Seiten sichtbar."
         }
     }
 }

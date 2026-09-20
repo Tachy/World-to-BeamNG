@@ -12,6 +12,8 @@ from typing import List, Tuple, Dict, Any, Optional
 from datetime import datetime
 from pathlib import Path
 
+from ..facade.material_names import DAE_EFFECT_COLORS
+
 
 class DAEExporter:
     """
@@ -560,11 +562,7 @@ class DAEExporter:
             self._write_material_library(f, list(material_names))
 
             # Colors für Buildings (wall/roof)
-            colors = {}
-            if "lod2_wall_white" in material_names:
-                colors["lod2_wall_white"] = (0.95, 0.95, 0.95)
-            if "lod2_roof_red" in material_names:
-                colors["lod2_roof_red"] = (0.6, 0.2, 0.1)
+            colors = {name: color for name, color in DAE_EFFECT_COLORS.items() if name in material_names}
 
             self._write_effect_library(f, list(material_names), colors, material_textures)
 

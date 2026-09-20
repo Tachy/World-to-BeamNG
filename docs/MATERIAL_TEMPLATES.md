@@ -107,12 +107,15 @@ Für Gebäude-Wände (LoD2).
 **Nutzung:**
 ```python
 materials.add_building_material(
-    "lod2_wall_white",
-    color=[0.9, 0.9, 0.9, 1.0],
-    textures={"baseColorMap": "..."},
-    tiling_scale=4.0  # 4m Wiederholung
+    "lod2_wall_plaster_white",
+    textures={"baseColorMap": "...", "normalMap": "...", "roughnessMap": "...", "useAnisotropic": True},
 )
 ```
+
+Die UVs der Gebäude sind metrisch: Wände tragen eine fugenlos gekachelte Putztextur (`facade/facade_mapper.py`), Dächer
+wiederholen alle `config.ROOF_REPEAT_M` Meter in der Dachebene (`facade/roof_uv.py`). Es gibt deshalb keine
+`tiling_scale` mehr; `tiling_scale != 1.0` würde nur ein `materialFactors` schreiben und wird für Gebäude nicht genutzt.
+Zusätzliche Stage-Eigenschaften (z. B. `roughnessFactor`, `metallicFactor`) gehen über `stage_properties`.
 
 ---
 
@@ -122,7 +125,10 @@ Für Gebäude-Dächer (LoD2).
 Identisch mit `building_wall`, aber typischerweise mit:
 - Andere Textur
 - Andere Farbe
-- `tiling_scale=2.0` statt 4.0 (feiner Detail)
+
+Genutzt für `lod2_roof_red` (Biberschwanz), `lod2_roof_flat` (Kies auf Flachdächern) und `lod2_roof_edge`
+(untexturierter Blechrand um Flachdächer). Texturen der prozeduralen Materialien (Putz, Fenster-Atlas, Kies)
+entstehen in `facade/building_textures.py` (`ensure_building_textures()`), nicht in `osm_to_beamng.json`.
 
 ---
 
@@ -287,12 +293,6 @@ Die `buildings` Sektion (Top-Level in JSON) enthält Konfigurationen für LoD2-G
     "wall": {
       "description": "Gebäude-Wand Konfiguration",
       "template": "building_wall",
-      "tiling_scale": 4.0,
-      "uv_mode": "wall",
-      "color_extraction": {
-        "method": "citygml_appearance",
-        "fallback_color": [0.9, 0.9, 0.9, 1.0]
-      },
       "material_hints": {
         "groundType": "concrete",
         "materialTag0": "beamng",
@@ -302,12 +302,6 @@ Die `buildings` Sektion (Top-Level in JSON) enthält Konfigurationen für LoD2-G
     "roof": {
       "description": "Gebäude-Dach Konfiguration",
       "template": "building_roof",
-      "tiling_scale": 2.0,
-      "uv_mode": "roof",
-      "color_extraction": {
-        "method": "citygml_appearance",
-        "fallback_color": [0.6, 0.2, 0.1, 1.0]
-      },
       "material_hints": {
         "groundType": "concrete",
         "materialTag0": "beamng",
@@ -323,34 +317,43 @@ Die `buildings` Sektion (Top-Level in JSON) enthält Konfigurationen für LoD2-G
 | Feld | Beschreibung |
 |------|---|
 | `template` | Verweis auf Basis-Template (`building_wall`, `building_roof`) |
-| `tiling_scale` | UV-Tiling-Faktor (4.0 = alle 4m Wiederholung) |
-| `uv_mode` | UV-Mapping-Modus (`wall` oder `roof`) |
-| `color_extraction.method` | Farb-Extraktions-Methode (`citygml_appearance` für CityGML) |
-| `color_extraction.fallback_color` | Fallback RGBA falls CityGML keine Farbe hat |
 | `material_hints.groundType` | Physik-Oberflächentyp (concrete, brick, etc.) |
 | `material_hints.materialTag0/1` | Kategorie-Tags für Fahrzeugverhalten |
 
-### Integration in lod2.py
+### Integration im Exporter
 
-Die Konfigurationen werden in `lod2.py` in `create_materials_json()` geladen und mit OSM-Properties gemergt:
+`BeamNGExporter._add_lod2_materials()` (`export/beamng_exporter.py`) legt die Gebäude-Materialien an
+(Namen in `facade/material_names.py`):
+
+| Material | Inhalt |
+|---|---|
+| `lod2_wall_plaster_<Farbe>` (6x) | fugenloser Putz, je Farbe eine Albedo-Textur; Normal- und Roughness-Textur gemeinsam |
+| `lod2_windows` | Sprite-Atlas: Fenster (mit/ohne Kämpfer, mit Fensterläden), Türen, Kellerfenster |
+| `lod2_roof_red` | Biberschwanz-Stocktextur aus `osm_to_beamng.json` (`buildings.roof`) |
+| `lod2_roof_flat` | prozedural erzeugte, kachelbare Kiestextur (Flachdächer) |
+| `lod2_roof_edge` | Blechrand um Flachdächer, untexturiert (`buildings.roof_edge`) |
+| `lod2_roof_trim` | Stirnbrett und Untersicht der Dachüberstände, untexturiert (`buildings.roof_trim`) |
+
+Putzfarben und ihre Häufigkeit stehen in `facade/facade_styles.py` (`PLASTER_COLORS`, Promille): vorwiegend weiß,
+vereinzelt Beigetöne, ganz vereinzelt Rottöne. Die Farbe je Gebäude ist fest (crc32 der gml:id).
+
+Wände sind EIN Polygon je Wand (keine Zellen im Putz); Fenster sind eigene Flächen 3 cm vor der Wand
+(`facade/facade_mapper.py`). Die Geschosse werden von der Traufe nach unten gezählt; ein Rest darunter ist ein
+erhöhter Keller mit Kellerfenstern. Schrägdächer bekommen 60 cm Traufüberstand (waagerecht) und 30 cm am Giebel,
+10 cm dick (`facade/roof_overhang.py`, Werte in `config.ROOF_*`).
+
+Kirchtürme (`facade/church_towers.py`): Die Kirche kommt aus OSM (`building=church/cathedral/chapel`,
+`amenity=place_of_worship`, sonst kennen die LOD2-Daten keine Funktion), die Turmwände aus der Geometrie (Wände, die weit
+über dem Median der Wandoberkanten enden, dazu Wände in OSM-Glockenturm-Polygonen). Turmwände bekommen keine Fenster; die
+Turmwand, die vom Kirchenschiff wegzeigt, trägt eine Turmuhr (Sprite `tower_clock` im Fenster-Atlas). Schwellen in
+`config.CHURCH_*`.
+
+Die Texturen liegen als DDS in `art/shapes/textures/` und werden nur neu geschrieben, wenn sich Farben, Layout oder
+Generator ändern (Hash in `building_textures.hash`).
 
 ```python
-def create_materials_json(material_manager):
-    # Hole alle Konfigurationen (templates + buildings section)
-    config = material_manager.get_templates()
-    buildings_config = config.get("buildings", {})
-    
-    # Wall-Material: Template + OSM-Properties
-    wall_template = buildings_config.get("wall", {})
-    wall_props = OSM_MAPPER.get_building_properties("wall")
-    
-    material_manager.add_building_material(
-        wall_name,
-        color=wall_props.get("diffuseColor"),  # Von OSM
-        tiling_scale=wall_template.get("tiling_scale", 4.0),  # Von Template JSON
-        groundType=wall_template.get("material_hints", {}).get("groundType"),
-        # ...
-    )
+generated = ensure_building_textures()
+materials.add_building_material(WALL_MATERIALS[0], textures={"baseColorMap": generated["plaster_color_white"], ...})
 ```
 
 ---

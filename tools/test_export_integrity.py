@@ -50,7 +50,7 @@ TERRAIN_DAE_PATTERN = "terrain_*.dae"
 TERRAIN_HORIZON_DAE = "terrain_horizon.dae"
 
 # Material-Namen und Präfixe
-LOD2_WALL_MATERIAL = "lod2_wall_white"
+LOD2_WALL_MATERIAL_PREFIX = "lod2_wall_plaster_"
 LOD2_ROOF_MATERIAL = "lod2_roof_red"
 HORIZON_MATERIAL = "horizon_terrain"
 
@@ -387,7 +387,7 @@ class ExportIntegrityTest:
                 material_ids = [m.get("id") for m in materials if m.get("id")]
                 self.dae_materials.update(material_ids)
 
-                has_wall = LOD2_WALL_MATERIAL in material_ids
+                has_wall = any(name.startswith(LOD2_WALL_MATERIAL_PREFIX) for name in material_ids)
                 has_roof = LOD2_ROOF_MATERIAL in material_ids
 
                 if not has_wall or not has_roof:
@@ -422,7 +422,7 @@ class ExportIntegrityTest:
             self.success(f"{len(materials)} Materialien definiert")
 
             # Prüfe LoD2-Materialien
-            has_wall = LOD2_WALL_MATERIAL in materials
+            has_wall = any(name.startswith(LOD2_WALL_MATERIAL_PREFIX) for name in materials)
             has_roof = LOD2_ROOF_MATERIAL in materials
 
             if has_wall and has_roof:

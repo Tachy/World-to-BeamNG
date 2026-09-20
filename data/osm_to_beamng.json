@@ -412,20 +412,7 @@
         }
     },
     "buildings": {
-        "wall": {
-            "internal_name": "lod2_wall_white",
-            "groundModelName": "concrete",
-            "textures": {
-                "baseColorMap": "levels/world_to_beamng/art/shapes/assets/materials/tileable/plaster/m_stucco_white/t_stucco_white_b.color.dds",
-                "normalMap": "levels/world_to_beamng/art/shapes/assets/materials/tileable/plaster/m_stucco_white/t_stucco_white_nm.normal.dds",
-                "ambientOcclusionMap": "levels/world_to_beamng/art/shapes/assets/materials/tileable/plaster/m_stucco_white/t_stucco_white_ao.data.dds",
-                "roughnessMap": "levels/world_to_beamng/art/shapes/assets/materials/tileable/plaster/m_stucco_white/t_stucco_white_r.data.dds",
-                "useAnisotropic": true
-            }
-        },
         "roof": {
-            "internal_name": "lod2_roof_red",
-            "groundModelName": "concrete",
             "diffuseColor": [
                 0.85,
                 0.45,
@@ -439,6 +426,26 @@
                 "roughnessMap": "levels/world_to_beamng/art/shapes/assets/materials/tileable/roofing/m_roof_slates_rounded/t_roof_slates_rounded_r.data.dds",
                 "useAnisotropic": true
             }
+        },
+        "roof_edge": {
+            "diffuseColor": [
+                0.62,
+                0.64,
+                0.67,
+                1.0
+            ],
+            "roughnessFactor": 0.35,
+            "metallicFactor": 0.9
+        },
+        "roof_trim": {
+            "diffuseColor": [
+                0.36,
+                0.26,
+                0.19,
+                1.0
+            ],
+            "roughnessFactor": 0.7,
+            "metallicFactor": 0.0
         }
     },
     "landuse_mappings": {
