@@ -388,14 +388,14 @@ def enhance_sentinel2_image(image, contrast_factor=1.25, brightness_factor=0.88,
     return image
 
 
-def load_sentinel2_geotiff(sentinel2_dir, bbox_utm, tile_hash=None):
+def load_sentinel2_geotiff(sentinel2_file, bbox_utm, tile_hash=None):
     """
-    Lädt Sentinel-2 RGB GeoTIFF Dateien mit Georeferenzierung.
+    Lädt das Sentinel-2 RGB GeoTIFF mit Georeferenzierung.
 
     GeoTIFF muss georeferenziert sein (mit Metadaten für Koordinaten-Transformation).
 
     Args:
-        sentinel2_dir: Verzeichnis mit Sentinel-2 GeoTIFF (z.B. data/DOP300/)
+        sentinel2_file: Pfad der GeoTIFF-Datei (config.DOP300_DATA_DIR / config.SENTINEL2_FILE)
         bbox_utm: (min_x, max_x, min_y, max_y) in UTM Metern
         tile_hash: Optional - Hash für Cache
 
@@ -411,23 +411,11 @@ def load_sentinel2_geotiff(sentinel2_dir, bbox_utm, tile_hash=None):
         logger.error("  [!] rasterio nicht installiert. Install: pip install rasterio")
         return None
 
-    sentinel2_path = Path(sentinel2_dir)
+    tif_file = Path(sentinel2_file)
 
-    if not sentinel2_path.exists():
-        logger.error(f"  [i] Sentinel-2 Verzeichnis nicht gefunden: {sentinel2_dir}")
+    if not tif_file.is_file():
+        logger.error(f"  [!] Sentinel-2 GeoTIFF nicht gefunden: {tif_file}")
         return None
-
-    # Suche GeoTIFF Dateien
-    tif_files = list(sentinel2_path.glob("*.tif")) + list(sentinel2_path.glob("*.tiff"))
-
-    if not tif_files:
-        logger.debug(f"  [i] Keine GeoTIFF Dateien in {sentinel2_dir} gefunden")
-        return None
-
-    logger.debug(f"  [i] Lade {len(tif_files)} Sentinel-2 GeoTIFF Dateien...")
-
-    # Lade erstes GeoTIFF mit Georeferenzierung
-    tif_file = tif_files[0]
 
     try:
         with rasterio.open(tif_file) as src:

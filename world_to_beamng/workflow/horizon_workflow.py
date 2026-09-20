@@ -149,8 +149,8 @@ class HorizonWorkflow:
 
         # === Sentinel-2 laden (optional) ===
         logger.info("  [i] Lade Sentinel-2 Satellitenbilder...")
-        sentinel2_dir = config.DOP300_DATA_DIR
-        sentinel2_data = load_sentinel2_geotiff(sentinel2_dir, horizon_bbox, tile_hash=tile_hash)
+        sentinel2_file = config.DOP300_DATA_DIR / config.SENTINEL2_FILE
+        sentinel2_data = load_sentinel2_geotiff(sentinel2_file, horizon_bbox, tile_hash=tile_hash)
 
         texture_info = None
         if sentinel2_data is None:

@@ -207,6 +207,9 @@ HEIGHT_DATA_DIR = Path("data/DGM1")  # Verzeichnis mit Hoehendaten
 LOD2_DATA_DIR = Path("data/LOD2")  # Verzeichnis mit 3D-Gebäudemodellen (CityGML)
 DGM30_DATA_DIR = Path("data/DGM30")  # Verzeichnis mit 30m Höhendaten für Horizont
 DOP300_DATA_DIR = Path("data/DOP300")  # Verzeichnis mit Sentinel-2 RGB Bildern
+# Horizont-Textur: EIN georeferenziertes RGB-GeoTIFF (UTM 32N, EPSG:25832, 8192x8192). Fester Name statt Glob, damit
+# weitere .tif im Ordner (z. B. der Web-Mercator-Rohdownload) nie versehentlich gewählt werden.
+SENTINEL2_FILE = "horizon_temp.tif"
 
 
 # === MULTIPROCESSING ===
