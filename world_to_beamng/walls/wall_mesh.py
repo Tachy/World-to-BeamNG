@@ -2,8 +2,15 @@
 Bruchsteinmauern aus OSM-Linien (`barrier=wall`, `barrier=retaining_wall`).
 
 Nur Mauern mit `height`-Tag werden gebaut (ohne Höhenangabe wäre die Höhe geraten). Die Mauer ist ein Band von
-~50 cm Dicke entlang der Linie, das dem Gelände folgt: Oberkante = Boden an der Mittellinie + Höhe, Unterkante
+~50 cm Dicke entlang der Linie, das dem Gelände folgt: Oberkante = Basis an der Mittellinie + Höhe, Unterkante
 beidseitig unter dem jeweiligen Boden, damit am Fuß kein Spalt bleibt. Ecken sind auf Gehrung geschnitten.
+
+Oben liegen Abdeckplatten (wall_cap.py): Steinplatten von `cap_thickness` Dicke, die ein paar Zentimeter überstehen.
+Die Gesamthöhe (Plattenoberkante) ist die OSM-Höhe, der Mauerkörper endet um die Plattendicke tiefer.
+
+Basis = Boden an der Mittellinie. Liegt ein Punkt der Mittellinie höchstens N Meter neben einer Straßen-Centerline
+(`road_base_at`, siehe road_base.py), ist die Basis stattdessen die Höhe dieser Centerline; die Unterkante reicht
+dort bis unter das Gelände oder die Straße, je nachdem, was tiefer liegt.
 
 Jede Fläche hat eigene Eckpunkte (harte Kanten) und explizite Normalen. UVs sind in Textur-Kacheln angegeben
 (Kachelgröße `tile_m` Meter), das Material wiederholt sich also mit tiling_scale 1.
@@ -15,13 +22,15 @@ from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
+from .mesh_parts import MeshBuilder, offset_points, unit_vector
+from .wall_cap import add_cap
+
 HeightAt = Callable[[np.ndarray, np.ndarray], np.ndarray]
 ToLocal = Callable[[Sequence[Dict]], List[Tuple[float, float]]]
 
 WALL_BARRIERS = ("wall", "retaining_wall")
 STONE_MATERIALS = (None, "stone")  # ohne material-Tag wird Stein angenommen; Ziegel, Beton, Holz ... nicht
 MAX_PLAUSIBLE_HEIGHT = 10.0  # darüber ist die Angabe ein Tippfehler
-MAX_MITRE_FACTOR = 2.0  # spitze Ecken: Gehrungslänge höchstens doppelte halbe Dicke
 
 
 def parse_wall_height(value: Optional[str]) -> Optional[float]:
@@ -71,55 +80,6 @@ def _densify(points: np.ndarray, max_step: float, closed: bool) -> np.ndarray:
     return dense[:-1] if closed else dense
 
 
-def _offset_points(points: np.ndarray, half: float, closed: bool) -> Tuple[np.ndarray, np.ndarray]:
-    """Linke und rechte Kante im Abstand `half`, an Knicken auf Gehrung geschnitten."""
-    count = len(points)
-    directions = np.roll(points, -1, axis=0) - points
-    if not closed:
-        directions = directions[:-1]
-    directions = directions / np.linalg.norm(directions, axis=1)[:, None]
-    normals = np.column_stack([-directions[:, 1], directions[:, 0]])  # links der Laufrichtung
-
-    left, right = np.zeros((count, 2)), np.zeros((count, 2))
-    for i in range(count):
-        if closed:
-            before, after = normals[(i - 1) % count], normals[i % count]
-        else:
-            before, after = normals[max(i - 1, 0)], normals[min(i, count - 2)]
-        miter = before + after
-        norm = np.linalg.norm(miter)
-        miter = after if norm < 1e-9 else miter / norm
-        scale = min(half / max(float(np.dot(miter, after)), 1.0 / MAX_MITRE_FACTOR), half * MAX_MITRE_FACTOR)
-        left[i] = points[i] + miter * scale
-        right[i] = points[i] - miter * scale
-    return left, right
-
-
-class _Builder:
-    def __init__(self):
-        self.vertices: List[List[float]] = []
-        self.uvs: List[List[float]] = []
-        self.normals: List[List[float]] = []
-        self.faces: List[List[int]] = []
-
-    def quad(self, corners: Sequence[Sequence[float]], uvs: Sequence[Sequence[float]], normal: Sequence[float]) -> None:
-        """Viereck mit eigenen Eckpunkten; der Umlaufsinn wird so gewählt, dass die Fläche zur Normalen zeigt."""
-        base = len(self.vertices)
-        self.vertices.extend([list(c) for c in corners])
-        self.uvs.extend([list(u) for u in uvs])
-        self.normals.extend([list(normal)] * 4)
-        for tri in ([0, 1, 2], [0, 2, 3]):
-            a, b, c = (np.array(corners[i], dtype=float) for i in tri)
-            if np.dot(np.cross(b - a, c - a), normal) < 0:
-                tri = [tri[0], tri[2], tri[1]]
-            self.faces.append([base + tri[0], base + tri[1], base + tri[2]])
-
-
-def _unit(vector: np.ndarray) -> List[float]:
-    length = np.linalg.norm(vector)
-    return [0.0, 0.0, 1.0] if length < 1e-12 else [float(c) for c in vector / length]
-
-
 def build_wall_mesh(
     coords: Sequence[Tuple[float, float]],
     height: float,
@@ -128,9 +88,20 @@ def build_wall_mesh(
     sink: float = 0.3,
     max_step: float = 1.0,
     tile_m: float = 1.2,
+    road_base_at: Optional[HeightAt] = None,
+    cap_thickness: float = 0.05,
+    cap_overhang: float = 0.04,
+    cap_plate_length: float = 0.8,
+    cap_joint: float = 0.01,
+    seed: int = 0,
 ) -> Dict:
     """
     Mesh einer Mauer entlang `coords` (lokale x, y; geschlossen, wenn erster = letzter Punkt).
+
+    Args:
+        road_base_at: (x, y) -> Höhe der Straßen-Centerline in Snap-Distanz, NaN sonst (RoadBaseHeight)
+        cap_thickness, cap_overhang, cap_plate_length, cap_joint: Abdeckplatten (Dicke 0 = keine Platten)
+        seed: Startwert der Plattenlängen (je Mauer verschieden, aber bei jedem Lauf gleich)
 
     Returns:
         {"vertices": (N, 3), "uvs": (N, 2), "normals": (N, 3), "faces": [[a, b, c], ...]}; Z absolut wie das Gelände
@@ -140,13 +111,18 @@ def build_wall_mesh(
     if closed:
         points = points[:-1]
     points = _densify(points, max_step, closed)
-    left, right = _offset_points(points, thickness / 2.0, closed)
+    left, right = offset_points(points, thickness / 2.0, closed)
 
     ground_center = np.asarray(ground_at(points[:, 0], points[:, 1]), dtype=float)
     ground_left = np.asarray(ground_at(left[:, 0], left[:, 1]), dtype=float)
     ground_right = np.asarray(ground_at(right[:, 0], right[:, 1]), dtype=float)
-    top = ground_center + height
-    bottom_left, bottom_right = ground_left - sink, ground_right - sink
+    road = np.asarray(road_base_at(points[:, 0], points[:, 1]), dtype=float) if road_base_at else np.full(len(points), np.nan)
+    on_road = ~np.isnan(road)
+    base = np.where(on_road, road, ground_center)
+    crown = base + height  # Oberkante der Abdeckplatten = OSM-Höhe
+    top = crown - cap_thickness  # der Mauerkörper endet unter den Platten
+    bottom_left = np.where(on_road, np.minimum(base, ground_left), ground_left) - sink
+    bottom_right = np.where(on_road, np.minimum(base, ground_right), ground_right) - sink
 
     steps = np.linalg.norm(np.roll(points, -1, axis=0) - points, axis=1)
     along = np.concatenate([[0.0], np.cumsum(steps)]) / tile_m  # u je Punkt; beim Ring hat der Schlusspunkt den Gesamtwert
@@ -155,7 +131,7 @@ def build_wall_mesh(
     def p3(xy: np.ndarray, z: float) -> List[float]:
         return [float(xy[0]), float(xy[1]), float(z)]
 
-    builder = _Builder()
+    builder = MeshBuilder()
     segments = len(points) if closed else len(points) - 1
     for i in range(segments):
         j = (i + 1) % len(points)
@@ -177,7 +153,7 @@ def build_wall_mesh(
         )
         # Oberseite
         corners = [p3(left[i], top[i]), p3(left[j], top[j]), p3(right[j], top[j]), p3(right[i], top[i])]
-        top_normal = _unit(np.cross(np.array(corners[1]) - np.array(corners[0]), np.array(corners[3]) - np.array(corners[0])))
+        top_normal = unit_vector(np.cross(np.array(corners[1]) - np.array(corners[0]), np.array(corners[3]) - np.array(corners[0])))
         if top_normal[2] < 0:
             top_normal = [-c for c in top_normal]
         builder.quad(corners, [[u0, 0.0], [u1, 0.0], [u1, across], [u0, across]], top_normal)
@@ -202,6 +178,9 @@ def build_wall_mesh(
                 [float(sign * direction[0]), float(sign * direction[1]), 0.0],
             )
 
+    if cap_thickness > 0:
+        add_cap(builder, points, crown, closed, thickness, cap_thickness, cap_overhang, cap_plate_length, cap_joint, tile_m, np.random.default_rng(seed))
+
     return {
         "vertices": np.array(builder.vertices, dtype=float),
         "uvs": np.array(builder.uvs, dtype=float),
@@ -219,6 +198,11 @@ def build_walls(
     sink: float = 0.3,
     max_step: float = 1.0,
     tile_m: float = 1.2,
+    road_base_at: Optional[HeightAt] = None,
+    cap_thickness: float = 0.05,
+    cap_overhang: float = 0.04,
+    cap_plate_length: float = 0.8,
+    cap_joint: float = 0.01,
 ) -> Tuple[List[Dict], Dict]:
     """
     Alle Mauern mit Höhenangabe als Mesh-Dicts für den DAE-Export (`{"id", "vertices", "uvs", "normals", "faces": {material: [...]}}`).
@@ -230,7 +214,21 @@ def build_walls(
     walls = select_walls(osm_data, to_local)
     meshes, length = [], 0.0
     for wall in walls:
-        mesh = build_wall_mesh(wall["coords"], wall["height"], ground_at, thickness, sink, max_step, tile_m)
+        mesh = build_wall_mesh(
+            wall["coords"],
+            wall["height"],
+            ground_at,
+            thickness,
+            sink,
+            max_step,
+            tile_m,
+            road_base_at,
+            cap_thickness,
+            cap_overhang,
+            cap_plate_length,
+            cap_joint,
+            seed=int(wall["osm_id"] or 0),
+        )
         meshes.append(
             {
                 "id": f"wall_{wall['osm_id']}",

@@ -1,5 +1,5 @@
 """
-Erzeugt die prozeduralen Gebäude-Texturen (Putz je Farbe, Fenster-Atlas, Dach-Kies) als DDS im Level und liefert
+Erzeugt die prozeduralen Gebäude-Texturen (Putz je Farbe, Fenster-Atlas) als DDS im Level und liefert
 ihre Pfade.
 
 Die Dateien werden nur neu geschrieben, wenn sich Farben, Layout oder Generator geändert haben (Hash-Datei).
@@ -14,7 +14,6 @@ from typing import Callable, Dict, List, Tuple
 from .. import config
 from . import dds_export
 from .facade_styles import PLASTER_COLORS
-from .gravel_generator import GRAVEL_VERSION, GravelTextureGenerator
 from .plaster_texture import PLASTER_VERSION, PlasterTextureGenerator
 from .window_atlas import WINDOW_ATLAS_VERSION, WindowAtlasGenerator, WindowAtlasLayout
 
@@ -39,9 +38,6 @@ def _entries() -> List[_Entry]:
         ("windows_color", "windows_b.color", dds_export.COLOR, False, lambda g: g["windows"]["albedo"]),
         ("windows_normal", "windows_nm.normal", dds_export.NORMAL, False, lambda g: g["windows"]["normal"]),
         ("windows_roughness", "windows_r.data", dds_export.DATA, False, lambda g: g["windows"]["roughness"]),
-        ("gravel_color", "roof_gravel_b.color", dds_export.COLOR, True, lambda g: g["gravel"]["albedo"]),
-        ("gravel_normal", "roof_gravel_nm.normal", dds_export.NORMAL, True, lambda g: g["gravel"]["normal"]),
-        ("gravel_roughness", "roof_gravel_r.data", dds_export.DATA, True, lambda g: g["gravel"]["roughness"]),
     ]
     return entries
 
@@ -49,13 +45,12 @@ def _entries() -> List[_Entry]:
 def _settings_hash() -> str:
     layout = WindowAtlasLayout()
     payload = {
-        "versions": [PLASTER_VERSION, WINDOW_ATLAS_VERSION, GRAVEL_VERSION],
+        "versions": [PLASTER_VERSION, WINDOW_ATLAS_VERSION],
         "colors": [repr(color) for color in PLASTER_COLORS],
         "window_layout": [layout.px_per_m, layout.gutter_px, layout.width_px, layout.height_px],
         "plaster_px": config.FACADE_PLASTER_TEXTURE_PX,
         "green_up": config.TEXTURE_NORMAL_GREEN_UP,
         "mips": config.FACADE_MAX_MIP_LEVELS,
-        "gravel": [config.FLAT_ROOF_GRAVEL_TEXTURE_PX, config.FLAT_ROOF_GRAVEL_REPEAT_M],
     }
     return hashlib.sha1(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()
 
@@ -69,7 +64,7 @@ def ensure_building_textures(output_dir: Path = None) -> Dict[str, str]:
 
     Returns:
         {Schlüssel: Pfad relativ zum BeamNG-Userordner für materials.json}. Schlüssel: plaster_color_<Farbe>,
-        plaster_normal, plaster_roughness, windows_color/normal/roughness, gravel_color/normal/roughness.
+        plaster_normal, plaster_roughness, windows_color/normal/roughness.
     """
     output_dir = Path(output_dir or config.BEAMNG_DIR_TEXTURES)
     entries = _entries()
@@ -89,11 +84,10 @@ def ensure_building_textures(output_dir: Path = None) -> Dict[str, str]:
 
 
 def _generate(output_dir: Path, entries: List[_Entry]) -> None:
-    logger.info("  [i] Erzeuge Putz-, Fenster- und Kiestexturen ...")
+    logger.info("  [i] Erzeuge Putz- und Fenstertexturen ...")
     generated = {
         "plaster": PlasterTextureGenerator().generate(),
         "windows": WindowAtlasGenerator().generate(),
-        "gravel": GravelTextureGenerator().generate(),
     }
     for _, name, dds_format, full_mips, image in entries:
         # Kachelnde Texturen: volle Mip-Kette (gegen Flimmern). Fenster-Atlas: begrenzt (Sprites bluten sonst ineinander).

@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from world_to_beamng import config
 from world_to_beamng.facade.facade_styles import PLASTER_COLORS
-from world_to_beamng.facade.gravel_generator import GravelTextureGenerator
+from world_to_beamng.textures.gravel import GravelTextureGenerator
 from world_to_beamng.facade.plaster_texture import PlasterTextureGenerator
 from world_to_beamng.facade.window_atlas import SPRITE_SIZES_M, WindowAtlasGenerator, WindowAtlasLayout, WindowSprite
 

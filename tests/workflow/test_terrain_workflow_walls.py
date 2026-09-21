@@ -10,6 +10,7 @@ import numpy as np
 import pytest
 
 from world_to_beamng import config
+from world_to_beamng.textures import registry
 from world_to_beamng.workflow.terrain_workflow import TerrainWorkflow
 
 
@@ -57,9 +58,17 @@ def _mesh(name="wall_1"):
     }
 
 
+STONE = {
+    "baseColorMap": "levels/world_to_beamng/art/shapes/textures/rubble_stone_wall_b.color.dds",
+    "normalMap": "levels/world_to_beamng/art/shapes/textures/rubble_stone_wall_nm.normal.dds",
+    "roughnessMap": "levels/world_to_beamng/art/shapes/textures/rubble_stone_wall_r.data.dds",
+}
+
+
 @pytest.fixture
 def shapes_dir(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "BEAMNG_DIR_SHAPES", tmp_path / "shapes")
+    monkeypatch.setattr(registry, "prepared_textures", lambda: {config.WALL_TEXTURE_NAME: STONE})
     return tmp_path / "shapes"
 
 
@@ -75,9 +84,21 @@ def test_export_walls_writes_one_dae_one_item_and_a_stone_material(shapes_dir):
     assert item["class"] == "TSStatic" and item["position"] == [0, 0, 0]
     assert item["shape_name"] == "levels/world_to_beamng/art/shapes/walls/walls.dae"  # Schrägstriche wie BeamNG sie erwartet
     assert item["collisionType"] == "Visible Mesh Final"  # Fahrzeuge stoßen an die Mauer
-    textures = stub.materials.added[config.WALL_MATERIAL_NAME]["textures"]
-    for key in ("baseColorMap", "normalMap", "roughnessMap"):
-        assert textures[key].startswith("levels/world_to_beamng/art/shapes/assets/materials/tileable/stone/"), key
+    material = stub.materials.added[config.WALL_MATERIAL_NAME]
+    assert {k: material["textures"][k] for k in STONE} == STONE  # Foto-Textur aus data/textures, nicht BeamNGs Stock-Content
+    assert material["textures"]["useAnisotropic"] is True and not material.get("color")
+
+
+def test_export_walls_takes_the_textures_from_the_registry_check_and_never_falls_back(shapes_dir, monkeypatch):
+    def aborted():
+        raise registry.MissingTexturesError("Foto fehlt")
+
+    monkeypatch.setattr(registry, "prepared_textures", aborted)
+    stub = _stub()
+
+    with pytest.raises(registry.MissingTexturesError):
+        TerrainWorkflow.export_walls(stub, {"wall_meshes": [_mesh()]})
+    assert not stub.materials.added and not stub.dae.calls  # nichts halb exportiert
 
 
 def test_nothing_is_exported_and_stale_files_are_removed_without_walls(shapes_dir, monkeypatch):
@@ -116,9 +137,29 @@ def test_build_wall_meshes_uses_only_walls_with_a_height_and_the_terrain_heights
     assert stats["built"] == 1 and stats["without_height"] == 1
     z = meshes[0]["vertices"][:, 2]
     assert z.max() == pytest.approx(302.0) and z.min() == pytest.approx(300.0 - config.WALL_SINK)
-    # Dicke quer zur Mauerrichtung (die Karte ist gegen Nord gedreht: UTM-Meridiankonvergenz)
+    # Breite quer zur Mauerrichtung (die Karte ist gegen Nord gedreht: UTM-Meridiankonvergenz): Mauerkörper plus Plattenüberstand
     xy = meshes[0]["vertices"][:, :2]
     axis = np.linalg.svd(xy - xy.mean(axis=0))[2][0]  # Hauptrichtung der Mauer
     across = xy @ np.array([-axis[1], axis[0]])
-    assert (across.max() - across.min()) == pytest.approx(0.5, abs=0.05)
+    assert (across.max() - across.min()) == pytest.approx(0.5 + 2 * config.WALL_CAP_OVERHANG, abs=0.02)
     assert config.WALL_THICKNESS == pytest.approx(0.5)
+
+
+def test_build_wall_meshes_snaps_walls_next_to_a_road_to_the_centerline_height():
+    from world_to_beamng.osm.landuse_polygons import make_local_transform
+
+    offset = (412000.0, 5297000.0)
+    to_local = make_local_transform(offset)
+    wall = {"type": "way", "id": 7, "tags": {"barrier": "retaining_wall", "height": "2"}, "geometry": [{"lat": 47.8300, "lon": 7.6800}, {"lat": 47.8300, "lon": 7.6802}]}
+    (x0, y0), (x1, y1) = to_local(wall["geometry"])
+    # Centerline 2 m neben der Mauer (senkrecht zur Mauerrichtung), auf 320 m; Gelände 300 m
+    direction = np.array([x1 - x0, y1 - y0]) / np.hypot(x1 - x0, y1 - y0)
+    shift = np.array([-direction[1], direction[0]]) * 2.0
+    road = {"trimmed_centerline": np.array([[x0 + shift[0], y0 + shift[1], 320.0], [x1 + shift[0], y1 + shift[1], 320.0]])}
+    ground = lambda x, y: np.full_like(np.asarray(x, float), 300.0)
+
+    near, _ = TerrainWorkflow._build_wall_meshes(SimpleNamespace(), [wall], offset, ground, [road])
+    without, _ = TerrainWorkflow._build_wall_meshes(SimpleNamespace(), [wall], offset, ground)
+
+    assert near[0]["vertices"][:, 2].max() == pytest.approx(322.0)
+    assert without[0]["vertices"][:, 2].max() == pytest.approx(302.0)

@@ -24,6 +24,9 @@ BEAMNG_DIR_SHAPES = BEAMNG_DIR / "art" / "shapes"
 BEAMNG_DIR_TEXTURES = BEAMNG_DIR_SHAPES / "textures"
 BEAMNG_DIR_BUILDINGS = BEAMNG_DIR_SHAPES / "buildings"
 
+# Eingecheckte, einmalig erzeugte bzw. fotobasierte Texturen (Ordner je Textur + manifest.json), siehe textures/library.py
+TEXTURE_LIBRARY_DIR = Path("data/textures")
+
 # In-Game relative paths (MUST use forward slashes for BeamNG)
 RELATIVE_DIR = PurePosixPath("levels") / LEVEL_NAME
 RELATIVE_DIR_SHAPES = RELATIVE_DIR / "art" / "shapes"
@@ -169,10 +172,16 @@ TILE_SIZE = 500  # Größe pro DAE-Tile in Metern (nur bei BUILDINGS_AS_ONE_OBJE
 # === MAUERN (OSM barrier=wall / retaining_wall, nur mit height-Tag) ===
 WALLS_ENABLED = True
 WALL_THICKNESS = 0.5  # Mauerdicke in Metern (Bruchsteinmauer)
+WALL_ROAD_SNAP_M = 5.0  # Mauern höchstens so weit neben einer Straßen-Centerline nehmen deren Höhe als Basis (sonst Gelände), in Metern
+WALL_CAP_THICKNESS = 0.05  # Abdeckplatten oben auf der Mauer: Dicke in Metern (0 = keine Platten); die Gesamthöhe bleibt die OSM-Höhe
+WALL_CAP_OVERHANG = 0.04  # Überstand der Platten über den Mauerkörper (je Seite und an offenen Enden), in Metern
+WALL_CAP_PLATE_LENGTH = 0.8  # mittlere Plattenlänge in Metern (Länge variiert um +-25 %)
+WALL_CAP_JOINT = 0.01  # Fuge zwischen zwei Platten in Metern
 WALL_SINK = 0.3  # so tief reicht die Unterkante unter den Boden (kein Spalt am Fuß), in Metern
 WALL_MAX_SEGMENT = 1.0  # längste Teilstrecke, damit die Mauer dem Gelände folgt, in Metern
-WALL_TEXTURE_TILE_M = 1.2  # so viele Meter deckt eine Wiederholung der Bruchstein-Textur (ca. 6 Steinlagen)
-WALL_MATERIAL_NAME = "rubble_stone_wall"  # "wall" im Namen wählt das Wand-Template; Texturen in osm_to_beamng.json (buildings.wall_rubble_stone)
+WALL_TEXTURE_TILE_M = 1.2  # Rückfall für die Kachelgröße der Bruchstein-Textur in Metern; maßgeblich ist tile_m im Manifest von data/textures
+WALL_TEXTURE_NAME = "rubble_stone_wall"  # Name der Bruchstein-Textur in data/textures (Foto, tools/make_seamless_texture.py)
+WALL_MATERIAL_NAME = "rubble_stone_wall"  # "wall" im Namen wählt das Wand-Template; Texturen: WALL_TEXTURE_NAME (textures/registry.py)
 
 # === LOD2-DACH-TEXTUR ===
 # t_roof_slates_rounded_b.color.dds (256 px) zeigt 5 Biberschwanz-Ziegel nebeneinander je Wiederholung (6 Reihen
@@ -192,7 +201,8 @@ ROOF_OVERHANG_THICKNESS_M = 0.10
 # Flachdächer (Neigung bis FLAT_ROOF_MAX_SLOPE_DEG): Kiesfläche (kachelbare Textur, FLAT_ROOF_GRAVEL_REPEAT_M Meter je
 # Wiederholung) mit umlaufendem Blechrand als echte Geometrie.
 FLAT_ROOF_MAX_SLOPE_DEG = 5.0
-FLAT_ROOF_GRAVEL_REPEAT_M = 2.0
+FLAT_ROOF_GRAVEL_REPEAT_M = 2.0  # Kachelgröße der Kies-Textur; das Werkzeug generate_gravel_texture.py trägt sie ins Manifest ein
+FLAT_ROOF_GRAVEL_TEXTURE = "roof_gravel"  # Name in data/textures
 FLAT_ROOF_GRAVEL_TEXTURE_PX = 1024
 FLAT_ROOF_EDGE_HEIGHT_M = 0.25
 FLAT_ROOF_EDGE_THICKNESS_M = 0.05

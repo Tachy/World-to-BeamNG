@@ -8,6 +8,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from world_to_beamng.export.beamng_exporter import BeamNGExporter
+from world_to_beamng import config
 from world_to_beamng.facade import building_textures
 from world_to_beamng.facade.facade_styles import PLASTER_COLORS
 from world_to_beamng.facade.material_names import (
@@ -19,6 +20,7 @@ from world_to_beamng.facade.material_names import (
     WINDOW_MATERIAL,
 )
 from world_to_beamng.managers.material_manager import MaterialManager
+from world_to_beamng.textures import registry
 
 GENERATED = {
     **{f"plaster_color_{c.name}": f"levels/x/plaster_{c.name}_b.dds" for c in PLASTER_COLORS},
@@ -27,14 +29,20 @@ GENERATED = {
     "windows_color": "levels/x/windows_b.dds",
     "windows_normal": "levels/x/windows_nm.dds",
     "windows_roughness": "levels/x/windows_r.dds",
-    "gravel_color": "levels/x/gravel_b.dds",
-    "gravel_normal": "levels/x/gravel_nm.dds",
-    "gravel_roughness": "levels/x/gravel_r.dds",
+}
+
+LIBRARY = {
+    config.FLAT_ROOF_GRAVEL_TEXTURE: {
+        "baseColorMap": "levels/x/gravel_b.dds",
+        "normalMap": "levels/x/gravel_nm.dds",
+        "roughnessMap": "levels/x/gravel_r.dds",
+    }
 }
 
 
 def _materials(tmp_path, monkeypatch):
     monkeypatch.setattr(building_textures, "ensure_building_textures", lambda output_dir=None: GENERATED)
+    monkeypatch.setattr(registry, "prepared_textures", lambda: LIBRARY)
     MaterialManager.reset_instance()
     manager = MaterialManager.get_instance(tmp_path)
     exporter = BeamNGExporter.__new__(BeamNGExporter)
@@ -84,7 +92,9 @@ def test_tile_roof_keeps_its_texture_and_tint_but_loses_the_tiling_factor(tmp_pa
 def test_flat_roof_uses_gravel_and_rim_and_trim_are_untextured(tmp_path, monkeypatch):
     materials = _materials(tmp_path, monkeypatch)
 
-    assert materials[FLAT_ROOF_MATERIAL]["Stages"][0]["baseColorMap"] == GENERATED["gravel_color"]
+    gravel = materials[FLAT_ROOF_MATERIAL]["Stages"][0]
+    assert gravel["baseColorMap"] == "levels/x/gravel_b.dds"
+    assert gravel["normalMap"] == "levels/x/gravel_nm.dds" and gravel["roughnessMap"] == "levels/x/gravel_r.dds"
     for name in (ROOF_EDGE_MATERIAL, ROOF_TRIM_MATERIAL):
         stage = materials[name]["Stages"][0]
         assert "baseColorMap" not in stage and len(stage["baseColorFactor"]) == 4
@@ -92,3 +102,4 @@ def test_flat_roof_uses_gravel_and_rim_and_trim_are_untextured(tmp_path, monkeyp
     assert materials[ROOF_EDGE_MATERIAL]["Stages"][0]["metallicFactor"] > 0.5  # Blech
     assert materials[ROOF_TRIM_MATERIAL]["Stages"][0]["metallicFactor"] < 0.2  # Holz
     MaterialManager.reset_instance()
+

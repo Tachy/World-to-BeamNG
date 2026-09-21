@@ -86,6 +86,7 @@ def _mesh(coords, height=2.0, ground=None, **kwargs):
     kwargs.setdefault("sink", 0.3)
     kwargs.setdefault("max_step", 1.0)
     kwargs.setdefault("tile_m", 1.2)
+    kwargs.setdefault("cap_thickness", 0.0)  # diese Tests prüfen den Mauerkörper; die Abdeckplatten: test_wall_cap.py
     return build_wall_mesh(coords, height, ground or _flat(), **kwargs)
 
 
@@ -175,3 +176,64 @@ def test_build_walls_returns_one_mesh_per_wall_with_the_rubble_material():
     assert [m["id"] for m in meshes] == ["wall_1", "wall_3"]
     assert all(set(m["faces"]) == {MATERIAL} and len(m["faces"][MATERIAL]) > 0 for m in meshes)
     assert stats["built"] == 2 and stats["length"] == pytest.approx(20.0) and stats["without_height"] == 1
+
+
+# --- Höhenbasis an Straßen -------------------------------------------------------------------------------------------
+
+from world_to_beamng.walls.road_base import RoadBaseHeight
+
+ROAD_Z = 100.0
+ROAD_ALONG_X = [np.array([[-50.0, 0.0, ROAD_Z], [50.0, 0.0, ROAD_Z]])]
+
+
+def _road_base(max_distance=5.0):
+    return RoadBaseHeight(ROAD_ALONG_X, max_distance)
+
+
+def test_a_wall_next_to_a_road_stands_on_the_road_height_not_on_the_embankment():
+    mesh = build_wall_mesh([(-10, 3), (10, 3)], 1.5, _flat(90.0), road_base_at=_road_base())  # Böschung 10 m unter der Straße
+
+    z = mesh["vertices"][:, 2]
+    assert z.max() == pytest.approx(ROAD_Z + 1.5)
+    assert z.min() == pytest.approx(90.0 - 0.3)  # der Fuß reicht bis unters Gelände, kein Spalt
+
+
+def test_a_wall_beyond_the_snap_distance_stands_on_the_terrain():
+    mesh = build_wall_mesh([(-10, 8), (10, 8)], 1.5, _flat(90.0), road_base_at=_road_base())
+
+    z = mesh["vertices"][:, 2]
+    assert z.max() == pytest.approx(91.5) and z.min() == pytest.approx(89.7)
+
+
+def test_terrain_above_the_road_does_not_lift_the_foot_above_the_road_base():
+    mesh = build_wall_mesh([(-10, 3), (10, 3)], 1.5, _flat(105.0), road_base_at=_road_base())  # Hang über der Straße
+
+    z = mesh["vertices"][:, 2]
+    assert z.max() == pytest.approx(ROAD_Z + 1.5)
+    assert z.min() == pytest.approx(ROAD_Z - 0.3)
+
+
+def test_a_wall_leaving_the_road_changes_over_to_the_terrain():
+    mesh = build_wall_mesh([(0, 2), (0, 12)], 1.5, _flat(90.0), road_base_at=_road_base())  # von 2 m bis 12 m Straßenabstand
+
+    vertices = mesh["vertices"]
+    near = vertices[np.abs(vertices[:, 1] - 2.0) < 0.3]
+    far = vertices[np.abs(vertices[:, 1] - 12.0) < 0.3]
+    assert near[:, 2].max() == pytest.approx(ROAD_Z + 1.5)
+    assert far[:, 2].max() == pytest.approx(91.5)
+
+
+def test_without_roads_the_mesh_is_unchanged():
+    coords = [(0, 0), (10, 0), (10, 8)]
+    plain = build_wall_mesh(coords, 1.5, _flat(90.0))
+    with_none = build_wall_mesh(coords, 1.5, _flat(90.0), road_base_at=RoadBaseHeight([], 5.0))
+
+    np.testing.assert_array_equal(plain["vertices"], with_none["vertices"])
+
+
+def test_build_walls_passes_the_road_base_through():
+    ways = [_way(1, [(-10, 3), (10, 3)], height="1.5")]
+
+    meshes, _ = build_walls(ways, _to_local, _flat(90.0), MATERIAL, road_base_at=_road_base())
+
+    assert meshes[0]["vertices"][:, 2].max() == pytest.approx(ROAD_Z + 1.5)

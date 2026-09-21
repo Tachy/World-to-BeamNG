@@ -472,15 +472,6 @@
             ],
             "roughnessFactor": 0.7,
             "metallicFactor": 0.0
-        },
-        "wall_rubble_stone": {
-            "textures": {
-                "baseColorMap": "levels/world_to_beamng/art/shapes/assets/materials/tileable/stone/m_stonewall_damaged_01/t_stonewall_damaged_01_b.color.dds",
-                "normalMap": "levels/world_to_beamng/art/shapes/assets/materials/tileable/stone/m_stonewall_damaged_01/t_stonewall_damaged_01_nm.normal.dds",
-                "roughnessMap": "levels/world_to_beamng/art/shapes/assets/materials/tileable/stone/m_stonewall_damaged_01/t_stonewall_damaged_01_r.data.dds",
-                "useAnisotropic": true
-            },
-            "comment": "Bruchsteinmauern (OSM barrier=wall mit height): rohe Sandsteinblöcke aus BeamNGs tileable/stone; UVs in Textur-Kacheln (config.WALL_TEXTURE_TILE_M)"
         }
     },
     "landuse_mappings": {

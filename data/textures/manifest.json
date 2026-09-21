@@ -1,0 +1,12 @@
+{
+  "textures": {
+    "roof_gravel": {
+      "tile_m": 2.0,
+      "source": "prozedural (textures/gravel.py), Seed 4242, 1024 px"
+    },
+    "rubble_stone_wall": {
+      "tile_m": 1.0,
+      "source": "Foto mauer.jpeg"
+    }
+  }
+}

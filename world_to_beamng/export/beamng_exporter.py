@@ -145,6 +145,12 @@ class BeamNGExporter:
         config.BEAMNG_DIR_BUILDINGS.mkdir(parents=True, exist_ok=True)
         config.CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
+        # Alle Texturen aus data/textures prüfen (prozedurale bei Bedarf einmalig erzeugen); fehlt eine Foto-Textur,
+        # bricht der Export hier ab (MissingTexturesError) - vor dem rechenintensiven Teil
+        from ..textures import registry
+
+        registry.prepare_textures()
+
         # NEU: Phase 0 - Forest Asset Initialization (DIREKT VOR Tile-Loop)
         registered_trees = {}
         vineyard_assets_ready = False
@@ -388,14 +394,16 @@ class BeamNGExporter:
         - Wände: je Putzfarbe ein Material (eigene Albedo-, gemeinsame Normal-/Roughness-Textur)
         - Fenster: Sprite-Atlas für Fenster, Türen und Kellerfenster
         - Dach: Biberschwanz aus osm_to_beamng.json (unverändert)
-        - Flachdach: Kiesfläche; Blechrand und Dachüberstand-Trim: untexturiert
+        - Flachdach: Kiesfläche (Textur aus data/textures); Blechrand und Dachüberstand-Trim: untexturiert
 
-        Texturen der prozeduralen Materialien kommen aus ensure_building_textures(); Farben und Faktoren der
+        Texturen der prozeduralen Materialien kommen aus ensure_building_textures(), die Kies-Textur aus der Textur-Registry
+        (textures/registry.py); Farben und Faktoren der
         untexturierten aus osm_to_beamng.json (OSM_MAPPER), Template-Hinweise aus material_templates.json.
         """
         from ..config import OSM_MAPPER
         from ..facade.building_textures import ensure_building_textures
         from ..facade.facade_styles import PLASTER_COLORS
+        from ..textures import registry
         from ..facade.material_names import (
             FLAT_ROOF_MATERIAL,
             ROOF_EDGE_MATERIAL,
@@ -444,9 +452,8 @@ class BeamNGExporter:
         self.materials.add_building_material(
             ROOF_MATERIAL, color=roof_props.get("diffuseColor"), textures=roof_props.get("textures"), **hints("roof")
         )
-        self.materials.add_building_material(
-            FLAT_ROOF_MATERIAL, textures={"baseColorMap": generated["gravel_color"], **textured("gravel")}, **hints("roof")
-        )
+        gravel = registry.prepared_textures()[config.FLAT_ROOF_GRAVEL_TEXTURE]
+        self.materials.add_building_material(FLAT_ROOF_MATERIAL, textures={**gravel, "useAnisotropic": True}, **hints("roof"))
         self.materials.add_building_material(
             ROOF_EDGE_MATERIAL, **untextured(OSM_MAPPER.get_building_properties("roof_edge")), **hints("roof")
         )

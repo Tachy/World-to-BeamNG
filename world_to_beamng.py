@@ -19,6 +19,7 @@ from world_to_beamng.logging_config import LoggerConfig
 
 logger = LoggerConfig.get_logger()
 from world_to_beamng.export import BeamNGExporter
+from world_to_beamng.textures.registry import MissingTexturesError
 from world_to_beamng.utils.tile_scanner import scan_lgl_tiles, compute_global_center
 
 
@@ -55,12 +56,16 @@ def main():
     logger.info(f"Global Offset: {global_offset}")
 
     # 5. Export durchführen
-    stats = exporter.export_complete_level(
-        tiles=tiles,
-        global_offset=global_offset,
-        include_buildings=config.LOD2_ENABLED,
-        include_horizon=config.PHASE5_ENABLED,
-    )
+    try:
+        stats = exporter.export_complete_level(
+            tiles=tiles,
+            global_offset=global_offset,
+            include_buildings=config.LOD2_ENABLED,
+            include_horizon=config.PHASE5_ENABLED,
+        )
+    except MissingTexturesError as error:  # Foto-Textur fehlt: klare Meldung statt Traceback, Exit-Code 1
+        logger.error(f"\n[!] Export abgebrochen:\n{error}")
+        sys.exit(1)
 
     # 6. Statistiken
     elapsed = time.time() - start_time

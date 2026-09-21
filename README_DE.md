@@ -16,7 +16,7 @@ Bäche und Teiche, Gebäude und einen Horizont. Alpha-Status, in Entwicklung.
 | **Straßen** als BeamNG-`DecalRoad`, eingebettet ins Gelände | OpenStreetMap + DGM1 |
 | **Wald, Einzelbäume, Weinberge, Bodenbewuchs** | OpenStreetMap |
 | **Bäche und Teiche** (`River`, `WaterBlock`) | OpenStreetMap + DGM1 |
-| **Bruchsteinmauern** (50 cm dick, folgen dem Gelände) für `barrier=wall`/`retaining_wall` mit `height`-Tag | OpenStreetMap + DGM1 |
+| **Bruchsteinmauern** (50 cm dick, Steinplatten oben drauf, folgen dem Gelände; neben einer Straße stehen sie auf deren Centerline-Höhe) für `barrier=wall`/`retaining_wall` mit `height`-Tag | OpenStreetMap + DGM1 |
 | **Gebäude** aus LOD2: verputzte Wände in Weiß/Beige/vereinzelt Rot, Fenster, Türen, Kellerfenster, Dächer mit Überstand, Kies auf Flachdächern, Kirchtürme mit Turmuhr | LOD2 (+ OpenStreetMap für Kirchen) |
 | **Horizont** bis 50 km (optional) | DGM30 + Satellitenbild |
 
@@ -141,7 +141,12 @@ World-to-BeamNG/
   Antworten liegen danach in `cache/`.
 - **Höhen für Gelände, Straßen und Wasser** kommen aus DGM1, die der Gebäude aus LOD2; dafür gibt es keinen
   Download. Nur der Horizont braucht DGM30 (siehe oben).
-- **Putz-, Fenster- und Kiestexturen** der Gebäude erzeugt das Programm selbst.
+- **Putz- und Fenstertexturen** der Gebäude erzeugt das Programm selbst. Einmalig erzeugte Texturen (Dachkies und die
+  Bruchsteinmauer aus einem Foto) liegen in `data/textures/` im Repository, je Textur ein Ordner plus `manifest.json`;
+  der Export wandelt sie nur noch in DDS um. `textures/registry.py` listet, welche Texturen der Export braucht, und
+  prüft sie vorab: fehlende prozedurale (Kies) werden einmalig erzeugt, eine fehlende Foto-Textur (Bruchsteinmauer)
+  **bricht den Export ab**, samt Befehl zum Erzeugen. Neue Texturen: `tools\make_seamless_texture.py` (Foto) oder
+  `tools\generate_gravel_texture.py`.
 
 ### Aus der BeamNG-Installation
 
@@ -213,7 +218,8 @@ world_to_beamng/
 ├── io/                   LOD2-Einlesen, Luftbild, Caches
 ├── facade/               Gebäude: Putzwände, Fenster, Dächer, Kirchtürme
 ├── forest/               Wald, Weinberge, Bodenbewuchs
-├── walls/                Bruchsteinmauern (OSM barrier=wall mit height)
+├── walls/                Bruchsteinmauern (OSM barrier=wall mit height), Steinplatten oben drauf
+├── textures/             Textur-Bibliothek (data/textures) und Werkzeuge für kachelnde Texturen
 ├── managers/             Materialien, Level-Objekte, DAE-Export
 ├── builders/, core/      Mesh-Builder, Cache-Verwaltung
 └── geometry/, mesh/, analysis/, utils/

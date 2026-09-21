@@ -459,6 +459,7 @@ class TerrainWorkflow:
                 osm_data,
                 global_offset,
                 make_height_sampler_for_water(heights, terrain_origin_x, terrain_origin_y),
+                road_slope_polygons_2d,
             )
 
         z_min = float(heights.min())
@@ -559,15 +560,20 @@ class TerrainWorkflow:
         )
         return {"rivers": rivers, "ponds": ponds}
 
-    def _build_wall_meshes(self, osm_data, global_offset, height_at):
+    def _build_wall_meshes(self, osm_data, global_offset, height_at, road_polygons=None):
         """
         Bruchsteinmauern aus OSM (barrier=wall/retaining_wall, nur mit height-Tag), dem Gelände folgend (siehe
-        walls/wall_mesh.py).
+        walls/wall_mesh.py); höchstens config.WALL_ROAD_SNAP_M neben einer Straßen-Centerline auf deren Höhe (road_base.py).
+
+        Args:
+            road_polygons: Straßen-Dicts mit "trimmed_centerline" (siehe road_slope_polygons_2d)
 
         Returns:
             (Mesh-Dicts für den DAE-Export, Statistik {"built", "length", "without_height"})
         """
         from ..osm.landuse_polygons import make_local_transform
+        from ..textures import library
+        from ..walls.road_base import RoadBaseHeight, centerlines_from_roads
         from ..walls.wall_mesh import build_walls
 
         meshes, stats = build_walls(
@@ -578,7 +584,12 @@ class TerrainWorkflow:
             thickness=config.WALL_THICKNESS,
             sink=config.WALL_SINK,
             max_step=config.WALL_MAX_SEGMENT,
-            tile_m=config.WALL_TEXTURE_TILE_M,
+            tile_m=library.texture_tile_m(config.WALL_TEXTURE_NAME, config.WALL_TEXTURE_TILE_M),
+            road_base_at=RoadBaseHeight(centerlines_from_roads(road_polygons or []), config.WALL_ROAD_SNAP_M),
+            cap_thickness=config.WALL_CAP_THICKNESS,
+            cap_overhang=config.WALL_CAP_OVERHANG,
+            cap_plate_length=config.WALL_CAP_PLATE_LENGTH,
+            cap_joint=config.WALL_CAP_JOINT,
         )
         logger.info(
             f"  [OK] Mauern: {stats['built']} Bruchsteinmauer(n) mit Höhenangabe ({stats['length']:.0f} m), "
@@ -662,10 +673,13 @@ class TerrainWorkflow:
                 (walls_dir / f"walls{suffix}").unlink(missing_ok=True)
             return 0
 
+        from ..textures import registry
+
         hints = self.materials.get_templates().get("buildings", {}).get("wall", {}).get("material_hints", {})
+        stone = registry.prepared_textures()[config.WALL_TEXTURE_NAME]  # fehlt das Foto, ist der Export längst abgebrochen
         self.materials.add_building_material(
             config.WALL_MATERIAL_NAME,
-            textures=config.OSM_MAPPER.get_building_properties("wall_rubble_stone").get("textures"),
+            textures={**stone, "useAnisotropic": True},
             groundType=hints.get("groundType", "concrete"),
             materialTag0=hints.get("materialTag0", "beamng"),
             materialTag1=hints.get("materialTag1", "Building"),

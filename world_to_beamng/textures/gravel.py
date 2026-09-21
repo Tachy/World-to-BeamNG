@@ -1,18 +1,19 @@
 """
-Prozedurale, kachelbare Kies-Textur für Flachdächer.
+Prozedurale, kachelbare Kies-Textur für Flachdächer - wird einmalig erzeugt und in data/textures abgelegt (nicht bei
+jedem Export): automatisch, falls sie fehlt (textures/registry.py), oder gezielt per tools/generate_gravel_texture.py.
 
 Periodisches Voronoi-Muster: jede Zelle ist ein Kieselstein (Kuppel), die Fugen dazwischen sind dunkel.
 """
 
+from pathlib import Path
 from typing import Dict, Optional
 
 import numpy as np
 from scipy.spatial import cKDTree
 
 from .. import config
-from .texture_utils import fbm, gray_to_rgb, normal_from_height, to_uint8
-
-GRAVEL_VERSION = 1  # bei Änderungen am Muster erhöhen: erzwingt Neuerzeugen der Dateien
+from ..facade.texture_utils import fbm, gray_to_rgb, normal_from_height, to_uint8
+from . import library
 
 _PEBBLE_SIZE_M = 0.014  # mittlerer Korndurchmesser (Kies 8-16 mm)
 _PALETTE = ((150, 146, 138), (128, 124, 118), (170, 164, 152), (140, 134, 122), (112, 110, 106), (160, 150, 132))
@@ -55,3 +56,21 @@ class GravelTextureGenerator:
         height = dome * gap * _RELIEF_PX
         roughness = 0.82 + 0.10 * (1.0 - dome)
         return {"albedo": to_uint8(albedo), "normal": normal_from_height(height, 1.0), "roughness": gray_to_rgb(roughness)}
+
+
+def generate_gravel_texture(library_dir: Optional[Path] = None, seed: int = 4242) -> Path:
+    """
+    Erzeugt die Kies-Textur und legt sie in der Textur-Bibliothek ab (data/textures/roof_gravel).
+
+    Returns:
+        Ordner der Textur
+    """
+    generated = GravelTextureGenerator().generate(seed=seed)
+    maps = {"color": generated["albedo"], "normal": generated["normal"], "roughness": generated["roughness"]}
+    return library.store_texture(
+        config.FLAT_ROOF_GRAVEL_TEXTURE,
+        maps,
+        tile_m=config.FLAT_ROOF_GRAVEL_REPEAT_M,
+        source=f"prozedural (textures/gravel.py), Seed {seed}, {config.FLAT_ROOF_GRAVEL_TEXTURE_PX} px",
+        library_dir=library_dir,
+    )
