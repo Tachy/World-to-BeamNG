@@ -676,7 +676,6 @@ class TerrainWorkflow:
             item_class="TSStatic",
             shape_name=str(config.RELATIVE_DIR_SHAPES / "walls" / "walls.dae"),
             position=(0, 0, 0),
-            rotation=(0, 0, 1, 0),
             overwrite=True,
             collisionType="Visible Mesh Final",
         )

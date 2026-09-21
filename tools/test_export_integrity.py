@@ -1796,12 +1796,11 @@ class ExportIntegrityTest:
             else:
                 self.warning(f"  - position: {position} (erwartet: [0, 0, 0] für lokale Koordinaten)")
 
-            # Prüfe Rotation (sollte [0, 0, 1, 0] sein)
-            rotation = horizon_item.get("rotation", [])
-            if rotation == [0, 0, 1, 0]:
-                self.success(f"  - rotation: {rotation} [OK]")
+            # Das Feld "rotation" darf nicht vorkommen: BeamNG kippt Objekte damit um die x-Achse (Ausrichtung nur über rotationMatrix)
+            if "rotation" not in horizon_item:
+                self.success("  - rotation: nicht gesetzt [OK]")
             else:
-                self.warning(f"  - rotation: {rotation} (erwartet: [0, 0, 1, 0])")
+                self.warning(f"  - rotation: {horizon_item['rotation']} (Feld entfernen: kippt das Objekt in BeamNG)")
 
             # Prüfe Scale (sollte [1, 1, 1] sein)
             scale = horizon_item.get("scale", [])

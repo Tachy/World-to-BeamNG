@@ -12,7 +12,7 @@ import copy
 import json
 import uuid
 import shutil
-from typing import Dict, Any, Optional, List, Tuple
+from typing import Dict, Any, Optional, List, Sequence, Tuple
 from pathlib import Path
 from world_to_beamng import config
 from world_to_beamng.managers.environment import build_environment_lines, load_environment_defaults
@@ -75,7 +75,6 @@ class ItemManager:
             "dataBlock": "SpawnSphereMarker",
             "persistentId": "3d08e3b2-2514-49f8-8b76-8351a12dea51",
             "position": [0, 0, 400],
-            "rotation": [0, 0, 0, 1],
             "spawnClass": "Player",
             "radius": 10,
             "sphereWeight": 100,
@@ -160,7 +159,7 @@ class ItemManager:
         item_class: str = "TSStatic",
         shape_name: Optional[str] = None,
         position: Tuple[float, float, float] = (0, 0, 0),
-        rotation: Tuple[float, float, float, float] = (0, 0, 1, 0),
+        rotation_matrix: Optional[Sequence[float]] = None,
         scale: Tuple[float, float, float] = (1, 1, 1),
         overwrite: bool = False,
         **kwargs,
@@ -173,7 +172,10 @@ class ItemManager:
             item_class: BeamNG Item-Klasse (z.B. "TSStatic", "DecalRoad")
             shape_name: Pfad zur Shape-Datei (relativ oder absolut)
             position: Position [x, y, z]
-            rotation: Rotation [x, y, z, w] (Quaternion)
+            rotation_matrix: Ausrichtung als 3x3-Matrix (9 Werte, zeilenweise); ohne Angabe bleibt das Objekt unverdreht.
+                Es gibt bewusst kein Feld "rotation": BeamNG liest die Ausrichtung nur aus "rotationMatrix" (offizielle
+                Level schreiben nie "rotation"), und ein "rotation": [0, 0, 1, 0] hat jedes DAE-Objekt um ca. 0,04 Grad
+                um die x-Achse durch den Ursprung gekippt (Mauern am Hang 1 m zu tief).
             scale: Skalierung [x, y, z]
             overwrite: Überschreibe existierendes Item
             **kwargs: Zusätzliche Properties (collisionType, dataBlock, etc.)
@@ -181,6 +183,8 @@ class ItemManager:
         Returns:
             True wenn Item hinzugefügt wurde, False wenn bereits vorhanden und overwrite=False
         """
+        if "rotation" in kwargs:
+            raise TypeError('Feld "rotation" nicht verwenden: BeamNG kippt damit das Objekt, Ausrichtung nur über rotation_matrix')
         if name in self.items and not overwrite:
             return False
 
@@ -188,10 +192,11 @@ class ItemManager:
             "name": name,
             "class": item_class,
             "position": list(position),
-            "rotation": list(rotation),
             "scale": list(scale),
         }
 
+        if rotation_matrix is not None:
+            item["rotationMatrix"] = list(rotation_matrix)
         if shape_name:
             item["shapeName"] = shape_name
 
@@ -332,7 +337,6 @@ class ItemManager:
         name: str,
         dae_filename: str,
         position: Tuple[float, float, float],
-        rotation: Tuple[float, float, float, float] = (0, 0, 1, 0),
         overwrite: bool = False,
     ) -> str:
         """
@@ -342,7 +346,6 @@ class ItemManager:
             name: Item-Name (z.B. "building_tile_0_0")
             dae_filename: DAE-Dateiname (z.B. "buildings_tile_0_0.dae")
             position: Position [x, y, z]
-            rotation: Rotation [x, y, z, w]
             overwrite: Überschreibe existierendes Item
 
         Returns:
@@ -357,7 +360,6 @@ class ItemManager:
             item_class="TSStatic",
             shape_name=shape_name,
             position=position,
-            rotation=rotation,
             overwrite=overwrite,
             collisionType="Visible Mesh Final",
         )
