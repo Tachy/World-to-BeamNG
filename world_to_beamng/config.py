@@ -48,6 +48,12 @@ LOD2_ENABLED = False  # LoD2-Gebäude verarbeiten
 PHASE5_ENABLED = True  # Horizont-Layer aktivieren (erfordert DGM30 + DOP300 Daten)
 FORESTS_ENABLED = True  # Wald-Export global aktivieren/deaktivieren
 
+# Zusätzlich zum automatischen Standard-Spawn (nächste Straße zur Gebietsmitte) bekommt jede eindeutig
+# benannte OSM-Straße (osm_tags["name"]) einen eigenen, in der Fahrzeugauswahl wählbaren Spawn-Punkt -
+# siehe ItemManager._compute_named_spawn_points(). Tunnel/Galerien werden ausgeschlossen (ungeeigneter
+# Spawn-Ort), Brücken bleiben erlaubt. Bei mehr benannten Straßen als das Limit gewinnen die längsten.
+MAX_NAMED_SPAWN_POINTS = 20
+
 
 # === MATERIAL-EINSTELLUNGEN ===
 # Materialien verwenden IMMER Texturen (keine Farb-Fallbacks)

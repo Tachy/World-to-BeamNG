@@ -10,6 +10,7 @@ Verwaltet Items für:
 
 import copy
 import json
+import re
 import uuid
 import shutil
 from typing import Dict, Any, Optional, List, Sequence, Tuple
@@ -476,6 +477,79 @@ class ItemManager:
         logger.info(f"  [OK] Fahrzeug-Spawn auf nächster Straße zur Gebietsmitte: {position}")
         return position, rotation_matrix
 
+    @staticmethod
+    def _slugify_spawn_object_name(display_name: str) -> str:
+        """Straßenname -> gültiger, lesbarer SpawnSphere-Objektname (z.B. "Gotthardstrasse" -> "spawn_gotthardstrasse")."""
+        slug = re.sub(r"[^A-Za-z0-9]+", "_", display_name).strip("_").lower()
+        return f"spawn_{slug}" if slug else "spawn_unnamed"
+
+    def _compute_named_spawn_points(self, road_polygons, max_points: Optional[int] = None) -> List[Dict]:
+        """
+        Ein zusätzlicher, in der BeamNG-Fahrzeugauswahl wählbarer Spawn-Punkt je eindeutig benannter
+        OSM-Straße (osm_tags["name"]) - ergänzt den automatischen Standard-Spawn
+        (_compute_vehicle_spawn()), ersetzt ihn nicht.
+
+        Bei mehreren Straßen-Ways desselben Namens (z.B. an Kreuzungen aufgeteilt) gewinnt der Way mit
+        den meisten Centerline-Punkten (Näherung für "am längsten"); dessen mittlerer Punkt (samt
+        Tangente für die Ausrichtung, wie _compute_vehicle_spawn()) wird der Spawn-Punkt. Tunnel/
+        Galerien werden ausgeschlossen (ungeeigneter Spawn-Ort - dunkel/eng), Brücken bleiben erlaubt.
+
+        Args:
+            road_polygons: wie _compute_vehicle_spawn() - Liste von Dicts mit "trimmed_centerline"
+                ((N,3)-Array), optional "osm_tags" (Dict) und "structure_type" (str)
+            max_points: höchstens so viele Punkte (Default: config.MAX_NAMED_SPAWN_POINTS); bei mehr
+                benannten Straßen gewinnen die mit den meisten Centerline-Punkten
+
+        Returns:
+            Liste von Dicts: {"object_name", "display_name", "position", "rotationMatrix"}
+        """
+        import numpy as np
+
+        if max_points is None:
+            max_points = config.MAX_NAMED_SPAWN_POINTS
+        if not road_polygons:
+            return []
+
+        longest_by_name: Dict[str, Dict] = {}
+        for road in road_polygons:
+            if road.get("structure_type") in ("tunnel", "gallery"):
+                continue
+            name = (road.get("osm_tags") or {}).get("name")
+            centerline = road.get("trimmed_centerline")
+            if not name or centerline is None or len(centerline) < 2:
+                continue
+            current = longest_by_name.get(name)
+            if current is None or len(centerline) > len(current["trimmed_centerline"]):
+                longest_by_name[name] = {"trimmed_centerline": centerline, "name": name}
+
+        ranked = sorted(longest_by_name.values(), key=lambda r: -len(r["trimmed_centerline"]))[:max_points]
+
+        used_object_names = set()
+        result = []
+        for road in ranked:
+            coords = np.asarray(road["trimmed_centerline"], dtype=float)
+            idx = len(coords) // 2
+            neighbor_idx = idx + 1 if idx + 1 < len(coords) else idx - 1
+            tangent = coords[neighbor_idx][:2] - coords[idx][:2]
+            norm = float(np.hypot(tangent[0], tangent[1]))
+            if norm < 1e-6:
+                continue  # zwei identische Punkte - keine brauchbare Richtung, dieser Name entfällt
+
+            dx, dy = float(tangent[0] / norm), float(tangent[1] / norm)
+            rotation_matrix = [dy, dx, 0.0, -dx, dy, 0.0, 0.0, 0.0, 1.0]  # siehe _compute_vehicle_spawn()
+            position = [float(coords[idx][0]), float(coords[idx][1]), float(coords[idx][2]) + 0.3]
+
+            object_name = base_name = self._slugify_spawn_object_name(road["name"])
+            suffix = 2
+            while object_name in used_object_names:
+                object_name = f"{base_name}_{suffix}"
+                suffix += 1
+            used_object_names.add(object_name)
+
+            result.append({"object_name": object_name, "display_name": road["name"], "position": position, "rotationMatrix": rotation_matrix})
+
+        return result
+
     def save(self, filepath: Optional[Path] = None, road_polygons=None) -> None:
         """
         Exportiere Items in die richtige BeamNG-Struktur.
@@ -506,6 +580,7 @@ class ItemManager:
         playerdroppoints_items = playerdroppoints_dir / "items.level.json"
 
         spawn_position, spawn_rotation = self._compute_vehicle_spawn(road_polygons)
+        named_spawns = self._compute_named_spawn_points(road_polygons)
 
         # Schreibe main/items.level.json im JSONL-Format (nur MissionGroup)
         # (json.dumps statt json.dump auf die Datei: der C-Encoder ist ~5x schneller)
@@ -536,6 +611,35 @@ class ItemManager:
                     spawn_line["position"] = spawn_position
                     spawn_line["rotationMatrix"] = spawn_rotation
                 f.write(encode(spawn_line) + "\n")
+
+            # Zusätzliche, benannte Spawn-Punkte (ein SpawnSphere je eindeutig benannter Straße)
+            for named_spawn in named_spawns:
+                f.write(
+                    encode(
+                        {
+                            "name": named_spawn["object_name"],
+                            "class": "SpawnSphere",
+                            "dataBlock": "SpawnSphereMarker",
+                            "persistentId": str(uuid.uuid5(uuid.NAMESPACE_URL, f"world_to_beamng/spawn/{named_spawn['object_name']}")),
+                            "position": named_spawn["position"],
+                            "spawnClass": "Player",
+                            "radius": 10,
+                            "sphereWeight": 100,
+                            "indoorWeight": 100,
+                            "parentId": "PlayerDropPoints",
+                            "rotationMatrix": named_spawn["rotationMatrix"],
+                        }
+                    )
+                    + "\n"
+                )
+
+        # info.json-Liste für die BeamNG-Fahrzeugauswahl: der Standard-Spawn ("spawn") zuerst (bekommt
+        # dadurch das 'default'-Flag, siehe lua/ge/extensions/core/levels.lua), dann die benannten.
+        if named_spawns:
+            self.set_info_json_fields(
+                spawnPoints=[{"objectname": "spawn"}]
+                + [{"objectname": ns["object_name"], "name": ns["display_name"]} for ns in named_spawns]
+            )
 
     @property
     def info_json(self) -> Dict[str, Any]:
