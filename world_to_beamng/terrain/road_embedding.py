@@ -2,10 +2,9 @@
 Setzt das Terrain-Heightmap-Array entlang von Straßen exakt auf die
 Straßen-Centerline-Höhe.
 
-Seit der Umstellung auf BeamNG `DecalRoad` (siehe
-docs/superpowers/plans - Straßen werden nicht mehr als eigenes Mesh
+Seit der Umstellung auf BeamNG `DecalRoad` - Straßen werden nicht mehr als eigenes Mesh
 exportiert, sondern als Decal zur Laufzeit direkt auf die Terrain-Oberfläche
-projiziert) gibt es keine zweite, separat kodierte Straßen-Oberfläche mehr,
+projiziert - gibt es keine zweite, separat kodierte Straßen-Oberfläche mehr,
 die "getroffen" werden müsste - das Terrain IST die sichtbare Straße. Daher
 kein Sicherheitsabstand/Gefälle-Kompensation mehr nötig (im Gegensatz zur
 früheren Mesh-Einbettung): die Ziel-Höhe pro Rasterzelle ist exakt die

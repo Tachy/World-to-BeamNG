@@ -257,8 +257,7 @@ class TerrainWorkflow:
         # das Terrain wird nicht mehr trianguliert, siehe Task 9)
         grid_points, grid_elevations, nx, ny = grid
 
-        # 10. Terrain-Heightmap statt Mesh-Triangulierung (siehe Spec:
-        # docs/superpowers/specs/2026-09-17-terrain-heightmap-migration-design.md).
+        # 10. Terrain-Heightmap statt Mesh-Triangulierung.
         # Straßen werden seit der DecalRoad-Umstellung nicht mehr als Mesh
         # gebaut (kein RoadMeshBuilder/Junction-Fan-Material-Mehrheitsvotum
         # mehr nötig) - siehe export_decal_roads().
