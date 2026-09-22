@@ -125,14 +125,22 @@ dasselbe Mesh-Dict-Format (`{"id", "vertices", "uvs", "normals",
 
 ## 5. Tunnel-Mesh (`world_to_beamng/tunnels/tunnel_mesh.py`)
 
-Rechteckige Röhre entlang des linear interpolierten Profils (Abschnitt 2):
+Kreisrunde Röhre (Standard-Straßentunnelprofil) entlang des linear
+interpolierten Profils (Abschnitt 2):
 
-- Boden: Straßenmaterial (wie beim Brücken-Deck).
-- Wände + Decke: prozedurale Beton-Textur.
+- Boden: flache Sehne, Breite `road_width + config.TUNNEL_WIDTH_MARGIN`,
+  Straßenmaterial (wie beim Brücken-Deck).
+- Darüber ein Kreisbogen (prozedurale Beton-Textur), der 240° der Kreislinie
+  einnimmt; die restlichen 120° liegen unterhalb der Bodensehne und werden
+  nicht modelliert (unsichtbare, mit Fundament/Entwässerung gefüllte Sohle).
+  Radius `R = Bodenbreite / sqrt(3)` (die Bodensehne spannt bei einer
+  240°/120°-Aufteilung exakt `sqrt(3)*R`), Kronenhöhe (Boden bis
+  Scheitelpunkt) `1.5 * R` - beide ergeben sich aus der Breite, keine
+  unabhängige Höhen-Konstante. In `arc_segments`
+  (`config.TUNNEL_ARC_SEGMENTS`) Streifen diskretisiert.
 - Segment-Abstand `config.TUNNEL_SEGMENT_STEP` (deutlich gröber als die 1 m
   bei Mauern, z.B. 10 m - die Röhre folgt keinem unebenen Gelände, das hält
   die Vertex-Zahl auch bei 16,9 km im Rahmen).
-- Breite `road_width + config.TUNNEL_WIDTH_MARGIN`, Höhe `config.TUNNEL_HEIGHT`.
 
 **Portal (an beiden Enden):** die natürliche Hangneigung wird an der
 Endposition aus der unveränderten Heightmap abgetastet (Gradient über
@@ -146,13 +154,18 @@ platziert. Keine Änderung der Terrain-Heightmap.
 
 ## 6. Galerie-Mesh (`world_to_beamng/tunnels/gallery_mesh.py`)
 
-Wie Tunnel (gleiche Portal-Behandlung, gleicher Boden), aber pro
-Centerline-Punkt wird die Talseite bestimmt: natürliche Geländehöhe links vs.
-rechts der Centerline vergleichen (identische Technik wie
-`build_road_embankment_profiles()`) - die Seite mit der niedrigeren
+Anders als der Tunnel (Abschnitt 5) bekommt die Galerie KEIN kreisrundes
+Profil und KEINE Portal-Rahmen - sie ist keine in den Fels gebohrte Röhre,
+sondern ein offenes, flach gedecktes Schutzbauwerk entlang der Straße, ihre
+Enden bleiben rechtwinklig (kein Schräg-Schnitt an die Hangneigung nötig).
+Rechteckiges Profil, feste lichte Höhe `config.GALLERY_HEIGHT`: Boden
+(Straßenmaterial), flaches Dach (`config.GALLERY_ROOF_THICKNESS`, Beton-
+Textur). Pro Centerline-Punkt wird die Talseite bestimmt: natürliche
+Geländehöhe links vs. rechts der Centerline vergleichen (identische Technik
+wie `build_road_embankment_profiles()`) - die Seite mit der niedrigeren
 natürlichen Höhe ist die offene/Talseite. Dort wird keine Wand gebaut,
-sondern nur Stützen im Abstand `config.GALLERY_COLUMN_SPACING`; Dach
-(`config.GALLERY_ROOF_THICKNESS`) und bergseitige Wand bleiben geschlossen.
+sondern nur Stützen im Abstand `config.GALLERY_COLUMN_SPACING`; Dach und
+bergseitige Wand bleiben geschlossen.
 
 ## 7. Neue Textur: prozedurales Beton-Material
 
