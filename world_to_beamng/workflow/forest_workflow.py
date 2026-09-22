@@ -9,8 +9,15 @@ Orchestriert Wald-Generierung pro Tile (nach Asset-Scanning durch BeamNGExporter
    - Bilineare Interpolation → Tree-Höhen
    - Forest-Instance-Generierung (Rotation + Scale)
 3. Forest.json-Finalisierung nach Tile-Loop
+
+Die fertigen Baum-Instanzen (Schritt 2, der teuerste Teil bei zehntausenden Bäumen) werden gecacht
+- siehe _forest_cache_key()/_load_cached_tree_instances()/_save_cached_tree_instances() - Poisson-
+Disk-Sampling und Rotation sind sonst bei jedem Lauf unterschiedlich (kein fester Seed), der Cache
+macht wiederholte Läufe über dasselbe Gebiet also nebenbei auch deterministisch.
 """
 
+import hashlib
+import json
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -97,6 +104,64 @@ class ForestWorkflow:
         # dae_path ist relativ zum BeamNG-Benutzerordner ("current"), der über "levels/<level>" liegt
         self.trunk_feet = load_trunk_feet(
             {name: info for name, info in registered_trees.items() if name in used_types}, config.BEAMNG_DIR.parent.parent
+        )
+
+    def _forest_cache_key(self, tile_bounds, global_offset, height_hash) -> Optional[str]:
+        """
+        Cache-Schlüssel für die fertigen Baum-Instanzen einer Fläche (Poisson-Disk-Sampling +
+        Höhen-Interpolation + Rotation/Scale/Trunk-Fitting - der teuerste Teil von process_tile()).
+
+        None ohne height_hash (kein Cache möglich - wie bei den anderen Caches dieser Pipeline).
+        Bewusst grob (wie tile_hash/height_hash überall sonst in dieser Pipeline): eine Änderung
+        an FOREST_*/Straßen-/Terrain-Konfigurationskonstanten wird NICHT automatisch erkannt -
+        siehe README-Troubleshooting ("cache/ löschen, wenn Ergebnisse seltsam aussehen").
+        """
+        if not height_hash:
+            return None
+
+        def _file_sig(path) -> str:
+            p = Path(path)
+            if not p.is_file():
+                return "missing"
+            st = p.stat()
+            return f"{st.st_size}:{int(st.st_mtime)}"
+
+        ox, oy = (global_offset[0], global_offset[1]) if global_offset else (0.0, 0.0)
+        managed_item_data = self.config.BEAMNG_DIR / "art" / "forest" / "managedItemData.json"
+        signature = "|".join(
+            [
+                str(height_hash),
+                ",".join(f"{v:.2f}" for v in tile_bounds),
+                f"{ox:.2f}_{oy:.2f}",
+                _file_sig("data/osm_to_beamng.json"),
+                _file_sig(managed_item_data),
+            ]
+        )
+        return hashlib.sha1(signature.encode("utf-8")).hexdigest()[:16]
+
+    def _forest_cache_path(self, cache_key: str) -> Path:
+        return self.config.CACHE_DIR / f"forest_instances_{cache_key}.json"
+
+    def _load_cached_tree_instances(self, cache_key: Optional[str]):
+        """(tree_instances, forests_count) aus dem Cache, oder None (kein Treffer/kein Cache-Key)."""
+        if cache_key is None:
+            return None
+        path = self._forest_cache_path(cache_key)
+        if not path.exists():
+            return None
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            return data["tree_instances"], data["forests_count"]
+        except (OSError, ValueError, KeyError):
+            return None
+
+    def _save_cached_tree_instances(self, cache_key: Optional[str], tree_instances, forests_count: int) -> None:
+        if cache_key is None:
+            return
+        self.config.CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        path = self._forest_cache_path(cache_key)
+        path.write_text(
+            json.dumps({"tree_instances": tree_instances, "forests_count": forests_count}), encoding="utf-8"
         )
 
     def _transform_osm_to_local(self, osm_data, global_offset: Tuple[float, float]):
@@ -420,6 +485,25 @@ class ForestWorkflow:
                     "error": "set_forest_config() not called",
                 }
 
+            # Cache: Poisson-Disk-Sampling + Höhen-Interpolation + Instanz-Generierung sind der
+            # teuerste Teil hier unten (zehntausende Bäume) - bei unverändertem Gebiet/Höhendaten/
+            # Config direkt die fertigen Baum-Instanzen wiederverwenden (siehe _forest_cache_key()).
+            cache_key = self._forest_cache_key(tile_bounds, global_offset, height_hash)
+            cached = self._load_cached_tree_instances(cache_key)
+            if cached is not None:
+                tree_instances, forests_count = cached
+                self.all_tree_instances.extend(tree_instances)
+                logger.info(f"  [OK] Forest-Cache gefunden: {len(tree_instances)} Baum-Instanzen (bereits berechnet)")
+                return {
+                    "status": "success",
+                    "tile_name": tile_name,
+                    "tile_bounds": tile_bounds,
+                    "tree_count": len(tree_instances),
+                    "forests_count": forests_count,
+                    "tree_instances": tree_instances,
+                    "error": None,
+                }
+
             # Phase 1b: Normalisierung (mit bereits geladenen OSM-Daten)
             if not osm_data:
                 logger.info(f"  [→] Lade OSM-Daten aus Cache...")
@@ -609,6 +693,7 @@ class ForestWorkflow:
 
             # Sammle Instances für finalen Export
             self.all_tree_instances.extend(tree_instances)
+            self._save_cached_tree_instances(cache_key, tree_instances, len(forests))
 
             logger.info(f"  [✓] {len(tree_instances)} Baum-Instanzen generiert für {tile_name}")
 
