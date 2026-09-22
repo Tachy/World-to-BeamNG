@@ -61,7 +61,7 @@ def _photos():
 
 
 def test_each_photo_shows_only_the_area_of_its_own_tile(tmp_path):
-    src = tmp_path / "DOP20"
+    src = tmp_path / "satellite"
     src.mkdir()
     # ein Quellbild pro Kachel (links rot, rechts blau) - obere linke Ecke = (x_origin, y_origin)
     _zip(src / "a.zip", "a", _png(20, 20, RED), OFFSET[0] + 0.0, OFFSET[1] + 20.0)
@@ -77,7 +77,7 @@ def test_each_photo_shows_only_the_area_of_its_own_tile(tmp_path):
 
 
 def test_a_source_image_that_crosses_the_tile_border_is_split_correctly(tmp_path):
-    src = tmp_path / "DOP20"
+    src = tmp_path / "satellite"
     src.mkdir()
     # EIN Quellbild über beide Kacheln: linke Hälfte rot, rechte Hälfte blau
     _zip(src / "wide.zip", "wide", _png(40, 20, RED, BLUE), OFFSET[0] + 0.0, OFFSET[1] + 20.0)
@@ -92,7 +92,7 @@ def test_a_source_image_that_crosses_the_tile_border_is_split_correctly(tmp_path
 
 
 def test_tiles_stacked_north_south_use_their_own_rows_of_the_source(tmp_path):
-    src = tmp_path / "DOP20"
+    src = tmp_path / "satellite"
     src.mkdir()
     # Quellbild 20x40 px: oben (Norden) grün, unten (Süden) rot - Kachel Nord: y 20..40, Kachel Süd: y 0..20
     image = Image.new("RGB", (20, 40), GREEN)
@@ -113,7 +113,7 @@ def test_tiles_stacked_north_south_use_their_own_rows_of_the_source(tmp_path):
 
 
 def test_photo_is_downscaled_to_the_target_size(tmp_path):
-    src = tmp_path / "DOP20"
+    src = tmp_path / "satellite"
     src.mkdir()
     _zip(src / "a.zip", "a", _png(20, 20, RED), OFFSET[0], OFFSET[1] + 20.0)
     out = tmp_path / "out"
@@ -128,7 +128,7 @@ def test_photo_is_downscaled_to_the_target_size(tmp_path):
 
 @pytest.fixture
 def dirs(tmp_path):
-    src = tmp_path / "DOP20"
+    src = tmp_path / "satellite"
     src.mkdir()
     (src / "x.zip").write_bytes(b"x" * 10)
     out = tmp_path / "out"

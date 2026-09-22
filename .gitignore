@@ -1,11 +1,16 @@
-# Height data files (DGM1, DOP20, LOD2)
-data/DGM1
-data/DOP20
-data/LOD2
+# Base data files (height/DGM1, satellite/DOP20, buildings/LoD2) - contents ignored, but each
+# folder's own README.md (checked in, explains what belongs there) stays tracked
+data/height/*
+!data/height/README.md
+data/satellite/*
+!data/satellite/README.md
+data/buildings/*
+!data/buildings/README.md
 data/assets
 data/italy
-data/DGM1_ch
-data/DOP20_ch
+data/height_ch
+data/satellite_ch
+data/buildings_ch
 
 # Cache files
 cache/

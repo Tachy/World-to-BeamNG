@@ -284,11 +284,12 @@ PHOTO_TILE_SIZE_M = 2000.0
 
 # === VERZEICHNISSE ===
 CACHE_DIR = Path("cache")  # Verzeichnis fuer Cache-Dateien
-HEIGHT_DATA_DIR = Path("data/DGM1")  # Verzeichnis mit Hoehendaten
-LOD2_DATA_DIR = Path("data/LOD2")  # Verzeichnis mit 3D-Gebäudemodellen (CityGML)
+HEIGHT_DATA_DIR = Path("data/height")  # Verzeichnis mit Hoehendaten (DGM1)
+AERIAL_DATA_DIR = Path("data/satellite")  # Verzeichnis mit Luftbildern (DOP20)
+LOD2_DATA_DIR = Path("data/buildings")  # Verzeichnis mit 3D-Gebäudemodellen (LoD2/CityGML)
 # 30m Hoehendaten fuer den Horizont: IMMER vollautomatisch von Copernicus geladen (dgm30_fetch.py),
 # nie manuell abgelegt - gehoert deshalb unter cache/ (jederzeit sicher loeschbar/neu ladbar),
-# nicht nach data/ (das bleibt fuer selbst mitgebrachte Rohdaten wie DGM1/DOP20/LOD2).
+# nicht nach data/ (das bleibt fuer selbst mitgebrachte Rohdaten wie Hoehe/Luftbild/Gebaeude).
 DGM30_CACHE_DIR = CACHE_DIR / "dgm30"
 
 # === AUTOMATISCHER DOWNLOAD: HORIZONT-QUELLDATEN (DGM30 + SENTINEL-2) ===

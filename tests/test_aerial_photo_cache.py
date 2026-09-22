@@ -42,7 +42,7 @@ def ensure_aerial_photo(aerial_dir, output_dir, grid_bounds, global_offset, targ
 
 @pytest.fixture
 def dirs(tmp_path):
-    aerial_dir = tmp_path / "DOP20"
+    aerial_dir = tmp_path / "satellite"
     aerial_dir.mkdir()
     (aerial_dir / "dop20rgb_32_399_5296_2_bw.zip").write_bytes(b"a" * 100)
     (aerial_dir / "dop20rgb_32_401_5298_2_bw.zip").write_bytes(b"b" * 200)
@@ -140,7 +140,7 @@ def test_ensure_rebuilds_when_switching_between_one_and_four_tiles(dirs, monkeyp
 
 
 def test_ensure_keeps_an_existing_photo_when_there_are_no_source_images(tmp_path):
-    empty = tmp_path / "DOP20"
+    empty = tmp_path / "satellite"
     empty.mkdir()
     textures = tmp_path / "textures"
     textures.mkdir()

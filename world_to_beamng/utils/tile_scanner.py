@@ -1,5 +1,5 @@
 """
-Scanner für Höhendaten-Kacheln (data/DGM1).
+Scanner für Höhendaten-Kacheln (data/height).
 
 Jede Datei (lose GeoTIFF ODER ZIP) wird am TATSÄCHLICHEN Inhalt erkannt - siehe
 terrain.elevation_io.read_elevation_tile() für die zwei unterstützten Formate (ASCII-XYZ-Punktwolke,

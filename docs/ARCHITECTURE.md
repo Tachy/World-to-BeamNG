@@ -99,7 +99,7 @@ config = Config(
 exporter = BeamNGExporter(config)
 
 # 3. Tiles scannen
-tiles = scan_lgl_tiles("data/DGM1")
+tiles = scan_lgl_tiles("data/height")
 global_offset = compute_global_center(tiles)
 
 # 4. Export

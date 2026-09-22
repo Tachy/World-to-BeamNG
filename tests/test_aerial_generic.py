@@ -126,7 +126,7 @@ def test_aerial_source_files_includes_loose_rasters_not_only_zips(tmp_path):
 def test_ensure_aerial_photos_does_not_report_none_for_a_directory_with_only_loose_geotiffs(tmp_path):
     # Regressionstest: vorher wurde nur nach *.zip gesucht - ein Verzeichnis mit AUSSCHLIESSLICH
     # losen GeoTIFFs galt faelschlich als "keine Quellbilder" ("none").
-    aerial_dir = tmp_path / "DOP20"
+    aerial_dir = tmp_path / "satellite"
     aerial_dir.mkdir()
     _write_geotiff(aerial_dir / "ortho.tif", (0.0, 0.0, 4.0, 4.0))
     textures = tmp_path / "textures"

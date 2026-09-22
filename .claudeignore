@@ -4,11 +4,16 @@
 # again for clarity/completeness.
 
 # Raw geodata (height/imagery/building tiles) — huge, binary, never worth reading
-data/DGM1/
-data/DGM30/
-data/DOP20/
-data/DOP300/
-data/LoD2/
+# (each folder's own README.md is tiny and worth reading, so it's excepted)
+data/height/*
+!data/height/README.md
+data/satellite/*
+!data/satellite/README.md
+data/buildings/*
+!data/buildings/README.md
+data/height_ch/
+data/satellite_ch/
+data/buildings_ch/
 data/assets/
 data/italy/
 data/*.jpg

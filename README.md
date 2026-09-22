@@ -64,8 +64,9 @@ The tests additionally need `pytest` (`.\.venv\Scripts\pip install pytest`).
 
 The data is **not in the repository** (about 1 GB per 4×4 km). It comes from the
 **Landesamt für Geoinformation und Landentwicklung Baden-Württemberg (LGL)** open geodata portal
-(<https://opengeodata.lgl-bw.de>) and is put **unchanged** as ZIP files into the folders under `data/`. You have to
-create the folders yourself because they are not in Git.
+(<https://opengeodata.lgl-bw.de>) and is put **unchanged** as ZIP files into the folders under `data/`. The three
+folders (`data/height/`, `data/satellite/`, `data/buildings/`) already exist in the repository, each with a short
+`README.md` describing what belongs there; only their contents are ignored by Git.
 
 ### The area follows from the DGM1 tiles
 
@@ -78,12 +79,12 @@ Example for a 4×4 km area: `399`/`401` × `5296`/`5298`.
 
 | Folder | Content | File name | Size per tile |
 |---|---|---|---|
-| `data/DGM1/` | Digital terrain model, 1 m (ZIP with XYZ points) | `dgm1_32_<x>_<y>_2_bw.zip` | approx. 14 MB |
-| `data/DOP20/` | Digital orthophotos, 20 cm, RGB (ZIP with TIF + TFW) | `dop20rgb_32_<x>_<y>_2_bw.zip` | approx. 230 MB |
+| `data/height/` | Digital terrain model, 1 m (ZIP with XYZ points) | `dgm1_32_<x>_<y>_2_bw.zip` | approx. 14 MB |
+| `data/satellite/` | Digital orthophotos, 20 cm, RGB (ZIP with TIF + TFW) | `dop20rgb_32_<x>_<y>_2_bw.zip` | approx. 230 MB |
 
 The file name only matters for the LGL BW format above. Any other georeferenced GeoTIFF DEM (loose file or inside a
 ZIP) works too, under any file name, and is always resampled to `GRID_SPACING` regardless of its native resolution;
-the same applies to any georeferenced orthophoto (embedded GeoTIFF tags or a `.tfw` world file) under `data/DOP20/`.
+the same applies to any georeferenced orthophoto (embedded GeoTIFF tags or a `.tfw` world file) under `data/satellite/`.
 See "Using data from other regions" below.
 
 Without DGM1 the export aborts ("Keine DGM1-Kacheln gefunden" – no DGM1/GeoTIFF tiles found). If the aerial photo is
@@ -93,16 +94,16 @@ missing, the export reports an error in the log.
 
 | Folder | Content | File name | If it is missing |
 |---|---|---|---|
-| `data/LOD2/` | 3D building models LoD2 (ZIP with CityGML) | `LoD2_32_<x>_<y>_2_bw.zip` | no buildings (`LOD2_ENABLED`) |
+| `data/buildings/` | 3D building models LoD2 (ZIP with CityGML) | `LoD2_32_<x>_<y>_2_bw.zip` | no buildings (`LOD2_ENABLED`) |
 
 Finished example layout:
 
 ```
 World-to-BeamNG/
 └── data/
-    ├── DGM1/    dgm1_32_399_5296_2_bw.zip   dgm1_32_399_5298_2_bw.zip   …
-    ├── DOP20/   dop20rgb_32_399_5296_2_bw.zip   …
-    └── LOD2/    LoD2_32_399_5296_2_bw.zip   …
+    ├── height/     dgm1_32_399_5296_2_bw.zip   dgm1_32_399_5298_2_bw.zip   …
+    ├── satellite/  dop20rgb_32_399_5296_2_bw.zip   …
+    └── buildings/  LoD2_32_399_5296_2_bw.zip   …
 ```
 
 ### Horizon (optional, `PHASE5_ENABLED`)
@@ -117,7 +118,7 @@ hand; both live under `cache/` (not `data/`) because the program manages them en
   direction the data ends, and the horizon is shorter there.
 - `cache/horizon_source/` — the raw Sentinel-2 mosaic before cropping, and `cache/horizon_texture/` — the final,
   cropped texture actually used. Both are keyed by area (+ target size/resampling for the texture), so switching the
-  source region (`data/DGM1/` etc.) and back never mixes up the two areas' images.
+  source region (`data/height/` etc.) and back never mixes up the two areas' images.
 
 All three are ordinary caches: safe to delete any time, rebuilt automatically on the next run. If you ever need a
 tile that the automatic download couldn't get (e.g. offline use), you can still place a Copernicus DEM GLO-30 GeoTIFF
@@ -138,11 +139,11 @@ for the exact required attribution text.
 
 ### Using data from other regions
 
-`data/DGM1/` and `data/DOP20/` accept any georeferenced GeoTIFF (single-band elevation, RGB orthophoto), loose or
+`data/height/` and `data/satellite/` accept any georeferenced GeoTIFF (single-band elevation, RGB orthophoto), loose or
 inside a ZIP, under any file name — the coordinate system and the covered area are read from the file itself, not
 guessed from a naming scheme. To use data from a region other than Baden-Württemberg:
 
-- Put the DEM GeoTIFF(s) into `data/DGM1/` and the orthophoto GeoTIFF(s) into `data/DOP20/`. The elevation model is
+- Put the DEM GeoTIFF(s) into `data/height/` and the orthophoto GeoTIFF(s) into `data/satellite/`. The elevation model is
   always resampled to `config.GRID_SPACING` (default 1 m), whatever its native resolution; the orthophotos are
   composited to `config.PHOTO_TILE_SIZE_M`-sized tiles (default 2000 m) at `TERRAIN_BASE_TEX_PIXEL_SIZE` regardless
   of how many source files or what native tiling the source portal uses.
@@ -217,7 +218,7 @@ The program's messages are in German; they are quoted as they appear, followed b
 
 | Message / symptom | Cause and solution |
 |---|---|
-| `Keine DGM1-Kacheln gefunden` (no DGM1 tiles found) | `data/DGM1/` is missing, empty, or contains no readable ZIPs/GeoTIFFs (a GeoTIFF without a coordinate system is skipped with a warning) |
+| `Keine DGM1-Kacheln gefunden` (no DGM1 tiles found) | `data/height/` is missing, empty, or contains no readable ZIPs/GeoTIFFs (a GeoTIFF without a coordinate system is skipped with a warning) |
 | `texconv.exe nicht gefunden` (texconv.exe not found) | `setup_project.py` has not run; or put the file manually at `bin\texconv.exe` |
 | `BeamNG.drive.ini nicht gefunden` (BeamNG.drive.ini not found) | BeamNG.drive has never been started |
 | `managedItemData.json nicht gefunden` (not found) | run `tools\generate_forest_assets.py` once |

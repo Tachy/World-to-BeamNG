@@ -66,7 +66,8 @@ Die Tests brauchen zusätzlich `pytest` (`.\.venv\Scripts\pip install pytest`).
 Die Daten sind **nicht im Repository** (rund 1 GB je 4×4 km). Sie kommen vom
 **Landesamt für Geoinformation und Landentwicklung Baden-Württemberg (LGL)** aus dem Open-GeoData-Portal
 (<https://opengeodata.lgl-bw.de>) und werden als ZIP-Dateien **unverändert** in die Ordner unter `data/` gelegt. Die
-Ordner müssen selbst angelegt werden, weil sie nicht in Git stehen.
+drei Ordner (`data/height/`, `data/satellite/`, `data/buildings/`) existieren bereits im Repository, jeder mit einer
+kurzen `README.md`, die beschreibt, was dort hingehört; nur ihr Inhalt ist von Git ignoriert.
 
 ### Das Gebiet ergibt sich aus den DGM1-Kacheln
 
@@ -79,13 +80,13 @@ Gebäude vorliegen. Beispiel für ein 4×4-km-Gebiet: `399`/`401` × `5296`/`529
 
 | Ordner | Inhalt | Dateiname | Größe je Kachel |
 |---|---|---|---|
-| `data/DGM1/` | Digitales Geländemodell 1 m (ZIP mit XYZ-Punkten) | `dgm1_32_<x>_<y>_2_bw.zip` | ca. 14 MB |
-| `data/DOP20/` | Digitale Orthophotos 20 cm, RGB (ZIP mit TIF + TFW) | `dop20rgb_32_<x>_<y>_2_bw.zip` | ca. 230 MB |
+| `data/height/` | Digitales Geländemodell 1 m (ZIP mit XYZ-Punkten) | `dgm1_32_<x>_<y>_2_bw.zip` | ca. 14 MB |
+| `data/satellite/` | Digitale Orthophotos 20 cm, RGB (ZIP mit TIF + TFW) | `dop20rgb_32_<x>_<y>_2_bw.zip` | ca. 230 MB |
 
 Der Dateiname spielt nur für das LGL-BW-Format oben eine Rolle. Jedes andere georeferenzierte GeoTIFF-Höhenmodell
 (lose Datei oder in einem ZIP) funktioniert ebenfalls, unter beliebigem Dateinamen, und wird immer auf
 `GRID_SPACING` umgetastet, unabhängig von seiner nativen Auflösung; entsprechend für jedes georeferenzierte
-Orthophoto (eingebettete GeoTIFF-Tags oder eine `.tfw`-Weltdatei) unter `data/DOP20/`. Siehe „Daten aus anderen
+Orthophoto (eingebettete GeoTIFF-Tags oder eine `.tfw`-Weltdatei) unter `data/satellite/`. Siehe „Daten aus anderen
 Regionen verwenden" unten.
 
 Ohne DGM1 bricht der Export ab („Keine DGM1-Kacheln gefunden" - keine DGM1-/GeoTIFF-Kacheln gefunden). Fehlt das
@@ -95,16 +96,16 @@ Luftbild, meldet der Export einen Fehler im Log.
 
 | Ordner | Inhalt | Dateiname | Wenn es fehlt |
 |---|---|---|---|
-| `data/LOD2/` | 3D-Gebäudemodelle LoD2 (ZIP mit CityGML) | `LoD2_32_<x>_<y>_2_bw.zip` | keine Gebäude (`LOD2_ENABLED`) |
+| `data/buildings/` | 3D-Gebäudemodelle LoD2 (ZIP mit CityGML) | `LoD2_32_<x>_<y>_2_bw.zip` | keine Gebäude (`LOD2_ENABLED`) |
 
 Fertiges Beispiel-Layout:
 
 ```
 World-to-BeamNG/
 └── data/
-    ├── DGM1/    dgm1_32_399_5296_2_bw.zip   dgm1_32_399_5298_2_bw.zip   …
-    ├── DOP20/   dop20rgb_32_399_5296_2_bw.zip   …
-    └── LOD2/    LoD2_32_399_5296_2_bw.zip   …
+    ├── height/     dgm1_32_399_5296_2_bw.zip   dgm1_32_399_5298_2_bw.zip   …
+    ├── satellite/  dop20rgb_32_399_5296_2_bw.zip   …
+    └── buildings/  LoD2_32_399_5296_2_bw.zip   …
 ```
 
 ### Horizont (optional, `PHASE5_ENABLED`)
@@ -120,7 +121,7 @@ verwaltet:
   Himmelsrichtung die Daten enden, und der Horizont ist dort kürzer.
 - `cache/horizon_source/` - das rohe Sentinel-2-Mosaik vor dem Zuschnitt, und `cache/horizon_texture/` - die
   fertige, zugeschnittene Textur, die tatsächlich verwendet wird. Beide sind gebietsabhängig benannt (bei der Textur
-  zusätzlich nach Zielgröße/Resampling), sodass ein Wechsel des Quellgebiets (`data/DGM1/` usw.) und zurück die
+  zusätzlich nach Zielgröße/Resampling), sodass ein Wechsel des Quellgebiets (`data/height/` usw.) und zurück die
   Bilder der beiden Gebiete nie vermischt.
 
 Alle drei sind gewöhnliche Caches: jederzeit sicher löschbar, werden beim nächsten Lauf automatisch neu aufgebaut.
@@ -142,12 +143,12 @@ den genauen Pflicht-Attributionstext siehe „Lizenz und Quellenangaben" unten.
 
 ### Daten aus anderen Regionen verwenden
 
-`data/DGM1/` und `data/DOP20/` akzeptieren jedes georeferenzierte GeoTIFF (Einzelband-Höhenmodell, RGB-Orthophoto),
+`data/height/` und `data/satellite/` akzeptieren jedes georeferenzierte GeoTIFF (Einzelband-Höhenmodell, RGB-Orthophoto),
 lose oder in einem ZIP, unter beliebigem Dateinamen - Koordinatensystem und abgedeckte Fläche werden aus der Datei
 selbst gelesen, nicht aus einem Namensschema erraten. So werden Daten einer anderen Region als Baden-Württemberg
 genutzt:
 
-- Die DGM-GeoTIFFs nach `data/DGM1/` legen, die Orthophoto-GeoTIFFs nach `data/DOP20/`. Das Höhenmodell wird immer
+- Die DGM-GeoTIFFs nach `data/height/` legen, die Orthophoto-GeoTIFFs nach `data/satellite/`. Das Höhenmodell wird immer
   auf `config.GRID_SPACING` (Standard 1 m) umgetastet, unabhängig von seiner nativen Auflösung; die Orthophotos
   werden zu `config.PHOTO_TILE_SIZE_M`-großen Kacheln (Standard 2000 m) mit `TERRAIN_BASE_TEX_PIXEL_SIZE`
   zusammengesetzt, unabhängig davon, wie viele Quelldateien es gibt oder wie das Quellportal selbst kachelt.
@@ -220,7 +221,7 @@ Caches etwa eine Minute. Der erste Lauf ist länger, weil OSM geladen und die Ca
 
 | Meldung / Symptom | Ursache und Lösung |
 |---|---|
-| `Keine DGM1-Kacheln gefunden` | `data/DGM1/` fehlt, ist leer, oder enthält keine lesbaren ZIPs/GeoTIFFs (ein GeoTIFF ohne Koordinatensystem wird mit Warnung übersprungen) |
+| `Keine DGM1-Kacheln gefunden` | `data/height/` fehlt, ist leer, oder enthält keine lesbaren ZIPs/GeoTIFFs (ein GeoTIFF ohne Koordinatensystem wird mit Warnung übersprungen) |
 | `texconv.exe nicht gefunden` | `setup_project.py` nicht gelaufen; oder Datei manuell nach `bin\texconv.exe` legen |
 | `BeamNG.drive.ini nicht gefunden` | BeamNG.drive wurde noch nie gestartet |
 | `managedItemData.json nicht gefunden` | einmalig `tools\generate_forest_assets.py` ausführen |

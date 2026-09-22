@@ -243,7 +243,7 @@ class BeamNGExporter:
             utm_min_y - global_offset[1] + padded_extent,
         )
         textures_dir = config.BEAMNG_DIR_TEXTURES
-        aerial_dir = Path("data/DOP20")
+        aerial_dir = config.AERIAL_DATA_DIR
         from ..io.aerial import ensure_aerial_photos, SINGLE_PHOTO_NAME
         from ..terrain.photo_tiles import build_processing_tile_grid, photo_tile_specs
 

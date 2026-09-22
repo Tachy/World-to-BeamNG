@@ -47,7 +47,7 @@ def parse_world_file(tfw_data):
         return None
 
 
-def extract_images_from_zips(aerial_dir="data/DOP20"):
+def extract_images_from_zips(aerial_dir=config.AERIAL_DATA_DIR):
     """
     Extrahiert alle Bilder mit Georeferenzierung aus ZIP-Dateien.
 
@@ -57,7 +57,7 @@ def extract_images_from_zips(aerial_dir="data/DOP20"):
     .tfw und ohne Geo-Tags bleibt ein Fehlerfall (world_info=None, wird später verworfen).
 
     Args:
-        aerial_dir: Pfad zum DOP20-Verzeichnis
+        aerial_dir: Pfad zum Luftbild-Verzeichnis (config.AERIAL_DATA_DIR)
 
     Returns:
         List von (image_name, image_data_bytes, world_file_info) Tupeln
@@ -141,7 +141,7 @@ def _read_geotiff_world_info(path_or_vsi):
         return None
 
 
-def extract_loose_images(aerial_dir="data/DOP20"):
+def extract_loose_images(aerial_dir=config.AERIAL_DATA_DIR):
     """
     Lose Rasterdateien direkt im Verzeichnis (*.tif, *.tiff) - nicht in einem ZIP. Georeferenzierung
     wie bei extract_images_from_zips(): eingebettete GeoTIFF-Tags bevorzugt, sonst eine begleitende
@@ -169,7 +169,7 @@ def extract_loose_images(aerial_dir="data/DOP20"):
     return images
 
 
-def extract_georeferenced_images(aerial_dir="data/DOP20"):
+def extract_georeferenced_images(aerial_dir=config.AERIAL_DATA_DIR):
     """
     Kombiniert extract_images_from_zips() (ZIP, bytes-basiert) und extract_loose_images() (lose
     Datei, Path-basiert) zu einer einheitlichen Liste - Quellformat ist danach egal, beides läuft
