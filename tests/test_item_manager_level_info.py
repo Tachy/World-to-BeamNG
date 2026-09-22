@@ -96,7 +96,8 @@ def test_info_json_declares_the_default_spawn_point_name(tmp_path):
     ItemManager.get_instance(tmp_path).save_info_json()
 
     info = json.loads((tmp_path / "info.json").read_text(encoding="utf-8"))
-    assert info["defaultSpawnPointName"] == "PlayerDropPoints"
+    # Name des SpawnSphere-Objekts ("spawn"), NICHT der PlayerDropPoints-SimGroup - siehe setSpawnpoint.lua
+    assert info["defaultSpawnPointName"] == "spawn"
     assert "spawnPointName" not in info  # falscher Schlüssel, BeamNG liest nur defaultSpawnPointName
     ItemManager.reset_instance()
 

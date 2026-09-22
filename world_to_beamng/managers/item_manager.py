@@ -95,7 +95,12 @@ class ItemManager:
         "authors": "Tachy AI",
         "supportsTraffic": False,
         "supportsTimeOfDay": True,  # TimeOfDay-Objekt vorhanden (managers/environment.py)
-        "defaultSpawnPointName": "PlayerDropPoints",  # BeamNG sucht nach dieser SimGroup
+        # Name des SpawnSphere-OBJEKTS (PLAYER_DROPPOINTS_LINE, "spawn"), NICHT der umschließenden
+        # PlayerDropPoints-SimGroup: setSpawnpoint.lua::loadDefaultSpawnpoint() liest dieses Feld direkt
+        # und übergibt es unverändert an scenetree.findObject() - zeigt es auf die SimGroup, findet das
+        # einen Nicht-Objekt ohne getPosition() und core_levels.maybeSpawnDefaultVehicle() crasht fatal
+        # beim automatischen Fahrzeug-Spawn (verifiziert gegen lua/ge/spawn.lua + setSpawnpoint.lua).
+        "defaultSpawnPointName": "spawn",
     }
 
     def __init__(self, beamng_dir: Path):
