@@ -7,6 +7,10 @@
     "rubble_stone_wall": {
       "tile_m": 1.0,
       "source": "Foto mauer.jpeg"
+    },
+    "tunnel_concrete": {
+      "tile_m": 2.0,
+      "source": "prozedural (textures/concrete.py), Seed 8181, 1024 px"
     }
   }
 }
