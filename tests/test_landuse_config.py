@@ -61,8 +61,19 @@ def _photo_categories():
         ({"landuse": "commercial"}, "urban"),
         ({"landuse": "industrial"}, "urban"),
         ({"landuse": "greenhouse_horticulture"}, "urban"),
+        ({"leisure": "sports_hall"}, "urban"),
+        # Fels/Steinbruch: kein eigenes Material, Luftbild bleibt (zeigt Fels/Geröll bereits realistisch)
+        ({"landuse": "quarry"}, "bare_ground"),
+        ({"natural": "bare_rock"}, "bare_ground"),
+        ({"natural": "scree"}, "bare_ground"),
         ({"natural": "water"}, "water"),
         ({"landuse": "basin"}, "water"),
+        ({"leisure": "swimming_pool"}, "water"),
+        ({"leisure": "water_park"}, "water"),
+        # Unbekannter, aber vorhandener landuse-artiger Tag -> generisches Gras statt unbemaltem Foto-Rest
+        ({"landuse": "military"}, "meadow"),
+        ({"leisure": "nature_reserve"}, "meadow"),
+        ({"natural": "valley"}, "meadow"),
         # trockene Hochwasser-Rückhaltebecken: Wiese statt Wasser
         ({"landuse": "basin", "basin": "detention"}, "meadow"),
         ({"landuse": "basin", "basin": "detention", "layer": "-1"}, "meadow"),

@@ -69,12 +69,30 @@ def test_get_landuse_category_matches_tag_values():
     assert get_landuse_category({"leisure": "park"}, LANDUSE_MAPPINGS_FIXTURE) == "meadow"
 
 
-def test_get_landuse_category_ignores_unknown_inactive_and_untagged():
-    assert get_landuse_category({"landuse": "railway"}, LANDUSE_MAPPINGS_FIXTURE) is None
-    # "active": False -> nie zugeordnet
+def test_get_landuse_category_defaults_a_genuinely_unlisted_value_to_meadow():
+    # Fläche HAT ein landuse/natural/leisure-Tag, aber KEINE Kategorie kennt diesen Wert überhaupt (auch keine
+    # inaktive) -> generisches Gras statt unbemalt (Foto-Rest) zu bleiben.
+    assert get_landuse_category({"landuse": "railway"}, LANDUSE_MAPPINGS_FIXTURE) == "meadow"
+
+
+def test_get_landuse_category_active_false_excludes_from_the_default_too():
+    # "active": False bedeutet "bewusst bekannt, aber nie ein Terrain-Layer" (z.B. Regionen wie
+    # natural=mountain_range, siehe test_landuse_config.py) - das ist etwas anderes als "unbekannt" und
+    # darf NICHT einfach in den generischen Gras-Default durchfallen.
     assert get_landuse_category({"landuse": "quarry"}, LANDUSE_MAPPINGS_FIXTURE) is None
+
+
+def test_get_landuse_category_stays_none_without_any_area_tag():
+    # Kein landuse/natural/leisure-Tag überhaupt (Gebäude, komplett unbeschriftetes Element) -> bleibt None,
+    # wird NICHT zu Gras (das würde das gesamte unbeschriftete Terrain plattbügeln statt beim Luftbild zu bleiben).
     assert get_landuse_category({"building": "yes"}, LANDUSE_MAPPINGS_FIXTURE) is None
     assert get_landuse_category({}, LANDUSE_MAPPINGS_FIXTURE) is None
+
+
+def test_get_landuse_category_default_is_skipped_if_meadow_itself_is_missing():
+    mappings_without_meadow = {k: v for k, v in LANDUSE_MAPPINGS_FIXTURE.items() if k != "meadow"}
+
+    assert get_landuse_category({"landuse": "railway"}, mappings_without_meadow) is None
 
 
 def test_get_landuse_category_returns_photo_category():
@@ -120,6 +138,21 @@ def test_paint_landuse_overwrites_photo_fallback():
     # Zelle außerhalb muss beim Foto-Fallback bleiben
     assert new_layer_map[0, 0] == names.index(names[0])
     assert new_layer_map[0, 0] != forest_index
+
+
+def test_paint_landuse_paints_an_unmapped_value_as_meadow_instead_of_leaving_the_photo():
+    size = 20
+    layer_map, names = build_photo_fallback_layer(size=size)
+
+    railway_polygon = Polygon([(5, 5), (15, 5), (15, 15), (5, 15)])
+    landuse_polygons = [{"osm_tags": {"landuse": "railway"}, "geometry": railway_polygon}]
+
+    new_layer_map, new_names = paint_landuse_materials(
+        layer_map, names, size, 0.0, 0.0, 1.0, landuse_polygons, LANDUSE_MAPPINGS_FIXTURE
+    )
+
+    assert "mat_grass" in new_names
+    assert new_layer_map[10, 10] == new_names.index("mat_grass")
 
 
 def test_paint_landuse_priority_resolves_overlap():

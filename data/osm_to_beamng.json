@@ -653,11 +653,38 @@
                     "retail",
                     "garages",
                     "greenhouse_horticulture"
+                ],
+                "leisure": [
+                    "sports_hall"
                 ]
             },
             "priority": 12,
             "keep_photo": true,
             "comment": "Gewerbe-/Industriegebiete: das Luftbild bleibt (Hallen, Höfe, Straßen sind im Foto)."
+        },
+        "bare_ground": {
+            "osm_tags": {
+                "landuse": [
+                    "quarry"
+                ],
+                "natural": [
+                    "bare_rock",
+                    "scree"
+                ]
+            },
+            "priority": 12,
+            "keep_photo": true,
+            "comment": "Steinbruch/nackter Fels/Geröll: kein eigenes Fels-Material im Projekt - das Luftbild zeigt das bereits realistisch, also bleibt es stehen statt Gras zu bekommen."
+        },
+        "region": {
+            "osm_tags": {
+                "natural": [
+                    "mountain_range"
+                ]
+            },
+            "active": false,
+            "keep_photo": true,
+            "comment": "Benannte Regionen (Relationen wie natural=mountain_range) sind keine Bodenfläche - bewusst bekannt, aber weder eine eigene Kategorie noch der generische Gras-Default (siehe get_landuse_category()). keep_photo nur, damit test_material_categories_are_complete_and_unique() diesen inaktiven Eintrag nicht als echte Material-Kategorie zählt - er wird wegen active:false ohnehin nie ausgewählt."
         },
         "water": {
             "osm_tags": {
@@ -667,6 +694,10 @@
                 "landuse": [
                     "basin",
                     "reservoir"
+                ],
+                "leisure": [
+                    "swimming_pool",
+                    "water_park"
                 ]
             },
             "osm_exclude_tags": {

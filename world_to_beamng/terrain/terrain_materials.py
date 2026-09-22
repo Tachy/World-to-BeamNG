@@ -18,6 +18,8 @@ from affine import Affine
 from PIL import Image
 from rasterio.features import rasterize
 
+from ..osm.landuse_polygons import AREA_TAG_KEYS
+
 # Flache Platzhalter für die Pflicht-Texturslots, die BeamNGs v1.5-Terrain-
 # Material-System für JEDEN Layer verlangt (siehe ensure_flat_pbr_placeholders()).
 # Werte sind die PBR-"neutral"-Konvention: Normal zeigt gerade nach oben,
@@ -41,6 +43,12 @@ DEFAULT_DETAIL_STRENGTH = 0.25
 
 EMPTY_RASTER_VALUE = 255
 
+# Fallback für Flächen, die zwar ein landuse/natural/leisure-Tag haben, aber keine (aktive) Kategorie passt:
+# generisches Gras statt unbemalter Foto-Rest (siehe get_landuse_category()). Kategorien mit "active": false
+# (z.B. Regionen wie natural=mountain_range, die keine echte Bodenfläche sind) sind davon ausgenommen - sie
+# sind bewusst bekannt, aber nie ein Terrain-Layer, auch nicht der generische Default.
+DEFAULT_LANDUSE_CATEGORY = "meadow"
+
 
 def get_landuse_category(osm_tags: Dict, landuse_mappings: Dict) -> Optional[str]:
     """
@@ -50,26 +58,38 @@ def get_landuse_category(osm_tags: Dict, landuse_mappings: Dict) -> Optional[str
     {"landuse": ["meadow", "grass"], "natural": ["grassland"]}. Passen mehrere
     Kategorien (z.B. landuse=meadow + natural=wood), gewinnt die mit der
     höchsten "priority". Kategorien ohne "osm_tags" (z.B. der "base"-
-    Fallback-Eintrag) oder mit "active": false werden nie zugeordnet.
-    "osm_exclude_tags" (gleiches Format) schließt Elemente wieder aus, z.B.
-    Wasser ohne die trockenen Rückhaltebecken (basin=detention).
+    Fallback-Eintrag) werden nie zugeordnet. "osm_exclude_tags" (gleiches
+    Format) schließt Elemente wieder aus, z.B. Wasser ohne die trockenen
+    Rückhaltebecken (basin=detention).
+
+    Passt keine aktive Kategorie, aber der Tag-Wert ist auch nirgends explizit
+    (auch nicht als "active": false) gelistet, greift DEFAULT_LANDUSE_CATEGORY
+    (siehe dort) - eine Fläche mit unbekanntem landuse-artigem Tag wird so zu
+    generischem Gras statt einfach unbemalt (Foto-Rest) zu bleiben.
 
     Returns:
-        Kategoriename oder None, falls kein Treffer
+        Kategoriename oder None, falls kein Treffer (bzw. explizit ausgeschlossen)
     """
     best_category = None
     best_priority = None
+    excluded = False
     for category, data in landuse_mappings.items():
         category_tags = data.get("osm_tags")
-        if not category_tags or data.get("active", True) is False:
+        if not category_tags:
             continue
         if not any(osm_tags.get(key) in values for key, values in category_tags.items()):
+            continue
+        if data.get("active", True) is False:
+            excluded = True
             continue
         if any(osm_tags.get(key) in values for key, values in data.get("osm_exclude_tags", {}).items()):
             continue
         priority = data.get("priority", 0)
         if best_priority is None or priority > best_priority:
             best_category, best_priority = category, priority
+    has_area_tag = any(key in osm_tags for key in AREA_TAG_KEYS)
+    if best_category is None and not excluded and has_area_tag and DEFAULT_LANDUSE_CATEGORY in landuse_mappings:
+        return DEFAULT_LANDUSE_CATEGORY
     return best_category
 
 
