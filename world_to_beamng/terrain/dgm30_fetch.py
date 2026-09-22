@@ -14,7 +14,6 @@ die BBox in WGS84, die dieses Modul zur Kachelauswahl braucht.
 """
 
 import json
-import logging
 import math
 import os
 import time
@@ -24,8 +23,9 @@ from pathlib import Path
 import requests
 
 from .. import config
+from ..logging_config import LoggerConfig
 
-logger = logging.getLogger(__name__)
+logger = LoggerConfig.get_logger()
 
 _NOT_FOUND_CACHE_FILENAME = ".not_found_cache.json"
 

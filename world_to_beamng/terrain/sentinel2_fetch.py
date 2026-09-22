@@ -15,7 +15,6 @@ Kachel für Kachel direkt in das Ziel-GeoTIFF geschrieben.
 
 import hashlib
 import io
-import logging
 import os
 import time
 from pathlib import Path
@@ -26,9 +25,10 @@ import requests
 from PIL import Image
 
 from .. import config
+from ..logging_config import LoggerConfig
 from .horizon_image import build_horizon_image
 
-logger = logging.getLogger(__name__)
+logger = LoggerConfig.get_logger()
 
 # Wird genau einmal pro Prozesslauf auf True gesetzt, sobald die EOX-Attribution geloggt wurde -
 # verhindert doppelte/mehrfache Meldung, falls ensure_horizon_texture() mehrfach aufgerufen wird.
