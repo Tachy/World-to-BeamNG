@@ -10,7 +10,7 @@ import logging
 from .. import config
 from ..core.cache_manager import CacheManager
 from ..managers import MaterialManager, ItemManager, DAEExporter
-from ..terrain.horizon_image import horizon_area
+from ..terrain.horizon_image import horizon_area, horizon_area_wgs84
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +63,8 @@ class HorizonWorkflow:
             texture_horizon_mesh,
             export_horizon_dae,
         )
+        from ..terrain.dgm30_fetch import ensure_dgm30_coverage
+        from ..terrain.sentinel2_fetch import ensure_horizon_texture
 
         # Prüfe ob Phase 5 aktiviert ist
         if not config.PHASE5_ENABLED:
@@ -79,8 +81,12 @@ class HorizonWorkflow:
         logger.info(f"      Breite: {x_max - x_min:.0f}m, Höhe: {y_max - y_min:.0f}m")
 
         # === DGM30 laden ===
-        logger.info("  [i] Lade DGM30-Daten (30m)...")
         dgm30_dir = config.DGM30_DATA_DIR
+        if config.DGM30_AUTO_DOWNLOAD:
+            logger.info("  [i] Prüfe DGM30-Abdeckung (lädt fehlende Kacheln bei Bedarf)...")
+            ensure_dgm30_coverage(horizon_area_wgs84(global_offset), dgm30_dir)
+
+        logger.info("  [i] Lade DGM30-Daten (30m)...")
         height_points, height_elevations = load_dgm30_tiles(
             dgm30_dir, horizon_bbox, local_offset=global_offset, tile_hash=tile_hash
         )
@@ -105,8 +111,12 @@ class HorizonWorkflow:
         )
 
         # === Sentinel-2 laden (optional) ===
-        logger.info("  [i] Lade Sentinel-2 Satellitenbilder...")
         sentinel2_file = config.DOP300_DATA_DIR / config.SENTINEL2_FILE
+        if config.EOX_AUTO_DOWNLOAD:
+            logger.info("  [i] Prüfe Sentinel-2-Textur (lädt bei Bedarf automatisch)...")
+            ensure_horizon_texture(horizon_bbox, dest=sentinel2_file)
+
+        logger.info("  [i] Lade Sentinel-2 Satellitenbilder...")
         sentinel2_data = load_sentinel2_geotiff(sentinel2_file, horizon_bbox, tile_hash=tile_hash)
 
         texture_info = None
