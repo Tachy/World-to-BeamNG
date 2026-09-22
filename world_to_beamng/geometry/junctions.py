@@ -742,13 +742,20 @@ def split_roads_at_mid_junctions(road_polygons, junctions, merge_tol=0.5):
                 seg_cuts = sorted(cuts_by_seg[seg_idx], key=lambda x: x[0])
                 for t_seg, x_cut, y_cut, z_cut, j_idx in seg_cuts:
                     cut_pt = np.array([x_cut, y_cut, z_cut])
-                    current_coords.append(cut_pt)
+                    # Schnittpunkt nur anhängen, wenn er nicht schon der letzte Punkt ist (t_seg kann durch die
+                    # floor()-Segmentzuordnung in split_roads_at_mid_junctions exakt auf den Vorgänger-Endpunkt
+                    # fallen) - sonst entstünde ein 0-Länge-Segment (siehe test_junction_split.py). Der Split
+                    # (neues Teilstück) passiert trotzdem, nur ohne doppelten Punkt.
+                    if not np.allclose(current_coords[-1][:2], cut_pt[:2], atol=1e-6):
+                        current_coords.append(cut_pt)
                     parts.append((current_coords, current_start_j, j_idx))
                     current_coords = [cut_pt]
                     current_start_j = j_idx
-            # füge Ende des Segments hinzu, falls kein Cut dort endet
+            # füge Ende des Segments hinzu, falls kein Cut dort endet (derselbe 0-Länge-Schutz wie oben: ein
+            # Cut, dessen Projektion auf den Segment-Endpunkt fällt, hat current_coords bereits dorthin gesetzt)
             next_pt = coords[seg_idx + 1]
-            current_coords.append(next_pt)
+            if not np.allclose(current_coords[-1][:2], next_pt[:2], atol=1e-6):
+                current_coords.append(next_pt)
 
         # letztes Teilstück
         parts.append((current_coords, current_start_j, end_junc_id))
