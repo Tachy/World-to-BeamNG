@@ -56,3 +56,21 @@ class MeshBuilder:
 def unit_vector(vector: np.ndarray) -> List[float]:
     length = np.linalg.norm(vector)
     return [0.0, 0.0, 1.0] if length < 1e-12 else [float(c) for c in vector / length]
+
+
+def add_box_column(builder: "MeshBuilder", cx: float, cy: float, bottom_z: float, top_z: float, size: float, tile_m: float) -> None:
+    """Rechteckige Stütze (4 Seitenflächen) von `bottom_z` bis `top_z`, quadratischer Querschnitt `size` - für
+    Brücken-Pfeiler (bridges/bridge_mesh.py) und Galerie-Stützen (tunnels/gallery_mesh.py)."""
+    half = size / 2.0
+    corners = [(cx - half, cy - half), (cx + half, cy - half), (cx + half, cy + half), (cx - half, cy + half)]
+    height_tiles = (top_z - bottom_z) / tile_m
+    for i in range(4):
+        a, b = corners[i], corners[(i + 1) % 4]
+        direction = np.array([b[0] - a[0], b[1] - a[1]])
+        direction = direction / np.linalg.norm(direction)
+        normal = [float(direction[1]), float(-direction[0]), 0.0]
+        builder.quad(
+            [[a[0], a[1], bottom_z], [b[0], b[1], bottom_z], [b[0], b[1], top_z], [a[0], a[1], top_z]],
+            [[0.0, 0.0], [size / tile_m, 0.0], [size / tile_m, height_tiles], [0.0, height_tiles]],
+            normal,
+        )
