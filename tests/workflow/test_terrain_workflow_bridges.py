@@ -58,7 +58,9 @@ CONCRETE = {
 @pytest.fixture
 def shapes_dir(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "BEAMNG_DIR_SHAPES", tmp_path / "shapes")
-    monkeypatch.setattr(registry, "prepared_textures", lambda: {config.CONCRETE_TEXTURE_NAME: CONCRETE})
+    monkeypatch.setattr(
+        registry, "prepared_textures", lambda: {config.CONCRETE_TEXTURE_NAME: CONCRETE, config.RAILING_TEXTURE_NAME: CONCRETE}
+    )
     return tmp_path / "shapes"
 
 
@@ -93,6 +95,7 @@ def test_export_bridges_writes_one_dae_one_item_and_registers_deck_and_pier_mate
     assert item["class"] == "TSStatic" and item["shape_name"] == "levels/world_to_beamng/art/shapes/bridges/bridges.dae"
     assert item["collisionType"] == "Visible Mesh Final"
     assert config.BRIDGE_MATERIAL_NAME in stub.materials.added
+    assert config.BRIDGE_RAILING_MATERIAL_NAME in stub.materials.added
     assert "asphalt_road_standard_structure" in stub.materials.added  # Fahrbahn-Deckmaterial (highway=primary)
     assert stub.materials.added["asphalt_road_standard_structure"]["groundType"] == "ASPHALT"
 
@@ -134,6 +137,7 @@ def test_build_bridges_creates_a_mesh_per_bridge_with_a_pier_over_a_deep_span():
     assert len(meshes) == 1 and meshes[0]["id"] == "bridge_1"
     assert "asphalt_road_standard_structure" in meshes[0]["faces"] and config.BRIDGE_MATERIAL_NAME in meshes[0]["faces"]
     assert len(meshes[0]["faces"][config.BRIDGE_MATERIAL_NAME]) > 0  # mindestens ein Pfeiler bei 60 m Spannweite
+    assert len(meshes[0]["faces"][config.BRIDGE_RAILING_MATERIAL_NAME]) > 0  # Geländer über die volle Länge
 
 
 def test_build_bridges_skips_non_bridge_roads():

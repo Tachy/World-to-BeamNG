@@ -647,10 +647,16 @@ class TerrainWorkflow:
             bridges,
             ground_at,
             pier_material=config.BRIDGE_MATERIAL_NAME,
+            railing_material=config.BRIDGE_RAILING_MATERIAL_NAME,
             deck_thickness=config.BRIDGE_DECK_THICKNESS,
             pier_spacing=config.BRIDGE_PIER_SPACING,
             pier_size=config.BRIDGE_PIER_SIZE,
             min_pier_clearance=config.BRIDGE_MIN_PIER_CLEARANCE,
+            curb_width=config.BRIDGE_CURB_WIDTH,
+            curb_height=config.BRIDGE_CURB_HEIGHT,
+            railing_height=config.BRIDGE_RAILING_HEIGHT,
+            railing_post_spacing=config.BRIDGE_RAILING_POST_SPACING,
+            railing_post_size=config.BRIDGE_RAILING_POST_SIZE,
         )
 
     def export_bridges(self, mesh_data: Dict) -> int:
@@ -675,6 +681,14 @@ class TerrainWorkflow:
         self.materials.add_building_material(
             config.BRIDGE_MATERIAL_NAME,
             textures={**concrete, "useAnisotropic": True},
+            groundType=hints.get("groundType", "concrete"),
+            materialTag0=hints.get("materialTag0", "beamng"),
+            materialTag1=hints.get("materialTag1", "Building"),
+        )
+        railing = registry.prepared_textures()[config.RAILING_TEXTURE_NAME]
+        self.materials.add_building_material(
+            config.BRIDGE_RAILING_MATERIAL_NAME,
+            textures={**railing, "useAnisotropic": True},
             groundType=hints.get("groundType", "concrete"),
             materialTag0=hints.get("materialTag0", "beamng"),
             materialTag1=hints.get("materialTag1", "Building"),

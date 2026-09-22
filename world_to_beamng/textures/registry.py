@@ -21,6 +21,7 @@ from .. import config
 from . import library
 from .concrete import generate_concrete_texture
 from .gravel import generate_gravel_texture
+from .steel import generate_railing_texture
 
 logger = logging.getLogger(__name__)
 
@@ -53,9 +54,15 @@ REGISTRY: Sequence[TextureSpec] = (
     ),
     TextureSpec(
         config.CONCRETE_TEXTURE_NAME,
-        "Brücken (Pfeiler), Tunnel (Wände/Decke/Portale), Galerien (Dach/Stützen)",
+        "Brücken (Pfeiler/Bordsteine), Tunnel (Wände/Decke/Portale), Galerien (Dach/Stützen)",
         required=lambda: config.BRIDGES_ENABLED or config.TUNNELS_ENABLED,
         generate=generate_concrete_texture,
+    ),
+    TextureSpec(
+        config.RAILING_TEXTURE_NAME,
+        "Brücken (Geländer)",
+        required=lambda: config.BRIDGES_ENABLED,
+        generate=generate_railing_texture,
     ),
 )
 

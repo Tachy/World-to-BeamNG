@@ -202,7 +202,16 @@ BRIDGE_DECK_THICKNESS = 0.6  # Deck-Dicke in Metern
 BRIDGE_PIER_SPACING = 25.0  # Abstand der Stützpfeiler entlang der Brücke, in Metern
 BRIDGE_PIER_SIZE = 1.5  # Querschnitt der (quadratischen) Stützpfeiler, in Metern
 BRIDGE_MIN_PIER_CLEARANCE = 1.0  # kein Pfeiler, wenn der Abstand Deck-Unterkante/Gelände kleiner ist, in Metern
-BRIDGE_MATERIAL_NAME = "bridge_concrete"  # Pfeiler-Material (Textur: CONCRETE_TEXTURE_NAME, siehe Task 10)
+BRIDGE_MATERIAL_NAME = "bridge_concrete"  # Pfeiler-/Bordstein-Material (Textur: CONCRETE_TEXTURE_NAME, siehe Task 10)
+
+# Echtes Straßenbrücken-Querschnittsprofil: Betonrand (Bordstein) beidseits der Fahrbahn, darauf ein
+# einfaches Geländer (Pfosten + durchlaufender Handlauf), statt einer randlosen Deckplatte.
+BRIDGE_CURB_WIDTH = 0.25  # Breite des Bordsteins je Seite, in Metern (Fahrbahn wird entsprechend schmaler)
+BRIDGE_CURB_HEIGHT = 0.15  # Höhe des Bordsteins über der Fahrbahn, in Metern
+BRIDGE_RAILING_HEIGHT = 0.9  # Handlauf-Höhe über der Bordstein-Oberkante, in Metern
+BRIDGE_RAILING_POST_SPACING = 2.0  # Pfosten-Abstand entlang der Brücke, in Metern
+BRIDGE_RAILING_POST_SIZE = 0.08  # Querschnitt der (quadratischen) Pfosten und des Handlaufs, in Metern
+BRIDGE_RAILING_MATERIAL_NAME = "bridge_railing"  # Textur: RAILING_TEXTURE_NAME
 
 # Manche OSM-Brücken sind zu knapp bemessen und beginnen bereits mitten in der Hanglage statt auf
 # Straßenniveau (die lineare Höheninterpolation zwischen den Way-Endpunkten ergibt dann eine unrealistisch
@@ -250,10 +259,15 @@ FLAT_ROOF_GRAVEL_TEXTURE_PX = 1024
 FLAT_ROOF_EDGE_HEIGHT_M = 0.25
 FLAT_ROOF_EDGE_THICKNESS_M = 0.05
 
-# Prozedurale Beton-Textur für Brücken-Pfeiler, Tunnel-Wände/Decke/Portale und Galerie-Dach/Stützen.
+# Prozedurale Beton-Textur für Brücken-Pfeiler/Bordsteine, Tunnel-Wände/Decke/Portale und Galerie-Dach/Stützen.
 CONCRETE_TEXTURE_NAME = "tunnel_concrete"
 CONCRETE_TEXTURE_TILE_M = 2.0
 CONCRETE_TEXTURE_PX = 1024
+
+# Prozedurale Stahl-Textur für Brücken-Geländer (Pfosten + Handlauf).
+RAILING_TEXTURE_NAME = "bridge_railing"
+RAILING_TEXTURE_TILE_M = 0.3
+RAILING_TEXTURE_PX = 512
 
 # === LOD2-WÄNDE (verputzt) ===
 # Wand = EIN ungeschnittenes Polygon mit fugenloser, metrisch gekachelter Putztextur (FACADE_PLASTER_REPEAT_M Meter je
