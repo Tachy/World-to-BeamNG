@@ -223,6 +223,40 @@ def test_fetch_mosaic_total_failure_returns_false_no_file_created(mock_get, mock
     assert not dest.with_name(dest.name + ".part").exists()
 
 
+@patch("world_to_beamng.terrain.sentinel2_fetch.requests.get")
+def test_fetch_mosaic_tile_with_wrong_decoded_size_stays_black_does_not_abort_mosaic(mock_get, tmp_path, monkeypatch):
+    # Server antwortet mit Status 200 + Content-Type image/* (besteht also die Prüfung in
+    # _fetch_one_tile()), aber das dekodierte Bild hat NICHT die angefragte Pixelgröße - ein
+    # realistischer Fehlermodus eines externen WMS-Servers. Das darf dst.write() nicht mit einer
+    # Exception aus dem `with rasterio.open(...)`-Block heraus abbrechen lassen.
+    monkeypatch.setattr(config, "EOX_MOSAIC_MAX_PX", 100)
+    monkeypatch.setattr(config, "EOX_MAX_REQUEST_PX", 50)  # -> 2x2 Kacheln
+
+    call_count = {"n": 0}
+
+    def fake_get(url, params=None, headers=None, timeout=None):
+        # Nur die allererste angefragte Kachel (col_off=0,row_off=0) liefert die falsche
+        # Pixelgröße, alle anderen (und alle Retries, falls welche stattfänden) die angeforderte.
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            return _jpeg_response(int(params["width"]) - 1, int(params["height"]))  # falsche Größe
+        return _jpeg_response(int(params["width"]), int(params["height"]))
+
+    mock_get.side_effect = fake_get
+    dest = tmp_path / "mosaic.tif"
+
+    result = fetch_eox_mosaic(AREA_UTM, dest)
+
+    assert result is True  # mindestens eine (die restlichen 3) Kacheln waren erfolgreich
+    assert dest.exists()
+    with rasterio.open(dest) as ds:
+        arr = ds.read()
+        # Die Kachel mit falscher Größe blieb schwarz (0,0,0 an ihrem Ursprungspixel).
+        assert arr[:, 0, 0].tolist() == [0, 0, 0]
+        # Eine andere (korrekt beantwortete) Kachel hat die Testfarbe geschrieben.
+        assert arr[0, -1, -1] != 0 or arr[1, -1, -1] != 0 or arr[2, -1, -1] != 0
+
+
 # --- ensure_horizon_texture() -------------------------------------------------------------------
 
 
@@ -273,3 +307,22 @@ def test_ensure_horizon_texture_returns_none_when_auto_download_disabled(mock_ge
     assert result is None
     assert not dest.exists()
     mock_get.assert_not_called()
+
+
+@patch("world_to_beamng.terrain.sentinel2_fetch.fetch_eox_mosaic")
+def test_ensure_horizon_texture_never_raises_on_unexpected_error(mock_fetch, tmp_path, monkeypatch):
+    # Analog zu dgm30_fetch.test_ensure_coverage_never_raises_on_unexpected_error(): ein
+    # unerwarteter Fehler (hier: fetch_eox_mosaic() wirft statt False zurückzugeben, z. B. weil ein
+    # Dateisystem-/Netzwerkfehler nicht sauber abgefangen wurde) darf niemals aus
+    # ensure_horizon_texture() herauspropagieren - horizon_workflow.py verlässt sich darauf, diesen
+    # Einstiegspunkt ohne eigene Fehlerbehandlung aufrufen zu können.
+    monkeypatch.setattr(config, "EOX_AUTO_DOWNLOAD", True)
+    monkeypatch.setattr(config, "EOX_MOSAIC_CACHE_DIR", tmp_path / "cache_horizon_source")
+    mock_fetch.side_effect = OSError("permission denied")
+
+    dest = tmp_path / "horizon_temp.tif"
+
+    result = ensure_horizon_texture(AREA_UTM, dest=dest, size_px=32)
+
+    assert result is None
+    assert not dest.exists()

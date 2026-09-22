@@ -212,6 +212,17 @@ def fetch_eox_mosaic(area_utm: tuple, dest_path) -> bool:
             arr = _fetch_one_tile(tile)
             if arr is None:
                 continue  # Kachel bleibt schwarz (frisch angelegtes GeoTIFF ist nullinitialisiert)
+            if arr.shape[:2] != (tile.height, tile.width):
+                # Der Server hat Status 200 + Content-Type image/* geliefert, aber das dekodierte
+                # Bild hat nicht die angefragte Pixelgröße (realistischer Fehlermodus bei einem
+                # externen WMS-Server) - dst.write() mit falscher Fenstergröße würde eine Exception
+                # werfen und den GANZEN Mosaik-Lauf abbrechen. Stattdessen: wie ein Dekodier-
+                # Fehlschlag behandeln, Kachel bleibt schwarz, weiter mit der nächsten Kachel.
+                logger.warning(
+                    f"  [x] Kachel ({tile.col_off},{tile.row_off}): Bildgröße {arr.shape[1]}x{arr.shape[0]} "
+                    f"passt nicht zur angefragten Größe {tile.width}x{tile.height} - bleibt schwarz"
+                )
+                continue
             dst.write(np.moveaxis(arr, 2, 0), window=Window(tile.col_off, tile.row_off, tile.width, tile.height))
             any_success = True
 
@@ -240,7 +251,10 @@ def ensure_horizon_texture(area_utm: tuple, dest=None, size_px=None, resampling:
 
     Returns:
         Pfad zur Horizont-Textur, oder None, wenn kein Download versucht wurde
-        (config.EOX_AUTO_DOWNLOAD == False) oder der Download vollständig fehlgeschlagen ist.
+        (config.EOX_AUTO_DOWNLOAD == False), der Download vollständig fehlgeschlagen ist, oder ein
+        unerwarteter Fehler auftrat. Wirft NIE - analog zu dgm30_fetch.ensure_dgm30_coverage() muss
+        dieser Einstiegspunkt bei jedem Fehler (Netzwerk, Dateisystem, CRS-Transform, ...) einfach
+        None liefern, damit horizon_workflow.py ihn ohne eigene Fehlerbehandlung aufrufen kann.
     """
     global _attribution_logged
 
@@ -253,25 +267,30 @@ def ensure_horizon_texture(area_utm: tuple, dest=None, size_px=None, resampling:
     if not config.EOX_AUTO_DOWNLOAD:
         return None
 
-    size_px = size_px if size_px is not None else config.HORIZON_IMAGE_SIZE_PX
+    try:
+        size_px = size_px if size_px is not None else config.HORIZON_IMAGE_SIZE_PX
 
-    # Cache-Schlüssel fürs Rohmosaik: unabhängig von size_px (das Mosaik ist unabhängig von der
-    # Zielgröße), auf 1 m gerundete area_utm-Werte + Layer-Name (Jahr wechselt ggf.).
-    sig = f"{round(area_utm[0])}_{round(area_utm[1])}_{round(area_utm[2])}_{round(area_utm[3])}_{config.EOX_WMS_LAYER}"
-    cache_key = hashlib.sha1(sig.encode("utf-8")).hexdigest()[:16]
-    mosaic_path = config.EOX_MOSAIC_CACHE_DIR / f"eox_mosaic_{cache_key}.tif"
+        # Cache-Schlüssel fürs Rohmosaik: unabhängig von size_px (das Mosaik ist unabhängig von
+        # der Zielgröße), auf 1 m gerundete area_utm-Werte + Layer-Name (Jahr wechselt ggf.).
+        sig = f"{round(area_utm[0])}_{round(area_utm[1])}_{round(area_utm[2])}_{round(area_utm[3])}_{config.EOX_WMS_LAYER}"
+        cache_key = hashlib.sha1(sig.encode("utf-8")).hexdigest()[:16]
+        mosaic_path = config.EOX_MOSAIC_CACHE_DIR / f"eox_mosaic_{cache_key}.tif"
 
-    if not mosaic_path.exists():
-        config.EOX_MOSAIC_CACHE_DIR.mkdir(parents=True, exist_ok=True)
-        if not _attribution_logged:
-            logger.info(config.EOX_ATTRIBUTION_NOTICE)
-            _attribution_logged = True
-        if not fetch_eox_mosaic(area_utm, mosaic_path):
-            return None
+        if not mosaic_path.exists():
+            config.EOX_MOSAIC_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+            if not _attribution_logged:
+                logger.info(config.EOX_ATTRIBUTION_NOTICE)
+                _attribution_logged = True
+            if not fetch_eox_mosaic(area_utm, mosaic_path):
+                return None
 
-    build_horizon_image(mosaic_path, dest, area=area_utm, size_px=size_px, resampling=resampling)
+        build_horizon_image(mosaic_path, dest, area=area_utm, size_px=size_px, resampling=resampling)
 
-    if not config.EOX_KEEP_RAW_MOSAIC:
-        mosaic_path.unlink(missing_ok=True)
+        if not config.EOX_KEEP_RAW_MOSAIC:
+            mosaic_path.unlink(missing_ok=True)
 
-    return dest if dest.exists() else None
+        return dest if dest.exists() else None
+
+    except Exception as e:
+        logger.error(f"  [x] Horizont-Textur-Auto-Download fehlgeschlagen: {e}")
+        return None
