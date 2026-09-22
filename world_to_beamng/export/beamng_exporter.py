@@ -262,6 +262,7 @@ class BeamNGExporter:
 
         # Die Fotos werden neu gebaut, sobald Fläche, Ursprung, Auflösung, Kachelaufteilung oder Quellbilder nicht
         # mehr zu den vorhandenen passen (z.B. Umstellung von einer auf vier DGM1-Kacheln) - nicht nur, wenn sie fehlen.
+        status = "none"  # Fallback, falls ensure_aerial_photos() unten eine Ausnahme wirft (siehe Minimap-Schritt weiter unten)
         try:
             status = ensure_aerial_photos(
                 aerial_dir=aerial_dir, output_dir=textures_dir, photos=photos, global_offset=global_offset
@@ -293,6 +294,19 @@ class BeamNGExporter:
             self.road_polygons = result.get("road_slope_polygons_2d")
 
             self.terrain.export_tile(0, 0, result)
+
+            # BigMap-Vorschaubild aus den bereits gebauten Luftbild-PNGs (nur wenn welche gebaut/aktuell sind -
+            # ohne Luftbild macht ein Minimap-Bild keinen Sinn, siehe io/aerial.py::build_minimap_image()).
+            if config.MINIMAP_ENABLED and status in ("current", "built"):
+                from ..io.aerial import MINIMAP_FILENAME, MINIMAP_SUBDIR, build_minimap_image, minimap_info_json_fields
+
+                x_min, x_max, y_min, y_max = combined_grid_bounds_local
+                minimap_path = config.BEAMNG_DIR / MINIMAP_SUBDIR / MINIMAP_FILENAME
+                if build_minimap_image(textures_dir, minimap_path, photos, combined_grid_bounds_local):
+                    self.items.set_info_json_fields(**minimap_info_json_fields(x_min, y_max, x_max - x_min))
+                    logger.info(f"[OK] Minimap gespeichert: {minimap_path}")
+                else:
+                    logger.info("[i] Minimap übersprungen (Quellfoto fehlt)")
 
             # Höhenabfrage der fertigen Heightmap: der Horizont bekommt daraus sein Terrain-Loch
             # samt Randhöhen (kein Terrain-Mesh mehr, das vernäht werden könnte)

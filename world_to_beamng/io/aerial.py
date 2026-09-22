@@ -566,3 +566,79 @@ def ensure_aerial_photos(aerial_dir, output_dir, photos, global_offset, target_p
     write_aerial_photo_signature(output_dir, signature)
     _remove_stale_photos(output_dir, names)
     return "built"
+
+
+MINIMAP_SUBDIR = "minimap"
+MINIMAP_FILENAME = "terrain.png"
+
+
+def build_minimap_image(textures_dir, output_path, photos, terrain_bounds_local, target_pixel_size=None):
+    """
+    Baut das BigMap-Vorschaubild (info.json-Feld "minimap") aus den bereits gebauten Luftbild-PNGs
+    (aerial_photo*.png in textures_dir, siehe ensure_aerial_photos()) - liest keine Quellbilder erneut ein,
+    sondern setzt nur die fertigen Fotos verkleinert auf eine gemeinsame Leinwand.
+
+    Selbe Konvention wie process_aerial_images()/process_aerial_tiles(): Zeile 0 = Norden, Leinwand-Ursprung
+    = (terrain_bounds_local[0], terrain_bounds_local[3]) = (x_min, y_max), gedecktes Grün für Lücken.
+
+    Args:
+        textures_dir: Verzeichnis mit den fertigen aerial_photo*.png (config.BEAMNG_DIR_TEXTURES)
+        output_path: Ziel-PNG-Pfad
+        photos: [{"name", "bounds": (x_min, x_max, y_min, y_max)}] - dieselbe Liste wie an ensure_aerial_photos()
+        terrain_bounds_local: (x_min, x_max, y_min, y_max) der GESAMTEN Terrain-Fläche in lokalen Koordinaten
+        target_pixel_size: Kantenlänge (Pixel) der Minimap (Default: config.MINIMAP_PIXEL_SIZE)
+
+    Returns:
+        True bei Erfolg, False wenn ein Quellfoto fehlt (kein Ausnahmefehler - Minimap ist optional)
+    """
+    if target_pixel_size is None:
+        target_pixel_size = config.MINIMAP_PIXEL_SIZE
+
+    x_min, x_max, y_min, y_max = terrain_bounds_local
+    width_m, height_m = x_max - x_min, y_max - y_min
+    if width_m <= 0 or height_m <= 0:
+        return False
+
+    px_per_m_x = target_pixel_size / width_m
+    px_per_m_y = target_pixel_size / height_m
+    canvas = Image.new("RGB", (target_pixel_size, target_pixel_size), (70, 95, 55))  # gedecktes Grün für Lücken
+
+    for photo in photos:
+        source_path = Path(textures_dir) / f"{photo['name']}.png"
+        if not source_path.exists():
+            return False
+
+        bx_min, bx_max, by_min, by_max = photo["bounds"]
+        tile_w = max(1, round((bx_max - bx_min) * px_per_m_x))
+        tile_h = max(1, round((by_max - by_min) * px_per_m_y))
+
+        with Image.open(source_path) as source:
+            tile = source.convert("RGB").resize((tile_w, tile_h), Image.Resampling.LANCZOS)
+
+        px = round((bx_min - x_min) * px_per_m_x)
+        py = round((y_max - by_max) * px_per_m_y)
+        canvas.paste(tile, (px, py))
+
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    canvas.save(output_path, "PNG")
+    return True
+
+
+def minimap_info_json_fields(x_min, y_max, size_m, relative_file=None):
+    """
+    info.json-Felder für die Minimap: "size" (Terrain-Ausdehnung) und "minimap" (Bild + Lage).
+
+    Args:
+        x_min, y_max: Nordwest-Ecke der Terrain-Fläche in lokalen Koordinaten (= Bild-Ursprung, Zeile 0 = Norden)
+        size_m: Kantenlänge der (quadratischen) Terrain-Fläche in Metern
+        relative_file: Pfad relativ zum Level-Root (Default: "{MINIMAP_SUBDIR}/{MINIMAP_FILENAME}")
+
+    Returns:
+        {"size": [...], "minimap": [...]} zum Zusammenführen in ItemManager.set_info_json_fields()
+    """
+    file = relative_file or f"{MINIMAP_SUBDIR}/{MINIMAP_FILENAME}"
+    return {
+        "size": [size_m, size_m],
+        "minimap": [{"file": file, "size": [size_m, size_m], "offset": [x_min, y_max]}],
+    }

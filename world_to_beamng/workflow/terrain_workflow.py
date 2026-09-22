@@ -850,7 +850,7 @@ class TerrainWorkflow:
         absolut) falsch.
         """
         height = float(np.max(heights)) + float(config.ENV_FOG_HEIGHT_MARGIN)
-        self.items.set_base_line_fields("the_level_info", fogAtmosphereHeight=round(height, 1))
+        self.items.set_base_line_fields("theLevelInfo", fogAtmosphereHeight=round(height, 1))
 
     def export_water(self, mesh_data: Dict) -> int:
         """

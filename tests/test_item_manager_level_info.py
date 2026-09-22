@@ -51,13 +51,13 @@ def test_set_base_line_fields_changes_only_this_instance(tmp_path):
     items = ItemManager.get_instance(tmp_path)
     original = _level_info().get("fogAtmosphereHeight")
 
-    items.set_base_line_fields("the_level_info", fogAtmosphereHeight=812.5)
+    items.set_base_line_fields("theLevelInfo", fogAtmosphereHeight=812.5)
 
-    changed = next(l for l in items.base_lines if l["name"] == "the_level_info")
+    changed = next(l for l in items.base_lines if l["name"] == "theLevelInfo")
     assert changed["fogAtmosphereHeight"] == 812.5
     assert _level_info().get("fogAtmosphereHeight") == original  # Klassen-Liste bleibt unverändert
     ItemManager.reset_instance()
-    assert next(l for l in ItemManager.get_instance(tmp_path).base_lines if l["name"] == "the_level_info").get("fogAtmosphereHeight") == original
+    assert next(l for l in ItemManager.get_instance(tmp_path).base_lines if l["name"] == "theLevelInfo").get("fogAtmosphereHeight") == original
     ItemManager.reset_instance()
 
 
@@ -77,7 +77,7 @@ def test_save_writes_the_exported_fog_height_and_all_environment_objects(tmp_pat
 
     ItemManager.reset_instance()
     items = ItemManager.get_instance(tmp_path)
-    items.set_base_line_fields("the_level_info", fogAtmosphereHeight=777.0)
+    items.set_base_line_fields("theLevelInfo", fogAtmosphereHeight=777.0)
 
     items.save()
 
@@ -89,6 +89,18 @@ def test_save_writes_the_exported_fog_height_and_all_environment_objects(tmp_pat
     ItemManager.reset_instance()
 
 
+def test_info_json_declares_the_default_spawn_point_name(tmp_path):
+    import json
+
+    ItemManager.reset_instance()
+    ItemManager.get_instance(tmp_path).save_info_json()
+
+    info = json.loads((tmp_path / "info.json").read_text(encoding="utf-8"))
+    assert info["defaultSpawnPointName"] == "PlayerDropPoints"
+    assert "spawnPointName" not in info  # falscher Schlüssel, BeamNG liest nur defaultSpawnPointName
+    ItemManager.reset_instance()
+
+
 def test_info_json_declares_time_of_day_support(tmp_path):
     import json
 
@@ -97,3 +109,49 @@ def test_info_json_declares_time_of_day_support(tmp_path):
 
     assert json.loads((tmp_path / "info.json").read_text(encoding="utf-8"))["supportsTimeOfDay"] is True
     ItemManager.reset_instance()
+
+
+# --- info_json / set_info_json_fields (Minimap/Terrain-Größe zur Exportzeit) --------------------------
+
+
+def test_info_json_defaults_to_a_copy_of_level_info(tmp_path):
+    ItemManager.reset_instance()
+    items = ItemManager.get_instance(tmp_path)
+
+    items.info_json["size"] = [1234, 1234]
+
+    assert ItemManager.LEVEL_INFO["size"] == [2000, 2000]  # Klassen-Konstante bleibt unverändert
+    ItemManager.reset_instance()
+
+
+def test_set_info_json_fields_changes_only_this_instance(tmp_path):
+    ItemManager.reset_instance()
+    items = ItemManager.get_instance(tmp_path)
+
+    items.set_info_json_fields(size=[4096, 4096], minimap=[{"file": "minimap/terrain.png", "size": [4096, 4096], "offset": [-2048, 2048]}])
+
+    assert items.info_json["size"] == [4096, 4096]
+    assert ItemManager.LEVEL_INFO["size"] == [2000, 2000]
+    ItemManager.reset_instance()
+    assert ItemManager.get_instance(tmp_path).info_json["size"] == [2000, 2000]  # neue Instanz: wieder Default
+    ItemManager.reset_instance()
+
+
+def test_save_info_json_writes_the_minimap_only_when_it_was_set(tmp_path):
+    import json
+
+    ItemManager.reset_instance()
+    items = ItemManager.get_instance(tmp_path)
+    items.save_info_json()
+    without_minimap = json.loads((tmp_path / "info.json").read_text(encoding="utf-8"))
+    ItemManager.reset_instance()
+
+    items = ItemManager.get_instance(tmp_path)
+    items.set_info_json_fields(size=[4096, 4096], minimap=[{"file": "minimap/terrain.png", "size": [4096, 4096], "offset": [0, 0]}])
+    items.save_info_json()
+    with_minimap = json.loads((tmp_path / "info.json").read_text(encoding="utf-8"))
+    ItemManager.reset_instance()
+
+    assert "minimap" not in without_minimap  # wie ein echtes Level ohne Minimap (z.B. italy)
+    assert with_minimap["minimap"][0]["file"] == "minimap/terrain.png"
+    assert with_minimap["size"] == [4096, 4096]

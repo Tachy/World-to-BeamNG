@@ -32,7 +32,7 @@ def test_fog_atmosphere_height_is_the_highest_terrain_point_plus_margin():
 
     TerrainWorkflow._set_fog_height(stub, heights)
 
-    assert stub.items.base["the_level_info"]["fogAtmosphereHeight"] == pytest.approx(689.4 + config.ENV_FOG_HEIGHT_MARGIN, abs=0.1)
+    assert stub.items.base["theLevelInfo"]["fogAtmosphereHeight"] == pytest.approx(689.4 + config.ENV_FOG_HEIGHT_MARGIN, abs=0.1)
 
 
 def _pond(scale):

@@ -83,7 +83,9 @@ class ItemManager:
         }
     ]
 
-    # Level-Info für info.json
+    # Level-Info für info.json (Fallback für einen ItemManager ohne echten Export-Lauf, z.B. Tests/Tools;
+    # ein echter Export überschreibt "size" und "minimap" zur Exportzeit mit der tatsächlichen Terrain-
+    # Ausdehnung über set_info_json_fields(), siehe export/beamng_exporter.py und io/aerial.py).
     LEVEL_INFO = {
         "title": "World to BeamNG",
         "description": "Automatischer Export von OpenStreetmap-Elementen in das BeamNG.drive-Format.",
@@ -93,7 +95,7 @@ class ItemManager:
         "authors": "Tachy AI",
         "supportsTraffic": False,
         "supportsTimeOfDay": True,  # TimeOfDay-Objekt vorhanden (managers/environment.py)
-        "spawnPointName": "PlayerDropPoints",  # BeamNG sucht nach dieser SimGroup
+        "defaultSpawnPointName": "PlayerDropPoints",  # BeamNG sucht nach dieser SimGroup
     }
 
     def __init__(self, beamng_dir: Path):
@@ -530,6 +532,17 @@ class ItemManager:
                     spawn_line["rotationMatrix"] = spawn_rotation
                 f.write(encode(spawn_line) + "\n")
 
+    @property
+    def info_json(self) -> Dict[str, Any]:
+        """info.json-Inhalt dieser Instanz: eine Kopie, damit Export-Werte (Terrain-Größe, Minimap) die Klasse nicht ändern."""
+        if not hasattr(self, "_info_json"):
+            self._info_json = copy.deepcopy(self.LEVEL_INFO)
+        return self._info_json
+
+    def set_info_json_fields(self, **fields) -> None:
+        """Setzt/überschreibt Felder von info.json zur Exportzeit (z.B. "size"/"minimap" aus der echten Terrain-Ausdehnung)."""
+        self.info_json.update(fields)
+
     def save_info_json(self) -> None:
         """
         Schreibe info.json ins Level-Root-Verzeichnis.
@@ -540,7 +553,7 @@ class ItemManager:
         info_path = self.beamng_dir / "info.json"
 
         with open(info_path, "w", encoding="utf-8") as f:
-            json.dump(self.LEVEL_INFO, f, ensure_ascii=False, indent=4)
+            json.dump(self.info_json, f, ensure_ascii=False, indent=4)
 
         # Kopiere preview.jpg von data/ nach BEAMNG_DIR
         preview_src = Path("data/preview.jpg")

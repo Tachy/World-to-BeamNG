@@ -346,6 +346,12 @@ AERIAL_PHOTO_PER_TILE = True
 # Default 2000.0 entspricht dem bisherigen impliziten Verhalten bei LGL Baden-Wuerttemberg (ein Foto je 2x2-km-ZIP).
 PHOTO_TILE_SIZE_M = 2000.0
 
+# BigMap-Vorschaubild (info.json-Feld "minimap") aus den bereits gebauten Luftbild-PNGs
+# (io/aerial.py::build_minimap_image()) - ohne dieses Feld bleibt BigMap nutzbar, zeigt aber nur einen
+# leeren Hintergrund statt des Terrains.
+MINIMAP_ENABLED = True
+MINIMAP_PIXEL_SIZE = 2048  # Kantenlaenge der Minimap in Pixeln, unabhaengig von der tatsaechlichen Terrain-Groesse
+
 # === VERZEICHNISSE ===
 CACHE_DIR = Path("cache")  # Verzeichnis fuer Cache-Dateien
 HEIGHT_DATA_DIR = Path("data/height")  # Verzeichnis mit Hoehendaten (DGM1)

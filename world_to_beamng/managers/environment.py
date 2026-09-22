@@ -26,7 +26,7 @@ _FIXED_IDS = {
     "ScatterSky": "f0c7b6f6-7e4a-4b2a-8c4f-5c6f0c2a9c55",
 }
 _NAMES = {
-    "LevelInfo": "the_level_info",
+    "LevelInfo": "theLevelInfo",  # von BeamNG fest erwarteter Name (scenetree.theLevelInfo, siehe bigMapMode.lua)
     "ScatterSky": "the_sky",
     "TimeOfDay": "tod",
     "CloudLayer": "clouds1",
