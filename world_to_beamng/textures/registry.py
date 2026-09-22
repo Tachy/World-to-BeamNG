@@ -19,6 +19,7 @@ from typing import Callable, Dict, Optional, Sequence
 
 from .. import config
 from . import library
+from .concrete import generate_concrete_texture
 from .gravel import generate_gravel_texture
 
 logger = logging.getLogger(__name__)
@@ -49,6 +50,12 @@ REGISTRY: Sequence[TextureSpec] = (
         "Bruchsteinmauern (Mauerkörper und Abdeckplatten)",
         required=lambda: config.WALLS_ENABLED,
         hint=f"python tools/make_seamless_texture.py <Foto> --name {config.WALL_TEXTURE_NAME} --width-m <reale Breite des Fotos in Metern>",
+    ),
+    TextureSpec(
+        config.CONCRETE_TEXTURE_NAME,
+        "Brücken (Pfeiler), Tunnel (Wände/Decke/Portale), Galerien (Dach/Stützen)",
+        required=lambda: config.BRIDGES_ENABLED or config.TUNNELS_ENABLED,
+        generate=generate_concrete_texture,
     ),
 )
 

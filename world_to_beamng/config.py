@@ -204,6 +204,9 @@ BRIDGE_PIER_SIZE = 1.5  # Querschnitt der (quadratischen) Stützpfeiler, in Mete
 BRIDGE_MIN_PIER_CLEARANCE = 1.0  # kein Pfeiler, wenn der Abstand Deck-Unterkante/Gelände kleiner ist, in Metern
 BRIDGE_MATERIAL_NAME = "bridge_concrete"  # Pfeiler-Material (Textur: CONCRETE_TEXTURE_NAME, siehe Task 10)
 
+# Tunnel (OSM tunnel=yes auf Straßen): Betonröhre mit adaptiven Portal-Rahmen an Ein-/Ausfahrten, Galerie für offene Tunnelabschnitte
+TUNNELS_ENABLED = False
+
 # === LOD2-DACH-TEXTUR ===
 # t_roof_slates_rounded_b.color.dds (256 px) zeigt 5 Biberschwanz-Ziegel nebeneinander je Wiederholung (6 Reihen
 # übereinander). Die UVs sind metrisch: eine Wiederholung = ROOF_REPEAT_M Meter in der Dachebene, ein Ziegel ist

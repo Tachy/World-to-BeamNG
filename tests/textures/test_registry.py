@@ -199,3 +199,16 @@ def test_is_complete_needs_a_manifest_entry_and_all_three_pngs(tmp_path):
     manifest["textures"].pop("x")  # ... aber ohne Manifest-Eintrag
     (lib / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
     assert not library.is_complete("x", lib)
+
+
+def test_concrete_texture_is_registered_when_bridges_or_tunnels_are_enabled(monkeypatch):
+    from world_to_beamng import config
+    from world_to_beamng.textures import registry
+
+    monkeypatch.setattr(config, "BRIDGES_ENABLED", True)
+    monkeypatch.setattr(config, "TUNNELS_ENABLED", False)
+    assert any(spec.name == config.CONCRETE_TEXTURE_NAME for spec in registry.REGISTRY if spec.required())
+
+    monkeypatch.setattr(config, "BRIDGES_ENABLED", False)
+    monkeypatch.setattr(config, "TUNNELS_ENABLED", False)
+    assert not any(spec.name == config.CONCRETE_TEXTURE_NAME for spec in registry.REGISTRY if spec.required())
