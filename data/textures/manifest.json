@@ -1,5 +1,9 @@
 {
   "textures": {
+    "bridge_railing": {
+      "tile_m": 0.3,
+      "source": "prozedural (textures/steel.py), Seed 3131, 512 px"
+    },
     "roof_gravel": {
       "tile_m": 2.0,
       "source": "prozedural (textures/gravel.py), Seed 4242, 1024 px"
