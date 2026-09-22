@@ -43,6 +43,23 @@ def horizon_area(global_offset: Sequence[float]) -> Tuple[float, float, float, f
     return ox - half, ox + half, oy - half, oy + half
 
 
+def horizon_area_wgs84(global_offset: Sequence[float]) -> Tuple[float, float, float, float]:
+    """
+    Horizont-Fläche in WGS84 (Lon/Lat) - Basis für die Copernicus-DEM-Kachelauswahl
+    (dgm30_fetch.py), die nach Grad-Gitter benannt sind statt nach UTM.
+
+    Args:
+        global_offset: Gebietsmitte (x, y[, z]) in UTM, wie horizon_area()
+
+    Returns:
+        (lon_min, lat_min, lon_max, lat_max)
+    """
+    from rasterio.warp import transform_bounds
+
+    x_min, x_max, y_min, y_max = horizon_area(global_offset)
+    return transform_bounds(_dst_crs(), "EPSG:4326", x_min, y_min, x_max, y_max)
+
+
 def build_horizon_image(
     source: Path,
     output: Path,

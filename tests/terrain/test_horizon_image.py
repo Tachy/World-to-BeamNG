@@ -14,7 +14,7 @@ from rasterio.transform import from_bounds
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from world_to_beamng import config
-from world_to_beamng.terrain.horizon_image import _dst_crs, build_horizon_image, horizon_area
+from world_to_beamng.terrain.horizon_image import _dst_crs, build_horizon_image, horizon_area, horizon_area_wgs84
 
 UTM_CRS = _dst_crs()  # Default-Quell-CRS (EPSG:25832), solange kein set_source_crs() aufgerufen wurde
 
@@ -43,6 +43,19 @@ def test_area_is_centred_on_the_area_and_has_the_configured_size():
 
     assert (x_min + x_max) / 2 == CENTER[0] and (y_min + y_max) / 2 == CENTER[1]
     assert x_max - x_min == 2 * config.HORIZON_HALF_SIZE_M == y_max - y_min
+
+
+def test_area_wgs84_contains_the_centre_point_and_spans_roughly_the_expected_extent():
+    lon_min, lat_min, lon_max, lat_max = horizon_area_wgs84(CENTER)
+    lon, lat = Transformer.from_crs(UTM_CRS, "EPSG:4326", always_xy=True).transform(*CENTER)
+
+    # transform_bounds() der UTM-Eckpunkte ergibt wegen Meridiankonvergenz kein exakt auf `lon`/`lat`
+    # zentriertes Rechteck (die UTM-Fläche ist quadratisch, ~2*HORIZON_HALF_SIZE_M breit) - deshalb
+    # hier nur eine grobe Lage-/Größenprüfung statt exakter Zentrierung.
+    assert lon_min < lon < lon_max and lat_min < lat < lat_max
+    approx_deg_per_m = 1 / 111_000
+    expected_span = 2 * config.HORIZON_HALF_SIZE_M * approx_deg_per_m
+    assert lat_max - lat_min == pytest.approx(expected_span, rel=0.05)
 
 
 def test_result_is_utm_32n_with_exactly_the_requested_area_and_size(tmp_path):
