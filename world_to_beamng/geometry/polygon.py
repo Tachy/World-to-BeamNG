@@ -9,6 +9,7 @@ from ..terrain.elevation import get_elevations_for_points
 from ..geometry.coordinates import transformer_to_utm
 from ..config import OSM_MAPPER
 from .. import config
+from .road_structures import classify_structure
 from world_to_beamng.logging_config import LoggerConfig
 
 logger = LoggerConfig.get_logger()
@@ -214,6 +215,32 @@ def resample_road_xy_only(xy_coords, target_spacing):
     return list(zip(x, y))
 
 
+def _linear_elevation_profile(coords):
+    """Ersetzt die Z-Werte durch lineare Interpolation zwischen Anfangs- und Endpunkt (Bogenlänge-gewichtet);
+    Start/Ende bleiben exakt erhalten (dort schließt die normale Straße an, siehe Design-Spec Abschnitt 2)."""
+    arr = np.array(coords, dtype=float)
+    xy = arr[:, :2]
+    diffs = np.diff(xy, axis=0)
+    seg_len = np.linalg.norm(diffs, axis=1)
+    cum = np.concatenate([[0.0], np.cumsum(seg_len)])
+    total = cum[-1]
+    if total < 1e-9:
+        return coords
+    t = cum / total
+    z = arr[0, 2] + t * (arr[-1, 2] - arr[0, 2])
+    return [(float(x), float(y), float(zz)) for (x, y), zz in zip(xy, z)]
+
+
+def apply_structure_elevation_profiles(road_polygons):
+    """Brücken/Tunnel/Galerien (siehe geometry.road_structures.classify_structure) bekommen ein lineares
+    Höhenprofil zwischen ihren Endpunkten statt der rohen DGM-Höhe an jedem Punkt - siehe Design-Spec Abschnitt 2
+    (z.B. der 16,9 km lange Gotthard-Straßentunnel bekommt sonst die Bergrücken-Höhe darüber zugewiesen)."""
+    for road in road_polygons:
+        if classify_structure(road.get("osm_tags", {})) != "surface" and len(road["coords"]) >= 2:
+            road["coords"] = _linear_elevation_profile(road["coords"])
+    return road_polygons
+
+
 def get_road_polygons(roads, bbox, height_points, height_elevations, global_offset, tile_hash=None):
     """Extrahiert Strassen-Polygone mit ihren Koordinaten und Hoehen (NEUE PIPELINE).
 
@@ -329,6 +356,10 @@ def get_road_polygons(roads, bbox, height_points, height_elevations, global_offs
                 "osm_tags": road["osm_tags"],
             }
         )
+
+    # SCHRITT 3b: Brücken/Tunnel/Galerien bekommen ein lineares Höhenprofil statt der rohen DGM-Abtastung
+    # (siehe Design-Spec Abschnitt 2) - VOR dem Smoothing, damit dieses auf dem bereits korrekten Profil arbeitet.
+    road_polygons = apply_structure_elevation_profiles(road_polygons)
 
     # SCHRITT 4: Optional - mildes XY-Smoothing (Z bleibt erhalten oder nur leicht geglättet)
     if config.ENABLE_ROAD_SMOOTHING:
