@@ -204,6 +204,21 @@ BRIDGE_PIER_SIZE = 1.5  # Querschnitt der (quadratischen) Stützpfeiler, in Mete
 BRIDGE_MIN_PIER_CLEARANCE = 1.0  # kein Pfeiler, wenn der Abstand Deck-Unterkante/Gelände kleiner ist, in Metern
 BRIDGE_MATERIAL_NAME = "bridge_concrete"  # Pfeiler-Material (Textur: CONCRETE_TEXTURE_NAME, siehe Task 10)
 
+# Tunnel (OSM highway=* mit tunnel=yes/culvert/building_passage) und Galerien (tunnel=avalanche_protector):
+# Röhre bzw. talseitig offene Galerie entlang des linear interpolierten Höhenprofils (siehe Design-Spec
+# Abschnitt 5/6). Ersetzt für diese Straßen die normale Terrain-Einbettung und den DecalRoad-Export.
+TUNNELS_ENABLED = True  # deckt auch Galerien (tunnel=avalanche_protector) ab
+TUNNEL_WIDTH_MARGIN = 1.5  # zusätzliche Breite über die Fahrbahnbreite hinaus, in Metern
+TUNNEL_ARC_SEGMENTS = 12  # Diskretisierung des 240°-Kreisbogens (Radius/Kronenhöhe ergeben sich aus der Breite)
+TUNNEL_SEGMENT_STEP = 10.0  # Extrusions-Schrittweite entlang der Achse, in Metern (grob, da geradlinig)
+TUNNEL_PORTAL_SLOPE_SAMPLE_DIST = 5.0  # Abtastradius der Hangneigung an den Portalen, in Metern
+TUNNEL_PORTAL_FRAME_MARGIN = 0.6  # Rahmenbreite um die Portalöffnung, in Metern
+GALLERY_HEIGHT = 5.0  # lichte Höhe der (rechteckigen, nicht kreisrunden) Galerie, in Metern
+GALLERY_COLUMN_SPACING = 6.0  # Stützenabstand auf der offenen Talseite, in Metern
+GALLERY_ROOF_THICKNESS = 0.35  # Dachdicke, in Metern
+GALLERY_COLUMN_SIZE = 0.4  # Querschnitt der (quadratischen) Stützen, in Metern
+TUNNEL_MATERIAL_NAME = "tunnel_concrete"  # Wand-/Decke-/Rahmen-/Dach-Material (Textur: CONCRETE_TEXTURE_NAME)
+
 # === LOD2-DACH-TEXTUR ===
 # t_roof_slates_rounded_b.color.dds (256 px) zeigt 5 Biberschwanz-Ziegel nebeneinander je Wiederholung (6 Reihen
 # übereinander). Die UVs sind metrisch: eine Wiederholung = ROOF_REPEAT_M Meter in der Dachebene, ein Ziegel ist

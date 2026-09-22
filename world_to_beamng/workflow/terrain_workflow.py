@@ -480,6 +480,11 @@ class TerrainWorkflow:
         if config.BRIDGES_ENABLED:
             bridge_meshes = self._build_bridges(structure_road_polygons, heights, terrain_origin_x, terrain_origin_y)
 
+        # Tunnel (Röhre + Portale) und Galerien (Dach + Stützen) auf der fertigen Heightmap - siehe tunnels/
+        tunnel_meshes = []
+        if config.TUNNELS_ENABLED:
+            tunnel_meshes = self._build_tunnels(structure_road_polygons, heights, terrain_origin_x, terrain_origin_y)
+
         z_min = float(heights.min())
         z_max = float(heights.max())
         max_height = (z_max - z_min) + config.TERRAIN_MAX_HEIGHT_BUFFER
@@ -503,6 +508,7 @@ class TerrainWorkflow:
             "water": water,  # {"rivers": [...], "ponds": [...]} für export_water()
             "wall_meshes": wall_meshes,  # Mesh-Dicts der Bruchsteinmauern für export_walls()
             "bridge_meshes": bridge_meshes,  # Brücken-Mesh-Dicts für export_bridges()
+            "tunnel_meshes": tunnel_meshes,  # Tunnel-/Galerie-Mesh-Dicts für export_tunnels()
             "grid": grid,
             "road_polygons": road_polygons,
             "road_slope_polygons_2d": road_slope_polygons_2d,  # Für DecalRoad-Export
@@ -698,6 +704,106 @@ class TerrainWorkflow:
             collisionType="Visible Mesh Final",
         )
         logger.info(f"  [OK] {len(meshes)} Brücken exportiert (bridges.dae)")
+        return len(meshes)
+
+    def _build_tunnels(self, structure_road_polygons: List[Dict], heights: np.ndarray, terrain_origin_x: float, terrain_origin_y: float) -> List[Dict]:
+        """Tunnel- (Röhre+Portale) und Galerie-Meshes (Dach+Stützen) für alle Straßen mit structure_type in
+        ("tunnel", "gallery") - siehe tunnels/tunnel_mesh.py und tunnels/gallery_mesh.py."""
+        from ..terrain.road_embedding import sample_heightmap_bilinear
+        from ..tunnels.gallery_mesh import build_galleries
+        from ..tunnels.tunnel_mesh import build_tunnels
+
+        def ground_at(x, y):
+            return sample_heightmap_bilinear(heights, terrain_origin_x, terrain_origin_y, config.TERRAIN_SQUARE_SIZE, np.column_stack([x, y]))
+
+        def _items(structure_type):
+            return [
+                {
+                    "id": road["road_id"],
+                    "coords": road["trimmed_centerline"],
+                    "width": config.OSM_MAPPER.get_road_properties(road.get("osm_tags", {}))["width"],
+                    "floor_material": config.OSM_MAPPER.get_road_properties(road.get("osm_tags", {})).get("internal_name", "road_default"),
+                }
+                for road in structure_road_polygons
+                if road.get("structure_type") == structure_type
+            ]
+
+        tunnel_meshes = build_tunnels(
+            _items("tunnel"),
+            ground_at,
+            wall_material=config.TUNNEL_MATERIAL_NAME,
+            frame_material=config.TUNNEL_MATERIAL_NAME,
+            width_margin=config.TUNNEL_WIDTH_MARGIN,
+            arc_segments=config.TUNNEL_ARC_SEGMENTS,
+            segment_step=config.TUNNEL_SEGMENT_STEP,
+            portal_slope_sample_dist=config.TUNNEL_PORTAL_SLOPE_SAMPLE_DIST,
+            frame_margin=config.TUNNEL_PORTAL_FRAME_MARGIN,
+        )
+        gallery_meshes = build_galleries(
+            _items("gallery"),
+            ground_at,
+            roof_material=config.TUNNEL_MATERIAL_NAME,
+            height=config.GALLERY_HEIGHT,
+            column_spacing=config.GALLERY_COLUMN_SPACING,
+            roof_thickness=config.GALLERY_ROOF_THICKNESS,
+            column_size=config.GALLERY_COLUMN_SIZE,
+        )
+        return tunnel_meshes + gallery_meshes
+
+    def export_tunnels(self, mesh_data: Dict) -> int:
+        """
+        Exportiert Tunnel (Röhre + 2 Portal-Rahmen je Tunnel) und Galerien (Dach + Stützen) als EINE DAE mit
+        EINEM TSStatic und registriert Fahrbahn- und Beton-Material. Ohne Tunnel/Galerien werden Reste eines
+        früheren Exports entfernt.
+
+        Returns:
+            Anzahl exportierter Tunnel-/Portal-/Galerie-Meshes
+        """
+        tunnels_dir = config.BEAMNG_DIR_SHAPES / "tunnels"
+        meshes = mesh_data.get("tunnel_meshes") or []
+        if not config.TUNNELS_ENABLED or not meshes:
+            for suffix in (".dae", ".cdae"):
+                (tunnels_dir / f"tunnels{suffix}").unlink(missing_ok=True)
+            return 0
+
+        from ..textures import registry
+
+        hints = self.materials.get_templates().get("buildings", {}).get("wall", {}).get("material_hints", {})
+        concrete = registry.prepared_textures()[config.CONCRETE_TEXTURE_NAME]
+        self.materials.add_building_material(
+            config.TUNNEL_MATERIAL_NAME,
+            textures={**concrete, "useAnisotropic": True},
+            groundType=hints.get("groundType", "concrete"),
+            materialTag0=hints.get("materialTag0", "beamng"),
+            materialTag1=hints.get("materialTag1", "Building"),
+        )
+
+        unique_floor_materials: Dict[str, Dict] = {}
+        for road in mesh_data.get("structure_road_polygons", []):
+            if road.get("structure_type") not in ("tunnel", "gallery"):
+                continue
+            props = config.OSM_MAPPER.get_road_properties(road.get("osm_tags", {}))
+            unique_floor_materials[props.get("internal_name", "road_default")] = props
+
+        for mat_name, props in unique_floor_materials.items():
+            self.materials.add_building_material(
+                mat_name,
+                textures=props.get("textures", {}),
+                groundType=str(props.get("groundModelName", "asphalt")).upper(),
+                materialTag0="RoadAndPath",
+                materialTag1="beamng",
+            )
+
+        self.dae.export_multi_mesh(output_path=tunnels_dir / "tunnels.dae", meshes=meshes, with_uv=True)
+        self.items.add_item(
+            "tunnels",
+            item_class="TSStatic",
+            shape_name=str(config.RELATIVE_DIR_SHAPES / "tunnels" / "tunnels.dae"),
+            position=(0, 0, 0),
+            overwrite=True,
+            collisionType="Visible Mesh Final",
+        )
+        logger.info(f"  [OK] {len(meshes)} Tunnel-/Galerie-Mesh(e) exportiert (tunnels.dae)")
         return len(meshes)
 
     def _set_fog_height(self, heights: np.ndarray) -> None:
@@ -1064,6 +1170,7 @@ class TerrainWorkflow:
         self.export_water(mesh_data)
         self.export_walls(mesh_data)
         self.export_bridges(mesh_data)
+        self.export_tunnels(mesh_data)
         self.export_merged_terrain(
             heights=mesh_data["heightmap"],
             layer_map=mesh_data["layer_map"],
