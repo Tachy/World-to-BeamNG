@@ -162,7 +162,7 @@ def _fetch_one_tile(tile: TileRequest) -> Optional[np.ndarray]:
     return None
 
 
-def fetch_eox_mosaic(area_utm: tuple, dest_path) -> bool:
+def fetch_eox_mosaic(area_utm: tuple, dest_path) -> Tuple[bool, int]:
     """
     Lädt das komplette Sentinel-2-cloudless-Mosaik für `area_utm` von EOX (gekachelt) und schreibt
     es als ein GeoTIFF nach `dest_path` (EPSG:3857).
@@ -173,9 +173,14 @@ def fetch_eox_mosaic(area_utm: tuple, dest_path) -> bool:
         dest_path: Zieldatei (wird nur bei mindestens einer erfolgreichen Kachel erzeugt)
 
     Returns:
-        True, wenn mindestens eine Kachel erfolgreich geladen wurde (dest_path existiert dann,
-        fehlgeschlagene Kacheln bleiben schwarz); False, wenn ALLE Kacheln fehlgeschlagen sind
-        (dest_path existiert dann NICHT).
+        (success, failed_count):
+        - success: True, wenn mindestens eine Kachel erfolgreich geladen wurde (dest_path existiert
+          dann, fehlgeschlagene Kacheln bleiben schwarz); False, wenn ALLE Kacheln fehlgeschlagen
+          sind (dest_path existiert dann NICHT).
+        - failed_count: Anzahl der Kacheln, die (nach Ausschöpfen aller Retries oder wegen falscher
+          Bildgröße) schwarz geblieben sind. > 0 bei success=True bedeutet: das Mosaik ist nur
+          TEILWEISE vollständig - der Aufrufer darf es dann nicht dauerhaft cachen (siehe
+          ensure_horizon_texture()).
     """
     import rasterio
     from rasterio.transform import from_bounds
@@ -206,11 +211,13 @@ def fetch_eox_mosaic(area_utm: tuple, dest_path) -> bool:
     dest_path.parent.mkdir(parents=True, exist_ok=True)
 
     any_success = False
+    failed_count = 0
     logger.info(f"  EOX-Mosaik: {w}x{h} px in {len(tiles)} Kachel(n) laden...")
     with rasterio.open(temp_path, "w", **profile) as dst:
         for tile in tiles:
             arr = _fetch_one_tile(tile)
             if arr is None:
+                failed_count += 1
                 continue  # Kachel bleibt schwarz (frisch angelegtes GeoTIFF ist nullinitialisiert)
             if arr.shape[:2] != (tile.height, tile.width):
                 # Der Server hat Status 200 + Content-Type image/* geliefert, aber das dekodierte
@@ -222,18 +229,22 @@ def fetch_eox_mosaic(area_utm: tuple, dest_path) -> bool:
                     f"  [x] Kachel ({tile.col_off},{tile.row_off}): Bildgröße {arr.shape[1]}x{arr.shape[0]} "
                     f"passt nicht zur angefragten Größe {tile.width}x{tile.height} - bleibt schwarz"
                 )
+                failed_count += 1
                 continue
             dst.write(np.moveaxis(arr, 2, 0), window=Window(tile.col_off, tile.row_off, tile.width, tile.height))
             any_success = True
 
     if any_success:
         os.replace(temp_path, dest_path)  # atomar: ein Absturz mittendrin hinterlässt nie ein Mosaik
-        logger.info(f"  [OK] EOX-Mosaik geschrieben: {dest_path}")
-        return True
+        if failed_count:
+            logger.warning(f"  [!] EOX-Mosaik: {failed_count}/{len(tiles)} Kachel(n) schwarz geblieben")
+        else:
+            logger.info(f"  [OK] EOX-Mosaik geschrieben: {dest_path}")
+        return True, failed_count
 
     temp_path.unlink(missing_ok=True)
     logger.error("  [x] EOX-Mosaik: alle Kacheln fehlgeschlagen - kein Mosaik erzeugt")
-    return False
+    return False, failed_count
 
 
 def ensure_horizon_texture(area_utm: tuple, dest=None, size_px=None, resampling: str = "bilinear") -> Optional[Path]:
@@ -258,16 +269,19 @@ def ensure_horizon_texture(area_utm: tuple, dest=None, size_px=None, resampling:
     """
     global _attribution_logged
 
-    dest = Path(dest) if dest is not None else config.DOP300_DATA_DIR / config.SENTINEL2_FILE
-    if dest.exists():
-        # Vorhandene, manuell abgelegte Dateien werden nie angetastet - egal welchen Wert
-        # config.EOX_AUTO_DOWNLOAD hat.
-        return dest
-
-    if not config.EOX_AUTO_DOWNLOAD:
-        return None
-
     try:
+        # Diese beiden Zeilen standen früher VOR dem try-Block (billig, und Path.exists() fängt
+        # OSError intern ab) - jetzt innerhalb, damit die "wirft NIE"-Garantie der gesamten
+        # Funktion auch künftige Änderungen an diesem Prolog robust überlebt.
+        dest = Path(dest) if dest is not None else config.DOP300_DATA_DIR / config.SENTINEL2_FILE
+        if dest.exists():
+            # Vorhandene, manuell abgelegte Dateien werden nie angetastet - egal welchen Wert
+            # config.EOX_AUTO_DOWNLOAD hat.
+            return dest
+
+        if not config.EOX_AUTO_DOWNLOAD:
+            return None
+
         size_px = size_px if size_px is not None else config.HORIZON_IMAGE_SIZE_PX
 
         # Cache-Schlüssel fürs Rohmosaik: unabhängig von size_px (das Mosaik ist unabhängig von
@@ -276,17 +290,41 @@ def ensure_horizon_texture(area_utm: tuple, dest=None, size_px=None, resampling:
         cache_key = hashlib.sha1(sig.encode("utf-8")).hexdigest()[:16]
         mosaic_path = config.EOX_MOSAIC_CACHE_DIR / f"eox_mosaic_{cache_key}.tif"
 
+        # Nur bei einem frischen (Teil-)Fetch in diesem Aufruf > 0 - ein Cache-Hit lädt kein
+        # Mosaik neu und kann daher auch keine neuen fehlgeschlagenen Kacheln haben.
+        failed_count = 0
         if not mosaic_path.exists():
             config.EOX_MOSAIC_CACHE_DIR.mkdir(parents=True, exist_ok=True)
-            if not _attribution_logged:
-                logger.info(config.EOX_ATTRIBUTION_NOTICE)
-                _attribution_logged = True
-            if not fetch_eox_mosaic(area_utm, mosaic_path):
+            success, failed_count = fetch_eox_mosaic(area_utm, mosaic_path)
+            if not success:
                 return None
+            if failed_count:
+                # Teilerfolg: fürs AKTUELLE Level trotzdem eine Textur bauen (unten), aber das
+                # Rohmosaik NICHT dauerhaft cachen - sonst bäckt ein einmaliger Netzwerk-Hänger
+                # eine schwarze Kachel für immer in den Horizont ein (analog zur "sonst bleibt der
+                # Fehler dauerhaft im Cache hängen"-Logik in osm/downloader.get_osm_data() und zur
+                # failed/not_found-Unterscheidung in dgm30_fetch.download_dgm30_tiles()). Der
+                # nächste Lauf sieht dann kein Cache-Hit mehr und versucht die fehlenden Kacheln
+                # erneut.
+                logger.warning(
+                    f"  [!] EOX-Mosaik unvollständig ({failed_count} Kachel(n) schwarz) - wird NICHT "
+                    f"dauerhaft gecacht ({mosaic_path}). Um es mit besserer Netzwerkverbindung erneut "
+                    f"zu versuchen, {dest} löschen und den Export erneut ausführen."
+                )
+
+        # Die Imagery-Lizenz (CC BY-NC-SA) knüpft die Attributionspflicht an die NUTZUNG des
+        # Bildmaterials, nicht an den Download - daher hier loggen (bei jedem Aufruf, der
+        # tatsächlich EOX-Bildmaterial verwendet), nicht nur im Cache-Miss-Zweig oben.
+        if not _attribution_logged:
+            logger.info(config.EOX_ATTRIBUTION_NOTICE)
+            _attribution_logged = True
 
         build_horizon_image(mosaic_path, dest, area=area_utm, size_px=size_px, resampling=resampling)
 
-        if not config.EOX_KEEP_RAW_MOSAIC:
+        # Teilweise fehlgeschlagenes Mosaik (s.o.) nie dauerhaft im Cache belassen, unabhängig von
+        # config.EOX_KEEP_RAW_MOSAIC - dieses Level bekommt seine Textur trotzdem (oben bereits
+        # gebaut), aber der nächste Lauf soll erneut versuchen.
+        if not config.EOX_KEEP_RAW_MOSAIC or failed_count:
             mosaic_path.unlink(missing_ok=True)
 
         return dest if dest.exists() else None

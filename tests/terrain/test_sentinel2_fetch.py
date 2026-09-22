@@ -16,6 +16,7 @@ from pyproj import Transformer
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from world_to_beamng import config
+from world_to_beamng.terrain import sentinel2_fetch
 from world_to_beamng.terrain.sentinel2_fetch import (
     _mercator_bbox_for_area,
     _mosaic_pixel_size,
@@ -164,9 +165,10 @@ def test_fetch_mosaic_success_writes_correct_size_and_crs(mock_get, tmp_path, mo
     mock_get.side_effect = fake_get
     dest = tmp_path / "mosaic.tif"
 
-    result = fetch_eox_mosaic(AREA_UTM, dest)
+    success, failed_count = fetch_eox_mosaic(AREA_UTM, dest)
 
-    assert result is True
+    assert success is True
+    assert failed_count == 0
     assert dest.exists()
     assert not dest.with_name(dest.name + ".part").exists()
     with rasterio.open(dest) as ds:
@@ -196,9 +198,10 @@ def test_fetch_mosaic_partial_failure_still_returns_true_failed_tile_is_black(mo
     mock_get.side_effect = fake_get
     dest = tmp_path / "mosaic.tif"
 
-    result = fetch_eox_mosaic(AREA_UTM, dest)
+    success, failed_count = fetch_eox_mosaic(AREA_UTM, dest)
 
-    assert result is True
+    assert success is True
+    assert failed_count == 1
     assert dest.exists()
     with rasterio.open(dest) as ds:
         arr = ds.read()
@@ -216,9 +219,10 @@ def test_fetch_mosaic_total_failure_returns_false_no_file_created(mock_get, mock
     mock_get.side_effect = lambda *a, **kw: _error_response(503)
     dest = tmp_path / "mosaic.tif"
 
-    result = fetch_eox_mosaic(AREA_UTM, dest)
+    success, failed_count = fetch_eox_mosaic(AREA_UTM, dest)
 
-    assert result is False
+    assert success is False
+    assert failed_count == 1
     assert not dest.exists()
     assert not dest.with_name(dest.name + ".part").exists()
 
@@ -245,9 +249,10 @@ def test_fetch_mosaic_tile_with_wrong_decoded_size_stays_black_does_not_abort_mo
     mock_get.side_effect = fake_get
     dest = tmp_path / "mosaic.tif"
 
-    result = fetch_eox_mosaic(AREA_UTM, dest)
+    success, failed_count = fetch_eox_mosaic(AREA_UTM, dest)
 
-    assert result is True  # mindestens eine (die restlichen 3) Kacheln waren erfolgreich
+    assert success is True  # mindestens eine (die restlichen 3) Kacheln waren erfolgreich
+    assert failed_count == 1
     assert dest.exists()
     with rasterio.open(dest) as ds:
         arr = ds.read()
@@ -326,3 +331,149 @@ def test_ensure_horizon_texture_never_raises_on_unexpected_error(mock_fetch, tmp
 
     assert result is None
     assert not dest.exists()
+
+
+# --- Item 1: Teilerfolg wird nicht dauerhaft gecacht -------------------------------------------
+
+
+@patch("world_to_beamng.terrain.sentinel2_fetch.time.sleep")
+@patch("world_to_beamng.terrain.sentinel2_fetch.requests.get")
+def test_ensure_horizon_texture_partial_failure_still_builds_texture_this_run(mock_get, mock_sleep, tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "EOX_AUTO_DOWNLOAD", True)
+    monkeypatch.setattr(config, "EOX_MOSAIC_MAX_PX", 100)
+    monkeypatch.setattr(config, "EOX_MAX_REQUEST_PX", 50)  # -> 2x2 Kacheln
+    monkeypatch.setattr(config, "EOX_FETCH_MAX_RETRIES", 2)
+    monkeypatch.setattr(config, "EOX_MOSAIC_CACHE_DIR", tmp_path / "cache_horizon_source")
+
+    call_count = {"n": 0}
+
+    def fake_get(url, params=None, headers=None, timeout=None):
+        call_count["n"] += 1
+        # Die allererste angefragte Kachel schlägt bei jedem Versuch fehl (Netzwerk-Hänger),
+        # alle anderen liefern ein Bild -> Teilerfolg.
+        if call_count["n"] <= config.EOX_FETCH_MAX_RETRIES:
+            return _error_response(500)
+        return _jpeg_response(int(params["width"]), int(params["height"]))
+
+    mock_get.side_effect = fake_get
+    dest = tmp_path / "horizon_temp.tif"
+
+    result = ensure_horizon_texture(AREA_UTM, dest=dest, size_px=32)
+
+    # Trotz Teilerfolg wird für DIESEN Lauf noch eine benutzbare Textur erzeugt.
+    assert result == dest
+    assert dest.exists()
+    with rasterio.open(dest) as ds:
+        assert ds.width == 32
+        assert ds.height == 32
+
+
+@patch("world_to_beamng.terrain.sentinel2_fetch.time.sleep")
+@patch("world_to_beamng.terrain.sentinel2_fetch.requests.get")
+def test_ensure_horizon_texture_partial_failure_does_not_cache_mosaic_for_next_run(mock_get, mock_sleep, tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "EOX_AUTO_DOWNLOAD", True)
+    monkeypatch.setattr(config, "EOX_MOSAIC_MAX_PX", 100)
+    monkeypatch.setattr(config, "EOX_MAX_REQUEST_PX", 50)  # -> 2x2 Kacheln
+    monkeypatch.setattr(config, "EOX_FETCH_MAX_RETRIES", 2)
+    mosaic_cache_dir = tmp_path / "cache_horizon_source"
+    monkeypatch.setattr(config, "EOX_MOSAIC_CACHE_DIR", mosaic_cache_dir)
+
+    call_count = {"n": 0}
+
+    def fake_get(url, params=None, headers=None, timeout=None):
+        call_count["n"] += 1
+        if call_count["n"] <= config.EOX_FETCH_MAX_RETRIES:
+            return _error_response(500)
+        return _jpeg_response(int(params["width"]), int(params["height"]))
+
+    mock_get.side_effect = fake_get
+    dest = tmp_path / "horizon_temp.tif"
+
+    ensure_horizon_texture(AREA_UTM, dest=dest, size_px=32)
+
+    # Kein Rohmosaik im permanenten Cache-Verzeichnis hinterlassen (egal ob EOX_KEEP_RAW_MOSAIC
+    # True oder False ist) - sonst würde der nächste Lauf den Teilerfolg für immer als
+    # "vollständig" behandeln.
+    assert list(mosaic_cache_dir.glob("*.tif")) == []
+
+    # Simuliert den vom Warnhinweis vorgeschlagenen nächsten Lauf: Nutzer löscht die Textur, um
+    # einen Retry zu erzwingen. Da auch das Mosaik nicht mehr gecacht ist, muss das Netzwerk
+    # tatsächlich erneut angefragt werden statt über den Cache-Hit-Pfad überzuspringen.
+    dest.unlink()
+    call_count["n"] = 0
+    mock_get.side_effect = fake_get  # frisch, damit der Zähler wieder von vorne beginnt
+
+    result = ensure_horizon_texture(AREA_UTM, dest=dest, size_px=32)
+
+    assert result == dest
+    assert dest.exists()
+    assert call_count["n"] > 0  # Netzwerk wurde tatsächlich erneut angefragt, nicht übersprungen
+
+
+# --- Item 2: Attribution wird bei jeder Nutzung geloggt, auch beim Cache-Hit -------------------
+
+
+@patch("world_to_beamng.terrain.sentinel2_fetch.requests.get")
+def test_attribution_is_logged_on_fresh_download(mock_get, tmp_path, monkeypatch, caplog):
+    monkeypatch.setattr(sentinel2_fetch, "_attribution_logged", False)
+    monkeypatch.setattr(config, "EOX_AUTO_DOWNLOAD", True)
+    monkeypatch.setattr(config, "EOX_MOSAIC_MAX_PX", 50)
+    monkeypatch.setattr(config, "EOX_MAX_REQUEST_PX", 50)
+    monkeypatch.setattr(config, "EOX_MOSAIC_CACHE_DIR", tmp_path / "cache_horizon_source")
+
+    mock_get.side_effect = lambda url, params=None, headers=None, timeout=None: _jpeg_response(
+        int(params["width"]), int(params["height"])
+    )
+    dest = tmp_path / "horizon_temp.tif"
+
+    with caplog.at_level("INFO"):
+        ensure_horizon_texture(AREA_UTM, dest=dest, size_px=32)
+
+    assert config.EOX_ATTRIBUTION_NOTICE in caplog.text
+
+
+@patch("world_to_beamng.terrain.sentinel2_fetch.requests.get")
+def test_attribution_is_logged_on_cache_hit_too_but_only_once_per_process(mock_get, tmp_path, monkeypatch, caplog):
+    import hashlib
+
+    monkeypatch.setattr(sentinel2_fetch, "_attribution_logged", False)
+    monkeypatch.setattr(config, "EOX_AUTO_DOWNLOAD", True)
+    monkeypatch.setattr(config, "EOX_MOSAIC_MAX_PX", 50)
+    monkeypatch.setattr(config, "EOX_MAX_REQUEST_PX", 50)
+    mosaic_cache_dir = tmp_path / "cache_horizon_source"
+    monkeypatch.setattr(config, "EOX_MOSAIC_CACHE_DIR", mosaic_cache_dir)
+
+    mock_get.side_effect = lambda url, params=None, headers=None, timeout=None: _jpeg_response(
+        int(params["width"]), int(params["height"])
+    )
+
+    # Rohmosaik VORAB anlegen (simuliert einen früheren Prozess/Lauf, der es bereits erfolgreich
+    # geladen hat) - direkt über fetch_eox_mosaic(), NICHT über ensure_horizon_texture(), damit
+    # _attribution_logged dabei nicht schon gesetzt wird. Cache-Schlüssel-Berechnung wie in
+    # ensure_horizon_texture().
+    sig = f"{round(AREA_UTM[0])}_{round(AREA_UTM[1])}_{round(AREA_UTM[2])}_{round(AREA_UTM[3])}_{config.EOX_WMS_LAYER}"
+    cache_key = hashlib.sha1(sig.encode("utf-8")).hexdigest()[:16]
+    mosaic_path = mosaic_cache_dir / f"eox_mosaic_{cache_key}.tif"
+    mosaic_cache_dir.mkdir(parents=True)
+    success, failed_count = fetch_eox_mosaic(AREA_UTM, mosaic_path)
+    assert success is True and failed_count == 0
+    assert not sentinel2_fetch._attribution_logged
+    calls_from_seeding = mock_get.call_count
+
+    # Erster Aufruf von ensure_horizon_texture() in diesem Prozess ist bereits ein CACHE-HIT (das
+    # Rohmosaik existiert schon) - die Lizenz-Attributionspflicht knüpft an die NUTZUNG des
+    # Bildmaterials, nicht an den Download, also muss auch hier geloggt werden (vorher wurde die
+    # Meldung nur im Cache-Miss-Zweig geloggt und wäre hier komplett ausgeblieben).
+    dest1 = tmp_path / "horizon_temp_1.tif"
+    with caplog.at_level("INFO"):
+        ensure_horizon_texture(AREA_UTM, dest=dest1, size_px=32)
+    assert mock_get.call_count == calls_from_seeding  # kein neuer Netzwerk-Request -> echter Cache-Hit
+    assert caplog.text.count(config.EOX_ATTRIBUTION_NOTICE) == 1
+    caplog.clear()
+
+    # Zweiter Aufruf (anderes dest, wieder ein Cache-Hit) im SELBEN Prozess: nicht nochmal loggen.
+    dest2 = tmp_path / "horizon_temp_2.tif"
+    with caplog.at_level("INFO"):
+        ensure_horizon_texture(AREA_UTM, dest=dest2, size_px=32)
+    assert config.EOX_ATTRIBUTION_NOTICE not in caplog.text
+    assert sentinel2_fetch._attribution_logged is True

@@ -83,7 +83,9 @@ def missing_tile_ids(bbox_wgs84, dgm30_dir, not_found_cache: dict) -> list:
         not_found_cache: {tile_id: iso8601_timestamp_str}
     """
     dgm30_dir = Path(dgm30_dir)
-    existing_files = list(dgm30_dir.glob("*.tif")) if dgm30_dir.is_dir() else []
+    existing_files = (
+        list(dgm30_dir.glob("*.tif")) + list(dgm30_dir.glob("*.tiff")) if dgm30_dir.is_dir() else []
+    )
     cutoff = datetime.now(timezone.utc) - timedelta(days=config.DGM30_NOT_FOUND_CACHE_TTL_DAYS)
 
     missing = []
@@ -175,6 +177,9 @@ def _download_one_tile(tile_id: str, url: str, dgm30_dir: Path) -> str:
             time.sleep(wait_time)
 
     logger.error(f"  [x] {tile_id}: alle {config.DGM30_FETCH_MAX_RETRIES} Versuche fehlgeschlagen")
+    # Ein abgebrochener Stream kann eine .tif.part hinterlassen haben - aufräumen (analog zum
+    # totalen Fehlschlag in sentinel2_fetch.fetch_eox_mosaic()).
+    part_path.unlink(missing_ok=True)
     return "failed"
 
 
@@ -208,11 +213,16 @@ def download_dgm30_tiles(bbox_wgs84, dgm30_dir) -> dict:
 
         if outcome == "not_found":
             not_found_cache[tile_id] = datetime.now(timezone.utc).isoformat()
-            _save_not_found_cache(dgm30_dir, not_found_cache)  # sofort speichern: übersteht einen Absturz im nächsten Tile
+            try:
+                _save_not_found_cache(dgm30_dir, not_found_cache)  # sofort speichern: übersteht einen Absturz im nächsten Tile
+            except OSError as e:
+                # Ein einzelner fehlgeschlagener Cache-Schreibversuch (voll, keine Rechte, ...) soll
+                # nicht den Rest des Batches abbrechen - nur diese Kachel wird beim nächsten Lauf
+                # erneut als 404 erkannt statt gecacht zu bleiben.
+                logger.warning(f"  [!] Not-Found-Cache konnte nicht gespeichert werden ({e}) - {tile_id} bleibt ungecacht")
 
         result[outcome].append(tile_id)
 
-    dgm30_dir.mkdir(parents=True, exist_ok=True)
     return result
 
 
