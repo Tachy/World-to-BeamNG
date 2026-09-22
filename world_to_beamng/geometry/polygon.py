@@ -231,6 +231,35 @@ def _linear_elevation_profile(coords):
     return [(float(x), float(y), float(zz)) for (x, y), zz in zip(xy, z)]
 
 
+def _endpoint_matches(pt_a, pt_b, tol=1e-4):
+    return abs(pt_a[0] - pt_b[0]) < tol and abs(pt_a[1] - pt_b[1]) < tol and abs(pt_a[2] - pt_b[2]) < tol
+
+
+def _find_unique_touching_road(road_polygons, point, exclude_id, predicate=None):
+    """Findet die eine Straße in road_polygons, deren Anfangs- oder Endpunkt mit `point` übereinstimmt
+    (ausser `exclude_id`, optional gefiltert über `predicate(osm_tags)`); bei Mehrdeutigkeit (0 oder 2+
+    Treffer, z.B. an einer echten Mehrwege-Kreuzung) wird None zurückgegeben - dort muss die scharfe Kante
+    für die Junction-Logik erhalten bleiben.
+
+    Returns:
+        (road, touching_at_start) oder None
+    """
+    found = []
+    for road in road_polygons:
+        if road["id"] == exclude_id:
+            continue
+        if predicate and not predicate(road.get("osm_tags", {})):
+            continue
+        coords = road["coords"]
+        if len(coords) < 2:
+            continue
+        if _endpoint_matches(coords[0], point):
+            found.append((road, True))
+        elif _endpoint_matches(coords[-1], point):
+            found.append((road, False))
+    return found[0] if len(found) == 1 else None
+
+
 def _walk_bridge_approach(ordered, slope_threshold, max_extension):
     """Läuft `ordered` ab Index 0 (Berührpunkt zur Brücke) entlang, solange das Gefälle des jeweils
     nächsten Segments >= slope_threshold bleibt (noch Teil der Hangflanke, die die zu kurze Brücke nicht
@@ -284,24 +313,7 @@ def extend_short_bridges_to_natural_grade(road_polygons, slope_threshold=None, m
     if max_extension is None:
         max_extension = config.BRIDGE_APPROACH_MAX_EXTENSION
 
-    def endpoint_matches(pt_a, pt_b, tol=1e-4):
-        return abs(pt_a[0] - pt_b[0]) < tol and abs(pt_a[1] - pt_b[1]) < tol and abs(pt_a[2] - pt_b[2]) < tol
-
-    def find_neighbor(point, exclude_id):
-        matches = []
-        for road in road_polygons:
-            if road["id"] == exclude_id:
-                continue
-            if classify_structure(road.get("osm_tags", {})) != "surface":
-                continue
-            coords = road["coords"]
-            if len(coords) < 2:
-                continue
-            if endpoint_matches(coords[0], point):
-                matches.append((road, True))
-            elif endpoint_matches(coords[-1], point):
-                matches.append((road, False))
-        return matches[0] if len(matches) == 1 else None
+    is_surface = lambda tags: classify_structure(tags) == "surface"
 
     for bridge in [r for r in road_polygons if classify_structure(r.get("osm_tags", {})) == "bridge"]:
         coords = bridge["coords"]
@@ -310,7 +322,7 @@ def extend_short_bridges_to_natural_grade(road_polygons, slope_threshold=None, m
 
         for at_start in (True, False):
             touch_point = coords[0] if at_start else coords[-1]
-            found = find_neighbor(touch_point, bridge["id"])
+            found = _find_unique_touching_road(road_polygons, touch_point, bridge["id"], predicate=is_surface)
             if not found:
                 continue
             neighbor, touching_at_start = found
@@ -467,6 +479,10 @@ def get_road_polygons(roads, bbox, height_points, height_elevations, global_offs
     if config.ENABLE_ROAD_SMOOTHING:
         logger.info(f"  Mildes XY-Smoothing...")
         road_polygons = smooth_roads_xy_only(road_polygons)
+
+        # SCHRITT 4b: an eindeutigen Brücken/Tunnel/Galerie-Übergängen wird der Knick, den das unabhängige
+        # Smoothing pro Straße hinterlässt, zusätzlich weggeglättet (siehe smooth_structure_transitions).
+        road_polygons = smooth_structure_transitions(road_polygons)
     else:
         logger.info(f"  Smoothing SKIP (config.ENABLE_ROAD_SMOOTHING=False)")
 
@@ -528,4 +544,89 @@ def smooth_roads_xy_only(road_polygons):
         road["coords"] = [(p[0], p[1], p[2]) for p in smoothed_arr]
 
     logger.info(f"    -> {total_points} Punkte geglättet (XY+Z, {iterations} Iter., Weight={weight_center:.2f})")
+    return road_polygons
+
+
+def _blend_structure_boundary(road_a, at_start_a, road_b, at_start_b, window, iterations, weight_center):
+    """Glättet die je bis zu `window` Punkte beidseits des gemeinsamen Grenzpunkts von road_a/road_b
+    GEMEINSAM (ein Chaikin-Lauf über die zusammengesetzte Fenster-Sequenz), sodass der Grenzpunkt in
+    beiden Straßen identisch bleibt; die fernen Fensterenden dienen als fixe Anker."""
+    weight_neighbor = (1.0 - weight_center) / 2.0
+    coords_a = road_a["coords"]
+    coords_b = road_b["coords"]
+    wa = min(window, len(coords_a) - 1)
+    wb = min(window, len(coords_b) - 1)
+
+    a_slice = list(reversed(coords_a[: wa + 1])) if at_start_a else list(coords_a[-(wa + 1) :])
+    b_slice = list(coords_b[: wb + 1]) if at_start_b else list(reversed(coords_b[-(wb + 1) :]))
+
+    # a_slice endet mit dem Grenzpunkt, b_slice beginnt mit dem Grenzpunkt - einmal zusammenführen
+    window_seq = a_slice[:-1] + b_slice
+    n = len(window_seq)
+    if n < 3:
+        return
+
+    arr = np.array(window_seq, dtype=float)
+    smoothed = arr.copy()
+    for _ in range(max(1, iterations)):
+        temp = smoothed.copy()
+        for i in range(1, n - 1):
+            temp[i] = weight_center * smoothed[i] + weight_neighbor * smoothed[i - 1] + weight_neighbor * smoothed[i + 1]
+        smoothed = temp
+    smoothed[0] = arr[0]  # ferne Fensterenden bleiben fix (Anker)
+    smoothed[-1] = arr[-1]
+
+    new_a_slice = [tuple(float(v) for v in p) for p in smoothed[: wa + 1]]
+    new_b_slice = [tuple(float(v) for v in p) for p in smoothed[wa:]]
+
+    if at_start_a:
+        coords_a[: wa + 1] = list(reversed(new_a_slice))
+    else:
+        coords_a[-(wa + 1) :] = new_a_slice
+
+    if at_start_b:
+        coords_b[: wb + 1] = new_b_slice
+    else:
+        coords_b[-(wb + 1) :] = list(reversed(new_b_slice))
+
+
+def smooth_structure_transitions(road_polygons, window=3, iterations=None, weight_center=None):
+    """Weicht den Knick an eindeutigen Brücken/Tunnel/Galerie-Übergängen auf.
+
+    smooth_roads_xy_only glättet jede Straße unabhängig und hält dabei ihre Endpunkte exakt fest, wodurch
+    am gemeinsamen Übergang zu einer Struktur ein sichtbarer Knick entstehen kann - u.a. weil die Struktur
+    ein lineares statt das natürliche DGM-Höhenprofil bekommt (apply_structure_elevation_profiles). Dieser
+    Schritt läuft NACH smooth_roads_xy_only und glättet die paar Punkte beidseits eines eindeutigen
+    Struktur-Übergangs gemeinsam (XYZ), sodass der Grenzpunkt in beiden Straßen identisch bleibt (kein
+    Spalt) und die Straße "aus einem Guss" wirkt.
+
+    Nur eindeutige 2-Wege-Übergänge (Struktur <-> eine andere Straße, egal ob Oberfläche oder wieder eine
+    Struktur) werden geglättet; echte Mehrwege-Kreuzungen (3+ Straßen an einem Punkt) bleiben unangetastet,
+    da dort die scharfe Kante für die Junction-Logik nötig ist (siehe _find_unique_touching_road).
+    """
+    iterations = config.ROAD_SMOOTH_ITERATIONS if iterations is None else iterations
+    weight_center = config.ROAD_SMOOTH_WEIGHT if weight_center is None else weight_center
+
+    processed = set()
+    for road in road_polygons:
+        if classify_structure(road.get("osm_tags", {})) == "surface":
+            continue
+        coords = road["coords"]
+        if len(coords) < 2:
+            continue
+
+        for at_start in (True, False):
+            key = (road["id"], at_start)
+            if key in processed:
+                continue
+            touch_point = coords[0] if at_start else coords[-1]
+            found = _find_unique_touching_road(road_polygons, touch_point, road["id"])
+            if not found:
+                continue
+            neighbor, neighbor_at_start = found
+
+            _blend_structure_boundary(road, at_start, neighbor, neighbor_at_start, window, iterations, weight_center)
+            processed.add(key)
+            processed.add((neighbor["id"], neighbor_at_start))
+
     return road_polygons
