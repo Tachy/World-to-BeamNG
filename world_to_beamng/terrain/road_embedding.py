@@ -21,9 +21,11 @@ import math
 from typing import Dict, List
 
 import numpy as np
+from affine import Affine
+from rasterio.features import rasterize
 from scipy.spatial import cKDTree
 from shapely import intersects_xy
-from shapely.geometry import Polygon
+from shapely.geometry import LineString, Polygon
 
 from .. import config
 
@@ -199,6 +201,110 @@ def _embed_road(
 
     sub = heights[row_start : row_end + 1, col_start : col_end + 1]
     sub[inside] = target_z
+
+
+def mark_gallery_interior_as_holes(
+    layer_map: np.ndarray,
+    natural_heights: np.ndarray,
+    origin_x: float,
+    origin_y: float,
+    square_size: float,
+    gallery_road_polygons: List[Dict],
+    width_margin: float,
+    height: float,
+    roof_thickness: float,
+) -> np.ndarray:
+    """
+    Markiert das Terrain als Hole (Layer 255), aber NUR entlang der Centerline-Abschnitte, an denen das
+    natürliche Gelände tatsächlich unter die Galerie-Dachoberkante reicht.
+
+    Galerien haben (anders als Brücken/Tunnel) ihr eigenes Boden-/Wand-/Dach-Mesh auf echtem
+    Straßenniveau (siehe tunnels/gallery_mesh.py), aber das Gelände bleibt sonst unverändert stehen und
+    würde Durchfahrt, Eingang und die bergseitige Wand blockieren, da eine Galerie - anders als ein tief
+    im Berg liegender Tunnel - direkt am Hang liegt. Anders als ein Hole über den gesamten Footprint
+    bleibt das Gelände dort stehen, wo es natürlich ÜBER der Dach-Oberkante liegt: der Berghang, der über
+    die Galerie hinwegläuft, ist bei einer Lawinengalerie der eigentliche Zweck des Bauwerks.
+
+    Technik: pro Centerline-Punkt wird das natürliche Gelände links, rechts und mittig der Fahrbahn
+    abgetastet (wie build_road_embankment_profiles()) und mit der Dach-Oberkante verglichen; zusammen-
+    hängende Läufe "Gelände zu niedrig" werden zu je einem sauber gepufferten Linien-Polygon (glatte
+    Kanten wie jede andere gerasterte Fläche der Pipeline, nicht ein Flickenteppich einzelner Zellen).
+
+    Args:
+        layer_map: (size, size) Layer-Indizes
+        natural_heights: (size, size) UNVERÄNDERTE natürliche Terrainhöhe (vor jeder Einbettung/Böschung/
+            Teichmulde - siehe build_road_embankment_profiles())
+        gallery_road_polygons: Einträge mit "trimmed_centerline" ((N,3), Boden-Z je Punkt) und "width"
+            (Fahrbahnbreite in Metern)
+        width_margin: zusätzlicher Rand über die reine Fahrbahnbreite hinaus, in Metern (Seitenwand/
+            Dachkante ragen etwas darüber hinaus)
+        height, roof_thickness: wie config.GALLERY_HEIGHT/GALLERY_ROOF_THICKNESS - ergeben zusammen mit der
+            Boden-Z je Centerline-Punkt die Dach-Oberkante
+
+    Returns:
+        Neue layer_map (Eingabe bleibt unverändert)
+    """
+    from .ter_writer import EMPTY_LAYER_VALUE
+
+    result = layer_map.copy()
+    hole_polygons = []
+
+    for road in gallery_road_polygons:
+        centerline = np.asarray(road.get("trimmed_centerline", []), dtype=np.float64)
+        width = road.get("width")
+        if len(centerline) < 2 or not width:
+            continue
+
+        half_width = width / 2.0 + width_margin
+        xy = centerline[:, :2]
+        roof_top = centerline[:, 2] + height + roof_thickness
+
+        directions = np.diff(xy, axis=0)
+        norms = np.linalg.norm(directions, axis=1, keepdims=True)
+        norms[norms < 1e-9] = 1.0
+        directions = directions / norms
+        point_dirs = np.empty_like(xy)
+        point_dirs[0] = directions[0]
+        point_dirs[-1] = directions[-1]
+        for i in range(1, len(xy) - 1):
+            avg = directions[i - 1] + directions[i]
+            n = np.linalg.norm(avg)
+            point_dirs[i] = avg / n if n > 1e-9 else directions[i - 1]
+        perp = np.column_stack([-point_dirs[:, 1], point_dirs[:, 0]])
+
+        left_z = sample_heightmap_bilinear(natural_heights, origin_x, origin_y, square_size, xy + perp * half_width)
+        right_z = sample_heightmap_bilinear(natural_heights, origin_x, origin_y, square_size, xy - perp * half_width)
+        center_z = sample_heightmap_bilinear(natural_heights, origin_x, origin_y, square_size, xy)
+        natural_max = np.maximum(np.maximum(left_z, right_z), center_z)
+        needs_hole = natural_max < roof_top
+
+        n = len(needs_hole)
+        i = 0
+        while i < n:
+            if not needs_hole[i]:
+                i += 1
+                continue
+            j = i
+            while j + 1 < n and needs_hole[j + 1]:
+                j += 1
+            # Ein Punkt Überlappung zu jeder Seite (falls vorhanden): glatter Übergang statt Rasierklingen-
+            # Kante genau am Umschlagpunkt zwischen "Loch" und "Gelände bleibt natürlich".
+            lo, hi = max(i - 1, 0), min(j + 1, n - 1)
+            segment = xy[lo : hi + 1]
+            if len(segment) >= 2:
+                polygon = LineString(segment).buffer(half_width, cap_style=2)
+                if not polygon.is_empty:
+                    hole_polygons.append(polygon)
+            i = j + 1
+
+    if not hole_polygons:
+        return result
+
+    shapes = [(polygon, 1) for polygon in hole_polygons]
+    transform = Affine.translation(origin_x, origin_y) * Affine.scale(square_size, square_size)
+    mask = rasterize(shapes, out_shape=result.shape, transform=transform, fill=0, dtype="uint8")
+    result[mask == 1] = EMPTY_LAYER_VALUE
+    return result
 
 
 def sample_heightmap_bilinear(

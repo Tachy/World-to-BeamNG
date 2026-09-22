@@ -12,7 +12,9 @@ from world_to_beamng.terrain.road_embedding import (
     sample_heightmap_bilinear,
     build_road_embankment_profiles,
     apply_embankment_blend,
+    mark_gallery_interior_as_holes,
 )
+from world_to_beamng.terrain.ter_writer import EMPTY_LAYER_VALUE
 
 
 def _road(polygon_xy, centerline_xyz):
@@ -400,3 +402,61 @@ def test_blend_one_side_is_identical_to_the_full_bounding_box_reference():
             _reference_blend_one_side(expected, origin_x, origin_y, square, size, size, edge, width, natural)
             _blend_one_side(actual, origin_x, origin_y, square, size, size, edge, width, natural)
             np.testing.assert_array_equal(actual, expected)
+
+
+# --- mark_gallery_interior_as_holes ------------------------------------------------------------------------------
+
+
+def _gallery(x0=5.0, x1=25.0, y=15.0, z=100.0, width=6.0):
+    centerline = np.column_stack([np.linspace(x0, x1, int(x1 - x0) + 1), np.full(int(x1 - x0) + 1, y), np.full(int(x1 - x0) + 1, z)])
+    return {"trimmed_centerline": centerline, "width": width}
+
+
+def test_gallery_hole_covers_the_whole_corridor_when_terrain_is_always_below_the_roof():
+    layer_map = np.full((30, 30), 3, dtype=np.uint8)
+    natural_heights = np.full((30, 30), 100.0)  # überall unter der Dach-Oberkante (100+5+0.5=105.5)
+
+    result = mark_gallery_interior_as_holes(
+        layer_map, natural_heights, 0.0, 0.0, 1.0, [_gallery()], width_margin=1.0, height=5.0, roof_thickness=0.5
+    )
+
+    assert result[15, 15] == EMPTY_LAYER_VALUE  # Mitte des Korridors
+    assert (layer_map == 3).all()  # Eingabe bleibt unverändert
+
+
+def test_gallery_hole_stays_away_where_the_natural_terrain_is_already_above_the_roof():
+    layer_map = np.full((30, 30), 3, dtype=np.uint8)
+    natural_heights = np.full((30, 30), 110.0)  # überall über der Dach-Oberkante (105.5) - Berghang läuft drüber
+
+    result = mark_gallery_interior_as_holes(
+        layer_map, natural_heights, 0.0, 0.0, 1.0, [_gallery()], width_margin=1.0, height=5.0, roof_thickness=0.5
+    )
+
+    assert (result == 3).all()  # keine Löcher - das natürliche Gelände bleibt vollständig stehen
+
+
+def test_gallery_hole_is_limited_to_the_dipped_section_with_smooth_polygon_edges():
+    layer_map = np.full((30, 30), 3, dtype=np.uint8)
+    natural_heights = np.full((30, 30), 110.0)
+    natural_heights[8:23, 12:19] = 100.0  # Senke bei x=12..18 (deckt auch die Rand-Abtastpunkte y=11/19 ab)
+
+    result = mark_gallery_interior_as_holes(
+        layer_map, natural_heights, 0.0, 0.0, 1.0, [_gallery()], width_margin=1.0, height=5.0, roof_thickness=0.5
+    )
+
+    assert result[15, 15] == EMPTY_LAYER_VALUE  # in der Senke: Loch
+    assert result[15, 5] == 3 and result[15, 25] == 3  # weit weg von der Senke: Gelände bleibt natürlich
+
+    # glatte (gerasterte Polygon-)Kante statt Einzelzellen-Flickenteppich: an der Loch-Kante sind ganze
+    # Zeilen (über die Korridorbreite) konsistent Loch bzw. nicht, keine isolierten Einzelzellen.
+    hole_row = result[15, :] == EMPTY_LAYER_VALUE
+    transitions = np.count_nonzero(np.diff(hole_row.astype(int)) != 0)
+    assert transitions == 2  # genau ein zusammenhängender Loch-Abschnitt entlang der Achse
+
+
+def test_gallery_hole_without_galleries_is_a_noop():
+    layer_map = np.full((10, 10), 3, dtype=np.uint8)
+
+    result = mark_gallery_interior_as_holes(layer_map, np.full((10, 10), 100.0), 0.0, 0.0, 1.0, [], width_margin=1.0, height=5.0, roof_thickness=0.5)
+
+    assert (result == 3).all()
