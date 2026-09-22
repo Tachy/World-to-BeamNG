@@ -199,6 +199,7 @@ class TerrainWorkflow:
         # WICHTIG: Erzeuge tatsächliche Straßen-Polygone (Puffer um Centerline)
         from shapely.geometry import LineString
         from ..config import OSM_MAPPER
+        from ..geometry.road_structures import classify_structure, split_by_structure_type
         from ..utils.debug_exporter import DebugNetworkExporter
 
         road_slope_polygons_2d = []
@@ -230,6 +231,7 @@ class TerrainWorkflow:
                     "road_polygon": road_polygon_2d,
                     "trimmed_centerline": coords,
                     "osm_tags": osm_tags,
+                    "structure_type": classify_structure(osm_tags),
                 }
             )
 
@@ -287,8 +289,12 @@ class TerrainWorkflow:
         # im Heightmap erzeugen (das Mesh generiert keine Böschungs-Geometrie mehr - siehe Spec Abschnitt 4b).
         # WICHTIG: muss auf den noch UNVERÄNDERTEN heights laufen, damit
         # "natürliche Höhe" wirklich natürlich ist (vor embed_roads_into_heightmap).
+        # Brücken/Tunnel/Galerien werden NICHT ins Terrain eingebettet und bekommen keine Böschung - siehe
+        # Design-Spec Abschnitt 3 (das Gelände bleibt darunter/daneben vollständig natürlich).
+        surface_road_polygons, structure_road_polygons = split_by_structure_type(road_slope_polygons_2d)
+
         embankment_profiles = build_road_embankment_profiles(
-            road_slope_polygons_2d,
+            surface_road_polygons,
             heights,
             terrain_origin_x,
             terrain_origin_y,
@@ -309,7 +315,7 @@ class TerrainWorkflow:
             terrain_origin_x,
             terrain_origin_y,
             config.TERRAIN_SQUARE_SIZE,
-            road_slope_polygons_2d,
+            surface_road_polygons,
         )
 
         # Layer-Map: EIN Luftbild-Material für die gesamte Fläche, dann OSM-
@@ -494,6 +500,7 @@ class TerrainWorkflow:
             "grid": grid,
             "road_polygons": road_polygons,
             "road_slope_polygons_2d": road_slope_polygons_2d,  # Für DecalRoad-Export
+            "structure_road_polygons": structure_road_polygons,  # Brücken/Tunnel/Galerien - für export_bridges()/export_tunnels()
             "road_surface_union": road_surface_union,  # vereinigte Straßenfläche für Ausschlusszonen (oder None)
             "grid_bounds_local": grid_bounds_local,
             "global_offset": global_offset,
@@ -731,6 +738,8 @@ class TerrainWorkflow:
         count = 0
 
         for poly in road_slope_polygons_2d:
+            if poly.get("structure_type", "surface") != "surface":
+                continue
             road_id = poly.get("road_id")
             centerline = poly.get("trimmed_centerline")
             if road_id is None or centerline is None or len(centerline) < 2:
