@@ -205,10 +205,12 @@ def test_concrete_texture_is_registered_when_bridges_or_tunnels_are_enabled(monk
     from world_to_beamng import config
     from world_to_beamng.textures import registry
 
+    # raising=False: TUNNELS_ENABLED existiert erst ab Task 11 (Task 10 läuft vorher) - monkeypatch legt das
+    # Attribut dann testlokal an und macht es am Testende wieder rückgängig, statt AttributeError zu werfen.
     monkeypatch.setattr(config, "BRIDGES_ENABLED", True)
-    monkeypatch.setattr(config, "TUNNELS_ENABLED", False)
+    monkeypatch.setattr(config, "TUNNELS_ENABLED", False, raising=False)
     assert any(spec.name == config.CONCRETE_TEXTURE_NAME for spec in registry.REGISTRY if spec.required())
 
     monkeypatch.setattr(config, "BRIDGES_ENABLED", False)
-    monkeypatch.setattr(config, "TUNNELS_ENABLED", False)
+    monkeypatch.setattr(config, "TUNNELS_ENABLED", False, raising=False)
     assert not any(spec.name == config.CONCRETE_TEXTURE_NAME for spec in registry.REGISTRY if spec.required())
