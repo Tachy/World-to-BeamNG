@@ -126,6 +126,13 @@ class BeamNGExporter:
         if include_forests and not config.FORESTS_ENABLED:
             logger.info("Forest-Export in Config deaktiviert (config.FORESTS_ENABLED=False)")
 
+        # Kombinierter Hash über alle Kacheln - dieselbe Cache-Identität wie in
+        # terrain_workflow.py::process_tile() (OSM/Elevation/Grid), hier zusätzlich für den
+        # DGM30-Horizont-Cache (siehe horizon.py::_dgm30_cache_file()) gebraucht.
+        from ..io.cache import calculate_global_tiles_hash
+
+        tile_hash = calculate_global_tiles_hash(tiles) if tiles else "unknown"
+
         logger.info(f"\n{'='*60}")
         logger.info(f"BEAMNG LEVEL EXPORT")
         logger.info(f"{'='*60}")
@@ -376,6 +383,7 @@ class BeamNGExporter:
             # Tile-Grenzen (Terrain-Loch) und Höhenabfrage der Terrain-Heightmap (Naht, Höhenübergang)
             horizon_dae = self.horizon.generate_horizon(
                 global_offset=global_offset,
+                tile_hash=tile_hash,
                 tile_bounds=tile_bounds_local,
                 terrain_height_at=terrain_height_at,
             )

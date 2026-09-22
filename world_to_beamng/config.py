@@ -39,7 +39,7 @@ ITEMS_JSON = Path("main") / "MissionGroup" / "items.level.json"  # Items im Miss
 MATERIALS_JSON = Path("main") / "materials.json"  # Enthält Material-Definitionen
 
 # Ablaufsteuerung
-LOD2_ENABLED = True  # LoD2-Gebäude verarbeiten
+LOD2_ENABLED = False  # LoD2-Gebäude verarbeiten
 PHASE5_ENABLED = True  # Horizont-Layer aktivieren (erfordert DGM30 + DOP300 Daten)
 FORESTS_ENABLED = True  # Wald-Export global aktivieren/deaktivieren
 

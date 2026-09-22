@@ -11,9 +11,9 @@ data/satellite/*
 !data/satellite/README.md
 data/buildings/*
 !data/buildings/README.md
-data/height_ch/
-data/satellite_ch/
-data/buildings_ch/
+data/height_*/
+data/satellite_*/
+data/buildings_*/
 data/assets/
 data/italy/
 data/*.jpg

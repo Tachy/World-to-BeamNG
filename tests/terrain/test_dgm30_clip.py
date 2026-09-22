@@ -5,6 +5,7 @@ mehrere Dateien werden kombiniert; fehlende Abdeckung wird gemeldet.
 
 import sys
 from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
 import pytest
@@ -14,12 +15,22 @@ from rasterio.transform import from_bounds
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
+from world_to_beamng import config
+from world_to_beamng.terrain import horizon
 from world_to_beamng.terrain.horizon import clip_dgm30_to_area, load_dgm30_tiles
 
 OFFSET = (401000.0, 5298000.0, 0.0)
 HALF = 3000.0
 AREA = (OFFSET[0] - HALF, OFFSET[0] + HALF, OFFSET[1] - HALF, OFFSET[1] + HALF)
 CENTER_LON, CENTER_LAT = Transformer.from_crs("EPSG:25832", "EPSG:4326", always_xy=True).transform(OFFSET[0], OFFSET[1])
+
+
+@pytest.fixture(autouse=True)
+def _isolate_cache_dir(tmp_path, monkeypatch):
+    """load_dgm30_tiles() schreibt jetzt auch ohne tile_hash einen Pro-Kachel-Cache (siehe
+    horizon._cached_geotiff_as_xyz()) - ohne Isolierung würden Tests das echte cache/-Verzeichnis
+    dieses Repos verschmutzen."""
+    monkeypatch.setattr(config, "CACHE_DIR", tmp_path / "cache")
 
 
 def _grid(half=4000.0, step=200.0):
@@ -132,10 +143,7 @@ def test_an_empty_folder_gives_nothing(tmp_path):
 # ---------------------------------------------------------------- Cache
 
 
-def test_cache_is_not_reused_after_more_tiles_are_added(tmp_path, monkeypatch):
-    from world_to_beamng import config
-
-    monkeypatch.setattr(config, "CACHE_DIR", tmp_path / "cache")
+def test_cache_is_not_reused_after_more_tiles_are_added(tmp_path):
     tiles = tmp_path / "dgm30"
     tiles.mkdir()
     _tile(tiles / "west.tif", CENTER_LON - 0.06, CENTER_LON)
@@ -148,3 +156,38 @@ def test_cache_is_not_reused_after_more_tiles_are_added(tmp_path, monkeypatch):
     assert len(list((tmp_path / "cache").glob("dgm30_horizon_abc_*.npz"))) == 2  # je Dateisatz ein Cache
     assert np.array_equal(first, again)
     assert combined[:, 0].max() > first[:, 0].max() + 1000  # die neue Kachel zählt sofort
+
+
+def test_per_tile_conversion_is_reused_across_a_core_area_switch(tmp_path):
+    """Regression: ein Wechsel des Kerngebiets (anderer tile_hash, z.B. zwischen zwei Testregionen
+    wie BaWue und der Schweiz) darf die teure GeoTIFF-Konvertierung (Lesen + Reprojizieren +
+    200m-Grid-Downsampling) einer unveraenderten DGM30-Kachel nicht wiederholen - nur die
+    anschliessende Kombination/Zuschnitt fuers jeweilige Gebiet ist tile_hash-abhaengig (siehe
+    horizon._cached_geotiff_as_xyz(), unabhaengig von _dgm30_cache_file())."""
+    tiles = tmp_path / "dgm30"
+    tiles.mkdir()
+    _tile(tiles / "west.tif", CENTER_LON - 0.06, CENTER_LON)
+
+    with patch("world_to_beamng.terrain.horizon._load_geotiff_as_xyz", wraps=horizon._load_geotiff_as_xyz) as spy:
+        load_dgm30_tiles(tiles, AREA, local_offset=OFFSET, tile_hash="region-bw")
+        load_dgm30_tiles(tiles, AREA, local_offset=OFFSET, tile_hash="region-ch")
+
+    assert spy.call_count == 1  # die Kachel wurde trotz Gebietswechsel (anderer tile_hash) nur einmal gelesen
+    assert len(list((tmp_path / "cache").glob("dgm30_tile_*.npz"))) == 1
+    assert len(list((tmp_path / "cache").glob("dgm30_horizon_*.npz"))) == 2  # je Kerngebiet ein Kombi-Cache
+
+
+def test_per_tile_cache_survives_process_restart(tmp_path):
+    """Der Pro-Kachel-Cache ist eine Datei unter cache/, kein In-Memory-Zustand - ein zweiter,
+    komplett unabhaengiger Aufruf (simuliert einen neuen Prozess/Lauf) muss ihn genauso treffen."""
+    tiles = tmp_path / "dgm30"
+    tiles.mkdir()
+    tif_file = _tile(tiles / "west.tif", CENTER_LON - 0.06, CENTER_LON)
+
+    points_a, elevations_a = horizon._cached_geotiff_as_xyz(tif_file)
+    with patch("world_to_beamng.terrain.horizon._load_geotiff_as_xyz") as mock_load:
+        points_b, elevations_b = horizon._cached_geotiff_as_xyz(tif_file)
+
+    mock_load.assert_not_called()  # zweiter "Prozess" liest die teure Originalfunktion nie
+    assert np.array_equal(points_a, points_b)
+    assert np.array_equal(elevations_a, elevations_b)

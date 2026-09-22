@@ -2,8 +2,12 @@
 Horizon Layer - Generiert niederauflösendes Horizont-Mesh aus DGM30 und Sentinel-2.
 
 Pipeline:
-1. Lade DGM30-Daten (30m Auflösung) aus data/DGM30/*.tif (Copernicus DEM GLO-30, selbst herunterladen, siehe README)
-   und schneide sie auf die Horizont-Fläche zu (±config.HORIZON_HALF_SIZE_M um das Kerngebiet)
+1. Lade DGM30-Daten (30m Auflösung) aus cache/dgm30/*.tif (Copernicus DEM GLO-30, automatisch
+   geladen von terrain/dgm30_fetch.py) und schneide sie auf die Horizont-Fläche zu
+   (±config.HORIZON_HALF_SIZE_M um das Kerngebiet). Zwei unabhängige Cache-Schichten dafür: pro
+   Kachel (_cached_geotiff_as_xyz(), gebietsunabhängig - überlebt einen Wechsel des Kerngebiets)
+   und die fertig kombinierte/zugeschnittene Punktwolke (_dgm30_cache_file(), an tile_hash
+   gebunden).
 2. Lade Sentinel-2 RGB Satellitenbilder
 3. Generiere Horizon-Grid (config.HORIZON_GRID_SPACING)
 4. Texturiere mit Sentinel-2 RGB
@@ -23,18 +27,19 @@ from .. import config
 logger = LoggerConfig.get_logger()
 
 
-def _load_geotiff_as_xyz(geotiff_path, local_offset=None):
+def _load_geotiff_as_xyz(geotiff_path):
     """
-    Konvertiert GeoTIFF zu XYZ Format (Koordinaten + Höhenwerte).
+    Konvertiert GeoTIFF zu XYZ Format (Koordinaten + Höhenwerte), in UTM (absolut, NICHT lokal
+    verschoben) - siehe _cached_geotiff_as_xyz() für die pro Kachel gecachte, gebietsunabhängige
+    Variante, die das hier aufrufende _load_local_dgm30() tatsächlich benutzt.
 
     Samplet 30m Auflösung auf 200m Grid herunter für schnellere Verarbeitung.
 
     Args:
         geotiff_path: Pfad zum GeoTIFF
-        local_offset: Optional (ox, oy, oz) – konvertiert Punkte/Höhen direkt in lokale Koordinaten
 
     Returns:
-        Tuple (height_points, height_elevations)
+        Tuple (height_points, height_elevations) in UTM
     """
     try:
         import rasterio
@@ -132,17 +137,46 @@ def _load_geotiff_as_xyz(geotiff_path, local_offset=None):
 
             logger.info(f"  [OK] {len(height_elevations)} Höhenpunkte (200m Grid) aus GeoTIFF geladen")
 
-            if local_offset is not None:
-                # Speichere direkt in lokalen Koordinaten, damit spätere Verbraucher nichts mehr umrechnen müssen
-                ox, oy, oz = local_offset
-                height_points = height_points - np.array([ox, oy])
-                height_elevations = height_elevations - oz
-
             return height_points, height_elevations
 
     except Exception as e:
         logger.error(f"  [!] Fehler beim Laden des GeoTIFF: {e}")
         return None, None
+
+
+def _dgm30_tile_cache_file(tif_file):
+    """
+    Cache-Datei der 200m-Grid-Konvertierung EINER einzelnen DGM30-Kachel, in UTM (absolut).
+
+    Unabhängig vom Kerngebiet (tile_hash) - Copernicus-DEM-Kacheln sind weltweit wiederverwendbar,
+    ihre teure Konvertierung (GeoTIFF lesen, ggf. reprojizieren, auf 200m Grid downsamplen) muss
+    bei einem Wechsel des Kerngebiets (z. B. zwischen zwei Testregionen) nicht neu gerechnet
+    werden - nur die anschließende Kombination/Zuschnitt/Verschiebung in lokale Koordinaten hängt
+    vom Kerngebiet ab (siehe _dgm30_cache_file()).
+
+    Name enthält die Datei-Signatur (Größe + Änderungszeit): ein Tausch der Kachel-Datei
+    (z. B. andere Version/Quelle) erzwingt sofort eine Neuberechnung statt eine falsche alte
+    Kachel zurückzugeben.
+    """
+    st = tif_file.stat()
+    signature = f"{tif_file.name}:{st.st_size}:{int(st.st_mtime)}"
+    return config.CACHE_DIR / f"dgm30_tile_{hashlib.sha1(signature.encode('utf-8')).hexdigest()[:16]}.npz"
+
+
+def _cached_geotiff_as_xyz(tif_file):
+    """Wie _load_geotiff_as_xyz(), aber mit einem Cache pro Kachel (siehe _dgm30_tile_cache_file())."""
+    cache_file = _dgm30_tile_cache_file(tif_file)
+    if cache_file.exists():
+        logger.info(f"  [OK] DGM30-Kachel-Cache gefunden: {tif_file.name} (bereits als 200m-Grid vorhanden)")
+        data = np.load(cache_file)
+        return data["points"], data["elevations"]
+
+    points, elevations = _load_geotiff_as_xyz(str(tif_file))
+    if points is not None:
+        config.CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        np.savez_compressed(cache_file, points=points, elevations=elevations)
+
+    return points, elevations
 
 
 def _dgm30_cache_file(dgm30_path, tile_hash):
@@ -266,7 +300,7 @@ def _load_local_dgm30(dgm30_path, tile_hash=None, local_offset=None, area_utm=No
 
     for tif_file in tif_files:
         logger.info(f"    - {tif_file.name}")
-        points, elevations = _load_geotiff_as_xyz(str(tif_file), local_offset=local_offset)
+        points, elevations = _cached_geotiff_as_xyz(tif_file)
 
         if points is not None:
             all_points.append(points)
@@ -276,11 +310,18 @@ def _load_local_dgm30(dgm30_path, tile_hash=None, local_offset=None, area_utm=No
         logger.error(f"  [!] Keine DGM30-Daten aus GeoTIFF geladen")
         return None, None
 
-    # Kombiniere alle Daten
+    # Kombiniere alle Daten (noch in UTM, absolut - siehe _load_geotiff_as_xyz())
     height_points = np.vstack(all_points) if len(all_points) > 1 else all_points[0]
     height_elevations = np.concatenate(all_elevations) if len(all_elevations) > 1 else all_elevations[0]
 
     logger.info(f"  [OK] {len(height_elevations)} Punkte (200m Grid) aus {len(tif_files)} GeoTIFF(s) geladen")
+
+    if local_offset is not None:
+        # Erst NACH dem Kombinieren verschieben (nicht mehr pro Kachel, siehe _cached_geotiff_as_xyz()) -
+        # macht den Pro-Kachel-Cache gebietsunabhängig wiederverwendbar.
+        ox, oy, oz = local_offset
+        height_points = height_points - np.array([ox, oy])
+        height_elevations = height_elevations - oz
 
     if area_utm is not None:
         height_points, height_elevations, missing = clip_dgm30_to_area(height_points, height_elevations, area_utm, local_offset)
