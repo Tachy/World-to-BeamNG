@@ -367,8 +367,10 @@ class TerrainWorkflow:
         # für die Weinberg-Reben.
         from ..geometry.road_surfaces import union_road_surfaces
 
-        # Alle Straßenflächen EINMAL vereinigt (vereinfacht): dient Maske, Reben-Ausschluss und dem Wald
-        road_surface_union = union_road_surfaces(road_slope_polygons_2d)
+        # Alle Straßenflächen EINMAL vereinigt (vereinfacht): dient Maske, Reben-Ausschluss und dem Wald.
+        # Nur echte Oberflächenstraßen - Brücken/Tunnel/Galerien sollen die Vegetation nicht mehr blockieren,
+        # sonst bliebe z.B. beim Tunnel ein kahler Streifen über dem ganzen Bergrücken.
+        road_surface_union = union_road_surfaces(surface_road_polygons)
         road_shapes = [road_surface_union] if road_surface_union is not None else []
         building_shapes = [
             p["geometry"]
@@ -636,7 +638,7 @@ class TerrainWorkflow:
                 "id": road["road_id"],
                 "coords": road["trimmed_centerline"],
                 "width": config.OSM_MAPPER.get_road_properties(road.get("osm_tags", {}))["width"],
-                "deck_material": config.OSM_MAPPER.get_road_properties(road.get("osm_tags", {})).get("internal_name", "road_default"),
+                "deck_material": f"{config.OSM_MAPPER.get_road_properties(road.get('osm_tags', {})).get('internal_name', 'road_default')}_structure",
             }
             for road in structure_road_polygons
             if road.get("structure_type") == "bridge"
@@ -683,7 +685,8 @@ class TerrainWorkflow:
             if road.get("structure_type") != "bridge":
                 continue
             props = config.OSM_MAPPER.get_road_properties(road.get("osm_tags", {}))
-            unique_deck_materials[props.get("internal_name", "road_default")] = props
+            mat_name = f"{props.get('internal_name', 'road_default')}_structure"
+            unique_deck_materials[mat_name] = props
 
         for mat_name, props in unique_deck_materials.items():
             self.materials.add_building_material(
@@ -722,7 +725,7 @@ class TerrainWorkflow:
                     "id": road["road_id"],
                     "coords": road["trimmed_centerline"],
                     "width": config.OSM_MAPPER.get_road_properties(road.get("osm_tags", {}))["width"],
-                    "floor_material": config.OSM_MAPPER.get_road_properties(road.get("osm_tags", {})).get("internal_name", "road_default"),
+                    "floor_material": f"{config.OSM_MAPPER.get_road_properties(road.get('osm_tags', {})).get('internal_name', 'road_default')}_structure",
                 }
                 for road in structure_road_polygons
                 if road.get("structure_type") == structure_type
@@ -783,7 +786,8 @@ class TerrainWorkflow:
             if road.get("structure_type") not in ("tunnel", "gallery"):
                 continue
             props = config.OSM_MAPPER.get_road_properties(road.get("osm_tags", {}))
-            unique_floor_materials[props.get("internal_name", "road_default")] = props
+            mat_name = f"{props.get('internal_name', 'road_default')}_structure"
+            unique_floor_materials[mat_name] = props
 
         for mat_name, props in unique_floor_materials.items():
             self.materials.add_building_material(

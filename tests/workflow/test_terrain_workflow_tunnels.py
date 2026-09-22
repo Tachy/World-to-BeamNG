@@ -95,8 +95,8 @@ def test_export_tunnels_writes_one_dae_one_item_and_registers_floor_and_concrete
     assert item["class"] == "TSStatic" and item["shape_name"] == "levels/world_to_beamng/art/shapes/tunnels/tunnels.dae"
     assert item["collisionType"] == "Visible Mesh Final"
     assert config.TUNNEL_MATERIAL_NAME in stub.materials.added
-    assert "asphalt_road_standard" in stub.materials.added
-    assert stub.materials.added["asphalt_road_standard"]["groundType"] == "ASPHALT"
+    assert "asphalt_road_standard_structure" in stub.materials.added
+    assert stub.materials.added["asphalt_road_standard_structure"]["groundType"] == "ASPHALT"
 
 
 def test_export_tunnels_takes_the_concrete_texture_from_the_registry_check_and_never_falls_back(shapes_dir, monkeypatch):
