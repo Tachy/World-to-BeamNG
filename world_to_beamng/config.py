@@ -292,6 +292,42 @@ DOP300_DATA_DIR = Path("data/DOP300")  # Verzeichnis mit Sentinel-2 RGB Bildern
 # weitere .tif im Ordner (z. B. der Web-Mercator-Rohdownload) nie versehentlich gewählt werden.
 SENTINEL2_FILE = "horizon_temp.tif"
 
+# === AUTOMATISCHER DOWNLOAD: HORIZONT-QUELLDATEN (DGM30 + SENTINEL-2) ===
+
+DGM30_AUTO_DOWNLOAD = True
+DGM30_S3_BUCKET = "copernicus-dem-30m"          # verifiziert im README (funktionierender Link)
+DGM30_S3_REGION = "eu-central-1"
+DGM30_FETCH_MAX_RETRIES = 3
+DGM30_FETCH_TIMEOUT_S = 60
+DGM30_NOT_FOUND_CACHE_TTL_DAYS = 30
+
+EOX_AUTO_DOWNLOAD = True
+EOX_WMS_URL = "https://tiles.maps.eox.at/wms"   # verifiziert per GetCapabilities am 2026-09-22
+EOX_WMS_LAYER = "s2cloudless-2025_3857"         # verifiziert: Layer-Liste enthaelt s2cloudless-<jahr>_3857,
+                                                 # aktuell bis 2025; bei kuenftiger Umsetzung ggf. neuestes
+                                                 # verfuegbares Jahr aus GetCapabilities uebernehmen
+EOX_WMS_VERSION = "1.1.1"                       # verifiziert: Server unterstuetzt nur 1.1.1, NICHT 1.3.0
+                                                 # (Achsreihenfolge in EPSG:3857 bei 1.1.1 vs. 1.3.0 identisch,
+                                                 # daher unkritisch fuer die BBOX-Berechnung)
+EOX_WMS_FORMAT = "image/jpeg"                   # verifiziert verfuegbar
+EOX_MAX_REQUEST_PX = 2048                       # GetCapabilities nennt kein MaxWidth/MaxHeight - konservativ
+                                                 # belassen, bei 400/429 im echten Lauf senken
+EOX_TARGET_RESOLUTION_M = 10.0
+EOX_MOSAIC_MAX_PX = 12000
+EOX_FETCH_MARGIN_FACTOR = 1.02
+EOX_FETCH_MAX_RETRIES = 3
+EOX_FETCH_TIMEOUT_S = 60
+EOX_USER_AGENT = "World-to-BeamNG/1.0 (privates OSM-zu-BeamNG-Konvertierungstool)"
+EOX_KEEP_RAW_MOSAIC = True
+EOX_MOSAIC_CACHE_DIR = CACHE_DIR / "horizon_source"
+EOX_ATTRIBUTION_NOTICE = (
+    "Horizont-Hintergrundbild: EOxCloudless https://cloudless.eox.at by EOX IT Services GmbH "
+    "(Contains modified Copernicus Sentinel data 2025). Lizenz: CC BY-NC-SA 4.0 "
+    "(nicht-kommerzielle Nutzung, Attribution + ShareAlike Pflicht) - siehe "
+    "https://cloudless.eox.at/documentation/license. Kommerzielle Nutzung erfordert eine separate "
+    "EOX Commercial Attribution-RestrictedUse Lizenz."
+)
+
 
 # === OVERPASS API ENDPOINTS ===
 OVERPASS_ENDPOINTS = [
