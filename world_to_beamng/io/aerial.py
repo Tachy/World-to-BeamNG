@@ -11,6 +11,12 @@ from io import BytesIO
 from world_to_beamng.logging_config import LoggerConfig
 from .. import config
 
+# Dieses Modul baut selbst große Leinwände aus eigenen, vertrauenswürdigen Geodaten (kein Öffnen
+# einer fremden Datei) - PILs Decompression-Bomb-Schutz (Default-Grenze ~89,5 Mio. Pixel) greift
+# hier grundlos: schon eine 2 km-Kachel bei feiner Auflösung (z.B. 0.1m/px Schweizer Orthofotos)
+# liegt weit darüber.
+Image.MAX_IMAGE_PIXELS = None
+
 logger = LoggerConfig.get_logger()
 
 
