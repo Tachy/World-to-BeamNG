@@ -204,6 +204,13 @@ BRIDGE_PIER_SIZE = 1.5  # Querschnitt der (quadratischen) Stützpfeiler, in Mete
 BRIDGE_MIN_PIER_CLEARANCE = 1.0  # kein Pfeiler, wenn der Abstand Deck-Unterkante/Gelände kleiner ist, in Metern
 BRIDGE_MATERIAL_NAME = "bridge_concrete"  # Pfeiler-Material (Textur: CONCRETE_TEXTURE_NAME, siehe Task 10)
 
+# Manche OSM-Brücken sind zu knapp bemessen und beginnen bereits mitten in der Hanglage statt auf
+# Straßenniveau (die lineare Höheninterpolation zwischen den Way-Endpunkten ergibt dann eine unrealistisch
+# steile Rampe). Fix: die Brücke wird in ihre Nachbarstraße hinein verlängert, bis dort wieder normales
+# Gefälle herrscht (siehe geometry.polygon.extend_short_bridges_to_natural_grade).
+BRIDGE_APPROACH_SLOPE_THRESHOLD = 0.10  # Gefälle, ab dem die Verlängerung stoppt (10 % ≈ 5,7°)
+BRIDGE_APPROACH_MAX_EXTENSION = 40.0  # längstens so weit wird in die Nachbarstraße hinein verlängert, in Metern
+
 # Tunnel (OSM highway=* mit tunnel=yes/culvert/building_passage) und Galerien (tunnel=avalanche_protector):
 # Röhre bzw. talseitig offene Galerie entlang des linear interpolierten Höhenprofils (siehe Design-Spec
 # Abschnitt 5/6). Ersetzt für diese Straßen die normale Terrain-Einbettung und den DecalRoad-Export.

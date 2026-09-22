@@ -231,6 +231,103 @@ def _linear_elevation_profile(coords):
     return [(float(x), float(y), float(zz)) for (x, y), zz in zip(xy, z)]
 
 
+def _walk_bridge_approach(ordered, slope_threshold, max_extension):
+    """Läuft `ordered` ab Index 0 (Berührpunkt zur Brücke) entlang, solange das Gefälle des jeweils
+    nächsten Segments >= slope_threshold bleibt (noch Teil der Hangflanke, die die zu kurze Brücke nicht
+    abdeckt) und die kumulierte Distanz max_extension nicht überschreitet; ist der Nachbar selbst kürzer,
+    stoppt der Lauf an dessen eigenem Ende (keine dritte Straße wird einbezogen).
+
+    Returns:
+        (extension_points, remaining_ordered) - extension_points sind die neuen Brücken-Punkte in
+        Richtung vom Berührpunkt weg (ohne den Berührpunkt selbst); remaining_ordered ist der beim
+        Nachbarn verbleibende Rest (beginnend mit dem neuen, gemeinsamen Grenzpunkt).
+    """
+    idx = 0
+    cum = 0.0
+    n = len(ordered)
+    while idx + 1 < n:
+        a, b = ordered[idx], ordered[idx + 1]
+        seg_dist = float(np.hypot(b[0] - a[0], b[1] - a[1]))
+        if seg_dist < 1e-9:
+            idx += 1
+            continue
+        slope = abs(b[2] - a[2]) / seg_dist
+        if slope < slope_threshold:
+            break
+        if cum + seg_dist > max_extension + 1e-9:
+            remaining = max_extension - cum
+            if remaining > 1e-9:
+                t = remaining / seg_dist
+                point = (a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1]), a[2] + t * (b[2] - a[2]))
+                ordered = ordered[: idx + 1] + [point] + ordered[idx + 1 :]
+                idx += 1
+            break
+        cum += seg_dist
+        idx += 1
+
+    return ordered[1 : idx + 1], ordered[idx:]
+
+
+def extend_short_bridges_to_natural_grade(road_polygons, slope_threshold=None, max_extension=None):
+    """Verlängert zu kurz getaggte Brücken in ihre angrenzende Oberflächenstraße hinein, bis dort wieder
+    normales Gefälle herrscht: manche OSM-Brücken beginnen bereits mitten in der Hanglage statt auf
+    Straßenniveau, wodurch die anschließende lineare Höheninterpolation (apply_structure_elevation_profiles)
+    eine unrealistisch steile Rampe ergibt. Läuft VOR apply_structure_elevation_profiles, damit diese auf
+    dem bereits verlängerten Verlauf arbeitet.
+
+    Verlängert wird nur, wenn an einem Brücken-Ende genau EINE Oberflächenstraße anliegt (eindeutiger
+    Anschluss); Tunnel/Galerien als "Nachbar" werden ignoriert (deren Höhenprofil ist kein echtes Gelände).
+    Config: BRIDGE_APPROACH_SLOPE_THRESHOLD, BRIDGE_APPROACH_MAX_EXTENSION.
+    """
+    if slope_threshold is None:
+        slope_threshold = config.BRIDGE_APPROACH_SLOPE_THRESHOLD
+    if max_extension is None:
+        max_extension = config.BRIDGE_APPROACH_MAX_EXTENSION
+
+    def endpoint_matches(pt_a, pt_b, tol=1e-4):
+        return abs(pt_a[0] - pt_b[0]) < tol and abs(pt_a[1] - pt_b[1]) < tol and abs(pt_a[2] - pt_b[2]) < tol
+
+    def find_neighbor(point, exclude_id):
+        matches = []
+        for road in road_polygons:
+            if road["id"] == exclude_id:
+                continue
+            if classify_structure(road.get("osm_tags", {})) != "surface":
+                continue
+            coords = road["coords"]
+            if len(coords) < 2:
+                continue
+            if endpoint_matches(coords[0], point):
+                matches.append((road, True))
+            elif endpoint_matches(coords[-1], point):
+                matches.append((road, False))
+        return matches[0] if len(matches) == 1 else None
+
+    for bridge in [r for r in road_polygons if classify_structure(r.get("osm_tags", {})) == "bridge"]:
+        coords = bridge["coords"]
+        if len(coords) < 2:
+            continue
+
+        for at_start in (True, False):
+            touch_point = coords[0] if at_start else coords[-1]
+            found = find_neighbor(touch_point, bridge["id"])
+            if not found:
+                continue
+            neighbor, touching_at_start = found
+            ordered = neighbor["coords"] if touching_at_start else list(reversed(neighbor["coords"]))
+
+            extension_points, remaining_ordered = _walk_bridge_approach(ordered, slope_threshold, max_extension)
+            if not extension_points:
+                continue
+
+            coords = (list(reversed(extension_points)) + coords) if at_start else (coords + extension_points)
+            neighbor["coords"] = remaining_ordered if touching_at_start else list(reversed(remaining_ordered))
+
+        bridge["coords"] = coords
+
+    return road_polygons
+
+
 def apply_structure_elevation_profiles(road_polygons):
     """Brücken/Tunnel/Galerien (siehe geometry.road_structures.classify_structure) bekommen ein lineares
     Höhenprofil zwischen ihren Endpunkten statt der rohen DGM-Höhe an jedem Punkt - siehe Design-Spec Abschnitt 2
@@ -356,6 +453,11 @@ def get_road_polygons(roads, bbox, height_points, height_elevations, global_offs
                 "osm_tags": road["osm_tags"],
             }
         )
+
+    # SCHRITT 3a: zu kurz getaggte Brücken werden in ihre Nachbarstraße hinein verlängert, bis dort wieder
+    # normales Gefälle herrscht - VOR dem linearen Höhenprofil, damit dieses auf dem bereits verlängerten
+    # Verlauf arbeitet (siehe extend_short_bridges_to_natural_grade).
+    road_polygons = extend_short_bridges_to_natural_grade(road_polygons)
 
     # SCHRITT 3b: Brücken/Tunnel/Galerien bekommen ein lineares Höhenprofil statt der rohen DGM-Abtastung
     # (siehe Design-Spec Abschnitt 2) - VOR dem Smoothing, damit dieses auf dem bereits korrekten Profil arbeitet.
