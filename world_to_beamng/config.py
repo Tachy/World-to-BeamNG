@@ -109,6 +109,11 @@ SLOPE_ANGLE = 45.0  # Neigungswinkel der Boeschung in Grad (45° = 1:1 Steigung)
 # Vorab-Reduktion ueber groeberes Grid (Strategie 2). Fuer feineres Terrain z.B. 1.0 setzen.
 GRID_SPACING = 1.0  # Abstand zwischen Grid-Punkten in Metern (native DGM1-Auflösung; 10.0 = grob)
 
+# Fallback-CRS (EPSG-Code) fuer Hoehen-/Luftbilddaten ohne eigenes eingebettetes CRS (z.B. reine
+# ASCII-XYZ-Punktwolken wie bei LGL Baden-Wuerttemberg). Bei GeoTIFF-Quellen wird das eingebettete
+# CRS automatisch erkannt (geometry.coordinates.set_source_crs()) und hat Vorrang vor diesem Wert.
+SOURCE_CRS_EPSG = 25832
+
 # === NATIVES TERRAIN (.terrain-Heightmap) ===
 # Meter pro Heightmap-Rasterzelle. = GRID_SPACING für Auflösungs-Parität zum
 # bisherigen Mesh-Ansatz (siehe Spec Abschnitt 2, Anforderung 2).
@@ -266,11 +271,16 @@ TEXTURE_NORMAL_GREEN_UP = True
 TERRAIN_BASE_TEX_PIXEL_SIZE = 8192
 
 
-# Vier-Bilder-Modus: bei mehreren DGM1-Kacheln bekommt jede Kachel ihr EIGENES Foto (TERRAIN_BASE_TEX_PIXEL_SIZE px
-# für 2 km = 0,244 m/px statt EINES Gesamtfotos mit 0,5 m/px bei 4x4 km). Kosten: die Landnutzungs-Schichten und die
-# GroundCover-Typen werden je Kachel geführt (siehe terrain/photo_tiles.py). False = ein Gesamtfoto (bei einer
-# Kachel ohnehin immer ein Foto).
+# Vier-Bilder-Modus: die Flaeche wird in PHOTO_TILE_SIZE_M-Kacheln aufgeteilt, jede bekommt ihr EIGENES Foto
+# (TERRAIN_BASE_TEX_PIXEL_SIZE px für 2 km = 0,244 m/px statt EINES Gesamtfotos mit 0,5 m/px bei 4x4 km). Kosten:
+# die Landnutzungs-Schichten und die GroundCover-Typen werden je Kachel geführt (siehe terrain/photo_tiles.py).
+# False = ein Gesamtfoto (bei einer Kachel ohnehin immer ein Foto).
 AERIAL_PHOTO_PER_TILE = True
+
+# Kachelgroesse (Meter) des Vier-Bilder-Modus - unabhaengig von der Groesse/Anzahl der Rohdaten-Kacheln (die je nach
+# Quelle z.B. 1 km statt 2 km gross sein koennen, siehe terrain/photo_tiles.py::build_processing_tile_grid()).
+# Default 2000.0 entspricht dem bisherigen impliziten Verhalten bei LGL Baden-Wuerttemberg (ein Foto je 2x2-km-ZIP).
+PHOTO_TILE_SIZE_M = 2000.0
 
 # === VERZEICHNISSE ===
 CACHE_DIR = Path("cache")  # Verzeichnis fuer Cache-Dateien

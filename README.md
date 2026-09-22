@@ -28,7 +28,7 @@ streams and ponds, buildings and a horizon. Alpha status, under development.
 | BeamNG.drive | installed and **started at least once** (this creates the user folder) |
 | Python | **3.11 or newer**, tested with 3.13 |
 | Internet | for OpenStreetMap (Overpass API) and the one-time download of `texconv.exe` |
-| Area | **Baden-Württemberg (Germany)**: file names and formats are those of the LGL BW (UTM zone 32, ETRS89). Other German states or other countries do not work without adaptation. |
+| Area | Any region with a georeferenced GeoTIFF DEM and orthophoto: CRS and extent are detected automatically from the file content, no fixed file naming or tile size required. Plain ASCII-XYZ point clouds in a ZIP (the LGL Baden-Württemberg format) are recognised the same way, by content, not by name (see "Using data from other regions" below). Buildings (LoD2/CityGML) remain Baden-Württemberg-specific and must be disabled (`LOD2_ENABLED = False`) elsewhere. |
 | Disk space | about 250 MB of raw data per 2×2 km tile (see below), plus cache and result |
 
 ## 🚀 Quick start
@@ -81,8 +81,13 @@ Example for a 4×4 km area: `399`/`401` × `5296`/`5298`.
 | `data/DGM1/` | Digital terrain model, 1 m (ZIP with XYZ points) | `dgm1_32_<x>_<y>_2_bw.zip` | approx. 14 MB |
 | `data/DOP20/` | Digital orthophotos, 20 cm, RGB (ZIP with TIF + TFW) | `dop20rgb_32_<x>_<y>_2_bw.zip` | approx. 230 MB |
 
-Without DGM1 the export aborts ("Keine DGM1-Kacheln gefunden" – no DGM1 tiles found). If the aerial photo is missing,
-the export reports an error in the log.
+The file name only matters for the LGL BW format above. Any other georeferenced GeoTIFF DEM (loose file or inside a
+ZIP) works too, under any file name, and is always resampled to `GRID_SPACING` regardless of its native resolution;
+the same applies to any georeferenced orthophoto (embedded GeoTIFF tags or a `.tfw` world file) under `data/DOP20/`.
+See "Using data from other regions" below.
+
+Without DGM1 the export aborts ("Keine DGM1-Kacheln gefunden" – no DGM1/GeoTIFF tiles found). If the aerial photo is
+missing, the export reports an error in the log.
 
 ### Optional
 
@@ -90,7 +95,7 @@ the export reports an error in the log.
 |---|---|---|---|
 | `data/LOD2/` | 3D building models LoD2 (ZIP with CityGML) | `LoD2_32_<x>_<y>_2_bw.zip` | no buildings (`LOD2_ENABLED`) |
 | `data/DGM30/` | 30 m elevation model as GeoTIFF: **Copernicus DEM GLO-30**, download it yourself (see below). Several `*.tif` files may be in the folder. | any, e.g. `Copernicus_DSM_COG_10_N47_00_E007_00_DEM.tif` | the horizon is skipped |
-| `data/DOP300/` | Satellite image for the horizon texture: **one** georeferenced RGB GeoTIFF in **UTM 32N (EPSG:25832)** covering ±50 km around the centre of the area. Any resolution, it is scaled to 8192×8192. | `horizon_temp.tif` (name in `config.SENTINEL2_FILE`) | horizon without texture |
+| `data/DOP300/` | Satellite image for the horizon texture: **one** georeferenced RGB GeoTIFF in the resolved source CRS (default UTM 32N/EPSG:25832, or the CRS auto-detected from the DGM1 GeoTIFFs) covering ±50 km around the centre of the area. Any resolution, it is scaled to 8192×8192. | `horizon_temp.tif` (name in `config.SENTINEL2_FILE`) | horizon without texture |
 
 **Downloading DGM30:** The program does not download it. It uses the **Copernicus DEM GLO-30** (30 m, worldwide,
 free of charge). The easiest way without an account is the public AWS bucket `copernicus-dem-30m`
@@ -113,8 +118,8 @@ Alternatives are the Copernicus Data Space Ecosystem (<https://dataspace.coperni
 
 **Horizon image:** There is no automatic download for the satellite image, but there is a tool that creates it from
 any georeferenced RGB image (e.g. a Sentinel-2 export in Web Mercator or WGS84). It cuts out exactly the horizon area
-(±50 km around the centre of the area, which follows from the DGM1 tiles), reprojects it to EPSG:25832 and writes
-`data/DOP300/horizon_temp.tif`:
+(±50 km around the centre of the area, which follows from the DGM1 tiles), reprojects it to the resolved source CRS
+and writes `data/DOP300/horizon_temp.tif`:
 
 ```powershell
 .\.venv\Scripts\python.exe tools\make_horizon_image.py C:\path\to\satellite_image.tif
@@ -134,6 +139,27 @@ World-to-BeamNG/
     ├── DGM30/   dgm30_copernicus.tif
     └── DOP300/  horizon_temp.tif
 ```
+
+### Using data from other regions
+
+`data/DGM1/` and `data/DOP20/` accept any georeferenced GeoTIFF (single-band elevation, RGB orthophoto), loose or
+inside a ZIP, under any file name — the coordinate system and the covered area are read from the file itself, not
+guessed from a naming scheme. To use data from a region other than Baden-Württemberg:
+
+- Put the DEM GeoTIFF(s) into `data/DGM1/` and the orthophoto GeoTIFF(s) into `data/DOP20/`. The elevation model is
+  always resampled to `config.GRID_SPACING` (default 1 m), whatever its native resolution; the orthophotos are
+  composited to `config.PHOTO_TILE_SIZE_M`-sized tiles (default 2000 m) at `TERRAIN_BASE_TEX_PIXEL_SIZE` regardless
+  of how many source files or what native tiling the source portal uses.
+- The source CRS is auto-detected from the GeoTIFFs; `config.SOURCE_CRS_EPSG` is only the fallback for elevation data
+  without an embedded CRS (plain ASCII-XYZ point clouds, e.g. the LGL BW format) and otherwise ignored. If the
+  orthophoto's CRS differs from the elevation data's CRS, it is reprojected automatically.
+- Set `LOD2_ENABLED = False` in `config.py` — buildings (LoD2/CityGML) remain specific to the Baden-Württemberg
+  CityGML 1.0 schema.
+- All DGM1 GeoTIFFs must share the same CRS (mixing different elevation CRS is not supported); DGM30/horizon data
+  stays worldwide-capable as before (see "Optional" above).
+
+Tested end-to-end with real-world data outside Baden-Württemberg: swissALTI3D (0.5 m DEM) and SwissImage DOP10
+(0.1 m orthophoto), both EPSG:2056 (CH1903+/LV95), loose GeoTIFFs with no fixed tile size.
 
 ### What the program fetches itself
 
@@ -170,8 +196,10 @@ All settings are in `world_to_beamng/config.py`.
 | **`SPAWN_POINT`** | Start position as `(latitude, longitude)` in degrees. Must be inside your own area. |
 | `LOD2_ENABLED`, `FORESTS_ENABLED`, `VINEYARDS_ENABLED`, `WATER_ENABLED`, `GROUND_COVER_ENABLED`, `PHASE5_ENABLED` | switch individual components on and off (`PHASE5_ENABLED` is the horizon) |
 | `BEAMNG_DIR` | Target folder of the level; derived from `%LOCALAPPDATA%`, only change it in special cases |
-| `GRID_SPACING` | Terrain resolution in metres (default 1.0 = native DGM1 resolution) |
+| `GRID_SPACING` | Terrain resolution in metres (default 1.0); GeoTIFF elevation data is always resampled to this, whatever its native resolution |
 | `TERRAIN_BASE_TEX_PIXEL_SIZE` | Size of the aerial photo per tile |
+| `PHOTO_TILE_SIZE_M` | Tile size (metres) of the aerial-photo/material grid (default 2000), independent of the source data's own tiling |
+| `SOURCE_CRS_EPSG` | Fallback source CRS (default 25832) for elevation data without an embedded CRS (plain ASCII-XYZ); ignored for GeoTIFF sources, whose CRS is auto-detected |
 | `ENV_DATE`, `ENV_CLOCK_TIME` | Date and time of day for the position of the sun |
 
 ## ⏱️ Process and duration
@@ -187,7 +215,7 @@ The program's messages are in German; they are quoted as they appear, followed b
 
 | Message / symptom | Cause and solution |
 |---|---|
-| `Keine DGM1-Kacheln gefunden` (no DGM1 tiles found) | `data/DGM1/` is missing or contains no ZIPs following the scheme `dgm1_32_<x>_<y>_2_bw.zip` |
+| `Keine DGM1-Kacheln gefunden` (no DGM1 tiles found) | `data/DGM1/` is missing, empty, or contains no readable ZIPs/GeoTIFFs (a GeoTIFF without a coordinate system is skipped with a warning) |
 | `texconv.exe nicht gefunden` (texconv.exe not found) | `setup_project.py` has not run; or put the file manually at `bin\texconv.exe` |
 | `BeamNG.drive.ini nicht gefunden` (BeamNG.drive.ini not found) | BeamNG.drive has never been started |
 | `managedItemData.json nicht gefunden` (not found) | run `tools\generate_forest_assets.py` once |
@@ -195,7 +223,7 @@ The program's messages are in German; they are quoted as they appear, followed b
 | Level does not appear in BeamNG | check whether `%LOCALAPPDATA%\BeamNG\BeamNG.drive\current\levels\world_to_beamng` was created; otherwise adjust `BEAMNG_DIR` in `config.py` |
 | `DGM30-Dateien decken die Horizont-Fläche … nicht ab` (DGM30 files do not cover the horizon area) | put the tiles for the compass direction named in the message into `data/DGM30/` (see above) |
 | `Keine DGM30-Dateien` (no DGM30 files) | `data/DGM30/` is empty; the horizon is skipped otherwise |
-| Horizon without texture or shifted | use `tools\make_horizon_image.py`; the file must show exactly the horizon area in EPSG:25832 |
+| Horizon without texture or shifted | use `tools\make_horizon_image.py`; the file must show exactly the horizon area in the resolved source CRS |
 | Crash or error while loading the level | check `C:\Users\<NAME>\AppData\Local\BeamNG\BeamNG.drive\current\beamng.log` for `\|E\|` lines |
 | OSM timeout | the program tries fallback servers; start again, successful responses are cached |
 

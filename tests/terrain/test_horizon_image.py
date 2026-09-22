@@ -14,7 +14,9 @@ from rasterio.transform import from_bounds
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from world_to_beamng import config
-from world_to_beamng.terrain.horizon_image import UTM_CRS, build_horizon_image, horizon_area
+from world_to_beamng.terrain.horizon_image import _dst_crs, build_horizon_image, horizon_area
+
+UTM_CRS = _dst_crs()  # Default-Quell-CRS (EPSG:25832), solange kein set_source_crs() aufgerufen wurde
 
 CENTER = (401000.0, 5298000.0)
 AREA = horizon_area(CENTER)

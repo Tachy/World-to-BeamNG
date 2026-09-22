@@ -17,8 +17,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from world_to_beamng import config
+from world_to_beamng.geometry import coordinates
 from world_to_beamng.terrain.horizon_image import build_horizon_image, horizon_area
-from world_to_beamng.utils.tile_scanner import compute_global_center, scan_lgl_tiles
+from world_to_beamng.utils.tile_scanner import compute_global_center, resolve_source_crs_epsg, scan_elevation_tiles
 
 
 def main() -> int:
@@ -30,10 +31,11 @@ def main() -> int:
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(message)s")
 
-    tiles = scan_lgl_tiles(dgm1_dir=config.HEIGHT_DATA_DIR)
+    tiles = scan_elevation_tiles(dgm_dir=config.HEIGHT_DATA_DIR)
     if not tiles:
         print(f"[!] Keine DGM1-Kacheln in {config.HEIGHT_DATA_DIR} - ohne sie ist die Gebietsmitte unbekannt.")
         return 1
+    coordinates.set_source_crs(resolve_source_crs_epsg(tiles))
     if not args.quelle.is_file():
         print(f"[!] Quellbild nicht gefunden: {args.quelle}")
         return 1

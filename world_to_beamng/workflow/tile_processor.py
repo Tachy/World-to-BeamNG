@@ -4,13 +4,13 @@ Tile-Processing Logik.
 Extrahiert die Tile-Lade und Verarbeitungslogik aus multitile.py.
 """
 
-import zipfile
 from world_to_beamng.logging_config import LoggerConfig
 import numpy as np
 from pathlib import Path
 from typing import Tuple, Optional, Dict, List
 
 from ..core.cache_manager import CacheManager
+from ..terrain.elevation_io import read_elevation_tile_cached
 
 logger = LoggerConfig.get_logger()
 
@@ -46,40 +46,26 @@ class TileProcessor:
             logger.error(f"  [!] DGM1-Datei fehlt: {filepath}")
             return None, None
 
-        # Hash berechnen
-        if tile_hash is None:
-            tile_hash = self.cache.hash_file(filepath)
-
-        # Prüfe Cache
-        cache_key = f"height_raw_{tile_hash}"
-        cached = self.cache.get_npz(cache_key)
-        if cached:
-            return cached["points"], cached["elevations"]
-
-        # Lade Datei
         logger.info(f"  [→] Lade DGM1: {Path(filepath).name}")
-        points, elevations = self._load_from_zip(filepath)
+        points, elevations, _crs_epsg, _bbox_utm = read_elevation_tile_cached(filepath, self.cache, tile_hash)
 
         if points is None or elevations is None:
             return None, None
-
-        # Speichere in Cache
-        self.cache.set_npz(cache_key, points=points, elevations=elevations)
 
         return points, elevations
 
     def load_height_data_multi(self, tiles: List[Dict]) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
         """
-        Lädt und kombiniert die Höhendaten mehrerer DGM1-Kacheln zu einer
+        Lädt und kombiniert die Höhendaten mehrerer Kacheln zu einer
         einzigen Punktwolke (vstack/hstack) - dieselbe Kombinationslogik wie
-        beim Laden der 4 Sub-Kacheln innerhalb eines einzelnen DGM1-ZIPs
-        (_load_from_zip), nur eine Ebene höher für mehrere ZIP-Dateien.
+        beim Laden mehrerer XYZ-Dateien innerhalb einer einzelnen Kachel-ZIP
+        (elevation_io.read_elevation_tile), nur eine Ebene höher für mehrere Dateien.
 
         Setzt voraus, dass die Kacheln einen lückenlosen, rechteckigen
         Bereich bilden (Nutzer-Verantwortung, siehe utils.tile_scanner).
 
         Args:
-            tiles: Liste von Tile-Metadaten-Dicts (wie scan_lgl_tiles() sie liefert)
+            tiles: Liste von Tile-Metadaten-Dicts (wie scan_elevation_tiles() sie liefert)
 
         Returns:
             Tuple (points, elevations) oder (None, None), falls eine Kachel fehlschlägt
@@ -99,49 +85,6 @@ class TileProcessor:
             return None, None
 
         return np.vstack(all_points), np.hstack(all_elevations)
-
-    def _load_from_zip(self, filepath: str) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
-        """
-        Lade Höhendaten aus ZIP.
-
-        Ein LGL DGM1-ZIP enthält 4 XYZ-Dateien (2×2 Kacheln à 1000×1000m).
-
-        Args:
-            filepath: Pfad zum ZIP
-
-        Returns:
-            Tuple (points, elevations)
-        """
-        all_points = []
-        all_elevations = []
-
-        try:
-            with zipfile.ZipFile(filepath, "r") as zf:
-                for fname in zf.namelist():
-                    if fname.endswith(".xyz"):
-                        with zf.open(fname) as f:
-                            data = np.loadtxt(f, delimiter=" ", dtype=float)
-                            if data.size == 0:
-                                continue
-
-                            points = data[:, :2]  # X, Y
-                            elevations = data[:, 2]  # Z
-
-                            all_points.append(points)
-                            all_elevations.append(elevations)
-
-        except Exception as e:
-            logger.error(f"  [!] Fehler beim Laden von {filepath}: {e}")
-            return None, None
-
-        if not all_points:
-            return None, None
-
-        # Kombiniere alle Kacheln
-        combined_points = np.vstack(all_points)
-        combined_elevations = np.hstack(all_elevations)
-
-        return combined_points, combined_elevations
 
     def ensure_local_offset(
         self, global_offset: Tuple[float, float], height_points: np.ndarray, height_elevations: np.ndarray

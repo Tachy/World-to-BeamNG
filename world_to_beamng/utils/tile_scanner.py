@@ -1,91 +1,110 @@
 """
-Multi-Tile-Scanner für LGL DGM1-Dateien.
+Scanner für Höhendaten-Kacheln (data/DGM1).
 
-DGM1-Dateien folgen dem Namensschema: dgm1_<easting>_<northing>.xyz.zip
-Beispiel: dgm1_4658000_5394000.xyz.zip
+Jede Datei (lose GeoTIFF ODER ZIP) wird am TATSÄCHLICHEN Inhalt erkannt - siehe
+terrain.elevation_io.read_elevation_tile() für die zwei unterstützten Formate (ASCII-XYZ-Punktwolke,
+GeoTIFF-Raster). Der Dateiname ist dafür irrelevant (nur zur informativen Anzeige im Log); es gibt
+keinen bevorzugten Sonderpfad für ein bestimmtes Namensschema wie das der LGL Baden-Württemberg.
 
-Diese Funktion scannet das data/DGM1-Verzeichnis und extrahiert die Koordinaten.
+Jede Kachel wird gecacht über denselben dateibasierten Cache wie workflow/tile_processor.py (Key
+"height_raw_<hash>"), damit eine Datei nur einmal tatsächlich geparst wird, egal ob sie zuerst
+gescannt oder zuerst geladen wird.
 """
 
-import re
 import logging
 from pathlib import Path
+from typing import Dict, List
+
+from .. import config
+from ..core.cache_manager import CacheManager
+from ..terrain.elevation_io import read_elevation_tile_cached
 
 logger = logging.getLogger(__name__)
 
+SUPPORTED_SUFFIXES = (".zip", ".tif", ".tiff")
 
-def scan_lgl_tiles(dgm1_dir):
+
+def scan_elevation_tiles(dgm_dir, cache_dir=None) -> List[Dict]:
     """
-    Scannt das DGM1-Verzeichnis nach Tile-Dateien.
+    Scannt dgm_dir nach Höhendaten-Dateien und liest jede (gecacht) vollständig ein, um ihre echte
+    BBox und ihr CRS zu bestimmen - unabhängig vom Dateinamen oder einer festen Kachelgröße.
 
     Args:
-        dgm1_dir: Pfad zum data/DGM1 Verzeichnis
+        dgm_dir: Verzeichnis mit Höhendaten (lose GeoTIFFs und/oder ZIPs, beliebig gemischt)
+        cache_dir: Cache-Verzeichnis (Default: config.CACHE_DIR) - dasselbe Cache-Key-Schema wie
+            workflow/tile_processor.py, damit eine Datei nur einmal geparst wird
 
     Returns:
-        List[Dict]: Sortierte Liste mit Tile-Metadaten
-            [{
-                'filename': 'dgm1_4658000_5394000.xyz.zip',
-                'easting': 4658000,
-                'northing': 5394000,
-                'tile_x': 4658000,  # World-Koordinate (Easting in Metern)
-                'tile_y': 5394000,  # World-Koordinate (Northing in Metern)
-                'tile_size': 2000,  # Standard DGM1 Kachel-Größe
-                'bbox_utm': (easting, easting+2000, northing, northing+2000),
-            }, ...]
+        Liste von Tile-Metadaten-Dicts, sortiert nach Dateiname:
+        [{"filename", "filepath", "bbox_utm": (x_min, x_max, y_min, y_max),
+          "easting", "northing", "tile_x", "tile_y", "tile_size", "crs_epsg"}, ...]
+        easting/northing/tile_x/tile_y/tile_size sind aus bbox_utm abgeleitet (Kompatibilität zu
+        bestehenden Aufrufern); bbox_utm ist die maßgebliche, ggf. nicht-quadratische Fläche.
+        crs_epsg ist None bei Formaten ohne eingebettetes CRS (ASCII-XYZ) - siehe
+        resolve_source_crs_epsg().
     """
-
-    if not Path(dgm1_dir).exists():
-        logger.warning(f"[WARNUNG] DGM1-Verzeichnis nicht gefunden: {dgm1_dir}")
+    if not Path(dgm_dir).exists():
+        logger.warning(f"[WARNUNG] Höhendaten-Verzeichnis nicht gefunden: {dgm_dir}")
         return []
 
+    cache = CacheManager(cache_dir or config.CACHE_DIR)
     tiles = []
-    # Pattern für LGL DGM1: dgm1_32_<grid_x>_<grid_y>_2_bw.zip (nur .zip, nicht .zip_)
-    # Die Gitter-Indizes werden in UTM-Koordinaten umgerechnet
-    pattern = re.compile(r"dgm1_(\d+)_(\d+)_(\d+)_\d+_bw\.zip$")
 
-    # Scanne alle .zip Dateien im Verzeichnis
-    for filepath in sorted(Path(dgm1_dir).iterdir()):
-        if filepath.suffix.lower() == ".zip":  # Only process zip files
-            filename = filepath.name
-            match = pattern.match(filename)
-            if match:
-                zone = int(match.group(1))  # Zone (z.B. 32)
-                grid_x = int(match.group(2))  # Gitter-X (z.B. 399)
-                grid_y = int(match.group(3))  # Gitter-Y (z.B. 5296)
+    candidates = sorted(p for p in Path(dgm_dir).iterdir() if p.suffix.lower() in SUPPORTED_SUFFIXES)
+    for filepath in candidates:
+        points, _elevations, crs_epsg, bbox_utm = read_elevation_tile_cached(filepath, cache)
+        if points is None or len(points) == 0 or bbox_utm is None:
+            logger.warning(f"[WARNUNG] Keine Höhendaten in {filepath.name} - übersprungen")
+            continue
 
-                # DGM1 LGL: Gitter-Indizes zu UTM konvertieren
-                # Zone 32: Easting = 399 * 1000 + 160000 (Basis für Zone 32)
-                # Northing = 5296 * 1000 + 5000000 (Basis für UTM)
-                # Aber der einfachste Weg: jeder Gitter-Index ist 1000m x 1000m
-                # ABER: Jedes ZIP enthält 4 Kacheln (2x2), also 2000m x 2000m!
-                tile_size = 2000
+        x_min, x_max, y_min, y_max = bbox_utm
 
-                # Berechne UTM-Koordinaten (Index * 1000, da Grid in 1km-Schritten)
-                # Aber: ZIP deckt 2×2 Kacheln ab, also Grid-Index ist die untere linke Ecke
-                easting = grid_x * 1000
-                northing = grid_y * 1000
-
-                tiles.append(
-                    {
-                        "filename": filename,
-                        "easting": easting,
-                        "northing": northing,
-                        "tile_x": easting,  # World-Koordinate
-                        "tile_y": northing,  # World-Koordinate
-                        "tile_size": tile_size,
-                        "bbox_utm": (easting, easting + tile_size, northing, northing + tile_size),
-                        "filepath": Path(dgm1_dir) / filename,
-                    }
-                )
+        tiles.append(
+            {
+                "filename": filepath.name,
+                "filepath": filepath,
+                "bbox_utm": (x_min, x_max, y_min, y_max),
+                "easting": x_min,
+                "northing": y_min,
+                "tile_x": x_min,
+                "tile_y": y_min,
+                "tile_size": max(x_max - x_min, y_max - y_min),
+                "crs_epsg": crs_epsg,
+            }
+        )
 
     if not tiles:
-        logger.warning(f"[WARNUNG] Keine DGM1-Dateien gefunden in: {dgm1_dir}")
+        logger.warning(f"[WARNUNG] Keine Höhendaten-Dateien gefunden in: {dgm_dir}")
     else:
-        logger.info(f"[INFO] {len(tiles)} DGM1-Kacheln gefunden")
+        logger.info(f"[INFO] {len(tiles)} Höhendaten-Kacheln gefunden")
         for tile in tiles:
-            logger.info(f"  - {tile['filename']} → Easting={tile['easting']}, Northing={tile['northing']}")
+            x0, x1, y0, y1 = tile["bbox_utm"]
+            logger.info(f"  - {tile['filename']} → X={x0:.0f}..{x1:.0f}, Y={y0:.0f}..{y1:.0f}")
 
     return tiles
+
+
+def resolve_source_crs_epsg(tiles: List[Dict]) -> int:
+    """
+    Bestimmt die gemeinsame Quell-CRS aller Kacheln.
+
+    Kacheln ohne eigenes CRS (ASCII-XYZ, z.B. LGL Baden-Württemberg) sagen nichts über die CRS aus
+    - dafür gilt config.SOURCE_CRS_EPSG. Kacheln MIT eigenem CRS (GeoTIFF) müssen sich alle einig
+    sein; sonst ist unklar, in welcher CRS die Gesamtfläche verarbeitet werden soll.
+
+    Raises:
+        ValueError: wenn Kacheln mit unterschiedlichem CRS gemischt sind (Mischung verschiedener
+            DGM-CRS ist eine bewusste Scope-Grenze, kein unterstützter Fall)
+    """
+    detected = {t["crs_epsg"] for t in tiles if t.get("crs_epsg") is not None}
+    if len(detected) > 1:
+        raise ValueError(
+            f"Höhendaten-Kacheln mit unterschiedlichem CRS gefunden (EPSG {sorted(detected)}) - "
+            "Mischung verschiedener DGM-CRS wird nicht unterstützt."
+        )
+    if detected:
+        return detected.pop()
+    return config.SOURCE_CRS_EPSG
 
 
 def compute_global_bbox(tiles):
@@ -93,7 +112,7 @@ def compute_global_bbox(tiles):
     Berechnet die globale Bounding Box über alle Tiles.
 
     Args:
-        tiles: Ergebnis von scan_lgl_tiles()
+        tiles: Ergebnis von scan_elevation_tiles()
 
     Returns:
         Tuple: (min_x, max_x, min_y, max_y) in UTM-Koordinaten
@@ -101,10 +120,10 @@ def compute_global_bbox(tiles):
     if not tiles:
         return None
 
-    min_x = min(t["easting"] for t in tiles)
-    max_x = max(t["easting"] + t["tile_size"] for t in tiles)
-    min_y = min(t["northing"] for t in tiles)
-    max_y = max(t["northing"] + t["tile_size"] for t in tiles)
+    min_x = min(t["bbox_utm"][0] for t in tiles)
+    max_x = max(t["bbox_utm"][1] for t in tiles)
+    min_y = min(t["bbox_utm"][2] for t in tiles)
+    max_y = max(t["bbox_utm"][3] for t in tiles)
 
     return (min_x, max_x, min_y, max_y)
 
@@ -114,7 +133,7 @@ def compute_global_center(tiles):
     Berechnet den globalen Center-Punkt über alle Tiles.
 
     Args:
-        tiles: Ergebnis von scan_lgl_tiles()
+        tiles: Ergebnis von scan_elevation_tiles()
 
     Returns:
         Tuple: (center_x, center_y) in UTM-Koordinaten

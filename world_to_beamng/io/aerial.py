@@ -51,6 +51,11 @@ def extract_images_from_zips(aerial_dir="data/DOP20"):
     """
     Extrahiert alle Bilder mit Georeferenzierung aus ZIP-Dateien.
 
+    Georeferenzierung kommt entweder aus einer begleitenden .tfw-Datei (world_info["crs_epsg"] bleibt
+    dann None - die Quell-CRS wird wie bisher angenommen) ODER, falls keine .tfw da ist, aus
+    eingebetteten GeoTIFF-Tags im Bild selbst (world_info["crs_epsg"] gesetzt). Reines JPG/PNG ohne
+    .tfw und ohne Geo-Tags bleibt ein Fehlerfall (world_info=None, wird später verworfen).
+
     Args:
         aerial_dir: Pfad zum DOP20-Verzeichnis
 
@@ -96,12 +101,153 @@ def extract_images_from_zips(aerial_dir="data/DOP20"):
                                 world_info = parse_world_file(tfw_data)
                                 break
 
+                    if world_info is None:
+                        # Kein .tfw gefunden - evtl. hat das Bild selbst eine eingebettete
+                        # GeoTIFF-Georeferenz (kein .tfw nötig, z.B. viele generische GeoTIFF-Portale)
+                        world_info = _read_geotiff_world_info(f"/vsizip/{zip_path}/{img_file}")
+
                     images.append((img_file, img_data, world_info))
 
         except Exception as e:
             logger.error(f"[!] Fehler beim Lesen von {zip_path.name}: {e}")
 
     return images
+
+
+def _read_geotiff_world_info(path_or_vsi):
+    """
+    Liest CRS + world_info (pixel_size_x/y, x_origin, y_origin = obere linke Pixelecke) aus einem
+    georeferenzierten Raster via rasterio - eingebettete GeoTIFF-Tags, kein .tfw nötig.
+
+    Returns:
+        dict wie parse_world_file(), zusätzlich "crs_epsg" (kann None sein, falls das CRS keinen
+        EPSG-Code hat - bekannte Grenze), oder None falls kein CRS/keine echte Geotransform da ist.
+    """
+    import rasterio
+
+    try:
+        with rasterio.open(path_or_vsi) as src:
+            if src.crs is None or src.transform.is_identity:
+                return None
+            t = src.transform
+            return {
+                "pixel_size_x": t.a,
+                "pixel_size_y": t.e,
+                "x_origin": t.c,
+                "y_origin": t.f,
+                "crs_epsg": src.crs.to_epsg(),
+            }
+    except Exception:
+        return None
+
+
+def extract_loose_images(aerial_dir="data/DOP20"):
+    """
+    Lose Rasterdateien direkt im Verzeichnis (*.tif, *.tiff) - nicht in einem ZIP. Georeferenzierung
+    wie bei extract_images_from_zips(): eingebettete GeoTIFF-Tags bevorzugt, sonst eine begleitende
+    .tfw-Datei gleichen Namens.
+
+    Returns:
+        Liste von (image_name, image_path: Path, world_info) - image_path (nicht bytes!), da lose
+        GeoTIFFs beliebig groß sein können; siehe _open_image().
+    """
+    aerial_path = Path(aerial_dir)
+    images = []
+    if not aerial_path.exists():
+        return images
+
+    paths = sorted(aerial_path.glob("*.tif")) + sorted(aerial_path.glob("*.tiff"))
+    for path in paths:
+        world_info = _read_geotiff_world_info(str(path))
+        if world_info is None:
+            tfw = path.with_suffix(".tfw")
+            if tfw.exists():
+                world_info = parse_world_file(tfw.read_bytes())
+                if world_info is not None:
+                    world_info["crs_epsg"] = None
+        images.append((path.name, path, world_info))
+    return images
+
+
+def extract_georeferenced_images(aerial_dir="data/DOP20"):
+    """
+    Kombiniert extract_images_from_zips() (ZIP, bytes-basiert) und extract_loose_images() (lose
+    Datei, Path-basiert) zu einer einheitlichen Liste - Quellformat ist danach egal, beides läuft
+    über denselben _open_image()/_prepare_image_for_compositing()-Pfad weiter.
+
+    Returns:
+        Liste von (image_name, source: bytes|Path, world_info|None)
+    """
+    return extract_images_from_zips(aerial_dir) + extract_loose_images(aerial_dir)
+
+
+def _open_image(source):
+    """Öffnet ein Quellbild - source ist entweder bytes (aus einem ZIP) oder ein Path (lose Datei)."""
+    return Image.open(BytesIO(source)) if isinstance(source, (bytes, bytearray)) else Image.open(source)
+
+
+def _reproject_image_to_source_crs(source, dst_epsg):
+    """
+    Reprojiziert ein einzelnes georeferenziertes Bild nach dst_epsg via rasterio (Vorbild: die
+    bereits vorhandene Reprojektions-Logik in terrain/horizon_image.py::build_horizon_image()).
+
+    Args:
+        source: bytes (aus einem ZIP) oder Path/str (lose Datei)
+        dst_epsg: Ziel-EPSG-Code
+
+    Returns:
+        (PIL.Image RGB, world_info) im Ziel-CRS
+    """
+    import numpy as np
+    import rasterio
+    from rasterio.warp import Resampling, calculate_default_transform, reproject
+
+    def _reproject(src):
+        transform, width, height = calculate_default_transform(
+            src.crs, f"EPSG:{dst_epsg}", src.width, src.height, *src.bounds
+        )
+        dst = np.zeros((3, height, width), dtype=src.dtypes[0])
+        for band in range(1, min(src.count, 3) + 1):
+            reproject(
+                source=rasterio.band(src, band),
+                destination=dst[band - 1],
+                src_transform=src.transform,
+                src_crs=src.crs,
+                dst_transform=transform,
+                dst_crs=f"EPSG:{dst_epsg}",
+                resampling=Resampling.bilinear,
+            )
+        image = Image.fromarray(np.moveaxis(dst, 0, -1)).convert("RGB")
+        world_info = {
+            "pixel_size_x": transform.a,
+            "pixel_size_y": transform.e,
+            "x_origin": transform.c,
+            "y_origin": transform.f,
+            "crs_epsg": dst_epsg,
+        }
+        return image, world_info
+
+    if isinstance(source, (bytes, bytearray)):
+        with rasterio.io.MemoryFile(source) as memfile, memfile.open() as src:
+            return _reproject(src)
+    with rasterio.open(source) as src:
+        return _reproject(src)
+
+
+def _prepare_image_for_compositing(source, world_info, dst_epsg):
+    """
+    Öffnet ein Quellbild fürs Compositing und reprojiziert es bei Bedarf ins Ziel-CRS. Für
+    .tfw-Paare (world_info["crs_epsg"] is None, angenommene Quell-CRS wie bisher) wird NIE
+    reprojiziert - kein Verhaltensunterschied für den bestehenden LGL-BW-Pfad.
+
+    Returns:
+        (PIL.Image, world_info) - world_info unverändert, außer bei Reprojektion (dann die im
+        Ziel-CRS neu berechnete Georeferenz)
+    """
+    src_epsg = world_info.get("crs_epsg")
+    if src_epsg is not None and src_epsg != dst_epsg:
+        return _reproject_image_to_source_crs(source, dst_epsg)
+    return _open_image(source), world_info
 
 
 def enhance_dop20_image(image, contrast_factor=1.18, brightness_factor=0.92, color_factor=1.12):
@@ -176,14 +322,18 @@ def process_aerial_images(aerial_dir, output_dir, grid_bounds, global_offset, ta
     if target_pixel_size is None:
         target_pixel_size = config.TERRAIN_BASE_TEX_PIXEL_SIZE
 
-    images = extract_images_from_zips(aerial_dir)
+    from ..geometry.coordinates import get_source_crs_epsg
+
+    dst_epsg = get_source_crs_epsg()
+
+    images = extract_georeferenced_images(aerial_dir)
     if not images:
         logger.debug("  [i] Keine Luftbilder gefunden")
         return 0
 
     images_with_geo = [(name, data, info) for name, data, info in images if info is not None]
     if not images_with_geo:
-        logger.error(f"  [!] Keine Georeferenzierung gefunden (fehlen .tfw-Dateien?)")
+        logger.error(f"  [!] Keine Georeferenzierung gefunden (fehlen .tfw-Dateien oder eingebettete GeoTIFF-Tags?)")
         return 0
 
     logger.debug(f"  [i] {len(images_with_geo)} Luftbilder mit Georeferenzierung gefunden")
@@ -210,7 +360,7 @@ def process_aerial_images(aerial_dir, output_dir, grid_bounds, global_offset, ta
     pasted = 0
     for img_name, img_data, world_info in images_with_geo:
         try:
-            image = Image.open(BytesIO(img_data))
+            image, world_info = _prepare_image_for_compositing(img_data, world_info, dst_epsg)
             image = enhance_dop20_image(image)
             pixel_size = abs(world_info["pixel_size_x"])
 
@@ -275,7 +425,11 @@ def process_aerial_tiles(aerial_dir, output_dir, photos, global_offset, target_p
     if target_pixel_size is None:
         target_pixel_size = config.TERRAIN_BASE_TEX_PIXEL_SIZE
 
-    images = [(n, d, i) for n, d, i in extract_images_from_zips(aerial_dir) if i is not None]
+    from ..geometry.coordinates import get_source_crs_epsg
+
+    dst_epsg = get_source_crs_epsg()
+
+    images = [(n, d, i) for n, d, i in extract_georeferenced_images(aerial_dir) if i is not None]
     if not images:
         logger.error("  [!] Keine georeferenzierten Luftbilder gefunden")
         return 0
@@ -292,7 +446,8 @@ def process_aerial_tiles(aerial_dir, output_dir, photos, global_offset, target_p
 
     for img_name, img_data, world_info in images:
         try:
-            image = enhance_dop20_image(Image.open(BytesIO(img_data)))
+            image, world_info = _prepare_image_for_compositing(img_data, world_info, dst_epsg)
+            image = enhance_dop20_image(image)
             pixel_size = abs(world_info["pixel_size_x"])
             if not math.isclose(pixel_size, native, rel_tol=1e-6):
                 scale = pixel_size / native
@@ -322,6 +477,12 @@ def process_aerial_tiles(aerial_dir, output_dir, photos, global_offset, target_p
     return saved
 
 
+def _aerial_source_files(aerial_dir):
+    """ZIPs UND lose Rasterdateien (*.tif/*.tiff) - beide gelten als Quellbilder (siehe extract_georeferenced_images())."""
+    p = Path(aerial_dir)
+    return sorted(p.glob("*.zip")) + sorted(p.glob("*.tif")) + sorted(p.glob("*.tiff"))
+
+
 def aerial_photos_signature(aerial_dir, photos, global_offset, target_pixel_size=None):
     """
     Beschreibt, WOFÜR die Luftbilder gebaut wurden: welche Fotos (Name + Fläche), Ursprung, Auflösung, Quellbilder.
@@ -331,7 +492,7 @@ def aerial_photos_signature(aerial_dir, photos, global_offset, target_pixel_size
     """
     if target_pixel_size is None:
         target_pixel_size = config.TERRAIN_BASE_TEX_PIXEL_SIZE
-    sources = [[path.name, path.stat().st_size] for path in sorted(Path(aerial_dir).glob("*.zip"))]
+    sources = [[path.name, path.stat().st_size] for path in _aerial_source_files(aerial_dir)]
     return {
         "version": AERIAL_SIGNATURE_VERSION,
         "photos": [{"name": p["name"], "bounds": [round(float(v), 3) for v in p["bounds"]]} for p in photos],
@@ -380,7 +541,7 @@ def ensure_aerial_photos(aerial_dir, output_dir, photos, global_offset, target_p
         "current" (passt, nichts zu tun), "built" (neu gebaut), "failed" (Bauen fehlgeschlagen)
         oder "none" (keine Quellbilder - bestehende Fotos bleiben unverändert)
     """
-    if not Path(aerial_dir).exists() or not any(Path(aerial_dir).glob("*.zip")):
+    if not Path(aerial_dir).exists() or not _aerial_source_files(aerial_dir):
         return "none"
 
     signature = aerial_photos_signature(aerial_dir, photos, global_offset, target_pixel_size)

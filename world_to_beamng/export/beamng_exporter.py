@@ -245,12 +245,15 @@ class BeamNGExporter:
         textures_dir = config.BEAMNG_DIR_TEXTURES
         aerial_dir = Path("data/DOP20")
         from ..io.aerial import ensure_aerial_photos, SINGLE_PHOTO_NAME
-        from ..terrain.photo_tiles import photo_tile_specs
+        from ..terrain.photo_tiles import build_processing_tile_grid, photo_tile_specs
 
-        # Vier-Bilder-Modus: bei mehreren DGM1-Kacheln ein eigenes Foto je Kachel (siehe terrain/photo_tiles.py),
-        # sonst ein Gesamtfoto. process_tile() nimmt dieselbe Aufteilung (photo_tile_specs) für die Layer-Map.
-        if config.AERIAL_PHOTO_PER_TILE and len(tiles) > 1:
-            photos = photo_tile_specs(tiles, global_offset)
+        # Vier-Bilder-Modus: fester Kachelraster über die Gesamtfläche (config.PHOTO_TILE_SIZE_M),
+        # unabhängig von der Größe/Anzahl der rohen Höhendaten-Kacheln (siehe terrain/photo_tiles.py).
+        # process_tile() (terrain_workflow.py) baut denselben Raster aus denselben Eingaben
+        # (deterministisch, ohne dass Daten geteilt werden müssen) für die Layer-Map-Aufteilung.
+        processing_tiles = build_processing_tile_grid((utm_min_x, utm_max_x, utm_min_y, utm_max_y), config.PHOTO_TILE_SIZE_M)
+        if config.AERIAL_PHOTO_PER_TILE and len(processing_tiles) > 1:
+            photos = photo_tile_specs(processing_tiles, global_offset)
         else:
             photos = [{"name": SINGLE_PHOTO_NAME, "bounds": combined_grid_bounds_local}]
 

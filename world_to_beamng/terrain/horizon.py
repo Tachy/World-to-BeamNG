@@ -48,8 +48,11 @@ def _load_geotiff_as_xyz(geotiff_path, local_offset=None):
             # Prüfe CRS und reprojiziere falls nötig
             src_crs = src.crs
 
-            # Ziel: UTM Zone 32N (EPSG:25832)
-            dst_crs = "EPSG:25832"
+            # Ziel: die aufgeloeste Quell-CRS der Pipeline (Default EPSG:25832, ETRS89/UTM32N;
+            # automatisch erkannt bei GeoTIFF-Hoehendaten, siehe geometry.coordinates)
+            from ..geometry.coordinates import get_source_crs_epsg
+
+            dst_crs = f"EPSG:{get_source_crs_epsg()}"
 
             # Wenn Quell-CRS nicht UTM ist, reprojiziere
             if src_crs and src_crs.to_string() != dst_crs:

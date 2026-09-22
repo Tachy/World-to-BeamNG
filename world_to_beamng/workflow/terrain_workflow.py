@@ -397,15 +397,23 @@ class TerrainWorkflow:
             layer_map = mark_padding_as_holes(layer_map, data_cols=nx, data_rows=ny)
 
         # Vier-Bilder-Modus: erst jetzt (Malen, Masken und Löcher sind fertig) wird die Layer-Map pro Kachel in
-        # physische Materialien aufgeteilt - jede Kachel bekommt ihr eigenes Foto.
+        # physische Materialien aufgeteilt - jede Kachel bekommt ihr eigenes Foto. Die Foto-Kachelung ist ein
+        # FESTER Raster über die Gesamtfläche (config.PHOTO_TILE_SIZE_M), unabhängig von der Größe/Anzahl der
+        # rohen Höhendaten-Kacheln (siehe terrain/photo_tiles.py-Moduldocstring) - export/beamng_exporter.py
+        # baut denselben Raster aus denselben Eingaben (deterministisch, ohne dass Daten geteilt werden müssen).
+        from ..terrain.photo_tiles import build_processing_tile_grid
+        from ..utils.tile_scanner import compute_global_bbox
+
+        processing_tiles = build_processing_tile_grid(compute_global_bbox(tiles), config.PHOTO_TILE_SIZE_M)
+
         photo_tiles = None
-        if config.AERIAL_PHOTO_PER_TILE and len(tiles) > 1:
+        if config.AERIAL_PHOTO_PER_TILE and len(processing_tiles) > 1:
             from ..terrain.photo_tiles import split_layers_by_tile
 
             photo_tiles = split_layers_by_tile(
                 layer_map,
                 terrain_material_names,
-                tiles,
+                processing_tiles,
                 global_offset,
                 terrain_origin_x,
                 terrain_origin_y,

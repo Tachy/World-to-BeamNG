@@ -6,6 +6,8 @@ data/DGM30
 data/DOP300
 data/assets
 data/italy
+data/DGM1_ch
+data/DOP20_ch
 
 # Cache files
 cache/

@@ -2,10 +2,7 @@
 Hoehendaten-Verwaltung (Laden, Caching, Interpolation).
 """
 
-import glob
 import hashlib
-import zipfile
-import io
 import json
 import numpy as np
 
@@ -22,7 +19,8 @@ def get_height_data_hash():
     """
     xyz_files = sorted(config.HEIGHT_DATA_DIR.glob("*.xyz"))
     zip_files = sorted(config.HEIGHT_DATA_DIR.glob("*.zip"))
-    all_files = xyz_files + zip_files
+    tif_files = sorted(config.HEIGHT_DATA_DIR.glob("*.tif")) + sorted(config.HEIGHT_DATA_DIR.glob("*.tiff"))
+    all_files = xyz_files + zip_files + tif_files
 
     if not all_files:
         return None
@@ -118,76 +116,6 @@ def get_height_data_hash():
             pass
 
     return new_hash
-
-
-def load_height_data():
-    """Lädt alle Hoehendaten aus .xyz oder .zip Dateien (mit Caching)."""
-
-    # Pruefe ob gecachte Rohdaten existieren
-    height_hash = get_height_data_hash()
-    cache_file = None
-
-    if height_hash:
-        cache_file = config.CACHE_DIR / f"height_raw_{height_hash}.npz"
-
-        if cache_file.exists():
-            logger.info(f"  [OK] Cache gefunden: {cache_file.name}")
-            data = np.load(cache_file)
-            points = data["points"]
-            elevations = data["elevations"]
-            logger.info(f"  [OK] {len(elevations)} Hoehenpunkte aus Cache geladen")
-            # Rückgabe: needs_aerial_processing=False (aus Cache geladen)
-            return points, elevations, False
-        else:
-            logger.error(f"  Cache nicht gefunden, lade aus Dateien...")
-
-    # Lade aus Dateien
-    xyz_files = list(config.HEIGHT_DATA_DIR.glob("*.xyz"))
-    zip_files = list(config.HEIGHT_DATA_DIR.glob("*.zip"))
-
-    if not xyz_files and not zip_files:
-        raise FileNotFoundError(f"Keine .xyz oder .zip Dateien in {config.HEIGHT_DATA_DIR} gefunden!")
-
-    logger.info(f"  Lese {len(xyz_files)} XYZ + {len(zip_files)} ZIP Dateien...")
-
-    all_points = []
-    all_elevations = []
-
-    # Lade .xyz Dateien
-    for file in xyz_files:
-        logger.info(f"    • {file.name}...")
-        data = np.loadtxt(file) # np.loadtxt can take Path objects directly
-        all_points.append(data[:, :2])
-        all_elevations.append(data[:, 2])
-
-    # Lade .zip Dateien
-    for zip_file in zip_files:
-        logger.info(f"    • {zip_file.name}...")
-        with zipfile.ZipFile(zip_file, "r") as z: # zipfile.ZipFile can take Path objects directly
-            for name in z.namelist():
-                if name.endswith(".xyz"):
-                    logger.info(f"      └─ {name}")
-                    with z.open(name) as f:
-                        data = np.loadtxt(io.TextIOWrapper(f, encoding="utf-8"))
-                        all_points.append(data[:, :2])
-                        all_elevations.append(data[:, 2])
-
-    # Kombiniere alle Kacheln
-    points = np.vstack(all_points)
-    elevations = np.hstack(all_elevations)
-
-    logger.info(f"  [OK] {len(elevations)} Hoehenpunkte geladen")
-
-    # Cache die Rohdaten (immer wenn wir frisch geladen haben)
-    if height_hash:
-        cache_file_path = config.CACHE_DIR / f"height_raw_{height_hash}.npz"
-        config.CACHE_DIR.mkdir(parents=True, exist_ok=True)
-        np.savez_compressed(cache_file_path, points=points, elevations=elevations)
-        logger.info(f"  [OK] Cache erstellt: {cache_file_path.name}")
-
-    # Rückgabe: (points, elevations, needs_aerial_processing)
-    # needs_aerial_processing=True weil neu geladen (nicht aus Cache)
-    return points, elevations, True
 
 
 def get_elevation_cache(bbox, height_hash=None):

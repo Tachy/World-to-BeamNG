@@ -275,12 +275,12 @@ def cache_lod2_buildings(
     Returns:
         Pfad zur Cache-Datei
     """
-    from pyproj import Transformer
+    from ..geometry.coordinates import transformer_to_utm
 
-    # BBOX von WGS84 (Lat/Lon) zu UTM konvertieren
-    transformer = Transformer.from_crs("EPSG:4326", "EPSG:32632", always_xy=True)
-    min_x_utm, min_y_utm = transformer.transform(bbox[1], bbox[0])  # lon, lat
-    max_x_utm, max_y_utm = transformer.transform(bbox[3], bbox[2])
+    # BBOX von WGS84 (Lat/Lon) zur Quell-CRS konvertieren (dieselbe CRS wie ueberall sonst in der
+    # Pipeline - vorher hier eine andere, hartkodierte UTM-Zonen-Variante als sonst im Code)
+    min_x_utm, min_y_utm = transformer_to_utm.transform(bbox[1], bbox[0])  # lon, lat
+    max_x_utm, max_y_utm = transformer_to_utm.transform(bbox[3], bbox[2])
     bbox_utm = (min_x_utm, min_y_utm, max_x_utm, max_y_utm)
 
     bbox_utm = (min_x_utm, min_y_utm, max_x_utm, max_y_utm)

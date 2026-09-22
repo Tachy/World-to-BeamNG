@@ -28,7 +28,7 @@ Bäche und Teiche, Gebäude und einen Horizont. Alpha-Status, in Entwicklung.
 | BeamNG.drive | installiert und **mindestens einmal gestartet** (legt den Benutzerordner an) |
 | Python | **3.11 oder neuer**, getestet mit 3.13 |
 | Internet | für OpenStreetMap (Overpass API) und den einmaligen Download von `texconv.exe` |
-| Gebiet | **Baden-Württemberg**: Die Dateinamen und Formate sind die des LGL BW (UTM Zone 32, ETRS89). Andere Bundesländer oder Länder gehen nicht ohne Anpassung. |
+| Gebiet | Jede Region mit georeferenziertem GeoTIFF-Höhenmodell und -Orthophoto: CRS und Ausdehnung werden automatisch aus dem Dateiinhalt erkannt, kein festes Namensschema oder feste Kachelgröße nötig. Reine ASCII-XYZ-Punktwolken in einem ZIP (das LGL-Baden-Württemberg-Format) werden genauso am Inhalt statt am Namen erkannt (siehe „Daten aus anderen Regionen verwenden" unten). Gebäude (LoD2/CityGML) bleiben Baden-Württemberg-spezifisch und müssen anderswo deaktiviert werden (`LOD2_ENABLED = False`). |
 | Speicher | pro 2×2-km-Kachel etwa 250 MB Rohdaten (siehe unten) plus Cache und Ergebnis |
 
 ## 🚀 Schnellstart
@@ -82,7 +82,14 @@ Gebäude vorliegen. Beispiel für ein 4×4-km-Gebiet: `399`/`401` × `5296`/`529
 | `data/DGM1/` | Digitales Geländemodell 1 m (ZIP mit XYZ-Punkten) | `dgm1_32_<x>_<y>_2_bw.zip` | ca. 14 MB |
 | `data/DOP20/` | Digitale Orthophotos 20 cm, RGB (ZIP mit TIF + TFW) | `dop20rgb_32_<x>_<y>_2_bw.zip` | ca. 230 MB |
 
-Ohne DGM1 bricht der Export ab („Keine DGM1-Kacheln gefunden"). Fehlt das Luftbild, meldet der Export einen Fehler im Log.
+Der Dateiname spielt nur für das LGL-BW-Format oben eine Rolle. Jedes andere georeferenzierte GeoTIFF-Höhenmodell
+(lose Datei oder in einem ZIP) funktioniert ebenfalls, unter beliebigem Dateinamen, und wird immer auf
+`GRID_SPACING` umgetastet, unabhängig von seiner nativen Auflösung; entsprechend für jedes georeferenzierte
+Orthophoto (eingebettete GeoTIFF-Tags oder eine `.tfw`-Weltdatei) unter `data/DOP20/`. Siehe „Daten aus anderen
+Regionen verwenden" unten.
+
+Ohne DGM1 bricht der Export ab („Keine DGM1-Kacheln gefunden" - keine DGM1-/GeoTIFF-Kacheln gefunden). Fehlt das
+Luftbild, meldet der Export einen Fehler im Log.
 
 ### Optional
 
@@ -90,7 +97,7 @@ Ohne DGM1 bricht der Export ab („Keine DGM1-Kacheln gefunden"). Fehlt das Luft
 |---|---|---|---|
 | `data/LOD2/` | 3D-Gebäudemodelle LoD2 (ZIP mit CityGML) | `LoD2_32_<x>_<y>_2_bw.zip` | keine Gebäude (`LOD2_ENABLED`) |
 | `data/DGM30/` | Höhenmodell 30 m als GeoTIFF: **Copernicus DEM GLO-30**, selbst herunterladen (siehe unten). Es dürfen mehrere `*.tif` im Ordner liegen. | beliebig, z. B. `Copernicus_DSM_COG_10_N47_00_E007_00_DEM.tif` | Horizont wird übersprungen |
-| `data/DOP300/` | Satellitenbild für die Horizont-Textur: **ein** georeferenziertes RGB-GeoTIFF in **UTM 32N (EPSG:25832)**, das die ±50 km um die Gebietsmitte abdeckt. Beliebige Auflösung, es wird auf 8192×8192 skaliert. | `horizon_temp.tif` (Name in `config.SENTINEL2_FILE`) | Horizont ohne Textur |
+| `data/DOP300/` | Satellitenbild für die Horizont-Textur: **ein** georeferenziertes RGB-GeoTIFF in der aufgelösten Quell-CRS (Standard UTM 32N/EPSG:25832, oder die aus den DGM1-GeoTIFFs erkannte CRS), das die ±50 km um die Gebietsmitte abdeckt. Beliebige Auflösung, es wird auf 8192×8192 skaliert. | `horizon_temp.tif` (Name in `config.SENTINEL2_FILE`) | Horizont ohne Textur |
 
 **DGM30 herunterladen:** Das Programm lädt es nicht selbst. Verwendet wird das **Copernicus DEM GLO-30** (30 m,
 weltweit, kostenlos). Am einfachsten ohne Konto aus dem öffentlichen AWS-Bucket `copernicus-dem-30m`
@@ -113,8 +120,8 @@ Alternativen sind das Copernicus Data Space Ecosystem (<https://dataspace.copern
 
 **Horizont-Bild:** Es gibt keinen automatischen Download für das Satellitenbild, aber ein Werkzeug, das es aus
 jedem georeferenzierten RGB-Bild erzeugt (z. B. einem Sentinel-2-Export in Web-Mercator oder WGS84). Es schneidet
-genau die Horizont-Fläche (±50 km um die Gebietsmitte, sie ergibt sich aus den DGM1-Kacheln) aus, projiziert nach
-EPSG:25832 um und schreibt `data/DOP300/horizon_temp.tif`:
+genau die Horizont-Fläche (±50 km um die Gebietsmitte, sie ergibt sich aus den DGM1-Kacheln) aus, projiziert in die
+aufgelöste Quell-CRS um und schreibt `data/DOP300/horizon_temp.tif`:
 
 ```powershell
 .\.venv\Scripts\python.exe tools\make_horizon_image.py C:\pfad\zum\satellitenbild.tif
@@ -134,6 +141,28 @@ World-to-BeamNG/
     ├── DGM30/   dgm30_copernicus.tif
     └── DOP300/  horizon_temp.tif
 ```
+
+### Daten aus anderen Regionen verwenden
+
+`data/DGM1/` und `data/DOP20/` akzeptieren jedes georeferenzierte GeoTIFF (Einzelband-Höhenmodell, RGB-Orthophoto),
+lose oder in einem ZIP, unter beliebigem Dateinamen - Koordinatensystem und abgedeckte Fläche werden aus der Datei
+selbst gelesen, nicht aus einem Namensschema erraten. So werden Daten einer anderen Region als Baden-Württemberg
+genutzt:
+
+- Die DGM-GeoTIFFs nach `data/DGM1/` legen, die Orthophoto-GeoTIFFs nach `data/DOP20/`. Das Höhenmodell wird immer
+  auf `config.GRID_SPACING` (Standard 1 m) umgetastet, unabhängig von seiner nativen Auflösung; die Orthophotos
+  werden zu `config.PHOTO_TILE_SIZE_M`-großen Kacheln (Standard 2000 m) mit `TERRAIN_BASE_TEX_PIXEL_SIZE`
+  zusammengesetzt, unabhängig davon, wie viele Quelldateien es gibt oder wie das Quellportal selbst kachelt.
+- Die Quell-CRS wird automatisch aus den GeoTIFFs erkannt; `config.SOURCE_CRS_EPSG` ist nur der Fallback für
+  Höhendaten ohne eingebettetes CRS (reine ASCII-XYZ-Punktwolken, z. B. das LGL-BW-Format) und wird sonst ignoriert.
+  Weicht das CRS des Orthophotos vom CRS der Höhendaten ab, wird es automatisch umprojiziert.
+- `LOD2_ENABLED = False` in `config.py` setzen - Gebäude (LoD2/CityGML) bleiben spezifisch für das
+  Baden-Württemberg-CityGML-1.0-Schema.
+- Alle DGM1-GeoTIFFs müssen dasselbe CRS haben (Mischung unterschiedlicher Höhendaten-CRS wird nicht unterstützt);
+  DGM30/Horizont-Daten bleiben wie bisher weltweit nutzbar (siehe „Optional" oben).
+
+Durchgehend getestet mit echten Daten außerhalb Baden-Württembergs: swissALTI3D (0,5 m Höhenmodell) und
+SwissImage DOP10 (0,1 m Orthophoto), beide EPSG:2056 (CH1903+/LV95), lose GeoTIFFs ohne feste Kachelgröße.
 
 ### Was das Programm selbst besorgt
 
@@ -170,8 +199,10 @@ Alle Einstellungen stehen in `world_to_beamng/config.py`.
 | **`SPAWN_POINT`** | Startposition als `(Breite, Länge)` in Grad. Muss im eigenen Gebiet liegen. |
 | `LOD2_ENABLED`, `FORESTS_ENABLED`, `VINEYARDS_ENABLED`, `WATER_ENABLED`, `GROUND_COVER_ENABLED`, `PHASE5_ENABLED` | einzelne Bestandteile ein- und ausschalten (`PHASE5_ENABLED` ist der Horizont) |
 | `BEAMNG_DIR` | Zielordner des Levels; wird aus `%LOCALAPPDATA%` abgeleitet, nur bei Sonderfällen ändern |
-| `GRID_SPACING` | Terrain-Auflösung in Metern (Standard 1,0 = native DGM1-Auflösung) |
+| `GRID_SPACING` | Terrain-Auflösung in Metern (Standard 1,0); GeoTIFF-Höhendaten werden immer darauf umgetastet, unabhängig von ihrer nativen Auflösung |
 | `TERRAIN_BASE_TEX_PIXEL_SIZE` | Größe des Luftbilds je Kachel |
+| `PHOTO_TILE_SIZE_M` | Kachelgröße (Meter) des Luftbild-/Material-Rasters (Standard 2000), unabhängig von der Kachelung der Rohdaten |
+| `SOURCE_CRS_EPSG` | Fallback-Quell-CRS (Standard 25832) für Höhendaten ohne eingebettetes CRS (reine ASCII-XYZ); wird für GeoTIFF-Quellen ignoriert, deren CRS automatisch erkannt wird |
 | `ENV_DATE`, `ENV_CLOCK_TIME` | Datum und Uhrzeit für den Sonnenstand |
 
 ## ⏱️ Ablauf und Dauer
@@ -185,7 +216,7 @@ Caches etwa eine Minute. Der erste Lauf ist länger, weil OSM geladen und die Ca
 
 | Meldung / Symptom | Ursache und Lösung |
 |---|---|
-| `Keine DGM1-Kacheln gefunden` | `data/DGM1/` fehlt oder enthält keine ZIPs im Schema `dgm1_32_<x>_<y>_2_bw.zip` |
+| `Keine DGM1-Kacheln gefunden` | `data/DGM1/` fehlt, ist leer, oder enthält keine lesbaren ZIPs/GeoTIFFs (ein GeoTIFF ohne Koordinatensystem wird mit Warnung übersprungen) |
 | `texconv.exe nicht gefunden` | `setup_project.py` nicht gelaufen; oder Datei manuell nach `bin\texconv.exe` legen |
 | `BeamNG.drive.ini nicht gefunden` | BeamNG.drive wurde noch nie gestartet |
 | `managedItemData.json nicht gefunden` | einmalig `tools\generate_forest_assets.py` ausführen |
@@ -193,7 +224,7 @@ Caches etwa eine Minute. Der erste Lauf ist länger, weil OSM geladen und die Ca
 | Level erscheint nicht in BeamNG | prüfen, ob `%LOCALAPPDATA%\BeamNG\BeamNG.drive\current\levels\world_to_beamng` entstanden ist; sonst `BEAMNG_DIR` in `config.py` anpassen |
 | `DGM30-Dateien decken die Horizont-Fläche … nicht ab` | Kacheln für die genannte Himmelsrichtung nach `data/DGM30/` legen (siehe oben) |
 | `Keine DGM30-Dateien` | `data/DGM30/` ist leer; der Horizont wird sonst übersprungen |
-| Horizont ohne Textur oder verschoben | `tools\make_horizon_image.py` verwenden; die Datei muss genau die Horizont-Fläche in EPSG:25832 zeigen |
+| Horizont ohne Textur oder verschoben | `tools\make_horizon_image.py` verwenden; die Datei muss genau die Horizont-Fläche in der aufgelösten Quell-CRS zeigen |
 | Absturz oder Fehler beim Laden des Levels | `C:\Users\<NAME>\AppData\Local\BeamNG\BeamNG.drive\current\beamng.log` auf `\|E\|`-Zeilen prüfen |
 | OSM-Zeitüberschreitung | das Programm probiert Ersatz-Server; erneut starten, erfolgreiche Antworten sind gecacht |
 

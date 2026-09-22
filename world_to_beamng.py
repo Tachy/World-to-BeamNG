@@ -20,7 +20,8 @@ from world_to_beamng.logging_config import LoggerConfig
 logger = LoggerConfig.get_logger()
 from world_to_beamng.export import BeamNGExporter
 from world_to_beamng.textures.registry import MissingTexturesError
-from world_to_beamng.utils.tile_scanner import scan_lgl_tiles, compute_global_center
+from world_to_beamng.geometry import coordinates
+from world_to_beamng.utils.tile_scanner import scan_elevation_tiles, compute_global_center, resolve_source_crs_epsg
 
 
 def main():
@@ -41,11 +42,17 @@ def main():
     logger.info("WORLD-TO-BEAMNG - BeamNG Level Export")
     logger.info("=" * 60)
 
-    tiles = scan_lgl_tiles(dgm1_dir=config.HEIGHT_DATA_DIR)
+    tiles = scan_elevation_tiles(dgm_dir=config.HEIGHT_DATA_DIR)
 
     if not tiles:
         logger.error("[!] Keine DGM1-Kacheln gefunden - Abbruch")
         return
+
+    # 3b. Quell-CRS auflösen (aus GeoTIFF-Kacheln automatisch erkannt, sonst config.SOURCE_CRS_EPSG) -
+    # MUSS vor jeder weiteren Koordinatentransformation gesetzt werden (OSM-BBox, LoD2, Horizont, ...)
+    source_epsg = resolve_source_crs_epsg(tiles)
+    coordinates.set_source_crs(source_epsg)
+    logger.info(f"Quell-CRS: EPSG:{source_epsg}")
 
     # 4. Globalen Offset berechnen
     global_center = compute_global_center(tiles)

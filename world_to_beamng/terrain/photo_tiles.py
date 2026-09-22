@@ -1,9 +1,14 @@
 """
-Vier-Bilder-Modus: ein Luftbild pro DGM1-Kachel.
+Vier-Bilder-Modus: ein Luftbild pro Foto-Kachel.
 
-Statt EINES Gesamtfotos (bei 4x4 km nur 0,5 m/px bei 8192 px) bekommt jede verarbeitete DGM1-Kachel ihr
+Statt EINES Gesamtfotos (bei 4x4 km nur 0,5 m/px bei 8192 px) bekommt jede Foto-Kachel ihr
 eigenes 8192-px-Foto (2 km -> 0,244 m/px). Jedes Foto ist ein eigenes Terrain-Material
 (`aerial_photo_<k>`), das nur in seiner Kachel gemalt wird.
+
+Die Foto-Kachelung ist ein FESTER Raster über die Gesamtfläche (build_processing_tile_grid(),
+Kachelgröße config.PHOTO_TILE_SIZE_M) - unabhängig von der Größe/Anzahl der rohen Höhendaten-Kacheln
+(die je nach Quelle z.B. 1 km statt 2 km groß sein können, siehe utils/tile_scanner.py). Bei LGL
+Baden-Württemberg deckt sich das zufällig mit den 2x2-km-DGM1-ZIPs, ist aber kein Zusammenhang mehr.
 
 Die Landnutzungs-Schichten tragen das Luftbild als Basisfarbe. Sie werden deshalb je Kachel als Variante
 `<schicht>_t<k>` geführt (Basisfarbe = Foto der Kachel). Damit die restliche Pipeline (Malen der Landnutzung,
@@ -17,6 +22,36 @@ import numpy as np
 
 HOLE_VALUE = 255  # ter_writer.EMPTY_LAYER_VALUE
 MAX_MATERIALS = 254
+
+
+def build_processing_tile_grid(bbox_utm: Tuple[float, float, float, float], tile_size_m: float) -> List[Dict]:
+    """
+    Fester, regelmäßiger Kachelraster über eine Gesamtfläche - unabhängig von der Größe/Anzahl der
+    rohen Höhendaten-Kacheln, die diese Fläche tatsächlich liefern (siehe Moduldocstring).
+
+    Args:
+        bbox_utm: (x_min, x_max, y_min, y_max) der Gesamtfläche (z.B. utils.tile_scanner.compute_global_bbox())
+        tile_size_m: Kantenlänge einer Kachel in Metern (config.PHOTO_TILE_SIZE_M)
+
+    Returns:
+        Liste von {"bbox_utm": (x0, x1, y0, y1)} - dasselbe Schema wie die rohen Scan-Kacheln, das
+        photo_tile_specs() erwartet. Die letzte Zeile/Spalte wird auf die tatsächliche BBox-Kante
+        geklemmt statt exakt tile_size_m groß zu sein - build_tile_index_map() (unten) verträgt das,
+        da es nur mit sortierten Start-Koordinaten per searchsorted arbeitet, keine einheitliche
+        Kachelgröße voraussetzt.
+    """
+    if tile_size_m <= 0:
+        raise ValueError(f"tile_size_m muss positiv sein, ist {tile_size_m}")
+
+    x_min, x_max, y_min, y_max = bbox_utm
+    x_starts = np.arange(x_min, x_max, tile_size_m) if x_max > x_min else np.array([x_min])
+    y_starts = np.arange(y_min, y_max, tile_size_m) if y_max > y_min else np.array([y_min])
+
+    return [
+        {"bbox_utm": (float(x0), float(min(x0 + tile_size_m, x_max)), float(y0), float(min(y0 + tile_size_m, y_max)))}
+        for y0 in y_starts
+        for x0 in x_starts
+    ]
 
 
 def photo_tile_specs(tiles: Sequence[Dict], global_offset: Sequence[float]) -> List[Dict]:

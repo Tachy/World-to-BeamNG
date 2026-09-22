@@ -2,7 +2,8 @@
 Horizont-Fläche und Horizont-Bild.
 
 Der Horizont deckt config.HORIZON_HALF_SIZE_M in jede Richtung um die Gebietsmitte ab. Das Satellitenbild dafür
-(data/DOP300/<config.SENTINEL2_FILE>) muss GENAU diese Fläche als GeoTIFF in UTM 32N (EPSG:25832) zeigen.
+(data/DOP300/<config.SENTINEL2_FILE>) muss GENAU diese Fläche als GeoTIFF in der aufgelösten Quell-CRS der
+Pipeline zeigen (Default EPSG:25832/UTM32N, automatisch erkannt bei GeoTIFF-Höhendaten, siehe geometry.coordinates).
 `build_horizon_image()` schneidet es aus einem beliebigen georeferenzierten RGB-Bild (z. B. Sentinel-2 in Web-Mercator)
 zu und projiziert es um; das Kommandozeilenwerkzeug dafür ist tools/make_horizon_image.py.
 """
@@ -15,9 +16,16 @@ from .. import config
 
 logger = logging.getLogger(__name__)
 
-UTM_CRS = "EPSG:25832"
 # Ab diesem Anteil der Horizont-Fläche, der vom Quellbild abgedeckt wird, gibt es keine Warnung
 _FULL_COVERAGE = 0.995
+
+
+def _dst_crs() -> str:
+    """Ziel-CRS des Horizontbilds: die aufgelöste Quell-CRS der Pipeline. Als Funktion statt Modul-Konstante,
+    weil der Wert erst nach dem Kachel-Scan feststeht (geometry.coordinates.set_source_crs())."""
+    from ..geometry.coordinates import get_source_crs_epsg
+
+    return f"EPSG:{get_source_crs_epsg()}"
 
 
 def horizon_area(global_offset: Sequence[float]) -> Tuple[float, float, float, float]:
@@ -75,6 +83,7 @@ def build_horizon_image(
         if coverage < _FULL_COVERAGE:
             logger.warning(f"  [!] Das Quellbild deckt nur {coverage:.0%} der Horizont-Fläche ab - der Rest bleibt schwarz")
 
+        dst_crs = _dst_crs()
         transform = from_bounds(x_min, y_min, x_max, y_max, size_px, size_px)
         profile = {
             "driver": "GTiff",
@@ -82,7 +91,7 @@ def build_horizon_image(
             "height": size_px,
             "count": 3,
             "dtype": src.dtypes[0],  # 8 oder 16 Bit bleibt erhalten; der Horizont-Loader normiert auf 0..255
-            "crs": UTM_CRS,
+            "crs": dst_crs,
             "transform": transform,
             "tiled": True,
             "blockxsize": 256,
@@ -98,7 +107,7 @@ def build_horizon_image(
                     src_transform=src.transform,
                     src_crs=src.crs,
                     dst_transform=transform,
-                    dst_crs=UTM_CRS,
+                    dst_crs=dst_crs,
                     resampling=getattr(Resampling, resampling),
                 )
     return coverage
@@ -107,7 +116,7 @@ def build_horizon_image(
 def _coverage(src, area, transform_bounds) -> float:
     """Anteil der Horizont-Fläche, der im Quellbild liegt (Rechtecke im Koordinatensystem des Quellbilds)."""
     x_min, x_max, y_min, y_max = area
-    left, bottom, right, top = transform_bounds(UTM_CRS, src.crs, x_min, y_min, x_max, y_max)
+    left, bottom, right, top = transform_bounds(_dst_crs(), src.crs, x_min, y_min, x_max, y_max)
     overlap_w = max(0.0, min(right, src.bounds.right) - max(left, src.bounds.left))
     overlap_h = max(0.0, min(top, src.bounds.top) - max(bottom, src.bounds.bottom))
     total = (right - left) * (top - bottom)
