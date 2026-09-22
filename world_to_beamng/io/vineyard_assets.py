@@ -123,7 +123,8 @@ def ensure_vineyard_assets(level_dir: Path, install_dir: Path, level_name: str =
     # Forest-Items in managedItemData.json ergänzen (bestehende Einträge bleiben)
     item_path = Path(level_dir) / "art" / "forest" / "managedItemData.json"
     item_path.parent.mkdir(parents=True, exist_ok=True)
-    data = json.loads(item_path.read_text(encoding="utf-8")) if item_path.exists() else {}
+    existing_text = item_path.read_text(encoding="utf-8") if item_path.exists() else None
+    data = json.loads(existing_text) if existing_text else {}
     for stem in ITEM_NAMES:
         data[stem] = {
             "name": stem,
@@ -132,7 +133,15 @@ def ensure_vineyard_assets(level_dir: Path, install_dir: Path, level_name: str =
             "shapeFile": f"levels/{level_name}/art/shapes/vineyard/{stem}.dae",
             **_ITEM_DEFAULTS,
         }
-    item_path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    new_text = json.dumps(data, indent=2, ensure_ascii=False) + "\n"
+    # Nur schreiben, wenn sich tatsaechlich etwas aendert - diese Funktion laeuft bei JEDEM Export
+    # (siehe Docstring oben); ein unbedingtes Schreiben wuerde den Zeitstempel jedes Mal aendern,
+    # obwohl _stable_id() deterministisch ist und der Inhalt meist identisch bleibt. Andere Caches
+    # (siehe workflow/forest_workflow.py::_forest_cache_key()) nutzen genau diesen Zeitstempel, um
+    # zu erkennen, ob sich die verfuegbaren Baumarten geaendert haben - ein Cache-Treffer wuerde
+    # sonst nie greifen.
+    if new_text != existing_text:
+        item_path.write_text(new_text, encoding="utf-8")
 
     logger.info(f"  [OK] Reben-Assets: {copied} Datei(en) kopiert, Materialien: {sorted(materials) or 'bereits vorhanden'}")
     return {"items": list(ITEM_NAMES), "materials": sorted(materials), "copied": copied}

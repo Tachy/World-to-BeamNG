@@ -145,6 +145,22 @@ def test_is_idempotent(tmp_path):
     assert first == second
 
 
+def test_second_identical_call_does_not_rewrite_the_file(tmp_path):
+    """Regression: diese Funktion läuft bei JEDEM Export (siehe Modul-Docstring). Ein unbedingtes
+    Schreiben würde den Zeitstempel jedes Mal ändern, obwohl der Inhalt identisch bleibt - andere
+    Caches (workflow/forest_workflow.py::_forest_cache_key()) nutzen genau diesen Zeitstempel, um
+    zu erkennen, ob sich die verfügbaren Baumarten geändert haben, und würden sonst nie treffen."""
+    install, level = _make_install(tmp_path), _level(tmp_path)
+    item_path = level / "art" / "forest" / "managedItemData.json"
+
+    ensure_vineyard_assets(level, install)
+    mtime_after_first_call = item_path.stat().st_mtime_ns
+
+    ensure_vineyard_assets(level, install)
+
+    assert item_path.stat().st_mtime_ns == mtime_after_first_call
+
+
 def test_missing_italy_level_raises_a_clear_error(tmp_path):
     level = _level(tmp_path)
     (tmp_path / "empty" / "content" / "levels").mkdir(parents=True)
