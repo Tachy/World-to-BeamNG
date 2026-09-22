@@ -38,10 +38,10 @@ def test_dgm30_auto_download_runs_before_load_dgm30_tiles_when_enabled(monkeypat
     assert calls == ["ensure_dgm30_coverage", "load_dgm30_tiles"]
     assert result is None  # (None, None) -> Phase 5 übersprungen, unabhängig vom Auto-Download
 
-    # Argumente: horizon_area_wgs84(global_offset) und config.DGM30_DATA_DIR
+    # Argumente: horizon_area_wgs84(global_offset) und config.DGM30_CACHE_DIR
     mock_ensure.assert_called_once()
     (area_wgs84, dgm30_dir), _kwargs = mock_ensure.call_args
-    assert dgm30_dir == config.DGM30_DATA_DIR
+    assert dgm30_dir == config.DGM30_CACHE_DIR
     assert len(area_wgs84) == 4
     mock_load.assert_called_once()
 
@@ -89,12 +89,17 @@ def _run_past_dgm30(monkeypatch, eox_auto_download):
     )
 
 
-def test_sentinel2_auto_download_runs_before_load_sentinel2_geotiff_when_enabled(monkeypatch):
+def test_sentinel2_auto_download_runs_before_load_sentinel2_geotiff_when_enabled(monkeypatch, tmp_path):
     p_dgm30, p_mesh, p_sentinel_load, p_export = _run_past_dgm30(monkeypatch, eox_auto_download=True)
+    fetched_path = tmp_path / "cache_horizon_texture" / "horizon_texture_deadbeef.tif"
     calls = []
+
+    def fake_ensure(*a, **k):
+        calls.append("ensure_horizon_texture")
+        return fetched_path
+
     with p_dgm30, p_mesh, p_export, patch(
-        "world_to_beamng.terrain.sentinel2_fetch.ensure_horizon_texture",
-        side_effect=lambda *a, **k: calls.append("ensure_horizon_texture"),
+        "world_to_beamng.terrain.sentinel2_fetch.ensure_horizon_texture", side_effect=fake_ensure
     ) as mock_ensure, patch(
         "world_to_beamng.terrain.horizon.load_sentinel2_geotiff",
         side_effect=lambda *a, **k: (calls.append("load_sentinel2_geotiff"), None)[1],
@@ -104,30 +109,14 @@ def test_sentinel2_auto_download_runs_before_load_sentinel2_geotiff_when_enabled
     assert calls == ["ensure_horizon_texture", "load_sentinel2_geotiff"]
     assert result is not None  # Export lief bis zum Ende durch (export_horizon_dae gemockt)
 
+    # Rein automatisch: nur horizon_bbox, kein dest-Parameter mehr (kein manueller Override).
     mock_ensure.assert_called_once()
     (horizon_bbox,), kwargs = mock_ensure.call_args
     assert len(horizon_bbox) == 4
-    assert kwargs["dest"] == config.DOP300_DATA_DIR / config.SENTINEL2_FILE
+    assert kwargs == {}
     mock_load.assert_called_once()
-
-
-def test_load_sentinel2_geotiff_uses_the_path_returned_by_ensure_horizon_texture(monkeypatch, tmp_path):
-    """Regression: der Loader muss den von ensure_horizon_texture() ZURUECKGEGEBENEN Pfad laden,
-    nicht mehr den festen manuellen dest-Pfad - bei Auto-Download ohne manuelle Datei ist das
-    jetzt ein gebietsabhaengiger Cache-Pfad unter config.EOX_TEXTURE_CACHE_DIR (siehe
-    sentinel2_fetch.ensure_horizon_texture()-Docstring)."""
-    p_dgm30, p_mesh, _p_sentinel_load_unused, p_export = _run_past_dgm30(monkeypatch, eox_auto_download=True)
-    returned_path = tmp_path / "cache_horizon_texture" / "horizon_texture_deadbeef.tif"
-
-    with p_dgm30, p_mesh, p_export, patch(
-        "world_to_beamng.terrain.sentinel2_fetch.ensure_horizon_texture", return_value=returned_path
-    ), patch("world_to_beamng.terrain.horizon.load_sentinel2_geotiff", return_value=None) as mock_load:
-        HorizonWorkflow.generate_horizon(_stub(), global_offset=GLOBAL_OFFSET)
-
-    mock_load.assert_called_once()
-    (loaded_path, _bbox), _kwargs = mock_load.call_args
-    assert loaded_path == returned_path
-    assert loaded_path != config.DOP300_DATA_DIR / config.SENTINEL2_FILE
+    (loaded_path, _bbox), _load_kwargs = mock_load.call_args
+    assert loaded_path == fetched_path
 
 
 def test_sentinel2_auto_download_is_skipped_when_disabled(monkeypatch):

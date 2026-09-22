@@ -286,11 +286,10 @@ PHOTO_TILE_SIZE_M = 2000.0
 CACHE_DIR = Path("cache")  # Verzeichnis fuer Cache-Dateien
 HEIGHT_DATA_DIR = Path("data/DGM1")  # Verzeichnis mit Hoehendaten
 LOD2_DATA_DIR = Path("data/LOD2")  # Verzeichnis mit 3D-Gebäudemodellen (CityGML)
-DGM30_DATA_DIR = Path("data/DGM30")  # Verzeichnis mit 30m Höhendaten für Horizont
-DOP300_DATA_DIR = Path("data/DOP300")  # Verzeichnis mit Sentinel-2 RGB Bildern
-# Horizont-Textur: EIN georeferenziertes RGB-GeoTIFF (UTM 32N, EPSG:25832, 8192x8192). Fester Name statt Glob, damit
-# weitere .tif im Ordner (z. B. der Web-Mercator-Rohdownload) nie versehentlich gewählt werden.
-SENTINEL2_FILE = "horizon_temp.tif"
+# 30m Hoehendaten fuer den Horizont: IMMER vollautomatisch von Copernicus geladen (dgm30_fetch.py),
+# nie manuell abgelegt - gehoert deshalb unter cache/ (jederzeit sicher loeschbar/neu ladbar),
+# nicht nach data/ (das bleibt fuer selbst mitgebrachte Rohdaten wie DGM1/DOP20/LOD2).
+DGM30_CACHE_DIR = CACHE_DIR / "dgm30"
 
 # === AUTOMATISCHER DOWNLOAD: HORIZONT-QUELLDATEN (DGM30 + SENTINEL-2) ===
 

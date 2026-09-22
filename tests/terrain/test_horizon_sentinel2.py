@@ -12,10 +12,10 @@ from rasterio.transform import from_bounds
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from world_to_beamng import config
 from world_to_beamng.terrain.horizon import load_sentinel2_geotiff
 
 BBOX = (0.0, 1.0, 0.0, 1.0)
+CONFIGURED_FILENAME = "horizon_texture_deadbeef.tif"  # beliebiger Name - der Aufrufer entscheidet den Pfad
 
 
 def _write_geotiff(path: Path, bounds):
@@ -27,7 +27,7 @@ def _write_geotiff(path: Path, bounds):
 
 
 def test_configured_file_is_read_even_if_another_tif_lies_next_to_it(tmp_path):
-    wanted = tmp_path / config.SENTINEL2_FILE
+    wanted = tmp_path / CONFIGURED_FILENAME
     _write_geotiff(wanted, (350000, 5249000, 450000, 5349000))
     _write_geotiff(tmp_path / "a_first_alphabetically.tif", (1000, 2000, 3000, 4000))
     _write_geotiff(tmp_path / "rohdaten.tif", (5000, 6000, 7000, 8000))
@@ -41,5 +41,5 @@ def test_configured_file_is_read_even_if_another_tif_lies_next_to_it(tmp_path):
 def test_missing_file_returns_none_even_if_other_tifs_exist(tmp_path):
     _write_geotiff(tmp_path / "rohdaten.tif", (5000, 6000, 7000, 8000))
 
-    assert load_sentinel2_geotiff(tmp_path / config.SENTINEL2_FILE, BBOX) is None
+    assert load_sentinel2_geotiff(tmp_path / CONFIGURED_FILENAME, BBOX) is None
 

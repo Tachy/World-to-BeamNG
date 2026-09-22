@@ -350,7 +350,7 @@ def load_sentinel2_geotiff(sentinel2_file, bbox_utm, tile_hash=None):
     GeoTIFF muss georeferenziert sein (mit Metadaten für Koordinaten-Transformation).
 
     Args:
-        sentinel2_file: Pfad der GeoTIFF-Datei (config.DOP300_DATA_DIR / config.SENTINEL2_FILE)
+        sentinel2_file: Pfad der GeoTIFF-Datei (von sentinel2_fetch.ensure_horizon_texture() geliefert)
         bbox_utm: (min_x, max_x, min_y, max_y) in UTM Metern
         tile_hash: Optional - Hash für Cache
 

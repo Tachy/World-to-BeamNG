@@ -226,7 +226,7 @@ def download_dgm30_tiles(bbox_wgs84, dgm30_dir) -> dict:
     return result
 
 
-def ensure_dgm30_coverage(bbox_wgs84, dgm30_dir=config.DGM30_DATA_DIR) -> dict:
+def ensure_dgm30_coverage(bbox_wgs84, dgm30_dir=config.DGM30_CACHE_DIR) -> dict:
     """
     Öffentlicher Einstiegspunkt für horizon_workflow.py: stellt sicher, dass alle für `bbox_wgs84`
     benötigten DGM30-Kacheln lokal vorhanden sind (lädt fehlende nach). Wirft NIE - Netzwerk-/DNS-
@@ -235,7 +235,7 @@ def ensure_dgm30_coverage(bbox_wgs84, dgm30_dir=config.DGM30_DATA_DIR) -> dict:
 
     Args:
         bbox_wgs84: (lon_min, lat_min, lon_max, lat_max)
-        dgm30_dir: Zielverzeichnis; Default config.DGM30_DATA_DIR
+        dgm30_dir: Zielverzeichnis; Default config.DGM30_CACHE_DIR
 
     Returns:
         {"downloaded": [...], "not_found": [...], "failed": [...]}

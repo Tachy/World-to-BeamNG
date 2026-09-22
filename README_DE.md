@@ -96,50 +96,6 @@ Luftbild, meldet der Export einen Fehler im Log.
 | Ordner | Inhalt | Dateiname | Wenn es fehlt |
 |---|---|---|---|
 | `data/LOD2/` | 3D-Gebäudemodelle LoD2 (ZIP mit CityGML) | `LoD2_32_<x>_<y>_2_bw.zip` | keine Gebäude (`LOD2_ENABLED`) |
-| `data/DGM30/` | Höhenmodell 30 m als GeoTIFF: **Copernicus DEM GLO-30**. Wird beim ersten Lauf automatisch geladen (siehe unten); eine eigene Datei an dieser Stelle wird nie überschrieben und überspringt den Download. Es dürfen mehrere `*.tif` im Ordner liegen. | beliebig, z. B. `Copernicus_DSM_COG_10_N47_00_E007_00_DEM.tif` | Horizont wird übersprungen |
-| `data/DOP300/` | **Manueller Override** für das Horizont-Satellitenbild: hier selbst **ein** georeferenziertes RGB-GeoTIFF ablegen (aufgelöste Quell-CRS, Standard UTM 32N/EPSG:25832, oder die aus den DGM1-GeoTIFFs erkannte CRS; deckt ±50 km um die Gebietsmitte ab; beliebige Auflösung, wird auf 8192×8192 skaliert) - dann wird genau diese Datei verwendet, nie überschrieben, kein Download. Ohne eigene Datei wird die automatisch geladene Textur (Sentinel-2 cloudless über den EOX-WMS, siehe unten) stattdessen gebietsabhängig unter `cache/horizon_texture/` gecacht - NICHT in diesem Ordner - damit ein Wechsel des Quellgebiets und zurück die beiden nie vermischt. | `horizon_temp.tif` (Name in `config.SENTINEL2_FILE`) | Horizont ohne Textur |
-
-Sowohl die DGM30-Kacheln als auch das Horizont-Satellitenbild werden inzwischen beim ersten Lauf automatisch geladen
-(`config.DGM30_AUTO_DOWNLOAD` / `config.EOX_AUTO_DOWNLOAD`, beide standardmäßig `True`). Die folgende Anleitung wird
-nur noch für den Offline-Betrieb, eine eigene Bildquelle oder das manuelle Nachlegen einer einzelnen Kachel benötigt,
-die der Auto-Download nicht bekommen konnte.
-
-**DGM30 herunterladen:** Verwendet wird das **Copernicus DEM GLO-30** (30 m,
-weltweit, kostenlos). Am einfachsten ohne Konto aus dem öffentlichen AWS-Bucket `copernicus-dem-30m`
-(Region eu-central-1, Cloud-Optimized GeoTIFFs, je Kachel etwa 43 MB). Eine Kachel deckt 1° × 1° ab, der Name
-enthält ihre Südwest-Ecke:
-
-```
-https://copernicus-dem-30m.s3.eu-central-1.amazonaws.com/Copernicus_DSM_COG_10_N47_00_E007_00_DEM/Copernicus_DSM_COG_10_N47_00_E007_00_DEM.tif
-                                                                                  └ 47° N ┘ └ 7° O ┘
-```
-
-Benötigt werden **alle Kacheln, die die Horizont-Fläche berühren** (±50 km um die Gebietsmitte, etwa ±0,7° in der
-Länge und ±0,45° in der Breite). Für ein Gebiet bei 47,8° N / 7,7° O sind das `N47` und `N48` jeweils mit `E007` und
-`E008` (vier Kacheln, zusammen etwa 170 MB). Die Dateien einfach in `data/DGM30/` legen; das Programm kombiniert sie und
-schneidet sie auf die Horizont-Fläche zu. Fehlt eine Kachel, meldet der Export, in welcher Himmelsrichtung die Daten
-enden, und der Horizont ist dort kürzer. Mit dem AWS-Kommandozeilenwerkzeug geht es auch ohne Konto:
-`aws s3 cp --no-sign-request s3://copernicus-dem-30m/Copernicus_DSM_COG_10_N47_00_E007_00_DEM/Copernicus_DSM_COG_10_N47_00_E007_00_DEM.tif data/DGM30/`.
-Alternativen sind das Copernicus Data Space Ecosystem (<https://dataspace.copernicus.eu>) und OpenTopography
-(<https://opentopography.org>).
-
-**Horizont-Bild:** Das Bild, das der Auto-Download lädt, stammt von **Sentinel-2 cloudless (s2cloudless) von EOX IT
-Services GmbH** (<https://cloudless.eox.at>), lizenziert unter **CC BY-NC-SA 4.0** (nicht-kommerzielle Nutzung,
-Namensnennung + Weitergabe unter gleichen Bedingungen erforderlich) - den genauen Pflicht-Attributionstext siehe
-„Lizenz und Quellenangaben" unten. Wer stattdessen ein eigenes Bild einsetzt (über `tools\make_horizon_image.py`),
-unterliegt den Lizenzbedingungen dieser eigenen Quelle, nicht den obigen.
-
-Für den Offline-Betrieb oder eine andere Quelle gibt es außerdem ein Werkzeug, das die Datei aus
-jedem georeferenzierten RGB-Bild erzeugt (z. B. einem Sentinel-2-Export in Web-Mercator oder WGS84). Es schneidet
-genau die Horizont-Fläche (±50 km um die Gebietsmitte, sie ergibt sich aus den DGM1-Kacheln) aus, projiziert in die
-aufgelöste Quell-CRS um und schreibt `data/DOP300/horizon_temp.tif`:
-
-```powershell
-.\.venv\Scripts\python.exe tools\make_horizon_image.py C:\pfad\zum\satellitenbild.tif
-```
-
-Deckt das Quellbild nur einen Teil der Fläche ab, warnt das Werkzeug; der Rest bleibt schwarz. Ein Bild in einem
-anderen Koordinatensystem im selben Ordner wird beim Export nicht verwendet, nur die Datei `horizon_temp.tif`.
 
 Fertiges Beispiel-Layout:
 
@@ -148,10 +104,41 @@ World-to-BeamNG/
 └── data/
     ├── DGM1/    dgm1_32_399_5296_2_bw.zip   dgm1_32_399_5298_2_bw.zip   …
     ├── DOP20/   dop20rgb_32_399_5296_2_bw.zip   …
-    ├── LOD2/    LoD2_32_399_5296_2_bw.zip   …
-    ├── DGM30/   dgm30_copernicus.tif
-    └── DOP300/  horizon_temp.tif
+    └── LOD2/    LoD2_32_399_5296_2_bw.zip   …
 ```
+
+### Horizont (optional, `PHASE5_ENABLED`)
+
+Der Horizont bis 50 km braucht zwei Dinge - 30-m-Höhendaten (**Copernicus DEM GLO-30**) und ein Satellitenbild
+(**Sentinel-2 cloudless** über den EOX-WMS) - und beide werden beim ersten Lauf **vollständig automatisch** geladen
+(`config.DGM30_AUTO_DOWNLOAD` / `config.EOX_AUTO_DOWNLOAD`, beide standardmäßig `True`). Nichts zum Herunterladen
+oder Ablegen von Hand; beide liegen unter `cache/` (nicht `data/`), weil das Programm sie vollständig selbst
+verwaltet:
+
+- `cache/dgm30/` - die rohen Copernicus-DEM-GLO-30-Kacheln (`Copernicus_DSM_COG_10_N47_00_E007_00_DEM.tif` usw., eine
+  je 1°×1°-Kachel, je etwa 43 MB). Fehlt eine Kachel (z. B. kein Internet), meldet der Export, in welcher
+  Himmelsrichtung die Daten enden, und der Horizont ist dort kürzer.
+- `cache/horizon_source/` - das rohe Sentinel-2-Mosaik vor dem Zuschnitt, und `cache/horizon_texture/` - die
+  fertige, zugeschnittene Textur, die tatsächlich verwendet wird. Beide sind gebietsabhängig benannt (bei der Textur
+  zusätzlich nach Zielgröße/Resampling), sodass ein Wechsel des Quellgebiets (`data/DGM1/` usw.) und zurück die
+  Bilder der beiden Gebiete nie vermischt.
+
+Alle drei sind gewöhnliche Caches: jederzeit sicher löschbar, werden beim nächsten Lauf automatisch neu aufgebaut.
+Falls der Auto-Download eine Kachel nicht bekommen konnte (z. B. Offline-Betrieb), kann man weiterhin von Hand ein
+Copernicus-DEM-GLO-30-GeoTIFF in `cache/dgm30/` ablegen - der öffentliche AWS-Bucket `copernicus-dem-30m`
+(Region eu-central-1) hat eins, benannt nach seiner Südwest-Ecke:
+
+```
+https://copernicus-dem-30m.s3.eu-central-1.amazonaws.com/Copernicus_DSM_COG_10_N47_00_E007_00_DEM/Copernicus_DSM_COG_10_N47_00_E007_00_DEM.tif
+                                                                                  └ 47° N ┘ └ 7° O ┘
+```
+(`aws s3 cp --no-sign-request s3://copernicus-dem-30m/Copernicus_DSM_COG_10_N47_00_E007_00_DEM/Copernicus_DSM_COG_10_N47_00_E007_00_DEM.tif cache/dgm30/`
+funktioniert auch ohne Konto.) Für das Horizont-Satellitenbild gibt es keinen solchen manuellen Fallback mehr - es
+ist ausschließlich Sentinel-2 cloudless.
+
+Die Sentinel-2-cloudless-Bilder stammen von © **EOX IT Services GmbH** (<https://cloudless.eox.at>), lizenziert unter
+**CC BY-NC-SA 4.0** (nicht-kommerzielle Nutzung, Namensnennung + Weitergabe unter gleichen Bedingungen erforderlich) -
+den genauen Pflicht-Attributionstext siehe „Lizenz und Quellenangaben" unten.
 
 ### Daten aus anderen Regionen verwenden
 
@@ -170,7 +157,7 @@ genutzt:
 - `LOD2_ENABLED = False` in `config.py` setzen - Gebäude (LoD2/CityGML) bleiben spezifisch für das
   Baden-Württemberg-CityGML-1.0-Schema.
 - Alle DGM1-GeoTIFFs müssen dasselbe CRS haben (Mischung unterschiedlicher Höhendaten-CRS wird nicht unterstützt);
-  DGM30/Horizont-Daten bleiben wie bisher weltweit nutzbar (siehe „Optional" oben).
+  der Horizont-Auto-Download (DGM30/Satellitenbild) bleibt wie bisher weltweit nutzbar (siehe „Horizont" oben).
 
 Durchgehend getestet mit echten Daten außerhalb Baden-Württembergs: swissALTI3D (0,5 m Höhenmodell) und
 SwissImage DOP10 (0,1 m Orthophoto), beide EPSG:2056 (CH1903+/LV95), lose GeoTIFFs ohne feste Kachelgröße.
@@ -180,7 +167,7 @@ SwissImage DOP10 (0,1 m Orthophoto), beide EPSG:2056 (CH1903+/LV95), lose GeoTIF
 - **OpenStreetMap** (Straßen, Wald, Wasser, Landnutzung, Kirchen) über die Overpass API mit Ersatz-Servern. Die
   Antworten liegen danach in `cache/`.
 - **Höhen für Gelände, Straßen und Wasser** kommen aus DGM1, die der Gebäude aus LOD2; dafür gibt es keinen
-  Download. Nur der Horizont braucht DGM30 (siehe oben).
+  Download. Nur der Horizont lädt DGM30 + Satellitenbild automatisch (siehe „Horizont" oben).
 - **Putz- und Fenstertexturen** der Gebäude erzeugt das Programm selbst. Einmalig erzeugte Texturen (Dachkies und die
   Bruchsteinmauer aus einem Foto) liegen in `data/textures/` im Repository, je Textur ein Ordner plus `manifest.json`;
   der Export wandelt sie nur noch in DDS um. `textures/registry.py` listet, welche Texturen der Export braucht, und
@@ -215,17 +202,12 @@ Alle Einstellungen stehen in `world_to_beamng/config.py`.
 | `PHOTO_TILE_SIZE_M` | Kachelgröße (Meter) des Luftbild-/Material-Rasters (Standard 2000), unabhängig von der Kachelung der Rohdaten |
 | `SOURCE_CRS_EPSG` | Fallback-Quell-CRS (Standard 25832) für Höhendaten ohne eingebettetes CRS (reine ASCII-XYZ); wird für GeoTIFF-Quellen ignoriert, deren CRS automatisch erkannt wird |
 | `ENV_DATE`, `ENV_CLOCK_TIME` | Datum und Uhrzeit für den Sonnenstand |
-| `DGM30_AUTO_DOWNLOAD`, `EOX_AUTO_DOWNLOAD` | fehlende DGM30-Kacheln bzw. das Sentinel-2-Horizontbild beim ersten Lauf automatisch laden (Standard jeweils `True`); `False` stellt den alten, rein manuellen Ablauf wieder her |
+| `DGM30_AUTO_DOWNLOAD`, `EOX_AUTO_DOWNLOAD` | die DGM30-Kacheln bzw. das Sentinel-2-Horizontbild beim ersten Lauf automatisch laden (Standard jeweils `True`); `False` deaktiviert diese Quelle und degradiert auf das bestehende Überspringen-Verhalten (Horizont übersprungen / Horizont ohne Textur) |
 | `DGM30_S3_BUCKET`, `DGM30_S3_REGION`, `DGM30_FETCH_MAX_RETRIES`, `DGM30_FETCH_TIMEOUT_S`, `DGM30_NOT_FOUND_CACHE_TTL_DAYS` | Feinabstimmung für den Copernicus-DEM-GLO-30-Auto-Download (Bucket/Region, Retry/Timeout, wie lange eine bestätigt fehlende Kachel - z. B. offenes Meer - vor einem erneuten Versuch als „fehlt" gemerkt wird) |
 | `EOX_WMS_URL`, `EOX_WMS_LAYER`, `EOX_WMS_VERSION`, `EOX_WMS_FORMAT`, `EOX_MAX_REQUEST_PX`, `EOX_TARGET_RESOLUTION_M`, `EOX_MOSAIC_MAX_PX`, `EOX_FETCH_MARGIN_FACTOR`, `EOX_FETCH_MAX_RETRIES`, `EOX_FETCH_TIMEOUT_S`, `EOX_KEEP_RAW_MOSAIC`, `EOX_MOSAIC_CACHE_DIR`, `EOX_TEXTURE_CACHE_DIR` | Feinabstimmung für den EOX-Sentinel-2-cloudless-WMS-Auto-Download (Endpunkt/Layer/Version, Größenlimit je Anfrage, Zielauflösung, Mosaik-Größenobergrenze, Rohmosaik- und Fertig-Textur-Cache) |
 
-Der EOX-Auto-Download hält zwei Caches, beide unter `cache/` und beide gebietsabhängig benannt (bei der Textur-Cache
-zusätzlich nach Zielgröße und Resampling) - ein Wechsel des Quellgebiets und zurück vermischt die beiden also nie,
-und beide können jederzeit gelöscht werden; beide werden beim nächsten Lauf bei Bedarf automatisch neu aufgebaut:
-- Das Rohmosaik in `cache/horizon_source/` (`EOX_KEEP_RAW_MOSAIC = True` per Standard), etwa 100-250 MB je Gebiet.
-- Die fertige, zugeschnittene Textur in `cache/horizon_texture/` (einige Dutzend MB, abhängig von
-  `HORIZON_IMAGE_SIZE_PX`) - das ist die Datei, die tatsächlich geladen wird, außer es liegt eine eigene Datei in
-  `data/DOP300/` (siehe „Optional" oben).
+Siehe „Horizont" oben für die Caches `cache/dgm30/`, `cache/horizon_source/` und `cache/horizon_texture/`, die diese
+Einstellungen feinabstimmen - alle drei sind jederzeit sicher löschbar und werden automatisch neu aufgebaut.
 
 ## ⏱️ Ablauf und Dauer
 
@@ -244,10 +226,10 @@ Caches etwa eine Minute. Der erste Lauf ist länger, weil OSM geladen und die Ca
 | `managedItemData.json nicht gefunden` | einmalig `tools\generate_forest_assets.py` ausführen |
 | Straßen oder Dächer mit „no Texture" | einmalig `tools\vendor_shared_textures.py` ausführen |
 | Level erscheint nicht in BeamNG | prüfen, ob `%LOCALAPPDATA%\BeamNG\BeamNG.drive\current\levels\world_to_beamng` entstanden ist; sonst `BEAMNG_DIR` in `config.py` anpassen |
-| `DGM30-Dateien decken die Horizont-Fläche … nicht ab` | Kacheln für die genannte Himmelsrichtung nach `data/DGM30/` legen (siehe oben) |
-| `Keine DGM30-Dateien` | `data/DGM30/` ist leer; der Horizont wird sonst übersprungen |
+| `DGM30-Dateien decken die Horizont-Fläche … nicht ab` | eine Kachel, die der Auto-Download nicht bekommen konnte (z. B. kein Internet für diese Anfrage) - wird beim nächsten Lauf automatisch erneut versucht, oder die Kachel für die genannte Himmelsrichtung von Hand nach `cache/dgm30/` legen (siehe „Horizont" oben) |
+| `Keine DGM30-Dateien` | `cache/dgm30/` ist leer und der Auto-Download lief noch nicht oder ist komplett fehlgeschlagen; der Horizont wird sonst übersprungen |
 | `DGM30-Auto-Download fehlgeschlagen` / Sentinel-2-Auto-Download funktioniert nicht, kein Internet | der Auto-Download protokolliert eine Warnung und fällt auf das bisherige Überspringen-Verhalten zurück (Horizont übersprungen / Horizont ohne Textur) - er bricht den Export nie ganz ab; er versucht es beim nächsten Lauf erneut, sobald das Netzwerk wieder da ist |
-| Horizont ohne Textur oder verschoben | `tools\make_horizon_image.py` verwenden; die Datei muss genau die Horizont-Fläche in der aufgelösten Quell-CRS zeigen |
+| Horizont ohne Textur oder verschoben | `cache/horizon_texture/` löschen (und `cache/horizon_source/`, falls schon das Rohmosaik falsch aussieht), um beim nächsten Lauf einen Neuaufbau zu erzwingen |
 | Absturz oder Fehler beim Laden des Levels | `C:\Users\<NAME>\AppData\Local\BeamNG\BeamNG.drive\current\beamng.log` auf `\|E\|`-Zeilen prüfen |
 | OSM-Zeitüberschreitung | das Programm probiert Ersatz-Server; erneut starten, erfolgreiche Antworten sind gecacht |
 

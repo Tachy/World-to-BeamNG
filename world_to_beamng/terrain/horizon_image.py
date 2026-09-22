@@ -1,11 +1,11 @@
 """
 Horizont-Fläche und Horizont-Bild.
 
-Der Horizont deckt config.HORIZON_HALF_SIZE_M in jede Richtung um die Gebietsmitte ab. Das Satellitenbild dafür
-(data/DOP300/<config.SENTINEL2_FILE>) muss GENAU diese Fläche als GeoTIFF in der aufgelösten Quell-CRS der
-Pipeline zeigen (Default EPSG:25832/UTM32N, automatisch erkannt bei GeoTIFF-Höhendaten, siehe geometry.coordinates).
-`build_horizon_image()` schneidet es aus einem beliebigen georeferenzierten RGB-Bild (z. B. Sentinel-2 in Web-Mercator)
-zu und projiziert es um; das Kommandozeilenwerkzeug dafür ist tools/make_horizon_image.py.
+Der Horizont deckt config.HORIZON_HALF_SIZE_M in jede Richtung um die Gebietsmitte ab.
+`build_horizon_image()` schneidet die Fläche aus einem beliebigen georeferenzierten RGB-Bild (z. B.
+dem automatisch geladenen Sentinel-2-Rohmosaik, siehe terrain/sentinel2_fetch.py) zu und projiziert
+es in die aufgelöste Quell-CRS der Pipeline um (Default EPSG:25832/UTM32N, automatisch erkannt bei
+GeoTIFF-Höhendaten, siehe geometry.coordinates).
 """
 
 import logging

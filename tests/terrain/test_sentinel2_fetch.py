@@ -285,16 +285,10 @@ def test_ensure_horizon_texture_end_to_end_creates_valid_geotiff(mock_get, tmp_p
         return _jpeg_response(int(params["width"]), int(params["height"]))
 
     mock_get.side_effect = fake_get
-
-    # dest ist der manuelle Override-Slot, existiert hier bewusst NICHT - die automatisch gebaute
-    # Textur landet stattdessen unter config.EOX_TEXTURE_CACHE_DIR, siehe Rückgabewert.
-    dest = tmp_path / "horizon_temp.tif"
     size_px = 32
 
-    result = ensure_horizon_texture(AREA_UTM, dest=dest, size_px=size_px)
+    result = ensure_horizon_texture(AREA_UTM, size_px=size_px)
 
-    assert result != dest
-    assert not dest.exists()
     assert result.parent == config.EOX_TEXTURE_CACHE_DIR
     with rasterio.open(result) as ds:
         assert ds.width == size_px
@@ -303,31 +297,17 @@ def test_ensure_horizon_texture_end_to_end_creates_valid_geotiff(mock_get, tmp_p
 
 
 @patch("world_to_beamng.terrain.sentinel2_fetch.requests.get")
-def test_ensure_horizon_texture_skips_download_when_dest_already_exists(mock_get, tmp_path, monkeypatch):
-    monkeypatch.setattr(config, "EOX_AUTO_DOWNLOAD", True)
-    dest = tmp_path / "horizon_temp.tif"
-    dest.write_bytes(b"already there - not a real geotiff")
-
-    result = ensure_horizon_texture(AREA_UTM, dest=dest, size_px=32)
-
-    assert result == dest
-    mock_get.assert_not_called()
-
-
-@patch("world_to_beamng.terrain.sentinel2_fetch.requests.get")
-def test_ensure_horizon_texture_returns_none_when_auto_download_disabled(mock_get, tmp_path, monkeypatch):
+def test_ensure_horizon_texture_returns_none_when_auto_download_disabled(mock_get, monkeypatch):
     monkeypatch.setattr(config, "EOX_AUTO_DOWNLOAD", False)
-    dest = tmp_path / "horizon_temp.tif"
 
-    result = ensure_horizon_texture(AREA_UTM, dest=dest, size_px=32)
+    result = ensure_horizon_texture(AREA_UTM, size_px=32)
 
     assert result is None
-    assert not dest.exists()
     mock_get.assert_not_called()
 
 
 @patch("world_to_beamng.terrain.sentinel2_fetch.fetch_eox_mosaic")
-def test_ensure_horizon_texture_never_raises_on_unexpected_error(mock_fetch, tmp_path, monkeypatch):
+def test_ensure_horizon_texture_never_raises_on_unexpected_error(mock_fetch, monkeypatch):
     # Analog zu dgm30_fetch.test_ensure_coverage_never_raises_on_unexpected_error(): ein
     # unerwarteter Fehler (hier: fetch_eox_mosaic() wirft statt False zurückzugeben, z. B. weil ein
     # Dateisystem-/Netzwerkfehler nicht sauber abgefangen wurde) darf niemals aus
@@ -336,12 +316,9 @@ def test_ensure_horizon_texture_never_raises_on_unexpected_error(mock_fetch, tmp
     monkeypatch.setattr(config, "EOX_AUTO_DOWNLOAD", True)
     mock_fetch.side_effect = OSError("permission denied")
 
-    dest = tmp_path / "horizon_temp.tif"
-
-    result = ensure_horizon_texture(AREA_UTM, dest=dest, size_px=32)
+    result = ensure_horizon_texture(AREA_UTM, size_px=32)
 
     assert result is None
-    assert not dest.exists()
 
 
 # --- Item 1: Teilerfolg wird nicht dauerhaft gecacht -------------------------------------------
@@ -366,15 +343,12 @@ def test_ensure_horizon_texture_partial_failure_still_builds_texture_this_run(mo
         return _jpeg_response(int(params["width"]), int(params["height"]))
 
     mock_get.side_effect = fake_get
-    dest = tmp_path / "horizon_temp.tif"
 
-    result = ensure_horizon_texture(AREA_UTM, dest=dest, size_px=32)
+    result = ensure_horizon_texture(AREA_UTM, size_px=32)
 
     # Trotz Teilerfolg wird für DIESEN Lauf noch eine benutzbare Textur erzeugt - unter einem
     # eindeutigen "_partial"-Namen, NICHT unter dem kanonischen Cache-Namen (siehe nächster Test).
     assert result is not None
-    assert result != dest
-    assert not dest.exists()
     assert result.name.endswith("_partial.tif")
     with rasterio.open(result) as ds:
         assert ds.width == 32
@@ -398,9 +372,8 @@ def test_ensure_horizon_texture_partial_failure_does_not_cache_mosaic_for_next_r
         return _jpeg_response(int(params["width"]), int(params["height"]))
 
     mock_get.side_effect = fake_get
-    dest = tmp_path / "horizon_temp.tif"
 
-    ensure_horizon_texture(AREA_UTM, dest=dest, size_px=32)
+    ensure_horizon_texture(AREA_UTM, size_px=32)
 
     # Weder Rohmosaik noch Textur unter ihrem kanonischen Cache-Namen hinterlassen (egal ob
     # EOX_KEEP_RAW_MOSAIC True oder False ist) - sonst würde der nächste Lauf den Teilerfolg für
@@ -418,7 +391,7 @@ def test_ensure_horizon_texture_partial_failure_does_not_cache_mosaic_for_next_r
     call_count["n"] = 0
     mock_get.side_effect = fake_get  # frisch, damit der Zähler wieder von vorne beginnt
 
-    result = ensure_horizon_texture(AREA_UTM, dest=dest, size_px=32)
+    result = ensure_horizon_texture(AREA_UTM, size_px=32)
 
     assert result is not None
     assert result.exists()
@@ -448,16 +421,15 @@ def test_switching_area_gets_its_own_texture_then_switching_back_reuses_the_orig
         return _jpeg_response(int(params["width"]), int(params["height"]))
 
     mock_get.side_effect = fake_get
-    dest = tmp_path / "horizon_temp.tif"  # nie manuell abgelegt - bleibt in diesem Test unbenutzt
 
     # 1) LGL-Flaeche: erster Aufruf laedt frisch.
-    result_lgl_1 = ensure_horizon_texture(AREA_UTM, dest=dest, size_px=32)
+    result_lgl_1 = ensure_horizon_texture(AREA_UTM, size_px=32)
     calls_after_lgl = call_count["n"]
     assert calls_after_lgl > 0
 
     # 2) Wechsel auf eine andere Flaeche (z.B. Schweiz): eigene, neue Cache-Datei, kein Konflikt
     #    mit der LGL-Textur von oben - beide existieren danach gleichzeitig.
-    result_other = ensure_horizon_texture(AREA_UTM_OTHER_REGION, dest=dest, size_px=32)
+    result_other = ensure_horizon_texture(AREA_UTM_OTHER_REGION, size_px=32)
     assert call_count["n"] > calls_after_lgl  # echter neuer Download fuer das andere Gebiet
     assert result_other != result_lgl_1
     assert result_lgl_1.exists()  # LGL-Textur bleibt unangetastet liegen
@@ -465,7 +437,7 @@ def test_switching_area_gets_its_own_texture_then_switching_back_reuses_the_orig
     # 3) Zurueck auf die LGL-Flaeche: Cache-Treffer, exakt derselbe Pfad wie beim ersten Aufruf,
     #    KEIN neuer Netzwerk-Request.
     calls_before_switch_back = call_count["n"]
-    result_lgl_2 = ensure_horizon_texture(AREA_UTM, dest=dest, size_px=32)
+    result_lgl_2 = ensure_horizon_texture(AREA_UTM, size_px=32)
 
     assert result_lgl_2 == result_lgl_1
     assert call_count["n"] == calls_before_switch_back
@@ -485,10 +457,9 @@ def test_attribution_is_logged_on_fresh_download(mock_get, tmp_path, monkeypatch
     mock_get.side_effect = lambda url, params=None, headers=None, timeout=None: _jpeg_response(
         int(params["width"]), int(params["height"])
     )
-    dest = tmp_path / "horizon_temp.tif"
 
     with caplog.at_level("INFO"):
-        ensure_horizon_texture(AREA_UTM, dest=dest, size_px=32)
+        ensure_horizon_texture(AREA_UTM, size_px=32)
 
     assert config.EOX_ATTRIBUTION_NOTICE in caplog.text
 
@@ -525,16 +496,15 @@ def test_attribution_is_logged_on_cache_hit_too_but_only_once_per_process(mock_g
     # Rohmosaik existiert schon) - die Lizenz-Attributionspflicht knüpft an die NUTZUNG des
     # Bildmaterials, nicht an den Download, also muss auch hier geloggt werden (vorher wurde die
     # Meldung nur im Cache-Miss-Zweig geloggt und wäre hier komplett ausgeblieben).
-    dest1 = tmp_path / "horizon_temp_1.tif"
     with caplog.at_level("INFO"):
-        ensure_horizon_texture(AREA_UTM, dest=dest1, size_px=32)
+        ensure_horizon_texture(AREA_UTM, size_px=32)
     assert mock_get.call_count == calls_from_seeding  # kein neuer Netzwerk-Request -> echter Cache-Hit
     assert caplog.text.count(config.EOX_ATTRIBUTION_NOTICE) == 1
     caplog.clear()
 
-    # Zweiter Aufruf (anderes dest, wieder ein Cache-Hit) im SELBEN Prozess: nicht nochmal loggen.
-    dest2 = tmp_path / "horizon_temp_2.tif"
+    # Zweiter Aufruf (wieder ein Cache-Hit, jetzt auch die Textur selbst) im SELBEN Prozess: nicht
+    # nochmal loggen.
     with caplog.at_level("INFO"):
-        ensure_horizon_texture(AREA_UTM, dest=dest2, size_px=32)
+        ensure_horizon_texture(AREA_UTM, size_px=32)
     assert config.EOX_ATTRIBUTION_NOTICE not in caplog.text
     assert sentinel2_fetch._attribution_logged is True

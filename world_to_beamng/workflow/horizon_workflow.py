@@ -81,7 +81,7 @@ class HorizonWorkflow:
         logger.info(f"      Breite: {x_max - x_min:.0f}m, Höhe: {y_max - y_min:.0f}m")
 
         # === DGM30 laden ===
-        dgm30_dir = config.DGM30_DATA_DIR
+        dgm30_dir = config.DGM30_CACHE_DIR
         if config.DGM30_AUTO_DOWNLOAD:
             logger.info("  [i] Prüfe DGM30-Abdeckung (lädt fehlende Kacheln bei Bedarf)...")
             ensure_dgm30_coverage(horizon_area_wgs84(global_offset), dgm30_dir)
@@ -111,20 +111,18 @@ class HorizonWorkflow:
         )
 
         # === Sentinel-2 laden (optional) ===
-        # manual_sentinel2_file ist der feste manuelle Override-Slot (data/DOP300/...); der
-        # tatsächlich zu ladende Pfad kommt von ensure_horizon_texture() zurück - bei Auto-Download
-        # ohne manuelle Datei ist das ein gebietsabhängiger Cache-Pfad, NICHT mehr die feste Datei
-        # (siehe sentinel2_fetch.ensure_horizon_texture()-Docstring).
-        manual_sentinel2_file = config.DOP300_DATA_DIR / config.SENTINEL2_FILE
-        sentinel2_file = manual_sentinel2_file
+        # Rein automatisch - ensure_horizon_texture() liefert einen gebietsabhängigen Cache-Pfad
+        # unter config.EOX_TEXTURE_CACHE_DIR oder None (Auto-Download deaktiviert/fehlgeschlagen).
+        sentinel2_file = None
         if config.EOX_AUTO_DOWNLOAD:
             logger.info("  [i] Prüfe Sentinel-2-Textur (lädt bei Bedarf automatisch)...")
-            fetched_sentinel2_file = ensure_horizon_texture(horizon_bbox, dest=manual_sentinel2_file)
-            if fetched_sentinel2_file is not None:
-                sentinel2_file = fetched_sentinel2_file
+            sentinel2_file = ensure_horizon_texture(horizon_bbox)
 
-        logger.info("  [i] Lade Sentinel-2 Satellitenbilder...")
-        sentinel2_data = load_sentinel2_geotiff(sentinel2_file, horizon_bbox, tile_hash=tile_hash)
+        if sentinel2_file is not None:
+            logger.info("  [i] Lade Sentinel-2 Satellitenbilder...")
+            sentinel2_data = load_sentinel2_geotiff(sentinel2_file, horizon_bbox, tile_hash=tile_hash)
+        else:
+            sentinel2_data = None
 
         texture_info = None
         if sentinel2_data is None:

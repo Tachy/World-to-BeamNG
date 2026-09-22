@@ -94,50 +94,6 @@ missing, the export reports an error in the log.
 | Folder | Content | File name | If it is missing |
 |---|---|---|---|
 | `data/LOD2/` | 3D building models LoD2 (ZIP with CityGML) | `LoD2_32_<x>_<y>_2_bw.zip` | no buildings (`LOD2_ENABLED`) |
-| `data/DGM30/` | 30 m elevation model as GeoTIFF: **Copernicus DEM GLO-30**. Downloaded automatically on the first run (see below); a file you put here yourself is never overwritten and skips the download. Several `*.tif` files may be in the folder. | any, e.g. `Copernicus_DSM_COG_10_N47_00_E007_00_DEM.tif` | the horizon is skipped |
-| `data/DOP300/` | **Manual override** for the horizon satellite image: put **one** georeferenced RGB GeoTIFF here yourself (resolved source CRS, default UTM 32N/EPSG:25832, or the CRS auto-detected from the DGM1 GeoTIFFs; covers ±50 km around the centre of the area; any resolution, it is scaled to 8192×8192) and it is used as-is, never overwritten, no download. Without a file here, the auto-downloaded texture (Sentinel-2 cloudless via the EOX WMS, see below) is cached per area under `cache/horizon_texture/` instead — not in this folder — so switching to a different area and back never mixes up the two. | `horizon_temp.tif` (name in `config.SENTINEL2_FILE`) | horizon without texture |
-
-Both the DGM30 tiles and the horizon satellite image are now fetched automatically on the first run
-(`config.DGM30_AUTO_DOWNLOAD` / `config.EOX_AUTO_DOWNLOAD`, both `True` by default). The instructions below are only
-needed for offline use, to use your own image source, or to manually fill in a single tile that the auto-download
-could not get.
-
-**Downloading DGM30:** It uses the **Copernicus DEM GLO-30** (30 m, worldwide,
-free of charge). The easiest way without an account is the public AWS bucket `copernicus-dem-30m`
-(region eu-central-1, Cloud-Optimized GeoTIFFs, about 43 MB per tile). One tile covers 1° × 1°, the name contains its
-south-west corner:
-
-```
-https://copernicus-dem-30m.s3.eu-central-1.amazonaws.com/Copernicus_DSM_COG_10_N47_00_E007_00_DEM/Copernicus_DSM_COG_10_N47_00_E007_00_DEM.tif
-                                                                                  └ 47° N ┘ └ 7° E ┘
-```
-
-You need **all tiles that touch the horizon area** (±50 km around the centre of the area, about ±0.7° in longitude and
-±0.45° in latitude). For an area at 47.8° N / 7.7° E these are `N47` and `N48`, each with `E007` and `E008` (four
-tiles, about 170 MB in total). Simply put the files into `data/DGM30/`; the program combines them and clips them to the
-horizon area. If a tile is missing, the export reports in which compass direction the data ends, and the horizon is
-shorter there. With the AWS command-line tool it also works without an account:
-`aws s3 cp --no-sign-request s3://copernicus-dem-30m/Copernicus_DSM_COG_10_N47_00_E007_00_DEM/Copernicus_DSM_COG_10_N47_00_E007_00_DEM.tif data/DGM30/`.
-Alternatives are the Copernicus Data Space Ecosystem (<https://dataspace.copernicus.eu>) and OpenTopography
-(<https://opentopography.org>).
-
-**Horizon image:** The image the auto-download fetches comes from **Sentinel-2 cloudless (s2cloudless) by EOX IT
-Services GmbH** (<https://cloudless.eox.at>), licensed under **CC BY-NC-SA 4.0** (non-commercial use, attribution +
-share-alike required) — see "License and attribution" below for the exact required attribution text. If you supply
-your own image instead (via `tools\make_horizon_image.py`), you are bound by that source's own licence terms, not
-this one.
-
-For offline use or a different source, there is also a tool that creates the file from any georeferenced RGB image
-(e.g. a Sentinel-2 export in Web Mercator or WGS84). It cuts out exactly the horizon area
-(±50 km around the centre of the area, which follows from the DGM1 tiles), reprojects it to the resolved source CRS
-and writes `data/DOP300/horizon_temp.tif`:
-
-```powershell
-.\.venv\Scripts\python.exe tools\make_horizon_image.py C:\path\to\satellite_image.tif
-```
-
-If the source image covers only part of the area, the tool warns; the rest stays black. An image in a different
-coordinate system in the same folder is not used by the export, only the file `horizon_temp.tif`.
 
 Finished example layout:
 
@@ -146,10 +102,39 @@ World-to-BeamNG/
 └── data/
     ├── DGM1/    dgm1_32_399_5296_2_bw.zip   dgm1_32_399_5298_2_bw.zip   …
     ├── DOP20/   dop20rgb_32_399_5296_2_bw.zip   …
-    ├── LOD2/    LoD2_32_399_5296_2_bw.zip   …
-    ├── DGM30/   dgm30_copernicus.tif
-    └── DOP300/  horizon_temp.tif
+    └── LOD2/    LoD2_32_399_5296_2_bw.zip   …
 ```
+
+### Horizon (optional, `PHASE5_ENABLED`)
+
+The horizon up to 50 km needs two things — 30 m elevation (**Copernicus DEM GLO-30**) and a satellite image
+(**Sentinel-2 cloudless** via the EOX WMS) — and both are fetched **fully automatically** on the first run
+(`config.DGM30_AUTO_DOWNLOAD` / `config.EOX_AUTO_DOWNLOAD`, both `True` by default). Nothing to download or place by
+hand; both live under `cache/` (not `data/`) because the program manages them entirely on its own:
+
+- `cache/dgm30/` — the raw Copernicus DEM GLO-30 tiles (`Copernicus_DSM_COG_10_N47_00_E007_00_DEM.tif` etc., one per
+  1°×1° tile, about 43 MB each). If a tile is missing (e.g. no internet), the export reports in which compass
+  direction the data ends, and the horizon is shorter there.
+- `cache/horizon_source/` — the raw Sentinel-2 mosaic before cropping, and `cache/horizon_texture/` — the final,
+  cropped texture actually used. Both are keyed by area (+ target size/resampling for the texture), so switching the
+  source region (`data/DGM1/` etc.) and back never mixes up the two areas' images.
+
+All three are ordinary caches: safe to delete any time, rebuilt automatically on the next run. If you ever need a
+tile that the automatic download couldn't get (e.g. offline use), you can still place a Copernicus DEM GLO-30 GeoTIFF
+into `cache/dgm30/` by hand — the public AWS bucket `copernicus-dem-30m` (region eu-central-1) has one, named by its
+south-west corner:
+
+```
+https://copernicus-dem-30m.s3.eu-central-1.amazonaws.com/Copernicus_DSM_COG_10_N47_00_E007_00_DEM/Copernicus_DSM_COG_10_N47_00_E007_00_DEM.tif
+                                                                                  └ 47° N ┘ └ 7° E ┘
+```
+(`aws s3 cp --no-sign-request s3://copernicus-dem-30m/Copernicus_DSM_COG_10_N47_00_E007_00_DEM/Copernicus_DSM_COG_10_N47_00_E007_00_DEM.tif cache/dgm30/`
+also works without an account.) The horizon satellite image has no such manual fallback — it is Sentinel-2 cloudless
+only.
+
+The Sentinel-2 cloudless imagery is © **EOX IT Services GmbH** (<https://cloudless.eox.at>), licensed under
+**CC BY-NC-SA 4.0** (non-commercial use, attribution + share-alike required) — see "License and attribution" below
+for the exact required attribution text.
 
 ### Using data from other regions
 
@@ -166,8 +151,8 @@ guessed from a naming scheme. To use data from a region other than Baden-Württe
   orthophoto's CRS differs from the elevation data's CRS, it is reprojected automatically.
 - Set `LOD2_ENABLED = False` in `config.py` — buildings (LoD2/CityGML) remain specific to the Baden-Württemberg
   CityGML 1.0 schema.
-- All DGM1 GeoTIFFs must share the same CRS (mixing different elevation CRS is not supported); DGM30/horizon data
-  stays worldwide-capable as before (see "Optional" above).
+- All DGM1 GeoTIFFs must share the same CRS (mixing different elevation CRS is not supported); the horizon's DGM30/
+  satellite auto-download stays worldwide-capable as before (see "Horizon" above).
 
 Tested end-to-end with real-world data outside Baden-Württemberg: swissALTI3D (0.5 m DEM) and SwissImage DOP10
 (0.1 m orthophoto), both EPSG:2056 (CH1903+/LV95), loose GeoTIFFs with no fixed tile size.
@@ -177,7 +162,7 @@ Tested end-to-end with real-world data outside Baden-Württemberg: swissALTI3D (
 - **OpenStreetMap** (roads, forest, water, land use, churches) through the Overpass API with fallback servers. The
   responses are then stored in `cache/`.
 - **Elevations for terrain, roads and water** come from DGM1, those of the buildings from LOD2; there is no download
-  for them. Only the horizon needs DGM30 (see above).
+  for them. Only the horizon's DGM30 + satellite image are fetched automatically (see "Horizon" above).
 - **Plaster and window textures** of the buildings are generated by the program itself. Textures that are created once
   (roof gravel, and the rubble stone wall from a photo) live in `data/textures/` in the repository, one folder per
   texture plus `manifest.json`; the export only converts them to DDS. `textures/registry.py` lists which textures the
@@ -212,16 +197,12 @@ All settings are in `world_to_beamng/config.py`.
 | `PHOTO_TILE_SIZE_M` | Tile size (metres) of the aerial-photo/material grid (default 2000), independent of the source data's own tiling |
 | `SOURCE_CRS_EPSG` | Fallback source CRS (default 25832) for elevation data without an embedded CRS (plain ASCII-XYZ); ignored for GeoTIFF sources, whose CRS is auto-detected |
 | `ENV_DATE`, `ENV_CLOCK_TIME` | Date and time of day for the position of the sun |
-| `DGM30_AUTO_DOWNLOAD`, `EOX_AUTO_DOWNLOAD` | automatically fetch missing DGM30 tiles / the Sentinel-2 horizon image on the first run (default `True` each); `False` restores the old fully-manual workflow |
+| `DGM30_AUTO_DOWNLOAD`, `EOX_AUTO_DOWNLOAD` | automatically fetch the DGM30 tiles / the Sentinel-2 horizon image on the first run (default `True` each); `False` disables that source and degrades to the existing skip behaviour (horizon skipped / horizon without texture) |
 | `DGM30_S3_BUCKET`, `DGM30_S3_REGION`, `DGM30_FETCH_MAX_RETRIES`, `DGM30_FETCH_TIMEOUT_S`, `DGM30_NOT_FOUND_CACHE_TTL_DAYS` | tuning for the Copernicus DEM GLO-30 auto-download (bucket/region, retry/timeout, how long a confirmed-missing tile — e.g. open sea — is remembered before retrying) |
 | `EOX_WMS_URL`, `EOX_WMS_LAYER`, `EOX_WMS_VERSION`, `EOX_WMS_FORMAT`, `EOX_MAX_REQUEST_PX`, `EOX_TARGET_RESOLUTION_M`, `EOX_MOSAIC_MAX_PX`, `EOX_FETCH_MARGIN_FACTOR`, `EOX_FETCH_MAX_RETRIES`, `EOX_FETCH_TIMEOUT_S`, `EOX_KEEP_RAW_MOSAIC`, `EOX_MOSAIC_CACHE_DIR`, `EOX_TEXTURE_CACHE_DIR` | tuning for the EOX Sentinel-2 cloudless WMS auto-download (endpoint/layer/version, per-request tile size limit, target resolution, mosaic size cap, raw-mosaic and final-texture caches) |
 
-The EOX auto-download keeps two caches, both under `cache/` and both keyed by area (plus, for the texture cache,
-target size and resampling) — so switching to a different area and back never confuses the two, and either can be
-deleted any time; both are rebuilt automatically on the next run if needed:
-- The raw mosaic in `cache/horizon_source/` (`EOX_KEEP_RAW_MOSAIC = True` by default), roughly 100–250 MB per area.
-- The final, cropped texture in `cache/horizon_texture/` (a few dozen MB, depends on `HORIZON_IMAGE_SIZE_PX`) — this
-  is what actually gets loaded, unless you placed your own file in `data/DOP300/` (see "Optional" above).
+See "Horizon" above for the `cache/dgm30/`, `cache/horizon_source/` and `cache/horizon_texture/` caches these
+settings tune — all three are safe to delete any time and get rebuilt automatically.
 
 ## ⏱️ Process and duration
 
@@ -242,10 +223,10 @@ The program's messages are in German; they are quoted as they appear, followed b
 | `managedItemData.json nicht gefunden` (not found) | run `tools\generate_forest_assets.py` once |
 | Roads or roofs with "no Texture" | run `tools\vendor_shared_textures.py` once |
 | Level does not appear in BeamNG | check whether `%LOCALAPPDATA%\BeamNG\BeamNG.drive\current\levels\world_to_beamng` was created; otherwise adjust `BEAMNG_DIR` in `config.py` |
-| `DGM30-Dateien decken die Horizont-Fläche … nicht ab` (DGM30 files do not cover the horizon area) | put the tiles for the compass direction named in the message into `data/DGM30/` (see above) |
-| `Keine DGM30-Dateien` (no DGM30 files) | `data/DGM30/` is empty; the horizon is skipped otherwise |
+| `DGM30-Dateien decken die Horizont-Fläche … nicht ab` (DGM30 files do not cover the horizon area) | a tile the auto-download couldn't get (e.g. no internet for that request) — retries automatically on the next run, or place the tile for the named compass direction into `cache/dgm30/` by hand (see "Horizon" above) |
+| `Keine DGM30-Dateien` (no DGM30 files) | `cache/dgm30/` is empty and the auto-download hasn't run yet or failed entirely; the horizon is skipped otherwise |
 | `DGM30-Auto-Download fehlgeschlagen` (DGM30 auto-download failed) / Sentinel-2 auto-download not working, no internet | the auto-download logs a warning and falls back to the existing skip behaviour (horizon skipped / horizon without texture) — it never aborts the whole export; it retries on the next run once the network is back |
-| Horizon without texture or shifted | use `tools\make_horizon_image.py`; the file must show exactly the horizon area in the resolved source CRS |
+| Horizon without texture or shifted | delete `cache/horizon_texture/` (and `cache/horizon_source/` if the raw mosaic itself looks wrong) to force a rebuild on the next run |
 | Crash or error while loading the level | check `C:\Users\<NAME>\AppData\Local\BeamNG\BeamNG.drive\current\beamng.log` for `\|E\|` lines |
 | OSM timeout | the program tries fallback servers; start again, successful responses are cached |
 

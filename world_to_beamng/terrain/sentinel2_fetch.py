@@ -250,48 +250,34 @@ def fetch_eox_mosaic(area_utm: tuple, dest_path) -> Tuple[bool, int]:
     return False, failed_count
 
 
-def ensure_horizon_texture(area_utm: tuple, dest=None, size_px=None, resampling: str = "bilinear") -> Optional[Path]:
+def ensure_horizon_texture(area_utm: tuple, size_px=None, resampling: str = "bilinear") -> Optional[Path]:
     """
     Öffentlicher Einstiegspunkt: stellt sicher, dass eine Horizont-Textur für `area_utm` verfügbar
-    ist, und liefert den Pfad, den der Aufrufer tatsächlich laden soll.
-
-    Zwei getrennte Rollen, die früher fälschlich in derselben Datei zusammenfielen:
-    - `dest` (Default config.DOP300_DATA_DIR / config.SENTINEL2_FILE) ist der MANUELLE
-      Override-Slot: legt der Nutzer dort selbst eine Datei ab, gewinnt sie immer, wird nie
-      automatisch ersetzt/gelöscht, kein Netzwerk-/Cache-Zugriff - "data/" bleibt Rohdaten/
-      Nutzereingabe.
-    - Ohne manuelle Datei landet die automatisch generierte Textur in config.EOX_TEXTURE_CACHE_DIR,
-      mit einem Dateinamen, der von Gebiet + Zielgröße + Resampling + WMS-Layer abhängt - eine
-      jederzeit sicher löschbare/regenerierbare Cache-Datei (wie das Rohmosaik), NICHT mehr die
-      feste `dest`-Datei. Das macht einen Wechsel des Quellgebiets (z. B. testweise eine andere
-      Region) automatisch korrekt: jedes Gebiet bekommt seine eigene Cache-Datei, statt dass die
-      alte, geografisch falsche Textur einfach wiederverwendet wird.
+    ist, und liefert ihren Pfad. Rein automatisch - keine manuelle Override-Datei mehr (die frühere
+    feste `data/DOP300/horizon_temp.tif` liess sich nicht sicher pro Gebiet unterscheiden, siehe
+    Git-Historie). Die Textur landet in config.EOX_TEXTURE_CACHE_DIR, mit einem Dateinamen, der von
+    Gebiet + Zielgröße + Resampling + WMS-Layer abhängt - eine jederzeit sicher löschbare/
+    regenerierbare Cache-Datei (wie das Rohmosaik). Das macht einen Wechsel des Quellgebiets (z. B.
+    testweise eine andere Region) automatisch korrekt: jedes Gebiet bekommt seine eigene
+    Cache-Datei.
 
     Args:
         area_utm: (x_min, x_max, y_min, y_max) in der aufgelösten Quell-CRS, siehe
             horizon_image.horizon_area()
-        dest: Pfad des manuellen Overrides; Default config.DOP300_DATA_DIR / config.SENTINEL2_FILE
         size_px: Kantenlänge der Zieltextur; Default config.HORIZON_IMAGE_SIZE_PX
         resampling: rasterio-Resampling-Name, siehe build_horizon_image()
 
     Returns:
-        Pfad zur tatsächlich zu ladenden Textur (die manuelle `dest`-Datei ODER ein Pfad unter
-        config.EOX_TEXTURE_CACHE_DIR) - der Aufrufer muss GENAU diesen zurückgegebenen Pfad laden,
-        nicht mehr `dest`. None, wenn kein Download versucht wurde (config.EOX_AUTO_DOWNLOAD ==
-        False), er vollständig fehlgeschlagen ist, oder ein unerwarteter Fehler auftrat. Wirft NIE -
-        analog zu dgm30_fetch.ensure_dgm30_coverage() muss dieser Einstiegspunkt bei jedem Fehler
-        (Netzwerk, Dateisystem, CRS-Transform, ...) einfach None liefern, damit horizon_workflow.py
-        ihn ohne eigene Fehlerbehandlung aufrufen kann.
+        Pfad zur Horizont-Textur unter config.EOX_TEXTURE_CACHE_DIR, oder None, wenn kein Download
+        versucht wurde (config.EOX_AUTO_DOWNLOAD == False), er vollständig fehlgeschlagen ist, oder
+        ein unerwarteter Fehler auftrat. Wirft NIE - analog zu dgm30_fetch.ensure_dgm30_coverage()
+        muss dieser Einstiegspunkt bei jedem Fehler (Netzwerk, Dateisystem, CRS-Transform, ...)
+        einfach None liefern, damit horizon_workflow.py ihn ohne eigene Fehlerbehandlung aufrufen
+        kann.
     """
     global _attribution_logged
 
     try:
-        dest = Path(dest) if dest is not None else config.DOP300_DATA_DIR / config.SENTINEL2_FILE
-        if dest.exists():
-            # Manuell abgelegte Dateien werden nie angetastet - egal welchen Wert
-            # config.EOX_AUTO_DOWNLOAD hat.
-            return dest
-
         if not config.EOX_AUTO_DOWNLOAD:
             return None
 
