@@ -639,7 +639,10 @@ def _coords(length=60.0, z=200.0, n=7):
 
 
 def test_deck_top_is_flat_at_the_given_height_and_road_width():
-    mesh = build_bridge_mesh(_coords(z=200.0), width=8.0, ground_at=_flat_ground(150.0), deck_material=DECK, pier_material=PIER, deck_thickness=0.6)
+    # pier_spacing groesser als die Spannweite: isoliert den Test auf die reine Deck-Geometrie (kein Pfeiler-Vertex
+    # in "vertices", der die min()-Annahme unten verfaelschen wuerde - siehe test_piers_reach_down_... fuer die
+    # Pfeiler-Faelle mit dem Standard-pier_spacing).
+    mesh = build_bridge_mesh(_coords(z=200.0), width=8.0, ground_at=_flat_ground(150.0), deck_material=DECK, pier_material=PIER, deck_thickness=0.6, pier_spacing=1000.0)
     v = mesh["vertices"]
 
     assert v[:, 2].max() == pytest.approx(200.0)  # Deck-Oberkante = Höhenprofil, folgt NICHT dem Gelände
@@ -845,7 +848,7 @@ def build_bridges(
 - [ ] **Step 4: Test laufen lassen, muss bestehen**
 
 Run: `python -m pytest tests/bridges/test_bridge_mesh.py -v`
-Expected: PASS (7 Tests)
+Expected: PASS (6 Tests)
 
 - [ ] **Step 5: Commit**
 
@@ -1370,11 +1373,15 @@ def test_tunnel_radius_and_crown_height_follow_the_floor_width():
 
 
 def test_tube_floor_is_flat_and_matches_the_road_width():
+    # Nur die Boden-Vertices prüfen (nicht mesh["vertices"] insgesamt): der Kreisbogen ist breiter als die
+    # Bodensehne (er wölbt sich bei arc_segments=12 bis auf ~R*cos(10°) > width/2 nach außen) - das ist korrekt
+    # und kein Fehler, siehe Design-Spec Abschnitt 5 (240°-Bogen über einer schmaleren Bodensehne).
     mesh = build_tunnel_mesh(_straight_coords(z=500.0), width=8.0, floor_material=FLOOR, wall_material=WALL)
-    v = mesh["vertices"]
+    floor_idx = sorted({i for tri in mesh["faces"][FLOOR] for i in tri})
+    floor_v = mesh["vertices"][floor_idx]
 
-    assert v[:, 2].min() == pytest.approx(500.0)  # Boden = Höhenprofil
-    assert v[:, 1].min() == pytest.approx(-4.0) and v[:, 1].max() == pytest.approx(4.0)  # Bodenbreite = 8 m
+    assert floor_v[:, 2].min() == pytest.approx(500.0)  # Boden = Höhenprofil
+    assert floor_v[:, 1].min() == pytest.approx(-4.0) and floor_v[:, 1].max() == pytest.approx(4.0)  # Bodenbreite = 8 m
 
 
 def test_crown_reaches_the_derived_height_above_the_floor():
@@ -1461,7 +1468,9 @@ def test_build_tunnel_returns_the_tube_plus_two_portal_frames_with_derived_heigh
     assert FLOOR in meshes[0]["faces"]
     assert FRAME in meshes[1]["faces"] and FRAME in meshes[2]["faces"]
     expected_crown = tunnel_crown_height(7.0 + 1.5)
-    assert max(v[2] for v in meshes[1]["vertices"]) == pytest.approx(500.0 + expected_crown)
+    # Rahmen-Oberkante liegt bei floor_z + Kronenhöhe + frame_margin (siehe portal_frame_corners(): "top" z ist
+    # floor_z + height + margin), nicht bei floor_z + Kronenhöhe allein.
+    assert max(v[2] for v in meshes[1]["vertices"]) == pytest.approx(500.0 + expected_crown + 0.6)
 
 
 def test_build_tunnels_skips_too_short_tunnels():
@@ -1527,6 +1536,26 @@ def arc_cross_section(radius: float, segments: int) -> List[Tuple[float, float]]
         theta = math.radians(ARC_START_DEG + (k / segments) * ARC_SPAN_DEG)
         points.append((radius * math.cos(theta), radius / 2.0 + radius * math.sin(theta)))
     return points
+
+
+def resample_tunnel_coords(coords: Sequence[Tuple[float, float, float]], step: float) -> List[Tuple[float, float, float]]:
+    """Dünnt die (bereits linear profilierte) Centerline auf einen festen Bogenlängen-Abstand aus (XYZ gemeinsam,
+    da das Höhenprofil affin in der Bogenlänge ist - siehe geometry/polygon.py::apply_structure_elevation_profiles()).
+    Hält die Vertex-Zahl auch bei sehr langen Tunneln (z.B. 16,9 km) im Rahmen."""
+    arr = np.array(coords, dtype=float)
+    if len(arr) < 2:
+        return list(coords)
+    diffs = np.diff(arr[:, :2], axis=0)
+    seg_len = np.linalg.norm(diffs, axis=1)
+    cum = np.concatenate([[0.0], np.cumsum(seg_len)])
+    total = cum[-1]
+    if total < step:
+        return list(coords)
+    samples = np.linspace(0.0, total, max(2, int(np.ceil(total / step)) + 1))
+    x = np.interp(samples, cum, arr[:, 0])
+    y = np.interp(samples, cum, arr[:, 1])
+    z = np.interp(samples, cum, arr[:, 2])
+    return list(zip(x.tolist(), y.tolist(), z.tolist()))
 
 
 def build_tunnel_mesh(
@@ -1780,21 +1809,23 @@ def _straight_coords(length=60.0, z=500.0, n=13):
 
 def test_valley_side_picks_the_lower_natural_terrain():
     xy = np.array([[0.0, 0.0], [10.0, 0.0]])
-    # Gelände fällt nach +y ab -> rechts der Laufrichtung (+x) liegt bei +y, ist also die Talseite
+    # Gelände fällt nach +y ab: bei Laufrichtung +x ist +y die LINKE Seite (Standard-Konvention wie
+    # offset_points(): links = Richtung um +90° CCW gedreht = (-dy,dx); für direction=(1,0) ist das (0,1) = +y).
+    # +y ist also die Talseite -> links talwärts -> side < 0.
     ground_at = lambda x, y: 500.0 - 2.0 * np.asarray(y, float)
 
     side = valley_side(xy, ground_at, half_width=4.0)
 
-    assert np.all(side > 0)
+    assert np.all(side < 0)
 
 
 def test_valley_side_flips_when_the_slope_is_mirrored():
     xy = np.array([[0.0, 0.0], [10.0, 0.0]])
-    ground_at = lambda x, y: 500.0 + 2.0 * np.asarray(y, float)  # steigt nach +y -> links ist die Talseite
+    ground_at = lambda x, y: 500.0 + 2.0 * np.asarray(y, float)  # steigt nach +y -> -y (rechts) ist die Talseite
 
     side = valley_side(xy, ground_at, half_width=4.0)
 
-    assert np.all(side < 0)
+    assert np.all(side > 0)
 
 
 def test_roof_and_floor_are_flat_at_the_given_heights():
@@ -1814,14 +1845,18 @@ def test_faces_are_split_by_material():
     assert len(mesh["faces"][FLOOR]) > 0 and len(mesh["faces"][ROOF]) > 0
 
 
-def test_columns_are_placed_on_the_open_valley_side():
-    ground_at = lambda x, y: 500.0 - 2.0 * np.asarray(y, float)  # Talseite = +y = rechts
+def test_columns_are_on_the_valley_side_not_the_mountain_side():
+    # Boden/Dach spannen immer beide Kanten (y=+4 und y=-4) - reine Vertex-Präsenz an einer Kante unterscheidet
+    # also NICHT, wo die Stützen sitzen. Stattdessen: Stützen fügen an ihrer Kante zusätzliche Vertices ein
+    # (4 Seitenflächen je Stütze), an der Bergseite (nur die Wandfläche) nicht - die Talseite muss daher
+    # spürbar mehr Vertices nahe ihrer Kante haben als die Bergseite.
+    ground_at = lambda x, y: 500.0 - 2.0 * np.asarray(y, float)  # fällt nach +y -> +y ist die Talseite (links)
     mesh = build_gallery_mesh(_straight_coords(length=60.0, z=500.0), width=8.0, height=5.0, ground_at=ground_at, floor_material=FLOOR, roof_material=ROOF, column_spacing=10.0)
 
-    roof_vertices = np.array(mesh["vertices"])
-    # Stützen-Vertices liegen bei y nahe der rechten Kante (Talseite), nicht bei y=0 (Mitte) oder links
-    near_right_edge = roof_vertices[np.abs(roof_vertices[:, 1] - 4.0) < 0.5]
-    assert len(near_right_edge) > 0
+    v = np.array(mesh["vertices"])
+    near_valley_edge = np.sum(np.abs(v[:, 1] - 4.0) < 0.3)  # +y = Talseite in diesem Szenario
+    near_mountain_edge = np.sum(np.abs(v[:, 1] + 4.0) < 0.3)
+    assert near_valley_edge > near_mountain_edge
 
 
 def test_build_galleries_returns_one_mesh_per_gallery():
@@ -1878,8 +1913,11 @@ def valley_side(xy: np.ndarray, ground_at: HeightAt, half_width: float) -> np.nd
     directions = directions / norms
     perp = np.column_stack([-directions[:, 1], directions[:, 0]])
 
-    left_xy = xy - perp * half_width
-    right_xy = xy + perp * half_width
+    # WICHTIG: dieselbe Vorzeichen-Konvention wie offset_points() (left = point + normal, right = point - normal,
+    # normal = (-dy,dx)) - sonst zeigt diese Funktion "links"/"rechts" spiegelverkehrt zu den left[]/right[]-Arrays,
+    # die build_gallery_mesh() aus offset_points() für Wand/Stützen-Platzierung verwendet.
+    left_xy = xy + perp * half_width
+    right_xy = xy - perp * half_width
     left_z = np.asarray(ground_at(left_xy[:, 0], left_xy[:, 1]), dtype=float)
     right_z = np.asarray(ground_at(right_xy[:, 0], right_xy[:, 1]), dtype=float)
     return np.where(right_z < left_z, 1.0, -1.0)
@@ -2091,12 +2129,14 @@ def test_concrete_texture_is_registered_when_bridges_or_tunnels_are_enabled(monk
     from world_to_beamng import config
     from world_to_beamng.textures import registry
 
+    # raising=False: TUNNELS_ENABLED existiert erst ab Task 11 (Task 10 läuft vorher) - monkeypatch legt das
+    # Attribut dann testlokal an und macht es am Testende wieder rückgängig, statt AttributeError zu werfen.
     monkeypatch.setattr(config, "BRIDGES_ENABLED", True)
-    monkeypatch.setattr(config, "TUNNELS_ENABLED", False)
+    monkeypatch.setattr(config, "TUNNELS_ENABLED", False, raising=False)
     assert any(spec.name == config.CONCRETE_TEXTURE_NAME for spec in registry.REGISTRY if spec.required())
 
     monkeypatch.setattr(config, "BRIDGES_ENABLED", False)
-    monkeypatch.setattr(config, "TUNNELS_ENABLED", False)
+    monkeypatch.setattr(config, "TUNNELS_ENABLED", False, raising=False)
     assert not any(spec.name == config.CONCRETE_TEXTURE_NAME for spec in registry.REGISTRY if spec.required())
 ```
 
