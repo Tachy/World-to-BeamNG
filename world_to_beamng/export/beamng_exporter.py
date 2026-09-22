@@ -83,10 +83,9 @@ class BeamNGExporter:
         DebugNetworkExporter.reset_instance()
         self.debug_exporter = DebugNetworkExporter.get_instance()
 
-        # Speichere Höhendaten für Spawn-Punkt-Berechnung
-        self.height_points = None
-        self.height_elevations = None
-        self.global_offset = None
+        # Straßen-Centerlines für die automatische Fahrzeug-Spawn-Position (siehe
+        # managers/item_manager.py::_compute_vehicle_spawn())
+        self.road_polygons = None
 
     def export_complete_level(
         self,
@@ -142,9 +141,6 @@ class BeamNGExporter:
             f"Forests: {'Yes' if forests_enabled else 'No'} | Config: {'on' if config.FORESTS_ENABLED else 'off'}"
         )  # NEU
         logger.info(f"{'='*60}\n")
-
-        # Speichere global_offset für Spawn-Punkt-Berechnung
-        self.global_offset = global_offset[:2]  # Nur (x, y)
 
         # Erstelle Verzeichnisse
         config.BEAMNG_DIR_SHAPES.mkdir(parents=True, exist_ok=True)
@@ -292,9 +288,9 @@ class BeamNGExporter:
         else:
             stats["tiles_processed"] = len(tiles)
 
-            # Höhendaten für Spawn-Punkt-Berechnung
-            self.height_points = result.get("height_points")
-            self.height_elevations = result.get("height_elevations")
+            # Straßen-Centerlines für die automatische Fahrzeug-Spawn-Position (bereits mit der
+            # späteren Terrain-Einbettungshöhe, siehe road_embedding.py)
+            self.road_polygons = result.get("road_slope_polygons_2d")
 
             self.terrain.export_tile(0, 0, result)
 
@@ -479,10 +475,8 @@ class BeamNGExporter:
         mat_path = config.BEAMNG_DIR / config.MATERIALS_JSON
         logger.info(f"\n[✓] Materials: {mat_path.name}")
 
-        # Items mit Höhendaten für Spawn-Punkt-Berechnung
-        self.items.save(
-            height_points=self.height_points, height_elevations=self.height_elevations, global_offset=self.global_offset
-        )
+        # Items inkl. automatischer Fahrzeug-Spawn-Position (nächste Straße zur Gebietsmitte)
+        self.items.save(road_polygons=self.road_polygons)
         items_path = config.BEAMNG_DIR / config.ITEMS_JSON
         logger.info(f"[✓] Items: {items_path.name}")
 

@@ -43,13 +43,12 @@ python -m venv .venv
 .\.venv\Scripts\python.exe setup_project.py
 
 # 3. Put the base data into data/ (see "Base data")
-# 4. Set SPAWN_POINT in world_to_beamng/config.py to your own area (see "Configuration")
 
-# 5. One time: take over assets from the BeamNG installation
+# 4. One time: take over assets from the BeamNG installation
 .\.venv\Scripts\python.exe tools\generate_forest_assets.py
 .\.venv\Scripts\python.exe tools\vendor_shared_textures.py
 
-# 6. Generate the level
+# 5. Generate the level
 .\.venv\Scripts\python.exe world_to_beamng.py
 ```
 
@@ -190,13 +189,13 @@ All settings are in `world_to_beamng/config.py`.
 
 | Setting | Meaning |
 |---|---|
-| **`SPAWN_POINT`** | Start position as `(latitude, longitude)` in degrees. Must be inside your own area. |
 | `LOD2_ENABLED`, `FORESTS_ENABLED`, `VINEYARDS_ENABLED`, `WATER_ENABLED`, `GROUND_COVER_ENABLED`, `PHASE5_ENABLED` | switch individual components on and off (`PHASE5_ENABLED` is the horizon) |
 | `BEAMNG_DIR` | Target folder of the level; derived from `%LOCALAPPDATA%`, only change it in special cases |
 | `GRID_SPACING` | Terrain resolution in metres (default 1.0); GeoTIFF elevation data is always resampled to this, whatever its native resolution |
 | `TERRAIN_BASE_TEX_PIXEL_SIZE` | Size of the aerial photo per tile |
 | `PHOTO_TILE_SIZE_M` | Tile size (metres) of the aerial-photo/material grid (default 2000), independent of the source data's own tiling |
 | `SOURCE_CRS_EPSG` | Fallback source CRS (default 25832) for elevation data without an embedded CRS (plain ASCII-XYZ); ignored for GeoTIFF sources, whose CRS is auto-detected |
+| `SUN_REFERENCE_LATLON` | Approximate `(latitude, longitude)` used only for the sun's position (date/time of day) - **not** the vehicle spawn point, which is placed automatically (see below) |
 | `ENV_DATE`, `ENV_CLOCK_TIME` | Date and time of day for the position of the sun |
 | `DGM30_AUTO_DOWNLOAD`, `EOX_AUTO_DOWNLOAD` | automatically fetch the DGM30 tiles / the Sentinel-2 horizon image on the first run (default `True` each); `False` disables that source and degrades to the existing skip behaviour (horizon skipped / horizon without texture) |
 | `DGM30_S3_BUCKET`, `DGM30_S3_REGION`, `DGM30_FETCH_MAX_RETRIES`, `DGM30_FETCH_TIMEOUT_S`, `DGM30_NOT_FOUND_CACHE_TTL_DAYS` | tuning for the Copernicus DEM GLO-30 auto-download (bucket/region, retry/timeout, how long a confirmed-missing tile — e.g. open sea — is remembered before retrying) |
@@ -204,6 +203,9 @@ All settings are in `world_to_beamng/config.py`.
 
 See "Horizon" above for the `cache/dgm30/`, `cache/horizon_source/` and `cache/horizon_texture/` caches these
 settings tune — all three are safe to delete any time and get rebuilt automatically.
+
+**Vehicle spawn:** the car spawns automatically on whichever road is closest to the centre of the exported area,
+facing one of the two directions along that road (arbitrary) — nothing to configure.
 
 ## ⏱️ Process and duration
 

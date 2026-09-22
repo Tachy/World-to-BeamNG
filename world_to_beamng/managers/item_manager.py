@@ -51,8 +51,8 @@ class ItemManager:
     # SimGroup. Ein separates Sun-Objekt gibt es bewusst nicht: der ScatterSky liefert die Sonne (wie in den Original-Leveln).
     OTHER_BASE_LINES = build_environment_lines(
         load_environment_defaults(),
-        latitude=config.SPAWN_POINT[0],
-        longitude=config.SPAWN_POINT[1],
+        latitude=config.SUN_REFERENCE_LATLON[0],
+        longitude=config.SUN_REFERENCE_LATLON[1],
         date=config.ENV_DATE,
         clock=config.ENV_CLOCK_TIME,
         fog_color=config.ENV_FOG_COLOR,
@@ -399,73 +399,77 @@ class ItemManager:
         )
         return name
 
-    def _get_spawn_position_with_height(self, height_points, height_elevations, global_offset):
+    def _compute_vehicle_spawn(self, road_polygons) -> Tuple[list, list]:
         """
-        Berechne Spawn-Position mit Höhendaten.
+        Platziert das Fahrzeug auf der zur Gebietsmitte (lokal (0, 0), siehe utils.tile_scanner::
+        compute_global_center()) nächstgelegenen Straße, ausgerichtet in eine Fahrtrichtung
+        entlang dieser Straße (welche der beiden Richtungen ist beliebig).
 
         Args:
-            height_points: Höhendaten-Punkte (XY) - lokal
-            height_elevations: Z-Werte - lokal
-            global_offset: (origin_x, origin_y) für Transformation WGS84->UTM->Lokal
+            road_polygons: Liste von Dicts mit "trimmed_centerline" ((N, 3)-Array, lokale
+                Koordinaten). Die Z-Werte sind bereits die Straßen-Centerline-Höhe, auf die das
+                Terrain später eingebettet wird (siehe terrain/road_embedding.py) - keine eigene
+                Höheninterpolation nötig.
 
         Returns:
-            Liste [x, y, z] mit automatischer Höhenberechnung
+            (position [x, y, z], rotationMatrix [9 floats]). Fallback ([0, 0, 400], Identität)
+            ohne brauchbare Straßendaten (z. B. Wald-/Horizont-only-Export ohne Straßen).
         """
-        from .. import config
-        from ..geometry.coordinates import transformer_to_utm
         import numpy as np
 
-        if not config.SPAWN_POINT or not global_offset:
-            return [0, 0, 400]  # Fallback
+        fallback_position = [0, 0, 400]
+        fallback_rotation = [1, 0, 0, 0, 1, 0, 0, 0, 1]
 
-        lat, lon = config.SPAWN_POINT
-        ox, oy = global_offset
+        if not road_polygons:
+            return fallback_position, fallback_rotation
 
-        # Konvertiere WGS84 zu UTM
-        x_utm, y_utm = transformer_to_utm.transform(lon, lat)
+        best_point, best_tangent, best_dist = None, None, float("inf")
 
-        # Transformiere zu lokalen Koordinaten
-        x_local = x_utm - ox
-        y_local = y_utm - oy
+        for road in road_polygons:
+            centerline = road.get("trimmed_centerline")
+            if centerline is None or len(centerline) < 2:
+                continue
+            coords = np.asarray(centerline, dtype=float)
 
-        logger.debug(
-            f"  [i] Berechne Spawn-Punkt: WGS84({lat}, {lon}) -> UTM({x_utm}, {y_utm}) -> Lokal({x_local}, {y_local})"
-        )
+            # Abstand zur Gebietsmitte (lokal (0, 0)) - kein KD-Tree nötig, Centerlines haben nur
+            # Dutzende bis wenige Hundert Punkte je Straße, nicht Millionen wie die Höhendaten.
+            dist_sq = coords[:, 0] ** 2 + coords[:, 1] ** 2
+            idx = int(np.argmin(dist_sq))
+            if dist_sq[idx] >= best_dist:
+                continue
 
-        # Interpoliere Höhe an diesem Punkt
-        if len(height_points) > 0 and len(height_elevations) > 0:
-            try:
-                height_points_array = np.asarray(height_points)
-                height_elevations_array = np.asarray(height_elevations)
+            # Tangente an diesem Punkt: Richtung zum Nachbarpunkt (am Streckenende der einzig
+            # vorhandene Nachbar in die andere Richtung) - welche der beiden Richtungen ist
+            # beliebig, siehe Docstring.
+            neighbor_idx = idx + 1 if idx + 1 < len(coords) else idx - 1
+            tangent = coords[neighbor_idx][:2] - coords[idx][:2]
+            norm = float(np.hypot(tangent[0], tangent[1]))
+            if norm < 1e-6:
+                continue  # zwei identische Punkte - keine brauchbare Richtung
 
-                # Nächster Höhenpunkt, blockweise per NumPy (ein KD-Tree über alle ~16 Mio. Punkte
-                # aufzubauen dauerte für diese eine Abfrage ~3 s)
-                best_index, best_dist = 0, np.inf
-                for start in range(0, len(height_points_array), 2_000_000):
-                    block = height_points_array[start : start + 2_000_000]
-                    dist = (block[:, 0] - x_local) ** 2 + (block[:, 1] - y_local) ** 2
-                    local = int(np.argmin(dist))
-                    if dist[local] < best_dist:
-                        best_index, best_dist = start + local, float(dist[local])
-                z_value = height_elevations_array[best_index]
+            best_dist = float(dist_sq[idx])
+            best_point = coords[idx]
+            best_tangent = tangent / norm
 
-                if z_value is not None and not np.isnan(z_value):
-                    z_height = float(z_value)
-                else:
-                    z_height = 400  # Fallback: 400m über Grund
-            except Exception as e:
-                logger.error(f"[!] Fehler bei Höheninterpolation: {e}")
-                z_height = 400
-        else:
-            z_height = 400
+        if best_point is None:
+            return fallback_position, fallback_rotation
 
-        final_pos = [x_local, y_local, z_height + 10]  # +10m Sicherheitsabstand über Terrain
-        logger.info(f"  [OK] Spawn-Position: {final_pos}")
-        return final_pos
+        dx, dy = float(best_tangent[0]), float(best_tangent[1])
+        # rotationMatrix (row-major 3x3, siehe test_item_manager_rotation.py): bildet die lokale
+        # Fahrzeug-Vorwärtsachse (Torque3D-Konvention: lokal +Y) auf die Fahrtrichtung (dx, dy, 0)
+        # im Level ab, lokal +X auf die dazu senkrechte "rechts"-Richtung, lokal +Z bleibt "oben".
+        # Identitätsprobe: dx=0, dy=1 (Fahrtrichtung = Welt-Y) ergibt [1,0,0, 0,1,0, 0,0,1]. Die
+        # Vorwärtsachsen-Konvention ist nicht offiziell dokumentiert - im Spiel verifizieren.
+        rotation_matrix = [dy, dx, 0.0, -dx, dy, 0.0, 0.0, 0.0, 1.0]
 
-    def save(
-        self, filepath: Optional[Path] = None, height_points=None, height_elevations=None, global_offset=None
-    ) -> None:
+        # Kleiner Sicherheitsabstand über der (bereits eingebetteten) Straßenhöhe, damit das
+        # Fahrzeug nicht in der Fahrbahn feststeckt.
+        position = [float(best_point[0]), float(best_point[1]), float(best_point[2]) + 0.3]
+
+        logger.info(f"  [OK] Fahrzeug-Spawn auf nächster Straße zur Gebietsmitte: {position}")
+        return position, rotation_matrix
+
+    def save(self, filepath: Optional[Path] = None, road_polygons=None) -> None:
         """
         Exportiere Items in die richtige BeamNG-Struktur.
 
@@ -476,9 +480,8 @@ class ItemManager:
 
         Args:
             filepath: Optionaler custom Pfad, ansonsten aus config.ITEMS_JSON
-            height_points: Höhendaten-Punkte für Spawn-Position (optional)
-            height_elevations: Z-Werte für Höheninterpolation (optional)
-            global_offset: (origin_x, origin_y) für Koordinaten-Transformation (optional)
+            road_polygons: Straßen-Dicts mit "trimmed_centerline" für die automatische
+                Fahrzeug-Spawn-Position (optional) - siehe _compute_vehicle_spawn()
         """
         from .. import config
 
@@ -495,10 +498,7 @@ class ItemManager:
         missiongroup_items = missiongroup_dir / "items.level.json"
         playerdroppoints_items = playerdroppoints_dir / "items.level.json"
 
-        # Berechne Spawn-Position mit Höhendaten falls verfügbar
-        spawn_position = [0, 0, 400]  # Default
-        if height_points is not None and height_elevations is not None and global_offset is not None:
-            spawn_position = self._get_spawn_position_with_height(height_points, height_elevations, global_offset)
+        spawn_position, spawn_rotation = self._compute_vehicle_spawn(road_polygons)
 
         # Schreibe main/items.level.json im JSONL-Format (nur MissionGroup)
         # (json.dumps statt json.dump auf die Datei: der C-Encoder ist ~5x schneller)
@@ -524,9 +524,10 @@ class ItemManager:
             # PLAYER_DROPPOINTS_LINE mit berechneter Spawn-Position
             for spawn_line in self.PLAYER_DROPPOINTS_LINE:
                 if spawn_line.get("name") == "spawn":
-                    # Überschreibe Position mit berechneter Position
+                    # Überschreibe Position/Ausrichtung mit der berechneten Fahrzeug-Spawn-Position
                     spawn_line = spawn_line.copy()
                     spawn_line["position"] = spawn_position
+                    spawn_line["rotationMatrix"] = spawn_rotation
                 f.write(encode(spawn_line) + "\n")
 
     def save_info_json(self) -> None:

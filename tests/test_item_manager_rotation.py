@@ -11,10 +11,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-import numpy as np
 import pytest
 
-from world_to_beamng import config
 from world_to_beamng.managers.item_manager import ItemManager
 
 IDENTITY = [1, 0, 0, 0, 1, 0, 0, 0, 1]
@@ -64,7 +62,7 @@ def test_the_saved_level_has_no_rotation_field_in_any_object(manager, tmp_path):
     manager.add_item("pond_0_0", item_class="WaterBlock", position=(1, 2, 3), scale=(4, 2, 3), rotation_matrix=IDENTITY)
     manager.add_item("river", item_class="River")
 
-    manager.save(height_points=np.array([[0.0, 0.0]]), height_elevations=np.array([50.0]), global_offset=(0.0, 0.0))
+    manager.save(road_polygons=None)
 
     saved = list((tmp_path / "main").rglob("items.level.json"))
     assert len(saved) >= 3  # Wurzel, MissionGroup, PlayerDropPoints

@@ -14,7 +14,12 @@ LEVEL_NAME = "world_to_beamng"  # Name des BeamNG Levels (muss mit BEAMNG_DIR ü
 # OSM Mapper Singleton (lädt data/osm_to_beamng.json)
 OSM_MAPPER = OSMMapper(config_path=Path("data/osm_to_beamng.json"))
 
-SPAWN_POINT = (47.842840, 7.684767)  # Standard-Spawn-Punkt (kann pro Level überschrieben werden)
+# Ungefährer Referenzpunkt NUR für die Sonnenstand-Berechnung (managers/environment.py, siehe
+# ENV_DATE/ENV_CLOCK_TIME unten) - NICHT der Fahrzeug-Spawn-Punkt. Der wird automatisch berechnet
+# (Gebietsmitte, auf die nächstgelegene Straße gelegt, siehe managers/item_manager.py::
+# _compute_vehicle_spawn()) und braucht keine Einstellung mehr. Die Abweichung dieses Referenz-
+# punkts vom tatsächlichen Gebiet macht für den Sonnenwinkel praktisch keinen Unterschied.
+SUN_REFERENCE_LATLON = (47.842840, 7.684767)
 
 # BeamNG-Benutzerordner der aktuellen Version (legt BeamNG beim ersten Start an):
 # %LOCALAPPDATA%\BeamNG\BeamNG.drive\current. Das Level entsteht darin unter levels/<LEVEL_NAME>.

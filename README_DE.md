@@ -43,13 +43,12 @@ python -m venv .venv
 .\.venv\Scripts\python.exe setup_project.py
 
 # 3. Basisdaten nach data/ legen (siehe "Basisdaten")
-# 4. SPAWN_POINT in world_to_beamng/config.py auf das eigene Gebiet setzen (siehe "Konfiguration")
 
-# 5. Einmalig: Assets aus der BeamNG-Installation übernehmen
+# 4. Einmalig: Assets aus der BeamNG-Installation übernehmen
 .\.venv\Scripts\python.exe tools\generate_forest_assets.py
 .\.venv\Scripts\python.exe tools\vendor_shared_textures.py
 
-# 6. Level erzeugen
+# 5. Level erzeugen
 .\.venv\Scripts\python.exe world_to_beamng.py
 ```
 
@@ -195,13 +194,13 @@ Alle Einstellungen stehen in `world_to_beamng/config.py`.
 
 | Einstellung | Bedeutung |
 |---|---|
-| **`SPAWN_POINT`** | Startposition als `(Breite, Länge)` in Grad. Muss im eigenen Gebiet liegen. |
 | `LOD2_ENABLED`, `FORESTS_ENABLED`, `VINEYARDS_ENABLED`, `WATER_ENABLED`, `GROUND_COVER_ENABLED`, `PHASE5_ENABLED` | einzelne Bestandteile ein- und ausschalten (`PHASE5_ENABLED` ist der Horizont) |
 | `BEAMNG_DIR` | Zielordner des Levels; wird aus `%LOCALAPPDATA%` abgeleitet, nur bei Sonderfällen ändern |
 | `GRID_SPACING` | Terrain-Auflösung in Metern (Standard 1,0); GeoTIFF-Höhendaten werden immer darauf umgetastet, unabhängig von ihrer nativen Auflösung |
 | `TERRAIN_BASE_TEX_PIXEL_SIZE` | Größe des Luftbilds je Kachel |
 | `PHOTO_TILE_SIZE_M` | Kachelgröße (Meter) des Luftbild-/Material-Rasters (Standard 2000), unabhängig von der Kachelung der Rohdaten |
 | `SOURCE_CRS_EPSG` | Fallback-Quell-CRS (Standard 25832) für Höhendaten ohne eingebettetes CRS (reine ASCII-XYZ); wird für GeoTIFF-Quellen ignoriert, deren CRS automatisch erkannt wird |
+| `SUN_REFERENCE_LATLON` | Ungefähre `(Breite, Länge)` nur für den Sonnenstand (Datum/Uhrzeit) - **nicht** der Fahrzeug-Spawn-Punkt, der automatisch platziert wird (siehe unten) |
 | `ENV_DATE`, `ENV_CLOCK_TIME` | Datum und Uhrzeit für den Sonnenstand |
 | `DGM30_AUTO_DOWNLOAD`, `EOX_AUTO_DOWNLOAD` | die DGM30-Kacheln bzw. das Sentinel-2-Horizontbild beim ersten Lauf automatisch laden (Standard jeweils `True`); `False` deaktiviert diese Quelle und degradiert auf das bestehende Überspringen-Verhalten (Horizont übersprungen / Horizont ohne Textur) |
 | `DGM30_S3_BUCKET`, `DGM30_S3_REGION`, `DGM30_FETCH_MAX_RETRIES`, `DGM30_FETCH_TIMEOUT_S`, `DGM30_NOT_FOUND_CACHE_TTL_DAYS` | Feinabstimmung für den Copernicus-DEM-GLO-30-Auto-Download (Bucket/Region, Retry/Timeout, wie lange eine bestätigt fehlende Kachel - z. B. offenes Meer - vor einem erneuten Versuch als „fehlt" gemerkt wird) |
@@ -209,6 +208,9 @@ Alle Einstellungen stehen in `world_to_beamng/config.py`.
 
 Siehe „Horizont" oben für die Caches `cache/dgm30/`, `cache/horizon_source/` und `cache/horizon_texture/`, die diese
 Einstellungen feinabstimmen - alle drei sind jederzeit sicher löschbar und werden automatisch neu aufgebaut.
+
+**Fahrzeug-Spawn:** das Auto spawnt automatisch auf der Straße, die der Gebietsmitte am nächsten liegt, in eine der
+beiden Richtungen entlang dieser Straße (beliebig) - nichts zu konfigurieren.
 
 ## ⏱️ Ablauf und Dauer
 
