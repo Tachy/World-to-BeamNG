@@ -128,16 +128,20 @@ class ForestWorkflow:
 
         ox, oy = (global_offset[0], global_offset[1]) if global_offset else (0.0, 0.0)
         managed_item_data = self.config.BEAMNG_DIR / "art" / "forest" / "managedItemData.json"
+        # height_hash bleibt sichtbar im Schlüssel (wie osm_all_<height_hash>.json,
+        # grid_v3_grid_<height_hash>_... und dgm30_horizon_<tile_hash>_... an anderer Stelle in
+        # dieser Pipeline) - macht zusammengehörige Cache-Dateien eines Laufs erkennbar; nur die
+        # restlichen, hier zusätzlichen Eingaben werden zu einem Suffix-Hash zusammengefasst.
         signature = "|".join(
             [
-                str(height_hash),
                 ",".join(f"{v:.2f}" for v in tile_bounds),
                 f"{ox:.2f}_{oy:.2f}",
                 _file_sig("data/osm_to_beamng.json"),
                 _file_sig(managed_item_data),
             ]
         )
-        return hashlib.sha1(signature.encode("utf-8")).hexdigest()[:16]
+        suffix = hashlib.sha1(signature.encode("utf-8")).hexdigest()[:10]
+        return f"{height_hash}_{suffix}"
 
     def _forest_cache_path(self, cache_key: str) -> Path:
         return self.config.CACHE_DIR / f"forest_instances_{cache_key}.json"

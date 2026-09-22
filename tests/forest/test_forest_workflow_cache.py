@@ -38,6 +38,16 @@ def test_cache_key_is_stable_for_identical_inputs():
     assert key_a == key_b
 
 
+def test_cache_key_keeps_height_hash_visible_as_a_prefix():
+    """height_hash muss lesbar im Schlüssel/Dateinamen auftauchen, wie überall sonst in dieser
+    Pipeline (osm_all_<height_hash>.json, grid_v3_grid_<height_hash>_..., dgm30_horizon_<tile_hash>_...)
+    - macht zusammengehörige Cache-Dateien eines Laufs auf einen Blick erkennbar, statt alles in
+    einem einzigen opaken Hash zu verstecken."""
+    workflow = _workflow()
+    key = workflow._forest_cache_key(TILE_BOUNDS, OFFSET, height_hash="4113e78937c1")
+    assert key.startswith("4113e78937c1_")
+
+
 def test_cache_key_changes_when_height_hash_changes():
     workflow = _workflow()
     key_a = workflow._forest_cache_key(TILE_BOUNDS, OFFSET, height_hash="abc123")
