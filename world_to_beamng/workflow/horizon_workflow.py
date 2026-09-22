@@ -111,10 +111,17 @@ class HorizonWorkflow:
         )
 
         # === Sentinel-2 laden (optional) ===
-        sentinel2_file = config.DOP300_DATA_DIR / config.SENTINEL2_FILE
+        # manual_sentinel2_file ist der feste manuelle Override-Slot (data/DOP300/...); der
+        # tatsächlich zu ladende Pfad kommt von ensure_horizon_texture() zurück - bei Auto-Download
+        # ohne manuelle Datei ist das ein gebietsabhängiger Cache-Pfad, NICHT mehr die feste Datei
+        # (siehe sentinel2_fetch.ensure_horizon_texture()-Docstring).
+        manual_sentinel2_file = config.DOP300_DATA_DIR / config.SENTINEL2_FILE
+        sentinel2_file = manual_sentinel2_file
         if config.EOX_AUTO_DOWNLOAD:
             logger.info("  [i] Prüfe Sentinel-2-Textur (lädt bei Bedarf automatisch)...")
-            ensure_horizon_texture(horizon_bbox, dest=sentinel2_file)
+            fetched_sentinel2_file = ensure_horizon_texture(horizon_bbox, dest=manual_sentinel2_file)
+            if fetched_sentinel2_file is not None:
+                sentinel2_file = fetched_sentinel2_file
 
         logger.info("  [i] Lade Sentinel-2 Satellitenbilder...")
         sentinel2_data = load_sentinel2_geotiff(sentinel2_file, horizon_bbox, tile_hash=tile_hash)

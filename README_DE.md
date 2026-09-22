@@ -97,7 +97,7 @@ Luftbild, meldet der Export einen Fehler im Log.
 |---|---|---|---|
 | `data/LOD2/` | 3D-Gebäudemodelle LoD2 (ZIP mit CityGML) | `LoD2_32_<x>_<y>_2_bw.zip` | keine Gebäude (`LOD2_ENABLED`) |
 | `data/DGM30/` | Höhenmodell 30 m als GeoTIFF: **Copernicus DEM GLO-30**. Wird beim ersten Lauf automatisch geladen (siehe unten); eine eigene Datei an dieser Stelle wird nie überschrieben und überspringt den Download. Es dürfen mehrere `*.tif` im Ordner liegen. | beliebig, z. B. `Copernicus_DSM_COG_10_N47_00_E007_00_DEM.tif` | Horizont wird übersprungen |
-| `data/DOP300/` | Satellitenbild für die Horizont-Textur: **ein** georeferenziertes RGB-GeoTIFF in der aufgelösten Quell-CRS (Standard UTM 32N/EPSG:25832, oder die aus den DGM1-GeoTIFFs erkannte CRS), das die ±50 km um die Gebietsmitte abdeckt. Beliebige Auflösung, es wird auf 8192×8192 skaliert. Wird beim ersten Lauf automatisch geladen (Sentinel-2 cloudless über den EOX-WMS, siehe unten); eine eigene Datei an dieser Stelle wird nie überschrieben und überspringt den Download. | `horizon_temp.tif` (Name in `config.SENTINEL2_FILE`) | Horizont ohne Textur |
+| `data/DOP300/` | **Manueller Override** für das Horizont-Satellitenbild: hier selbst **ein** georeferenziertes RGB-GeoTIFF ablegen (aufgelöste Quell-CRS, Standard UTM 32N/EPSG:25832, oder die aus den DGM1-GeoTIFFs erkannte CRS; deckt ±50 km um die Gebietsmitte ab; beliebige Auflösung, wird auf 8192×8192 skaliert) - dann wird genau diese Datei verwendet, nie überschrieben, kein Download. Ohne eigene Datei wird die automatisch geladene Textur (Sentinel-2 cloudless über den EOX-WMS, siehe unten) stattdessen gebietsabhängig unter `cache/horizon_texture/` gecacht - NICHT in diesem Ordner - damit ein Wechsel des Quellgebiets und zurück die beiden nie vermischt. | `horizon_temp.tif` (Name in `config.SENTINEL2_FILE`) | Horizont ohne Textur |
 
 Sowohl die DGM30-Kacheln als auch das Horizont-Satellitenbild werden inzwischen beim ersten Lauf automatisch geladen
 (`config.DGM30_AUTO_DOWNLOAD` / `config.EOX_AUTO_DOWNLOAD`, beide standardmäßig `True`). Die folgende Anleitung wird
@@ -217,11 +217,15 @@ Alle Einstellungen stehen in `world_to_beamng/config.py`.
 | `ENV_DATE`, `ENV_CLOCK_TIME` | Datum und Uhrzeit für den Sonnenstand |
 | `DGM30_AUTO_DOWNLOAD`, `EOX_AUTO_DOWNLOAD` | fehlende DGM30-Kacheln bzw. das Sentinel-2-Horizontbild beim ersten Lauf automatisch laden (Standard jeweils `True`); `False` stellt den alten, rein manuellen Ablauf wieder her |
 | `DGM30_S3_BUCKET`, `DGM30_S3_REGION`, `DGM30_FETCH_MAX_RETRIES`, `DGM30_FETCH_TIMEOUT_S`, `DGM30_NOT_FOUND_CACHE_TTL_DAYS` | Feinabstimmung für den Copernicus-DEM-GLO-30-Auto-Download (Bucket/Region, Retry/Timeout, wie lange eine bestätigt fehlende Kachel - z. B. offenes Meer - vor einem erneuten Versuch als „fehlt" gemerkt wird) |
-| `EOX_WMS_URL`, `EOX_WMS_LAYER`, `EOX_WMS_VERSION`, `EOX_WMS_FORMAT`, `EOX_MAX_REQUEST_PX`, `EOX_TARGET_RESOLUTION_M`, `EOX_MOSAIC_MAX_PX`, `EOX_FETCH_MARGIN_FACTOR`, `EOX_FETCH_MAX_RETRIES`, `EOX_FETCH_TIMEOUT_S`, `EOX_KEEP_RAW_MOSAIC`, `EOX_MOSAIC_CACHE_DIR` | Feinabstimmung für den EOX-Sentinel-2-cloudless-WMS-Auto-Download (Endpunkt/Layer/Version, Größenlimit je Anfrage, Zielauflösung, Mosaik-Größenobergrenze, Rohmosaik-Cache) |
+| `EOX_WMS_URL`, `EOX_WMS_LAYER`, `EOX_WMS_VERSION`, `EOX_WMS_FORMAT`, `EOX_MAX_REQUEST_PX`, `EOX_TARGET_RESOLUTION_M`, `EOX_MOSAIC_MAX_PX`, `EOX_FETCH_MARGIN_FACTOR`, `EOX_FETCH_MAX_RETRIES`, `EOX_FETCH_TIMEOUT_S`, `EOX_KEEP_RAW_MOSAIC`, `EOX_MOSAIC_CACHE_DIR`, `EOX_TEXTURE_CACHE_DIR` | Feinabstimmung für den EOX-Sentinel-2-cloudless-WMS-Auto-Download (Endpunkt/Layer/Version, Größenlimit je Anfrage, Zielauflösung, Mosaik-Größenobergrenze, Rohmosaik- und Fertig-Textur-Cache) |
 
-Der EOX-Auto-Download hält einen Rohmosaik-Cache in `cache/horizon_source/` (`EOX_KEEP_RAW_MOSAIC = True` per
-Standard), etwa 100-250 MB je Gebiet. Er bleibt zwischen Läufen erhalten (unabhängig von der Zielauflösung der
-Horizont-Textur selbst) und kann jederzeit gelöscht werden; er wird beim nächsten Lauf bei Bedarf neu aufgebaut.
+Der EOX-Auto-Download hält zwei Caches, beide unter `cache/` und beide gebietsabhängig benannt (bei der Textur-Cache
+zusätzlich nach Zielgröße und Resampling) - ein Wechsel des Quellgebiets und zurück vermischt die beiden also nie,
+und beide können jederzeit gelöscht werden; beide werden beim nächsten Lauf bei Bedarf automatisch neu aufgebaut:
+- Das Rohmosaik in `cache/horizon_source/` (`EOX_KEEP_RAW_MOSAIC = True` per Standard), etwa 100-250 MB je Gebiet.
+- Die fertige, zugeschnittene Textur in `cache/horizon_texture/` (einige Dutzend MB, abhängig von
+  `HORIZON_IMAGE_SIZE_PX`) - das ist die Datei, die tatsächlich geladen wird, außer es liegt eine eigene Datei in
+  `data/DOP300/` (siehe „Optional" oben).
 
 ## ⏱️ Ablauf und Dauer
 

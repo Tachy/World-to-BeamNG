@@ -319,7 +319,11 @@ EOX_FETCH_MAX_RETRIES = 3
 EOX_FETCH_TIMEOUT_S = 60
 EOX_USER_AGENT = "World-to-BeamNG/1.0 (privates OSM-zu-BeamNG-Konvertierungstool)"
 EOX_KEEP_RAW_MOSAIC = True
-EOX_MOSAIC_CACHE_DIR = CACHE_DIR / "horizon_source"
+EOX_MOSAIC_CACHE_DIR = CACHE_DIR / "horizon_source"    # Rohmosaik (vor Zuschnitt), pro Gebiet+Layer gehasht
+EOX_TEXTURE_CACHE_DIR = CACHE_DIR / "horizon_texture"  # fertige, zugeschnittene Textur, pro Gebiet+Groesse+
+                                                        # Resampling+Layer gehasht - NICHT data/DOP300/, das
+                                                        # bleibt der manuelle Override-Slot (siehe
+                                                        # sentinel2_fetch.ensure_horizon_texture())
 EOX_ATTRIBUTION_NOTICE = (
     "Horizont-Hintergrundbild: EOxCloudless https://cloudless.eox.at by EOX IT Services GmbH "
     "(Contains modified Copernicus Sentinel data 2025). Lizenz: CC BY-NC-SA 4.0 "

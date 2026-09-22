@@ -28,6 +28,16 @@ from world_to_beamng.terrain.sentinel2_fetch import (
 AREA_UTM = (400000.0, 401000.0, 5300000.0, 5301000.0)  # 1x1 km bei EPSG:25832
 
 
+@pytest.fixture(autouse=True)
+def _isolate_caches(tmp_path, monkeypatch):
+    """Beide EOX-Caches (Rohmosaik + fertige Textur) IMMER auf einen frischen tmp_path umleiten -
+    sonst schreiben/lesen Tests versehentlich das echte cache/-Verzeichnis dieses Repos, und
+    Tests mit derselben AREA_UTM+size_px-Kombination würden sich gegenseitig über den Textur-Cache
+    beeinflussen (der Cache-Schlüssel hängt nicht von `dest` ab, siehe ensure_horizon_texture())."""
+    monkeypatch.setattr(config, "EOX_MOSAIC_CACHE_DIR", tmp_path / "cache_horizon_source")
+    monkeypatch.setattr(config, "EOX_TEXTURE_CACHE_DIR", tmp_path / "cache_horizon_texture")
+
+
 # --- _mercator_bbox_for_area() ------------------------------------------------------------------
 
 
@@ -270,21 +280,23 @@ def test_ensure_horizon_texture_end_to_end_creates_valid_geotiff(mock_get, tmp_p
     monkeypatch.setattr(config, "EOX_AUTO_DOWNLOAD", True)
     monkeypatch.setattr(config, "EOX_MOSAIC_MAX_PX", 60)
     monkeypatch.setattr(config, "EOX_MAX_REQUEST_PX", 60)
-    monkeypatch.setattr(config, "EOX_MOSAIC_CACHE_DIR", tmp_path / "cache_horizon_source")
 
     def fake_get(url, params=None, headers=None, timeout=None):
         return _jpeg_response(int(params["width"]), int(params["height"]))
 
     mock_get.side_effect = fake_get
 
+    # dest ist der manuelle Override-Slot, existiert hier bewusst NICHT - die automatisch gebaute
+    # Textur landet stattdessen unter config.EOX_TEXTURE_CACHE_DIR, siehe Rückgabewert.
     dest = tmp_path / "horizon_temp.tif"
     size_px = 32
 
     result = ensure_horizon_texture(AREA_UTM, dest=dest, size_px=size_px)
 
-    assert result == dest
-    assert dest.exists()
-    with rasterio.open(dest) as ds:
+    assert result != dest
+    assert not dest.exists()
+    assert result.parent == config.EOX_TEXTURE_CACHE_DIR
+    with rasterio.open(result) as ds:
         assert ds.width == size_px
         assert ds.height == size_px
         assert ds.count == 3
@@ -322,7 +334,6 @@ def test_ensure_horizon_texture_never_raises_on_unexpected_error(mock_fetch, tmp
     # ensure_horizon_texture() herauspropagieren - horizon_workflow.py verlässt sich darauf, diesen
     # Einstiegspunkt ohne eigene Fehlerbehandlung aufrufen zu können.
     monkeypatch.setattr(config, "EOX_AUTO_DOWNLOAD", True)
-    monkeypatch.setattr(config, "EOX_MOSAIC_CACHE_DIR", tmp_path / "cache_horizon_source")
     mock_fetch.side_effect = OSError("permission denied")
 
     dest = tmp_path / "horizon_temp.tif"
@@ -343,7 +354,6 @@ def test_ensure_horizon_texture_partial_failure_still_builds_texture_this_run(mo
     monkeypatch.setattr(config, "EOX_MOSAIC_MAX_PX", 100)
     monkeypatch.setattr(config, "EOX_MAX_REQUEST_PX", 50)  # -> 2x2 Kacheln
     monkeypatch.setattr(config, "EOX_FETCH_MAX_RETRIES", 2)
-    monkeypatch.setattr(config, "EOX_MOSAIC_CACHE_DIR", tmp_path / "cache_horizon_source")
 
     call_count = {"n": 0}
 
@@ -360,10 +370,13 @@ def test_ensure_horizon_texture_partial_failure_still_builds_texture_this_run(mo
 
     result = ensure_horizon_texture(AREA_UTM, dest=dest, size_px=32)
 
-    # Trotz Teilerfolg wird für DIESEN Lauf noch eine benutzbare Textur erzeugt.
-    assert result == dest
-    assert dest.exists()
-    with rasterio.open(dest) as ds:
+    # Trotz Teilerfolg wird für DIESEN Lauf noch eine benutzbare Textur erzeugt - unter einem
+    # eindeutigen "_partial"-Namen, NICHT unter dem kanonischen Cache-Namen (siehe nächster Test).
+    assert result is not None
+    assert result != dest
+    assert not dest.exists()
+    assert result.name.endswith("_partial.tif")
+    with rasterio.open(result) as ds:
         assert ds.width == 32
         assert ds.height == 32
 
@@ -375,8 +388,6 @@ def test_ensure_horizon_texture_partial_failure_does_not_cache_mosaic_for_next_r
     monkeypatch.setattr(config, "EOX_MOSAIC_MAX_PX", 100)
     monkeypatch.setattr(config, "EOX_MAX_REQUEST_PX", 50)  # -> 2x2 Kacheln
     monkeypatch.setattr(config, "EOX_FETCH_MAX_RETRIES", 2)
-    mosaic_cache_dir = tmp_path / "cache_horizon_source"
-    monkeypatch.setattr(config, "EOX_MOSAIC_CACHE_DIR", mosaic_cache_dir)
 
     call_count = {"n": 0}
 
@@ -391,23 +402,73 @@ def test_ensure_horizon_texture_partial_failure_does_not_cache_mosaic_for_next_r
 
     ensure_horizon_texture(AREA_UTM, dest=dest, size_px=32)
 
-    # Kein Rohmosaik im permanenten Cache-Verzeichnis hinterlassen (egal ob EOX_KEEP_RAW_MOSAIC
-    # True oder False ist) - sonst würde der nächste Lauf den Teilerfolg für immer als
-    # "vollständig" behandeln.
-    assert list(mosaic_cache_dir.glob("*.tif")) == []
+    # Weder Rohmosaik noch Textur unter ihrem kanonischen Cache-Namen hinterlassen (egal ob
+    # EOX_KEEP_RAW_MOSAIC True oder False ist) - sonst würde der nächste Lauf den Teilerfolg für
+    # immer als "vollständig" behandeln. Nur die eindeutig benannte "_partial.tif" (aus dem
+    # vorigen Test) darf dort liegen.
+    assert list(config.EOX_MOSAIC_CACHE_DIR.glob("*.tif")) == []
+    assert [p.name for p in config.EOX_TEXTURE_CACHE_DIR.glob("*.tif")] == [
+        p.name for p in config.EOX_TEXTURE_CACHE_DIR.glob("*_partial.tif")
+    ]
 
-    # Simuliert den vom Warnhinweis vorgeschlagenen nächsten Lauf: Nutzer löscht die Textur, um
-    # einen Retry zu erzwingen. Da auch das Mosaik nicht mehr gecacht ist, muss das Netzwerk
-    # tatsächlich erneut angefragt werden statt über den Cache-Hit-Pfad überzuspringen.
-    dest.unlink()
+    # Kein manuelles Löschen mehr nötig, um einen Retry zu erzwingen (anders als früher, als die
+    # Textur unter der festen `dest`-Datei lag): weder Mosaik- noch Textur-Cache haben einen
+    # kanonischen Treffer für dieses Gebiet, also fragt der nächste Aufruf das Netzwerk automatisch
+    # erneut an.
     call_count["n"] = 0
     mock_get.side_effect = fake_get  # frisch, damit der Zähler wieder von vorne beginnt
 
     result = ensure_horizon_texture(AREA_UTM, dest=dest, size_px=32)
 
-    assert result == dest
-    assert dest.exists()
+    assert result is not None
+    assert result.exists()
     assert call_count["n"] > 0  # Netzwerk wurde tatsächlich erneut angefragt, nicht übersprungen
+
+
+# --- Gebietswechsel: kein Vermischen/Wiederverwenden der falschen Textur -----------------------
+
+
+AREA_UTM_OTHER_REGION = (2600000.0, 2601000.0, 1200000.0, 1201000.0)  # z.B. Schweiz statt LGL
+
+
+@patch("world_to_beamng.terrain.sentinel2_fetch.requests.get")
+def test_switching_area_gets_its_own_texture_then_switching_back_reuses_the_original(mock_get, tmp_path, monkeypatch):
+    """Regression fuer den Fehler, der data/DOP300/horizon_temp.tif fest an EINE Flaeche band: die
+    automatisch generierte Textur haengt jetzt am Gebiet, nicht mehr an einem festen Dateinamen -
+    ein Gebietswechsel (z.B. testweise Schweiz statt LGL) und zurueck darf die alte Flaeche weder
+    verlieren noch mit der neuen vermischen."""
+    monkeypatch.setattr(config, "EOX_AUTO_DOWNLOAD", True)
+    monkeypatch.setattr(config, "EOX_MOSAIC_MAX_PX", 50)
+    monkeypatch.setattr(config, "EOX_MAX_REQUEST_PX", 50)
+
+    call_count = {"n": 0}
+
+    def fake_get(url, params=None, headers=None, timeout=None):
+        call_count["n"] += 1
+        return _jpeg_response(int(params["width"]), int(params["height"]))
+
+    mock_get.side_effect = fake_get
+    dest = tmp_path / "horizon_temp.tif"  # nie manuell abgelegt - bleibt in diesem Test unbenutzt
+
+    # 1) LGL-Flaeche: erster Aufruf laedt frisch.
+    result_lgl_1 = ensure_horizon_texture(AREA_UTM, dest=dest, size_px=32)
+    calls_after_lgl = call_count["n"]
+    assert calls_after_lgl > 0
+
+    # 2) Wechsel auf eine andere Flaeche (z.B. Schweiz): eigene, neue Cache-Datei, kein Konflikt
+    #    mit der LGL-Textur von oben - beide existieren danach gleichzeitig.
+    result_other = ensure_horizon_texture(AREA_UTM_OTHER_REGION, dest=dest, size_px=32)
+    assert call_count["n"] > calls_after_lgl  # echter neuer Download fuer das andere Gebiet
+    assert result_other != result_lgl_1
+    assert result_lgl_1.exists()  # LGL-Textur bleibt unangetastet liegen
+
+    # 3) Zurueck auf die LGL-Flaeche: Cache-Treffer, exakt derselbe Pfad wie beim ersten Aufruf,
+    #    KEIN neuer Netzwerk-Request.
+    calls_before_switch_back = call_count["n"]
+    result_lgl_2 = ensure_horizon_texture(AREA_UTM, dest=dest, size_px=32)
+
+    assert result_lgl_2 == result_lgl_1
+    assert call_count["n"] == calls_before_switch_back
 
 
 # --- Item 2: Attribution wird bei jeder Nutzung geloggt, auch beim Cache-Hit -------------------

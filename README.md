@@ -95,7 +95,7 @@ missing, the export reports an error in the log.
 |---|---|---|---|
 | `data/LOD2/` | 3D building models LoD2 (ZIP with CityGML) | `LoD2_32_<x>_<y>_2_bw.zip` | no buildings (`LOD2_ENABLED`) |
 | `data/DGM30/` | 30 m elevation model as GeoTIFF: **Copernicus DEM GLO-30**. Downloaded automatically on the first run (see below); a file you put here yourself is never overwritten and skips the download. Several `*.tif` files may be in the folder. | any, e.g. `Copernicus_DSM_COG_10_N47_00_E007_00_DEM.tif` | the horizon is skipped |
-| `data/DOP300/` | Satellite image for the horizon texture: **one** georeferenced RGB GeoTIFF in the resolved source CRS (default UTM 32N/EPSG:25832, or the CRS auto-detected from the DGM1 GeoTIFFs) covering ±50 km around the centre of the area. Any resolution, it is scaled to 8192×8192. Downloaded automatically on the first run (Sentinel-2 cloudless via the EOX WMS, see below); a file you put here yourself is never overwritten and skips the download. | `horizon_temp.tif` (name in `config.SENTINEL2_FILE`) | horizon without texture |
+| `data/DOP300/` | **Manual override** for the horizon satellite image: put **one** georeferenced RGB GeoTIFF here yourself (resolved source CRS, default UTM 32N/EPSG:25832, or the CRS auto-detected from the DGM1 GeoTIFFs; covers ±50 km around the centre of the area; any resolution, it is scaled to 8192×8192) and it is used as-is, never overwritten, no download. Without a file here, the auto-downloaded texture (Sentinel-2 cloudless via the EOX WMS, see below) is cached per area under `cache/horizon_texture/` instead — not in this folder — so switching to a different area and back never mixes up the two. | `horizon_temp.tif` (name in `config.SENTINEL2_FILE`) | horizon without texture |
 
 Both the DGM30 tiles and the horizon satellite image are now fetched automatically on the first run
 (`config.DGM30_AUTO_DOWNLOAD` / `config.EOX_AUTO_DOWNLOAD`, both `True` by default). The instructions below are only
@@ -214,11 +214,14 @@ All settings are in `world_to_beamng/config.py`.
 | `ENV_DATE`, `ENV_CLOCK_TIME` | Date and time of day for the position of the sun |
 | `DGM30_AUTO_DOWNLOAD`, `EOX_AUTO_DOWNLOAD` | automatically fetch missing DGM30 tiles / the Sentinel-2 horizon image on the first run (default `True` each); `False` restores the old fully-manual workflow |
 | `DGM30_S3_BUCKET`, `DGM30_S3_REGION`, `DGM30_FETCH_MAX_RETRIES`, `DGM30_FETCH_TIMEOUT_S`, `DGM30_NOT_FOUND_CACHE_TTL_DAYS` | tuning for the Copernicus DEM GLO-30 auto-download (bucket/region, retry/timeout, how long a confirmed-missing tile — e.g. open sea — is remembered before retrying) |
-| `EOX_WMS_URL`, `EOX_WMS_LAYER`, `EOX_WMS_VERSION`, `EOX_WMS_FORMAT`, `EOX_MAX_REQUEST_PX`, `EOX_TARGET_RESOLUTION_M`, `EOX_MOSAIC_MAX_PX`, `EOX_FETCH_MARGIN_FACTOR`, `EOX_FETCH_MAX_RETRIES`, `EOX_FETCH_TIMEOUT_S`, `EOX_KEEP_RAW_MOSAIC`, `EOX_MOSAIC_CACHE_DIR` | tuning for the EOX Sentinel-2 cloudless WMS auto-download (endpoint/layer/version, per-request tile size limit, target resolution, mosaic size cap, raw-mosaic cache) |
+| `EOX_WMS_URL`, `EOX_WMS_LAYER`, `EOX_WMS_VERSION`, `EOX_WMS_FORMAT`, `EOX_MAX_REQUEST_PX`, `EOX_TARGET_RESOLUTION_M`, `EOX_MOSAIC_MAX_PX`, `EOX_FETCH_MARGIN_FACTOR`, `EOX_FETCH_MAX_RETRIES`, `EOX_FETCH_TIMEOUT_S`, `EOX_KEEP_RAW_MOSAIC`, `EOX_MOSAIC_CACHE_DIR`, `EOX_TEXTURE_CACHE_DIR` | tuning for the EOX Sentinel-2 cloudless WMS auto-download (endpoint/layer/version, per-request tile size limit, target resolution, mosaic size cap, raw-mosaic and final-texture caches) |
 
-The EOX auto-download keeps a raw-mosaic cache in `cache/horizon_source/` (`EOX_KEEP_RAW_MOSAIC = True` by default),
-roughly 100–250 MB per area. It survives between runs (independent of the horizon texture's own target resolution)
-and can be deleted any time; it is rebuilt on the next run if needed.
+The EOX auto-download keeps two caches, both under `cache/` and both keyed by area (plus, for the texture cache,
+target size and resampling) — so switching to a different area and back never confuses the two, and either can be
+deleted any time; both are rebuilt automatically on the next run if needed:
+- The raw mosaic in `cache/horizon_source/` (`EOX_KEEP_RAW_MOSAIC = True` by default), roughly 100–250 MB per area.
+- The final, cropped texture in `cache/horizon_texture/` (a few dozen MB, depends on `HORIZON_IMAGE_SIZE_PX`) — this
+  is what actually gets loaded, unless you placed your own file in `data/DOP300/` (see "Optional" above).
 
 ## ⏱️ Process and duration
 

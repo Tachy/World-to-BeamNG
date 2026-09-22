@@ -111,6 +111,25 @@ def test_sentinel2_auto_download_runs_before_load_sentinel2_geotiff_when_enabled
     mock_load.assert_called_once()
 
 
+def test_load_sentinel2_geotiff_uses_the_path_returned_by_ensure_horizon_texture(monkeypatch, tmp_path):
+    """Regression: der Loader muss den von ensure_horizon_texture() ZURUECKGEGEBENEN Pfad laden,
+    nicht mehr den festen manuellen dest-Pfad - bei Auto-Download ohne manuelle Datei ist das
+    jetzt ein gebietsabhaengiger Cache-Pfad unter config.EOX_TEXTURE_CACHE_DIR (siehe
+    sentinel2_fetch.ensure_horizon_texture()-Docstring)."""
+    p_dgm30, p_mesh, _p_sentinel_load_unused, p_export = _run_past_dgm30(monkeypatch, eox_auto_download=True)
+    returned_path = tmp_path / "cache_horizon_texture" / "horizon_texture_deadbeef.tif"
+
+    with p_dgm30, p_mesh, p_export, patch(
+        "world_to_beamng.terrain.sentinel2_fetch.ensure_horizon_texture", return_value=returned_path
+    ), patch("world_to_beamng.terrain.horizon.load_sentinel2_geotiff", return_value=None) as mock_load:
+        HorizonWorkflow.generate_horizon(_stub(), global_offset=GLOBAL_OFFSET)
+
+    mock_load.assert_called_once()
+    (loaded_path, _bbox), _kwargs = mock_load.call_args
+    assert loaded_path == returned_path
+    assert loaded_path != config.DOP300_DATA_DIR / config.SENTINEL2_FILE
+
+
 def test_sentinel2_auto_download_is_skipped_when_disabled(monkeypatch):
     p_dgm30, p_mesh, p_sentinel_load, p_export = _run_past_dgm30(monkeypatch, eox_auto_download=False)
     with p_dgm30, p_mesh, p_sentinel_load, p_export, patch(

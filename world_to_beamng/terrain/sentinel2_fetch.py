@@ -1,7 +1,10 @@
 """
 Automatischer Download eines Sentinel-2-cloudless-Mosaiks (EOX WMS-Dienst, `config.EOX_WMS_URL`)
-für die Horizont-Fläche, als Rohmosaik gecacht und über `horizon_image.build_horizon_image()` zur
-finalen Horizont-Textur zugeschnitten/reprojiziert.
+für die Horizont-Fläche. Zwei getrennte Cache-Schichten (beide unter cache/, gebietsabhängig
+benannt, jederzeit sicher löschbar): das Rohmosaik (config.EOX_MOSAIC_CACHE_DIR) und die daraus
+über `horizon_image.build_horizon_image()` zugeschnittene, fertige Textur
+(config.EOX_TEXTURE_CACHE_DIR). data/DOP300/ bleibt ausschließlich der manuelle Override-Slot für
+eine selbst abgelegte Datei - siehe ensure_horizon_texture().
 
 Analog zum automatischen DGM30-Download in `world_to_beamng/terrain/dgm30_fetch.py` und zum OSM-
 Overpass-Download in `world_to_beamng/osm/downloader.py` (Retry mit exponentiellem Backoff,
@@ -249,33 +252,43 @@ def fetch_eox_mosaic(area_utm: tuple, dest_path) -> Tuple[bool, int]:
 
 def ensure_horizon_texture(area_utm: tuple, dest=None, size_px=None, resampling: str = "bilinear") -> Optional[Path]:
     """
-    Öffentlicher Einstiegspunkt: stellt sicher, dass die Horizont-Textur (config.SENTINEL2_FILE)
-    vorhanden ist - lädt bei Bedarf das EOX-Rohmosaik (gecacht, siehe config.EOX_MOSAIC_CACHE_DIR)
-    und schneidet/reprojiziert es per horizon_image.build_horizon_image() zurecht.
+    Öffentlicher Einstiegspunkt: stellt sicher, dass eine Horizont-Textur für `area_utm` verfügbar
+    ist, und liefert den Pfad, den der Aufrufer tatsächlich laden soll.
+
+    Zwei getrennte Rollen, die früher fälschlich in derselben Datei zusammenfielen:
+    - `dest` (Default config.DOP300_DATA_DIR / config.SENTINEL2_FILE) ist der MANUELLE
+      Override-Slot: legt der Nutzer dort selbst eine Datei ab, gewinnt sie immer, wird nie
+      automatisch ersetzt/gelöscht, kein Netzwerk-/Cache-Zugriff - "data/" bleibt Rohdaten/
+      Nutzereingabe.
+    - Ohne manuelle Datei landet die automatisch generierte Textur in config.EOX_TEXTURE_CACHE_DIR,
+      mit einem Dateinamen, der von Gebiet + Zielgröße + Resampling + WMS-Layer abhängt - eine
+      jederzeit sicher löschbare/regenerierbare Cache-Datei (wie das Rohmosaik), NICHT mehr die
+      feste `dest`-Datei. Das macht einen Wechsel des Quellgebiets (z. B. testweise eine andere
+      Region) automatisch korrekt: jedes Gebiet bekommt seine eigene Cache-Datei, statt dass die
+      alte, geografisch falsche Textur einfach wiederverwendet wird.
 
     Args:
         area_utm: (x_min, x_max, y_min, y_max) in der aufgelösten Quell-CRS, siehe
             horizon_image.horizon_area()
-        dest: Zieldatei; Default config.DOP300_DATA_DIR / config.SENTINEL2_FILE
+        dest: Pfad des manuellen Overrides; Default config.DOP300_DATA_DIR / config.SENTINEL2_FILE
         size_px: Kantenlänge der Zieltextur; Default config.HORIZON_IMAGE_SIZE_PX
         resampling: rasterio-Resampling-Name, siehe build_horizon_image()
 
     Returns:
-        Pfad zur Horizont-Textur, oder None, wenn kein Download versucht wurde
-        (config.EOX_AUTO_DOWNLOAD == False), der Download vollständig fehlgeschlagen ist, oder ein
-        unerwarteter Fehler auftrat. Wirft NIE - analog zu dgm30_fetch.ensure_dgm30_coverage() muss
-        dieser Einstiegspunkt bei jedem Fehler (Netzwerk, Dateisystem, CRS-Transform, ...) einfach
-        None liefern, damit horizon_workflow.py ihn ohne eigene Fehlerbehandlung aufrufen kann.
+        Pfad zur tatsächlich zu ladenden Textur (die manuelle `dest`-Datei ODER ein Pfad unter
+        config.EOX_TEXTURE_CACHE_DIR) - der Aufrufer muss GENAU diesen zurückgegebenen Pfad laden,
+        nicht mehr `dest`. None, wenn kein Download versucht wurde (config.EOX_AUTO_DOWNLOAD ==
+        False), er vollständig fehlgeschlagen ist, oder ein unerwarteter Fehler auftrat. Wirft NIE -
+        analog zu dgm30_fetch.ensure_dgm30_coverage() muss dieser Einstiegspunkt bei jedem Fehler
+        (Netzwerk, Dateisystem, CRS-Transform, ...) einfach None liefern, damit horizon_workflow.py
+        ihn ohne eigene Fehlerbehandlung aufrufen kann.
     """
     global _attribution_logged
 
     try:
-        # Diese beiden Zeilen standen früher VOR dem try-Block (billig, und Path.exists() fängt
-        # OSError intern ab) - jetzt innerhalb, damit die "wirft NIE"-Garantie der gesamten
-        # Funktion auch künftige Änderungen an diesem Prolog robust überlebt.
         dest = Path(dest) if dest is not None else config.DOP300_DATA_DIR / config.SENTINEL2_FILE
         if dest.exists():
-            # Vorhandene, manuell abgelegte Dateien werden nie angetastet - egal welchen Wert
+            # Manuell abgelegte Dateien werden nie angetastet - egal welchen Wert
             # config.EOX_AUTO_DOWNLOAD hat.
             return dest
 
@@ -284,14 +297,27 @@ def ensure_horizon_texture(area_utm: tuple, dest=None, size_px=None, resampling:
 
         size_px = size_px if size_px is not None else config.HORIZON_IMAGE_SIZE_PX
 
-        # Cache-Schlüssel fürs Rohmosaik: unabhängig von size_px (das Mosaik ist unabhängig von
-        # der Zielgröße), auf 1 m gerundete area_utm-Werte + Layer-Name (Jahr wechselt ggf.).
-        sig = f"{round(area_utm[0])}_{round(area_utm[1])}_{round(area_utm[2])}_{round(area_utm[3])}_{config.EOX_WMS_LAYER}"
-        cache_key = hashlib.sha1(sig.encode("utf-8")).hexdigest()[:16]
-        mosaic_path = config.EOX_MOSAIC_CACHE_DIR / f"eox_mosaic_{cache_key}.tif"
+        # Cache-Schlüssel fürs Rohmosaik: unabhängig von size_px/resampling (das Mosaik ist
+        # unabhängig von der Zielgröße), auf 1 m gerundete area_utm-Werte + Layer-Name.
+        area_sig = f"{round(area_utm[0])}_{round(area_utm[1])}_{round(area_utm[2])}_{round(area_utm[3])}_{config.EOX_WMS_LAYER}"
+        mosaic_cache_key = hashlib.sha1(area_sig.encode("utf-8")).hexdigest()[:16]
+        mosaic_path = config.EOX_MOSAIC_CACHE_DIR / f"eox_mosaic_{mosaic_cache_key}.tif"
 
-        # Nur bei einem frischen (Teil-)Fetch in diesem Aufruf > 0 - ein Cache-Hit lädt kein
-        # Mosaik neu und kann daher auch keine neuen fehlgeschlagenen Kacheln haben.
+        # Cache-Schlüssel für die FERTIGE, zugeschnittene Textur: zusätzlich von size_px/resampling
+        # abhängig, da diese das Ergebnis von build_horizon_image() verändern.
+        texture_cache_key = hashlib.sha1(f"{area_sig}_{size_px}_{resampling}".encode("utf-8")).hexdigest()[:16]
+        texture_path = config.EOX_TEXTURE_CACHE_DIR / f"horizon_texture_{texture_cache_key}.tif"
+
+        if texture_path.exists():
+            # Für genau dieses Gebiet/Größe/Resampling bereits fertig gebaut - weder Netzwerk noch
+            # erneuter Zuschnitt nötig.
+            if not _attribution_logged:
+                logger.info(config.EOX_ATTRIBUTION_NOTICE)
+                _attribution_logged = True
+            return texture_path
+
+        # Nur bei einem frischen (Teil-)Fetch in diesem Aufruf > 0 - ein Mosaik-Cache-Hit lädt
+        # kein Mosaik neu und kann daher auch keine neuen fehlgeschlagenen Kacheln haben.
         failed_count = 0
         if not mosaic_path.exists():
             config.EOX_MOSAIC_CACHE_DIR.mkdir(parents=True, exist_ok=True)
@@ -299,17 +325,17 @@ def ensure_horizon_texture(area_utm: tuple, dest=None, size_px=None, resampling:
             if not success:
                 return None
             if failed_count:
-                # Teilerfolg: fürs AKTUELLE Level trotzdem eine Textur bauen (unten), aber das
-                # Rohmosaik NICHT dauerhaft cachen - sonst bäckt ein einmaliger Netzwerk-Hänger
-                # eine schwarze Kachel für immer in den Horizont ein (analog zur "sonst bleibt der
-                # Fehler dauerhaft im Cache hängen"-Logik in osm/downloader.get_osm_data() und zur
-                # failed/not_found-Unterscheidung in dgm30_fetch.download_dgm30_tiles()). Der
-                # nächste Lauf sieht dann kein Cache-Hit mehr und versucht die fehlenden Kacheln
-                # erneut.
+                # Teilerfolg: fürs AKTUELLE Level trotzdem eine Textur bauen (unten), aber weder
+                # das Rohmosaik NOCH die daraus gebaute Textur dauerhaft cachen - sonst bäckt ein
+                # einmaliger Netzwerk-Hänger eine schwarze Kachel für immer in den Horizont ein
+                # (analog zur "sonst bleibt der Fehler dauerhaft im Cache hängen"-Logik in
+                # osm/downloader.get_osm_data() und zur failed/not_found-Unterscheidung in
+                # dgm30_fetch.download_dgm30_tiles()). Der nächste Lauf sieht dann keinen
+                # Mosaik-UND keinen Textur-Cache-Hit und versucht die fehlenden Kacheln erneut.
                 logger.warning(
                     f"  [!] EOX-Mosaik unvollständig ({failed_count} Kachel(n) schwarz) - wird NICHT "
-                    f"dauerhaft gecacht ({mosaic_path}). Um es mit besserer Netzwerkverbindung erneut "
-                    f"zu versuchen, {dest} löschen und den Export erneut ausführen."
+                    f"dauerhaft gecacht ({mosaic_path}). Naechster Lauf versucht die fehlenden "
+                    f"Kacheln automatisch erneut."
                 )
 
         # Die Imagery-Lizenz (CC BY-NC-SA) knüpft die Attributionspflicht an die NUTZUNG des
@@ -319,15 +345,23 @@ def ensure_horizon_texture(area_utm: tuple, dest=None, size_px=None, resampling:
             logger.info(config.EOX_ATTRIBUTION_NOTICE)
             _attribution_logged = True
 
-        build_horizon_image(mosaic_path, dest, area=area_utm, size_px=size_px, resampling=resampling)
+        config.EOX_TEXTURE_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        build_horizon_image(mosaic_path, texture_path, area=area_utm, size_px=size_px, resampling=resampling)
 
-        # Teilweise fehlgeschlagenes Mosaik (s.o.) nie dauerhaft im Cache belassen, unabhängig von
-        # config.EOX_KEEP_RAW_MOSAIC - dieses Level bekommt seine Textur trotzdem (oben bereits
-        # gebaut), aber der nächste Lauf soll erneut versuchen.
-        if not config.EOX_KEEP_RAW_MOSAIC or failed_count:
+        if failed_count:
+            # Unvollständige Textur nicht unter dem kanonischen Cache-Namen liegen lassen - sonst
+            # würde ein späterer Lauf sie fälschlich als vollständigen Cache-Hit übernehmen. Für
+            # DIESEN Lauf bleibt sie trotzdem nutzbar: unter eindeutigem Namen umbenannt: der
+            # Aufrufer liest gleich danach genau den hier zurückgegebenen Pfad.
+            partial_path = texture_path.with_name(f"{texture_path.stem}_partial.tif")
+            os.replace(texture_path, partial_path)
+            mosaic_path.unlink(missing_ok=True)
+            return partial_path
+
+        if not config.EOX_KEEP_RAW_MOSAIC:
             mosaic_path.unlink(missing_ok=True)
 
-        return dest if dest.exists() else None
+        return texture_path if texture_path.exists() else None
 
     except Exception as e:
         logger.error(f"  [x] Horizont-Textur-Auto-Download fehlgeschlagen: {e}")
