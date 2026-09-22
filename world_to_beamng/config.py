@@ -193,6 +193,17 @@ WALL_TEXTURE_TILE_M = 1.2  # Rückfall für die Kachelgröße der Bruchstein-Tex
 WALL_TEXTURE_NAME = "rubble_stone_wall"  # Name der Bruchstein-Textur in data/textures (Foto, tools/make_seamless_texture.py)
 WALL_MATERIAL_NAME = "rubble_stone_wall"  # "wall" im Namen wählt das Wand-Template; Texturen: WALL_TEXTURE_NAME (textures/registry.py)
 
+# Brücken (OSM highway=* mit bridge=*): generisches Beton-Deck mit dem Fahrbahnmaterial der Straße obenauf und
+# Stützpfeilern zum natürlichen Gelände darunter (siehe Design-Spec docs/superpowers/specs/
+# 2026-09-22-bridges-tunnels-design.md Abschnitt 4). Ersetzt für diese Straßen die normale Terrain-Einbettung
+# und den DecalRoad-Export.
+BRIDGES_ENABLED = True
+BRIDGE_DECK_THICKNESS = 0.6  # Deck-Dicke in Metern
+BRIDGE_PIER_SPACING = 25.0  # Abstand der Stützpfeiler entlang der Brücke, in Metern
+BRIDGE_PIER_SIZE = 1.5  # Querschnitt der (quadratischen) Stützpfeiler, in Metern
+BRIDGE_MIN_PIER_CLEARANCE = 1.0  # kein Pfeiler, wenn der Abstand Deck-Unterkante/Gelände kleiner ist, in Metern
+BRIDGE_MATERIAL_NAME = "bridge_concrete"  # Pfeiler-Material (Textur: CONCRETE_TEXTURE_NAME, siehe Task 10)
+
 # === LOD2-DACH-TEXTUR ===
 # t_roof_slates_rounded_b.color.dds (256 px) zeigt 5 Biberschwanz-Ziegel nebeneinander je Wiederholung (6 Reihen
 # übereinander). Die UVs sind metrisch: eine Wiederholung = ROOF_REPEAT_M Meter in der Dachebene, ein Ziegel ist
@@ -216,6 +227,11 @@ FLAT_ROOF_GRAVEL_TEXTURE = "roof_gravel"  # Name in data/textures
 FLAT_ROOF_GRAVEL_TEXTURE_PX = 1024
 FLAT_ROOF_EDGE_HEIGHT_M = 0.25
 FLAT_ROOF_EDGE_THICKNESS_M = 0.05
+
+# Prozedurale Beton-Textur für Brücken-Pfeiler, Tunnel-Wände/Decke/Portale und Galerie-Dach/Stützen.
+CONCRETE_TEXTURE_NAME = "tunnel_concrete"
+CONCRETE_TEXTURE_TILE_M = 2.0
+CONCRETE_TEXTURE_PX = 1024
 
 # === LOD2-WÄNDE (verputzt) ===
 # Wand = EIN ungeschnittenes Polygon mit fugenloser, metrisch gekachelter Putztextur (FACADE_PLASTER_REPEAT_M Meter je

@@ -475,6 +475,11 @@ class TerrainWorkflow:
                 road_slope_polygons_2d,
             )
 
+        # Brücken (Deck + Pfeiler) auf der fertigen Heightmap - siehe bridges/bridge_mesh.py
+        bridge_meshes = []
+        if config.BRIDGES_ENABLED:
+            bridge_meshes = self._build_bridges(structure_road_polygons, heights, terrain_origin_x, terrain_origin_y)
+
         z_min = float(heights.min())
         z_max = float(heights.max())
         max_height = (z_max - z_min) + config.TERRAIN_MAX_HEIGHT_BUFFER
@@ -497,6 +502,7 @@ class TerrainWorkflow:
             "vineyard_instances": vineyard_instances,  # Forest-Items (grape_vine)
             "water": water,  # {"rivers": [...], "ponds": [...]} für export_water()
             "wall_meshes": wall_meshes,  # Mesh-Dicts der Bruchsteinmauern für export_walls()
+            "bridge_meshes": bridge_meshes,  # Brücken-Mesh-Dicts für export_bridges()
             "grid": grid,
             "road_polygons": road_polygons,
             "road_slope_polygons_2d": road_slope_polygons_2d,  # Für DecalRoad-Export
@@ -610,6 +616,89 @@ class TerrainWorkflow:
             f"{stats['without_height']} ohne Höhenangabe übersprungen"
         )
         return meshes, stats
+
+    def _build_bridges(self, structure_road_polygons: List[Dict], heights: np.ndarray, terrain_origin_x: float, terrain_origin_y: float) -> List[Dict]:
+        """Brücken-Meshes (Deck + Pfeiler) für alle Straßen mit structure_type == "bridge" (siehe bridges/bridge_mesh.py)."""
+        from ..bridges.bridge_mesh import build_bridges
+        from ..terrain.road_embedding import sample_heightmap_bilinear
+
+        def ground_at(x, y):
+            return sample_heightmap_bilinear(heights, terrain_origin_x, terrain_origin_y, config.TERRAIN_SQUARE_SIZE, np.column_stack([x, y]))
+
+        bridges = [
+            {
+                "id": road["road_id"],
+                "coords": road["trimmed_centerline"],
+                "width": config.OSM_MAPPER.get_road_properties(road.get("osm_tags", {}))["width"],
+                "deck_material": config.OSM_MAPPER.get_road_properties(road.get("osm_tags", {})).get("internal_name", "road_default"),
+            }
+            for road in structure_road_polygons
+            if road.get("structure_type") == "bridge"
+        ]
+        return build_bridges(
+            bridges,
+            ground_at,
+            pier_material=config.BRIDGE_MATERIAL_NAME,
+            deck_thickness=config.BRIDGE_DECK_THICKNESS,
+            pier_spacing=config.BRIDGE_PIER_SPACING,
+            pier_size=config.BRIDGE_PIER_SIZE,
+            min_pier_clearance=config.BRIDGE_MIN_PIER_CLEARANCE,
+        )
+
+    def export_bridges(self, mesh_data: Dict) -> int:
+        """
+        Exportiert Brücken als EINE DAE (Deck + Pfeiler je Brücke) mit EINEM TSStatic und registriert Fahrbahn-
+        und Beton-Material. Ohne Brücken werden Reste eines früheren Exports entfernt.
+
+        Returns:
+            Anzahl exportierter Brücken
+        """
+        bridges_dir = config.BEAMNG_DIR_SHAPES / "bridges"
+        meshes = mesh_data.get("bridge_meshes") or []
+        if not config.BRIDGES_ENABLED or not meshes:
+            for suffix in (".dae", ".cdae"):
+                (bridges_dir / f"bridges{suffix}").unlink(missing_ok=True)
+            return 0
+
+        from ..textures import registry
+
+        hints = self.materials.get_templates().get("buildings", {}).get("wall", {}).get("material_hints", {})
+        concrete = registry.prepared_textures()[config.CONCRETE_TEXTURE_NAME]
+        self.materials.add_building_material(
+            config.BRIDGE_MATERIAL_NAME,
+            textures={**concrete, "useAnisotropic": True},
+            groundType=hints.get("groundType", "concrete"),
+            materialTag0=hints.get("materialTag0", "beamng"),
+            materialTag1=hints.get("materialTag1", "Building"),
+        )
+
+        unique_deck_materials: Dict[str, Dict] = {}
+        for road in mesh_data.get("structure_road_polygons", []):
+            if road.get("structure_type") != "bridge":
+                continue
+            props = config.OSM_MAPPER.get_road_properties(road.get("osm_tags", {}))
+            unique_deck_materials[props.get("internal_name", "road_default")] = props
+
+        for mat_name, props in unique_deck_materials.items():
+            self.materials.add_building_material(
+                mat_name,
+                textures=props.get("textures", {}),
+                groundType=str(props.get("groundModelName", "asphalt")).upper(),
+                materialTag0="RoadAndPath",
+                materialTag1="beamng",
+            )
+
+        self.dae.export_multi_mesh(output_path=bridges_dir / "bridges.dae", meshes=meshes, with_uv=True)
+        self.items.add_item(
+            "bridges",
+            item_class="TSStatic",
+            shape_name=str(config.RELATIVE_DIR_SHAPES / "bridges" / "bridges.dae"),
+            position=(0, 0, 0),
+            overwrite=True,
+            collisionType="Visible Mesh Final",
+        )
+        logger.info(f"  [OK] {len(meshes)} Brücken exportiert (bridges.dae)")
+        return len(meshes)
 
     def _set_fog_height(self, heights: np.ndarray) -> None:
         """
@@ -974,6 +1063,7 @@ class TerrainWorkflow:
         road_count = self.export_decal_roads(mesh_data)
         self.export_water(mesh_data)
         self.export_walls(mesh_data)
+        self.export_bridges(mesh_data)
         self.export_merged_terrain(
             heights=mesh_data["heightmap"],
             layer_map=mesh_data["layer_map"],
