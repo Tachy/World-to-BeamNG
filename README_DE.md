@@ -96,10 +96,15 @@ Luftbild, meldet der Export einen Fehler im Log.
 | Ordner | Inhalt | Dateiname | Wenn es fehlt |
 |---|---|---|---|
 | `data/LOD2/` | 3D-Gebäudemodelle LoD2 (ZIP mit CityGML) | `LoD2_32_<x>_<y>_2_bw.zip` | keine Gebäude (`LOD2_ENABLED`) |
-| `data/DGM30/` | Höhenmodell 30 m als GeoTIFF: **Copernicus DEM GLO-30**, selbst herunterladen (siehe unten). Es dürfen mehrere `*.tif` im Ordner liegen. | beliebig, z. B. `Copernicus_DSM_COG_10_N47_00_E007_00_DEM.tif` | Horizont wird übersprungen |
-| `data/DOP300/` | Satellitenbild für die Horizont-Textur: **ein** georeferenziertes RGB-GeoTIFF in der aufgelösten Quell-CRS (Standard UTM 32N/EPSG:25832, oder die aus den DGM1-GeoTIFFs erkannte CRS), das die ±50 km um die Gebietsmitte abdeckt. Beliebige Auflösung, es wird auf 8192×8192 skaliert. | `horizon_temp.tif` (Name in `config.SENTINEL2_FILE`) | Horizont ohne Textur |
+| `data/DGM30/` | Höhenmodell 30 m als GeoTIFF: **Copernicus DEM GLO-30**. Wird beim ersten Lauf automatisch geladen (siehe unten); eine eigene Datei an dieser Stelle wird nie überschrieben und überspringt den Download. Es dürfen mehrere `*.tif` im Ordner liegen. | beliebig, z. B. `Copernicus_DSM_COG_10_N47_00_E007_00_DEM.tif` | Horizont wird übersprungen |
+| `data/DOP300/` | Satellitenbild für die Horizont-Textur: **ein** georeferenziertes RGB-GeoTIFF in der aufgelösten Quell-CRS (Standard UTM 32N/EPSG:25832, oder die aus den DGM1-GeoTIFFs erkannte CRS), das die ±50 km um die Gebietsmitte abdeckt. Beliebige Auflösung, es wird auf 8192×8192 skaliert. Wird beim ersten Lauf automatisch geladen (Sentinel-2 cloudless über den EOX-WMS, siehe unten); eine eigene Datei an dieser Stelle wird nie überschrieben und überspringt den Download. | `horizon_temp.tif` (Name in `config.SENTINEL2_FILE`) | Horizont ohne Textur |
 
-**DGM30 herunterladen:** Das Programm lädt es nicht selbst. Verwendet wird das **Copernicus DEM GLO-30** (30 m,
+Sowohl die DGM30-Kacheln als auch das Horizont-Satellitenbild werden inzwischen beim ersten Lauf automatisch geladen
+(`config.DGM30_AUTO_DOWNLOAD` / `config.EOX_AUTO_DOWNLOAD`, beide standardmäßig `True`). Die folgende Anleitung wird
+nur noch für den Offline-Betrieb, eine eigene Bildquelle oder das manuelle Nachlegen einer einzelnen Kachel benötigt,
+die der Auto-Download nicht bekommen konnte.
+
+**DGM30 herunterladen:** Verwendet wird das **Copernicus DEM GLO-30** (30 m,
 weltweit, kostenlos). Am einfachsten ohne Konto aus dem öffentlichen AWS-Bucket `copernicus-dem-30m`
 (Region eu-central-1, Cloud-Optimized GeoTIFFs, je Kachel etwa 43 MB). Eine Kachel deckt 1° × 1° ab, der Name
 enthält ihre Südwest-Ecke:
@@ -118,7 +123,13 @@ enden, und der Horizont ist dort kürzer. Mit dem AWS-Kommandozeilenwerkzeug geh
 Alternativen sind das Copernicus Data Space Ecosystem (<https://dataspace.copernicus.eu>) und OpenTopography
 (<https://opentopography.org>).
 
-**Horizont-Bild:** Es gibt keinen automatischen Download für das Satellitenbild, aber ein Werkzeug, das es aus
+**Horizont-Bild:** Das Bild, das der Auto-Download lädt, stammt von **Sentinel-2 cloudless (s2cloudless) von EOX IT
+Services GmbH** (<https://cloudless.eox.at>), lizenziert unter **CC BY-NC-SA 4.0** (nicht-kommerzielle Nutzung,
+Namensnennung + Weitergabe unter gleichen Bedingungen erforderlich) - den genauen Pflicht-Attributionstext siehe
+„Lizenz und Quellenangaben" unten. Wer stattdessen ein eigenes Bild einsetzt (über `tools\make_horizon_image.py`),
+unterliegt den Lizenzbedingungen dieser eigenen Quelle, nicht den obigen.
+
+Für den Offline-Betrieb oder eine andere Quelle gibt es außerdem ein Werkzeug, das die Datei aus
 jedem georeferenzierten RGB-Bild erzeugt (z. B. einem Sentinel-2-Export in Web-Mercator oder WGS84). Es schneidet
 genau die Horizont-Fläche (±50 km um die Gebietsmitte, sie ergibt sich aus den DGM1-Kacheln) aus, projiziert in die
 aufgelöste Quell-CRS um und schreibt `data/DOP300/horizon_temp.tif`:
@@ -204,6 +215,13 @@ Alle Einstellungen stehen in `world_to_beamng/config.py`.
 | `PHOTO_TILE_SIZE_M` | Kachelgröße (Meter) des Luftbild-/Material-Rasters (Standard 2000), unabhängig von der Kachelung der Rohdaten |
 | `SOURCE_CRS_EPSG` | Fallback-Quell-CRS (Standard 25832) für Höhendaten ohne eingebettetes CRS (reine ASCII-XYZ); wird für GeoTIFF-Quellen ignoriert, deren CRS automatisch erkannt wird |
 | `ENV_DATE`, `ENV_CLOCK_TIME` | Datum und Uhrzeit für den Sonnenstand |
+| `DGM30_AUTO_DOWNLOAD`, `EOX_AUTO_DOWNLOAD` | fehlende DGM30-Kacheln bzw. das Sentinel-2-Horizontbild beim ersten Lauf automatisch laden (Standard jeweils `True`); `False` stellt den alten, rein manuellen Ablauf wieder her |
+| `DGM30_S3_BUCKET`, `DGM30_S3_REGION`, `DGM30_FETCH_MAX_RETRIES`, `DGM30_FETCH_TIMEOUT_S`, `DGM30_NOT_FOUND_CACHE_TTL_DAYS` | Feinabstimmung für den Copernicus-DEM-GLO-30-Auto-Download (Bucket/Region, Retry/Timeout, wie lange eine bestätigt fehlende Kachel - z. B. offenes Meer - vor einem erneuten Versuch als „fehlt" gemerkt wird) |
+| `EOX_WMS_URL`, `EOX_WMS_LAYER`, `EOX_WMS_VERSION`, `EOX_WMS_FORMAT`, `EOX_MAX_REQUEST_PX`, `EOX_TARGET_RESOLUTION_M`, `EOX_MOSAIC_MAX_PX`, `EOX_FETCH_MARGIN_FACTOR`, `EOX_FETCH_MAX_RETRIES`, `EOX_FETCH_TIMEOUT_S`, `EOX_KEEP_RAW_MOSAIC`, `EOX_MOSAIC_CACHE_DIR` | Feinabstimmung für den EOX-Sentinel-2-cloudless-WMS-Auto-Download (Endpunkt/Layer/Version, Größenlimit je Anfrage, Zielauflösung, Mosaik-Größenobergrenze, Rohmosaik-Cache) |
+
+Der EOX-Auto-Download hält einen Rohmosaik-Cache in `cache/horizon_source/` (`EOX_KEEP_RAW_MOSAIC = True` per
+Standard), etwa 100-250 MB je Gebiet. Er bleibt zwischen Läufen erhalten (unabhängig von der Zielauflösung der
+Horizont-Textur selbst) und kann jederzeit gelöscht werden; er wird beim nächsten Lauf bei Bedarf neu aufgebaut.
 
 ## ⏱️ Ablauf und Dauer
 
@@ -224,6 +242,7 @@ Caches etwa eine Minute. Der erste Lauf ist länger, weil OSM geladen und die Ca
 | Level erscheint nicht in BeamNG | prüfen, ob `%LOCALAPPDATA%\BeamNG\BeamNG.drive\current\levels\world_to_beamng` entstanden ist; sonst `BEAMNG_DIR` in `config.py` anpassen |
 | `DGM30-Dateien decken die Horizont-Fläche … nicht ab` | Kacheln für die genannte Himmelsrichtung nach `data/DGM30/` legen (siehe oben) |
 | `Keine DGM30-Dateien` | `data/DGM30/` ist leer; der Horizont wird sonst übersprungen |
+| `DGM30-Auto-Download fehlgeschlagen` / Sentinel-2-Auto-Download funktioniert nicht, kein Internet | der Auto-Download protokolliert eine Warnung und fällt auf das bisherige Überspringen-Verhalten zurück (Horizont übersprungen / Horizont ohne Textur) - er bricht den Export nie ganz ab; er versucht es beim nächsten Lauf erneut, sobald das Netzwerk wieder da ist |
 | Horizont ohne Textur oder verschoben | `tools\make_horizon_image.py` verwenden; die Datei muss genau die Horizont-Fläche in der aufgelösten Quell-CRS zeigen |
 | Absturz oder Fehler beim Laden des Levels | `C:\Users\<NAME>\AppData\Local\BeamNG\BeamNG.drive\current\beamng.log` auf `\|E\|`-Zeilen prüfen |
 | OSM-Zeitüberschreitung | das Programm probiert Ersatz-Server; erneut starten, erfolgreiche Antworten sind gecacht |
@@ -271,6 +290,12 @@ Der Code steht unter der **MIT License** (siehe [LICENSE](LICENSE)). Für die Da
 - **OpenStreetMap**: © OpenStreetMap-Mitwirkende, [ODbL](https://www.openstreetmap.org/copyright).
 - **Copernicus DEM GLO-30** (Horizont): frei nutzbar unter den Bedingungen der Copernicus-Lizenz, siehe
   <https://dataspace.copernicus.eu/explore-data/data-collections/copernicus-contributing-missions/collections-description/COP-DEM>.
+- **Sentinel-2 cloudless (s2cloudless)** (Horizont-Hintergrundbild): © EOX IT Services GmbH,
+  <https://cloudless.eox.at>, lizenziert unter CC BY-NC-SA 4.0 (nicht-kommerzielle Nutzung, Namensnennung +
+  Weitergabe unter gleichen Bedingungen erforderlich) - siehe <https://cloudless.eox.at/documentation/license>.
+  Pflicht-Attribution: "EOxCloudless https://cloudless.eox.at by EOX IT Services GmbH (Contains modified
+  Copernicus Sentinel data 2025)". Kommerzielle Nutzung erfordert eine separate EOX Commercial
+  Attribution-RestrictedUse-Lizenz.
 - **BeamNG-Inhalte** (Texturen, Bäume) bleiben Eigentum von BeamNG und werden nur aus der eigenen Installation in das
   eigene Level kopiert. Sie gehören nicht ins Repository.
 
