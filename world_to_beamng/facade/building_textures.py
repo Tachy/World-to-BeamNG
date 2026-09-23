@@ -84,7 +84,7 @@ def ensure_building_textures(output_dir: Path = None) -> Dict[str, str]:
 
 
 def _generate(output_dir: Path, entries: List[_Entry]) -> None:
-    logger.info("  [i] Erzeuge Putz- und Fenstertexturen ...")
+    logger.debug("  [i] Erzeuge Putz- und Fenstertexturen ...")
     generated = {
         "plaster": PlasterTextureGenerator().generate(),
         "windows": WindowAtlasGenerator().generate(),

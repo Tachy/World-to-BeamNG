@@ -113,7 +113,7 @@ def prepare_textures(
     result = {spec.name: paths[spec.name] for spec in specs}
     for spec in specs:
         kind = "prozedural" if spec.generate else "Foto"
-        logger.info(f"  [OK] Textur {spec.name:<22} {library.texture_tile_m(spec.name, 0.0, library_dir):5.2f} m  ({kind})  -> {spec.used_by}")
+        logger.debug(f"  [OK] Textur {spec.name:<22} {library.texture_tile_m(spec.name, 0.0, library_dir):5.2f} m  ({kind})  -> {spec.used_by}")
     _prepared = result
     return result
 

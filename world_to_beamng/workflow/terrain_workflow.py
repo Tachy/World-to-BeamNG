@@ -646,7 +646,7 @@ class TerrainWorkflow:
                             rivers.append({"name": f"river_{len(rivers)}", "waterway": way["waterway"], "nodes": chunk})
 
         length = sum(sum(((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2) ** 0.5 for a, b in zip(r["nodes"], r["nodes"][1:])) for r in rivers)
-        logger.info(
+        logger.debug(
             f"  [OK] Wasser: {len(rivers)} River-Objekt(e) ({length:.0f} m Bachlauf), "
             f"{len(ponds)} Wasserfläche(n) mit {sum(len(p['blocks']) for p in ponds)} WaterBlocks"
         )
@@ -683,7 +683,7 @@ class TerrainWorkflow:
             cap_plate_length=config.WALL_CAP_PLATE_LENGTH,
             cap_joint=config.WALL_CAP_JOINT,
         )
-        logger.info(
+        logger.debug(
             f"  [OK] Mauern: {stats['built']} Bruchsteinmauer(n) mit Höhenangabe ({stats['length']:.0f} m), "
             f"{stats['without_height']} ohne Höhenangabe übersprungen"
         )

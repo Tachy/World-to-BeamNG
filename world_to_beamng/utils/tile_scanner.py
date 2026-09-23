@@ -79,7 +79,7 @@ def scan_elevation_tiles(dgm_dir, cache_dir=None) -> List[Dict]:
         logger.info(f"[INFO] {len(tiles)} Höhendaten-Kacheln gefunden")
         for tile in tiles:
             x0, x1, y0, y1 = tile["bbox_utm"]
-            logger.info(f"  - {tile['filename']} → X={x0:.0f}..{x1:.0f}, Y={y0:.0f}..{y1:.0f}")
+            logger.debug(f"  - {tile['filename']} → X={x0:.0f}..{x1:.0f}, Y={y0:.0f}..{y1:.0f}")
 
     return tiles
 

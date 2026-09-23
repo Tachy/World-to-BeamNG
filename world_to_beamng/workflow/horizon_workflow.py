@@ -76,17 +76,17 @@ class HorizonWorkflow:
         horizon_bbox = horizon_area(global_offset)
         x_min, x_max, y_min, y_max = horizon_bbox
 
-        logger.info(f"  [i] Horizont-BBOX: ±{config.HORIZON_HALF_SIZE_M / 1000:.0f}km um ({ox:.0f}, {oy:.0f})")
-        logger.info(f"      UTM (EPSG:25832): X=[{x_min:.0f}..{x_max:.0f}], Y=[{y_min:.0f}..{y_max:.0f}]")
-        logger.info(f"      Breite: {x_max - x_min:.0f}m, Höhe: {y_max - y_min:.0f}m")
+        logger.debug(f"  [i] Horizont-BBOX: ±{config.HORIZON_HALF_SIZE_M / 1000:.0f}km um ({ox:.0f}, {oy:.0f})")
+        logger.debug(f"      UTM (EPSG:25832): X=[{x_min:.0f}..{x_max:.0f}], Y=[{y_min:.0f}..{y_max:.0f}]")
+        logger.debug(f"      Breite: {x_max - x_min:.0f}m, Höhe: {y_max - y_min:.0f}m")
 
         # === DGM30 laden ===
         dgm30_dir = config.DGM30_CACHE_DIR
         if config.DGM30_AUTO_DOWNLOAD:
-            logger.info("  [i] Prüfe DGM30-Abdeckung (lädt fehlende Kacheln bei Bedarf)...")
+            logger.debug("  [i] Prüfe DGM30-Abdeckung (lädt fehlende Kacheln bei Bedarf)...")
             ensure_dgm30_coverage(horizon_area_wgs84(global_offset), dgm30_dir)
 
-        logger.info("  [i] Lade DGM30-Daten (30m)...")
+        logger.debug("  [i] Lade DGM30-Daten (30m)...")
         height_points, height_elevations = load_dgm30_tiles(
             dgm30_dir, horizon_bbox, local_offset=global_offset, tile_hash=tile_hash
         )
@@ -95,11 +95,8 @@ class HorizonWorkflow:
             logger.warning("  [!] DGM30-Daten nicht gefunden - Phase 5 übersprungen")
             return None
 
-        # === Mesh generieren ===
-        logger.info("  [i] Generiere Horizont-Mesh...")
-
         # === STEP 1: Generiere Horizont-Mesh (separater VM, OHNE UVs noch) ===
-        logger.info("  [i] Generiere Horizont-Mesh...")
+        logger.debug("  [i] Generiere Horizont-Mesh...")
 
         # WICHTIG: IMMER separater VM
         horizon_mesh, nx, ny = generate_horizon_mesh(
@@ -115,11 +112,11 @@ class HorizonWorkflow:
         # unter config.EOX_TEXTURE_CACHE_DIR oder None (Auto-Download deaktiviert/fehlgeschlagen).
         sentinel2_file = None
         if config.EOX_AUTO_DOWNLOAD:
-            logger.info("  [i] Prüfe Sentinel-2-Textur (lädt bei Bedarf automatisch)...")
+            logger.debug("  [i] Prüfe Sentinel-2-Textur (lädt bei Bedarf automatisch)...")
             sentinel2_file = ensure_horizon_texture(horizon_bbox)
 
         if sentinel2_file is not None:
-            logger.info("  [i] Lade Sentinel-2 Satellitenbilder...")
+            logger.debug("  [i] Lade Sentinel-2 Satellitenbilder...")
             sentinel2_data = load_sentinel2_geotiff(sentinel2_file, horizon_bbox, tile_hash=tile_hash)
         else:
             sentinel2_data = None
@@ -135,19 +132,19 @@ class HorizonWorkflow:
             mesh_x_min, mesh_x_max = vertices[:, 0].min(), vertices[:, 0].max()
             mesh_y_min, mesh_y_max = vertices[:, 1].min(), vertices[:, 1].max()
 
-            logger.info(
+            logger.debug(
                 f"      Mesh Bounds (lokal): X=[{mesh_x_min:.0f}..{mesh_x_max:.0f}], Y=[{mesh_y_min:.0f}..{mesh_y_max:.0f}]"
             )
-            logger.info(
+            logger.debug(
                 f"      Texture Bounds (UTM): X=[{bounds_utm[0]:.0f}..{bounds_utm[2]:.0f}], Y=[{bounds_utm[1]:.0f}..{bounds_utm[3]:.0f}]"
             )
 
             # === Texturierung ===
-            logger.info("  [i] Texturiere Horizont-Mesh...")
+            logger.debug("  [i] Texturiere Horizont-Mesh...")
             texture_info = texture_horizon_mesh(vertices, horizon_image, nx, ny, bounds_utm, transform, global_offset)
 
         # === STEP 2: UVs generieren (für alle Vertices) ===
-        logger.info("  [i] Generiere UVs für Horizont-Mesh...")
+        logger.debug("  [i] Generiere UVs für Horizont-Mesh...")
         horizon_vertices = horizon_mesh.vertex_manager.vertices
         mesh_x_min = horizon_vertices[:, 0].min()
         mesh_x_max = horizon_vertices[:, 0].max()
@@ -164,10 +161,10 @@ class HorizonWorkflow:
             v = (vertex[1] - mesh_y_min) / max(mesh_height, 1e-10)
             horizon_mesh.uvs.append((u, v))
 
-        logger.info(f"  [✓] {len(horizon_mesh.uvs)} UVs generiert für {len(horizon_vertices)} Vertices")
+        logger.debug(f"  [✓] {len(horizon_mesh.uvs)} UVs generiert für {len(horizon_vertices)} Vertices")
 
         # === Export ===
-        logger.info("  [i] Exportiere Horizont DAE...")
+        logger.debug("  [i] Exportiere Horizont DAE...")
 
         dae_filename = export_horizon_dae(
             horizon_mesh,
@@ -180,7 +177,7 @@ class HorizonWorkflow:
         logger.info(f"  [✓] Horizon DAE: {dae_filename}")
 
         # === Materials & Items ===
-        logger.info("  [i] Registriere Materials & Items...")
+        logger.debug("  [i] Registriere Materials & Items...")
         texture_path = str(config.RELATIVE_DIR_TEXTURES / "horizon_sentinel2.dds")
         self.materials.add_horizon_material(texture_path)
         self.items.add_horizon(
