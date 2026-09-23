@@ -558,14 +558,10 @@ class BeamNGExporter:
             forest_result = self.forests.finalize_forest_export()
 
             if forest_result["status"] == "success":
-                logger.info(f"[✓] Forest: forest.forest4.json ({forest_result['total_trees']} Bäume)")
-
-                # Detaillierte Statistiken
-                stats = forest_result["statistics"]
-                if stats.get("types"):
-                    logger.info(f"    Baumarten:")
-                    for tree_type, count in sorted(stats["types"].items(), key=lambda x: x[1], reverse=True):
-                        logger.info(f"      • {tree_type}: {count}")
+                # Detaillierte Statistiken (Gesamt-Bäume, Baumarten-Liste, Scale, Höhenbereich) loggt
+                # forests.finalize_forest_export() bereits selbst (forest_workflow.py) - hier keine
+                # zweite, redundante Zusammenfassung.
+                pass
             elif forest_result["status"] == "no_forests":
                 logger.info("Keine Wälder generiert")
             else:

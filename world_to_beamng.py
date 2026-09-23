@@ -21,7 +21,7 @@ logger = LoggerConfig.get_logger()
 from world_to_beamng.export import BeamNGExporter
 from world_to_beamng.textures.registry import MissingTexturesError
 from world_to_beamng.geometry import coordinates
-from world_to_beamng.progress import Pipeline
+from world_to_beamng.progress import Pipeline, console
 from world_to_beamng.utils.tile_scanner import scan_elevation_tiles, compute_global_center, resolve_source_crs_epsg
 
 
@@ -59,21 +59,25 @@ def main():
             include_buildings=config.LOD2_ENABLED,
             include_horizon=config.PHASE5_ENABLED,
         )
-    except MissingTexturesError as error:  # Foto-Textur fehlt: klare Meldung statt Traceback, Exit-Code 1
-        logger.error(f"\n[!] Export abgebrochen:\n{error}")
+    except MissingTexturesError:
+        # Die volle Fehlermeldung steht bereits in der "✗ Texturen - ..."-Zeile der Hauptaufgabe
+        # (siehe PipelineTask.__exit__ in progress.py) - hier nicht nochmal ausgeben.
+        logger.error("Export abgebrochen - siehe Fehlermeldung oben.")
         sys.exit(1)
 
-    # Statistiken
+    # Statistiken - über console.print() statt logger, damit die Box nicht durch RichHandlers
+    # Level-Spalte verrutscht (mehrzeilige logger.info()-Aufrufe wurden dort falsch eingerückt).
     elapsed = time.time() - start_time
-    logger.info(f"\n{'='*60}")
-    logger.info("EXPORT ABGESCHLOSSEN")
-    logger.info(f"{'='*60}")
-    logger.info(f"Tiles verarbeitet: {stats['tiles_processed']}")
-    logger.info(f"Tiles fehlgeschlagen: {stats['tiles_failed']}")
-    logger.info(f"Gebäude exportiert: {stats['buildings_exported']}")
-    logger.info(f"Horizon exportiert: {'Ja' if stats['horizon_exported'] else 'Nein'}")
-    logger.info(f"Gesamtzeit: {elapsed:.1f}s")
-    logger.info(f"{'='*60}\n")
+    console.print()
+    console.print("[bold]" + "=" * 60 + "[/bold]")
+    console.print("[bold]EXPORT ABGESCHLOSSEN[/bold]")
+    console.print("[bold]" + "=" * 60 + "[/bold]")
+    console.print(f"Tiles verarbeitet: {stats['tiles_processed']}")
+    console.print(f"Tiles fehlgeschlagen: {stats['tiles_failed']}")
+    console.print(f"Gebäude exportiert: {stats['buildings_exported']}")
+    console.print(f"Horizon exportiert: {'Ja' if stats['horizon_exported'] else 'Nein'}")
+    console.print(f"Gesamtzeit: {elapsed:.1f}s")
+    console.print("[bold]" + "=" * 60 + "[/bold]")
 
 
 if __name__ == "__main__":

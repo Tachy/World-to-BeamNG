@@ -130,7 +130,6 @@ class TerrainWorkflow:
             logger.warning("  [!] Keine OSM-Daten")
             sub.fail("keine OSM-Daten")
             return {"status": "failed", "reason": "no_osm_data"}
-        sub.finish()
 
         # 5. Straßen extrahieren
         roads = extract_roads_from_osm(osm_data)
@@ -139,6 +138,7 @@ class TerrainWorkflow:
         # WICHTIG: Übergebe LOKALE Koordinaten! Alle internen Berechnungen in lokal!
 
         road_polygons = get_road_polygons(roads, osm_bbox, local_points, elevations, global_offset, tile_hash=tile_hash)
+        sub.finish()  # umfasst OSM-Abfrage UND Straßen-Extraktion - beides Teil "Straßen aus OSM laden"
 
         # 6a. Luftbilder: werden NICHT mehr hier pro Kachel verarbeitet - bei
         # mehreren Kacheln würde die Datei-Existenz-Prüfung ("gibt es schon
@@ -509,7 +509,7 @@ class TerrainWorkflow:
                     grid_bounds_local[3] - config.VINEYARD_EXCLUSION_MARGIN,
                 ),
             )
-            logger.info(f"  [OK] {len(vineyard_instances)} Rebzeilen-Segmente generiert")
+            logger.debug(f"  [OK] {len(vineyard_instances)} Rebzeilen-Segmente generiert")
 
         # Echtes Wasser: Bäche als River-Splines, Wasserflächen als WaterBlocks (auf der fertigen Heightmap)
         water = {"rivers": [], "ponds": []}
@@ -785,7 +785,7 @@ class TerrainWorkflow:
             overwrite=True,
             collisionType="Visible Mesh Final",
         )
-        logger.info(f"  [OK] {len(meshes)} Brücken exportiert (bridges.dae)")
+        logger.debug(f"  [OK] {len(meshes)} Brücken exportiert (bridges.dae)")
         return len(meshes)
 
     def _build_tunnels(self, structure_road_polygons: List[Dict], heights: np.ndarray, terrain_origin_x: float, terrain_origin_y: float) -> List[Dict]:
@@ -935,7 +935,7 @@ class TerrainWorkflow:
             overwrite=True,
             collisionType="Visible Mesh Final",
         )
-        logger.info(f"  [OK] {len(meshes)} Tunnel-/Galerie-Mesh(e) exportiert (tunnels.dae)")
+        logger.debug(f"  [OK] {len(meshes)} Tunnel-/Galerie-Mesh(e) exportiert (tunnels.dae)")
         return len(meshes)
 
     def _set_fog_height(self, heights: np.ndarray) -> None:
@@ -996,7 +996,7 @@ class TerrainWorkflow:
                 )
                 count += 1
 
-        logger.info(f"  [OK] {count} Wasser-Objekt(e) exportiert")
+        logger.debug(f"  [OK] {count} Wasser-Objekt(e) exportiert")
         return count
 
     def export_walls(self, mesh_data: Dict) -> int:
@@ -1034,7 +1034,7 @@ class TerrainWorkflow:
             overwrite=True,
             collisionType="Visible Mesh Final",
         )
-        logger.info(f"  [OK] {len(meshes)} Mauer(n) exportiert (walls.dae)")
+        logger.debug(f"  [OK] {len(meshes)} Mauer(n) exportiert (walls.dae)")
         return len(meshes)
 
     def export_decal_roads(self, mesh_data: Dict) -> int:
@@ -1126,7 +1126,7 @@ class TerrainWorkflow:
             if mat_name:
                 self.materials.materials[mat_name] = mat_entry
 
-        logger.info(f"  [OK] {count} DecalRoad-Item(s) exportiert ({len(unique_materials)} Materialien)")
+        logger.debug(f"  [OK] {count} DecalRoad-Item(s) exportiert ({len(unique_materials)} Materialien)")
         return count
 
     def export_ground_cover(
@@ -1218,7 +1218,7 @@ class TerrainWorkflow:
         ter_filename = f"{config.LEVEL_NAME}.ter"
         ter_path = config.BEAMNG_DIR / ter_filename
         write_ter(ter_path, heightmap_u16, layer_map.astype("uint8"), terrain_material_names)
-        logger.info(f"  [OK] Terrain exportiert: {ter_filename} ({terrain_size}x{terrain_size})")
+        logger.debug(f"  [OK] Terrain exportiert: {ter_filename} ({terrain_size}x{terrain_size})")
 
         placeholders = ensure_flat_pbr_placeholders(
             config.BEAMNG_DIR_TEXTURES, config.LEVEL_NAME, config.TERRAIN_BASE_TEX_PIXEL_SIZE
