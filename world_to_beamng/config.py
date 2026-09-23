@@ -246,6 +246,14 @@ GALLERY_COLUMN_SIZE = 0.4  # Querschnitt der (quadratischen) Stützen, in Metern
 # über den gesamten Korridor statt Einebnen, da die Galerie schon ein eigenes Boden-Mesh hat (sonst
 # Z-Fighting) - siehe road_embedding.mark_gallery_interior_as_holes().
 GALLERY_TERRAIN_HOLE_MARGIN = 1.0  # Puffer über die Fahrbahnbreite hinaus, in Metern (Seitenwand/Dachkante)
+
+# Das DGM zeigt an einer bestehenden Galerie nicht das ursprüngliche Gelände, sondern das Bauwerk selbst
+# (Dachkante, Stützen, Bergseitenwand-Fundament) - unmittelbar am Rand des (schmaleren) GALLERY_TERRAIN_
+# HOLE_MARGIN-Lochs blieben dadurch sichtbare, kantige "Gebäude-Polygone" im Terrain stehen statt einer
+# plausiblen Hangfläche. Deutlich breiterer Rand als der Hole selbst, empirisch an der Galleria artificiale
+# Piano dei buoi (Gotthard) bemessen: dort reichten sichtbare Bauwerks-Artefakte bis zu rund 10 m von der
+# Centerline. Siehe road_embedding.smooth_gallery_terrain().
+GALLERY_TERRAIN_SMOOTH_MARGIN = 6.0  # Puffer über die halbe Fahrbahnbreite hinaus, in Metern
 TUNNEL_MATERIAL_NAME = "tunnel_concrete"  # Wand-/Decke-/Rahmen-/Dach-Material (Textur: CONCRETE_TEXTURE_NAME)
 
 # === LOD2-DACH-TEXTUR ===

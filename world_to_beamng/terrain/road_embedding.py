@@ -23,6 +23,7 @@ from typing import Dict, List
 import numpy as np
 from affine import Affine
 from rasterio.features import rasterize
+from scipy.ndimage import distance_transform_edt
 from scipy.spatial import cKDTree
 from shapely import intersects_xy
 from shapely.geometry import LineString, Polygon
@@ -203,6 +204,71 @@ def _embed_road(
     sub[inside] = target_z
 
 
+def _gallery_corridor_polygons(gallery_road_polygons: List[Dict], width_margin: float) -> list:
+    """Ein gepuffertes Korridor-Polygon je Galerie (Centerline, halbe Fahrbahnbreite + width_margin)."""
+    polygons = []
+    for road in gallery_road_polygons:
+        centerline = np.asarray(road.get("trimmed_centerline", []), dtype=np.float64)
+        width = road.get("width")
+        if len(centerline) < 2 or not width:
+            continue
+        half_width = width / 2.0 + width_margin
+        polygon = LineString(centerline[:, :2]).buffer(half_width, cap_style=2)
+        if not polygon.is_empty:
+            polygons.append(polygon)
+    return polygons
+
+
+def smooth_gallery_terrain(
+    heights: np.ndarray,
+    origin_x: float,
+    origin_y: float,
+    square_size: float,
+    gallery_road_polygons: List[Dict],
+    width_margin: float,
+) -> np.ndarray:
+    """
+    Dämpft den Sprung am Rand des (gegenüber dem späteren Hole deutlich breiteren) Galerie-Korridors:
+    jede Korridor-Zelle wird zur Hälfte mit der Höhe der nächstgelegenen Zelle AUSSERHALB des Korridors
+    gemischt. MUSS vor mark_gallery_interior_as_holes() laufen, das den (schmaleren) Fahrbahn-Korridor
+    danach als Hole ausstanzt.
+
+    Grund: das DGM zeigt an einer bestehenden Galerie nicht das ursprüngliche Gelände, sondern das
+    Bauwerk selbst (Dachkante, Stützen, Bergseitenwand-Fundament). Ohne diesen Schritt blieben direkt
+    am Rand des (schmaleren) Holes sichtbare, kantige "Gebäude-Polygone" im Terrain stehen, weil dort
+    weiterhin die rohe (bauwerk-kontaminierte) DGM-Höhe gerendert wird. Bewusst kein Interpolations-
+    Verlauf über die Korridorbreite (keine Rampe von Kante zu Kante wie apply_embankment_blend) - nur
+    ein einzelner 50/50-Mix pro Zelle mit dem nächsten echten Naturgelände.
+
+    Args:
+        heights: (size, size) float Array (nach Böschung/Straßen-Einbettung, NICHT natural_heights)
+        gallery_road_polygons: wie mark_gallery_interior_as_holes()
+        width_margin: Rand über die halbe Fahrbahnbreite hinaus, in Metern - deutlich größer als
+            config.GALLERY_TERRAIN_HOLE_MARGIN (siehe config.GALLERY_TERRAIN_SMOOTH_MARGIN), damit auch
+            die etwas breitere reale Struktur mitgeglättet wird.
+
+    Returns:
+        Neues (size, size) float Array (Eingabe bleibt unverändert)
+    """
+    polygons = _gallery_corridor_polygons(gallery_road_polygons, width_margin)
+    if not polygons:
+        return heights.copy()
+
+    transform = Affine.translation(origin_x, origin_y) * Affine.scale(square_size, square_size)
+    corridor_mask = rasterize([(p, 1) for p in polygons], out_shape=heights.shape, transform=transform, fill=0, dtype="uint8").astype(bool)
+    if not corridor_mask.any():
+        return heights.copy()
+
+    # distance_transform_edt liefert je Korridor-Zelle (= "Vordergrund", nonzero) den Index der nächstgelegenen
+    # Zelle AUSSERHALB des Korridors (= "Hintergrund", 0) - exakt das nächste echte Naturgelände.
+    nearest_rows, nearest_cols = distance_transform_edt(corridor_mask, return_distances=False, return_indices=True)
+    nearest_natural = heights[nearest_rows, nearest_cols]
+
+    result = heights.copy()
+    result[corridor_mask] = 0.5 * heights[corridor_mask] + 0.5 * nearest_natural[corridor_mask]
+    return result
+
+
 def mark_gallery_interior_as_holes(
     layer_map: np.ndarray,
     origin_x: float,
@@ -246,19 +312,7 @@ def mark_gallery_interior_as_holes(
     from .ter_writer import EMPTY_LAYER_VALUE
 
     result = layer_map.copy()
-    hole_polygons = []
-
-    for road in gallery_road_polygons:
-        centerline = np.asarray(road.get("trimmed_centerline", []), dtype=np.float64)
-        width = road.get("width")
-        if len(centerline) < 2 or not width:
-            continue
-
-        half_width = width / 2.0 + width_margin
-        xy = centerline[:, :2]
-        polygon = LineString(xy).buffer(half_width, cap_style=2)
-        if not polygon.is_empty:
-            hole_polygons.append(polygon)
+    hole_polygons = _gallery_corridor_polygons(gallery_road_polygons, width_margin)
 
     if not hole_polygons:
         return result

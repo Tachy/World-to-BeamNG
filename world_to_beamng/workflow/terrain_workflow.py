@@ -269,6 +269,7 @@ class TerrainWorkflow:
             embed_roads_into_heightmap,
             build_road_embankment_profiles,
             apply_embankment_blend,
+            smooth_gallery_terrain,
             mark_gallery_interior_as_holes,
         )
         from ..terrain.terrain_materials import (
@@ -405,12 +406,19 @@ class TerrainWorkflow:
         # nicht nur dort, wo das natürliche Gelände zufällig niedrig genug ist (siehe
         # mark_gallery_interior_as_holes()-Docstring: der Erdüberwurf einer Lawinengalerie liegt im DGM
         # fast überall über der Dach-Oberkante, ein nur bereichsweises Loch ließ die Galerie blockiert).
+        # ERST glätten (smooth_gallery_terrain, breiterer Rand), DANN das (schmalere) Loch stanzen: das DGM
+        # zeigt am Bauwerk selbst statt des ursprünglichen Hangs, ohne Glätten blieben am Lochrand sichtbare
+        # Gebäude-Polygone im Terrain stehen.
         gallery_roads = [
             {**r, "width": OSM_MAPPER.get_road_properties(r.get("osm_tags", {}))["width"]}
             for r in structure_road_polygons
             if r.get("structure_type") == "gallery"
         ]
         if gallery_roads:
+            heights = smooth_gallery_terrain(
+                heights, terrain_origin_x, terrain_origin_y, config.TERRAIN_SQUARE_SIZE,
+                gallery_roads, width_margin=config.GALLERY_TERRAIN_SMOOTH_MARGIN,
+            )
             layer_map = mark_gallery_interior_as_holes(
                 layer_map, terrain_origin_x, terrain_origin_y, config.TERRAIN_SQUARE_SIZE,
                 gallery_roads, width_margin=config.GALLERY_TERRAIN_HOLE_MARGIN,

@@ -12,6 +12,7 @@ from world_to_beamng.terrain.road_embedding import (
     sample_heightmap_bilinear,
     build_road_embankment_profiles,
     apply_embankment_blend,
+    smooth_gallery_terrain,
     mark_gallery_interior_as_holes,
 )
 from world_to_beamng.terrain.ter_writer import EMPTY_LAYER_VALUE
@@ -402,6 +403,45 @@ def test_blend_one_side_is_identical_to_the_full_bounding_box_reference():
             _reference_blend_one_side(expected, origin_x, origin_y, square, size, size, edge, width, natural)
             _blend_one_side(actual, origin_x, origin_y, square, size, size, edge, width, natural)
             np.testing.assert_array_equal(actual, expected)
+
+
+# --- smooth_gallery_terrain ---------------------------------------------------------------------------------------
+
+
+def test_smooth_gallery_terrain_pulls_the_building_spike_toward_natural_terrain():
+    # Glatter Hang (Höhe steigt mit y) - simuliert das umliegende, unberührte Gelände.
+    y_idx = np.arange(30.0).reshape(-1, 1)
+    heights = np.tile(100.0 + y_idx, (1, 30))
+    # "Gebäude-Spitze" mitten im späteren Korridor (x=5..25, y=15) - das DGM zeigt hier das Bauwerk, nicht den Hang.
+    heights[13:18, 10:21] = 250.0
+
+    result = smooth_gallery_terrain(heights, 0.0, 0.0, 1.0, [_gallery()], width_margin=6.0)
+
+    # Im Korridor: klar Richtung Naturgelände gezogen (50/50-Mix), nicht mehr die rohe Spitze (250).
+    assert result[15, 15] < 200.0
+    # Weit außerhalb des (breiteren) Glättungs-Korridors: unverändert.
+    assert result[2, 15] == heights[2, 15]
+    assert result[15, 2] == heights[15, 2]
+    assert heights[13, 15] == 250.0  # Eingabe bleibt unverändert
+
+
+def test_smooth_gallery_terrain_is_a_single_50_50_blend_not_a_gradient_ramp():
+    # Flaches Umland, EIN Ausreißer mitten im Korridor - kein interpolierter Verlauf über die Breite
+    # (wie apply_embankment_blend), sondern genau der Mittelwert aus Ausreißer und nächster Naturzelle.
+    heights = np.full((30, 30), 100.0)
+    heights[15, 15] = 300.0
+
+    result = smooth_gallery_terrain(heights, 0.0, 0.0, 1.0, [_gallery()], width_margin=6.0)
+
+    assert result[15, 15] == 0.5 * 300.0 + 0.5 * 100.0
+
+
+def test_smooth_gallery_terrain_without_galleries_is_a_noop():
+    heights = np.full((10, 10), 100.0)
+
+    result = smooth_gallery_terrain(heights, 0.0, 0.0, 1.0, [], width_margin=6.0)
+
+    assert (result == 100.0).all()
 
 
 # --- mark_gallery_interior_as_holes ------------------------------------------------------------------------------
