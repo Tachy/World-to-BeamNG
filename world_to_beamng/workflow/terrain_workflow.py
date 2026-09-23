@@ -285,6 +285,7 @@ class TerrainWorkflow:
         )
         from ..tunnels.gallery_mesh import resolve_open_side
         from ..terrain.terrain_materials import (
+            DEFAULT_LANDUSE_CATEGORY,
             build_photo_fallback_layer,
             mark_padding_as_holes,
             mask_layer_map_with_photo,
@@ -406,6 +407,10 @@ class TerrainWorkflow:
                     f"(Böschung {config.WATER_POND_BANK_SLOPE_DEG:.0f} Grad)"
                 )
 
+        # background_category: Flächen ganz ohne Landnutzungs-Polygon (kein OSM-Element deckt sie ab)
+        # bekommen so trotzdem Wiese statt für immer beim Foto-Fallback zu bleiben - schließt die Lücke, die
+        # get_landuse_category()s DEFAULT_LANDUSE_CATEGORY-Fallback offen lässt (der greift nur bei einem
+        # VORHANDENEN, aber unbekannten landuse-Tag-Wert, siehe paint_landuse_materials()-Docstring).
         layer_map, terrain_material_names = paint_landuse_materials(
             layer_map,
             photo_tile_names,
@@ -415,6 +420,7 @@ class TerrainWorkflow:
             config.TERRAIN_SQUARE_SIZE,
             landuse_polygons,
             config.OSM_MAPPER.config.get("landuse_mappings", {}),
+            background_category=DEFAULT_LANDUSE_CATEGORY,
         )
 
         # Straßen- und Gebäudeflächen: (1) Bodenbewuchs wächst auf dem Layer - dort geht es

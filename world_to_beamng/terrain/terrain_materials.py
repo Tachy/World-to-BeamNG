@@ -129,6 +129,7 @@ def paint_landuse_materials(
     square_size: float,
     landuse_polygons: List[Dict],
     landuse_mappings: Dict,
+    background_category: Optional[str] = None,
 ) -> Tuple[np.ndarray, List[str]]:
     """
     Brennt OSM-Landnutzungs-Polygone in die Layer-Map, priorisiert nach
@@ -141,6 +142,15 @@ def paint_landuse_materials(
         landuse_polygons: Liste von {"osm_tags": Dict, "geometry": shapely.Polygon}
                           in lokalen (Grid-)Koordinaten
         landuse_mappings: data/osm_to_beamng.json["landuse_mappings"]
+        background_category: optional - Kategorie-Name aus landuse_mappings, mit dem die GESAMTE Fläche
+            zuerst gefüllt wird, BEVOR die Polygone gebrannt werden (unabhängig von deren priority - der
+            Hintergrund ist kein Teilnehmer der Prioritäts-Sortierung, jedes echte Polygon überdeckt ihn).
+            Schließt die Lücke, die get_landuse_category()s DEFAULT_LANDUSE_CATEGORY-Fallback offen lässt:
+            der greift nur bei einem VORHANDENEN, aber unbekannten landuse-Tag-Wert - Flächen ganz OHNE
+            Landnutzungs-Polygon (kein OSM-Element deckt sie ab) bleiben sonst für immer beim Foto-Fallback
+            stehen, auch wenn DEFAULT_LANDUSE_CATEGORY="meadow" eigentlich genau das verhindern soll. None
+            (Standard) = bisheriges Verhalten, keine Änderung. Eine "keep_photo"-Kategorie oder ein in
+            landuse_mappings unbekannter Name ist ein No-op (es gibt kein Material, das man malen könnte).
 
     Returns:
         (neue layer_map, erweiterte material_names)
@@ -148,6 +158,15 @@ def paint_landuse_materials(
     result = layer_map.copy()
     names = list(material_names)
     transform = Affine.translation(origin_x, origin_y) * Affine.scale(square_size, square_size)
+
+    if background_category is not None:
+        bg_data = landuse_mappings.get(background_category)
+        if bg_data is not None and not bg_data.get("keep_photo"):
+            bg_source = landuse_mappings[bg_data.get("use_material_of", background_category)]
+            bg_name = bg_source["internal_name"]
+            if bg_name not in names:
+                names.append(bg_name)
+            result[:] = names.index(bg_name)
 
     scored = []
     for poly in landuse_polygons:

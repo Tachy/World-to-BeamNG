@@ -533,6 +533,82 @@ def test_paint_landuse_matches_full_grid_rasterization_for_windowed_burning():
     assert (result != 7).any()
 
 
+def test_paint_landuse_without_background_category_leaves_unmapped_area_as_photo():
+    # Bisheriges Verhalten (kein background_category übergeben): Flächen ganz ohne Landnutzungs-Polygon
+    # bleiben beim Luftbild - das ist genau die vom Nutzer gemeldete Lücke, die background_category schließt.
+    size = 20
+    layer_map, names = build_photo_fallback_layer(size=size)
+    forest_polygon = Polygon([(5, 5), (10, 5), (10, 10), (5, 10)])
+    landuse_polygons = [{"osm_tags": {"landuse": "forest"}, "geometry": forest_polygon}]
+
+    new_layer_map, new_names = paint_landuse_materials(
+        layer_map, names, size, 0.0, 0.0, 1.0, landuse_polygons, LANDUSE_MAPPINGS_FIXTURE
+    )
+
+    assert new_layer_map[18, 18] == 0  # weit weg vom Wald-Polygon: bleibt Luftbild, kein Gras
+
+
+def test_paint_landuse_background_category_fills_unmapped_area_with_meadow():
+    # Regression: Flächen OHNE jedes Landnutzungs-Polygon (kein OSM-Element deckt sie ab) bekamen bisher nie
+    # Gras - DEFAULT_LANDUSE_CATEGORY (get_landuse_category()) greift nur bei einem VORHANDENEN, aber
+    # unbekannten landuse-Tag-WERT, nicht wenn gar kein Element existiert. background_category füllt die
+    # GESAMTE Fläche zuerst mit der gegebenen Kategorie, bevor echte Polygone obendrauf gebrannt werden.
+    size = 20
+    layer_map, names = build_photo_fallback_layer(size=size)
+    forest_polygon = Polygon([(5, 5), (10, 5), (10, 10), (5, 10)])
+    landuse_polygons = [{"osm_tags": {"landuse": "forest"}, "geometry": forest_polygon}]
+
+    new_layer_map, new_names = paint_landuse_materials(
+        layer_map, names, size, 0.0, 0.0, 1.0, landuse_polygons, LANDUSE_MAPPINGS_FIXTURE,
+        background_category="meadow",
+    )
+
+    assert "mat_grass" in new_names
+    assert new_layer_map[18, 18] == new_names.index("mat_grass")  # weit weg vom Wald: jetzt Wiese statt Foto
+    assert new_layer_map[7, 7] == new_names.index("mat_forest")  # Wald-Polygon überdeckt den Hintergrund weiterhin
+
+
+def test_paint_landuse_background_category_is_overridden_by_any_real_polygon_regardless_of_priority():
+    # Der Hintergrund wird VOR der Prioritäts-sortierten Schleife gemalt, nicht als Teilnehmer daran - ein
+    # niedrig priorisiertes reales Polygon (residential, priority 3 < meadow 4) muss ihn trotzdem überdecken.
+    size = 20
+    layer_map, names = build_photo_fallback_layer(size=size)
+    residential = Polygon([(5, 5), (15, 5), (15, 15), (5, 15)])
+    landuse_polygons = [{"osm_tags": {"landuse": "residential"}, "geometry": residential}]
+
+    new_layer_map, new_names = paint_landuse_materials(
+        layer_map, names, size, 0.0, 0.0, 1.0, landuse_polygons, LANDUSE_MAPPINGS_FIXTURE,
+        background_category="meadow",
+    )
+
+    assert new_layer_map[10, 10] == 0  # Wohngebiet (keep_photo) gewinnt trotz niedrigerer Priorität als meadow
+    assert new_layer_map[1, 1] == new_names.index("mat_grass")  # außerhalb: Hintergrund-Wiese
+
+
+def test_paint_landuse_background_category_with_keep_photo_is_a_noop():
+    size = 20
+    layer_map, names = build_photo_fallback_layer(size=size)
+
+    new_layer_map, new_names = paint_landuse_materials(
+        layer_map, names, size, 0.0, 0.0, 1.0, [], LANDUSE_MAPPINGS_FIXTURE, background_category="urban",
+    )
+
+    assert new_names == names
+    assert (new_layer_map == 0).all()
+
+
+def test_paint_landuse_unknown_background_category_is_a_noop():
+    size = 20
+    layer_map, names = build_photo_fallback_layer(size=size)
+
+    new_layer_map, new_names = paint_landuse_materials(
+        layer_map, names, size, 0.0, 0.0, 1.0, [], LANDUSE_MAPPINGS_FIXTURE, background_category="not_a_category",
+    )
+
+    assert new_names == names
+    assert (new_layer_map == 0).all()
+
+
 def test_ground_under_water_is_meadow_even_inside_a_forest():
     size = 20
     layer_map, names = build_photo_fallback_layer(size=size)
