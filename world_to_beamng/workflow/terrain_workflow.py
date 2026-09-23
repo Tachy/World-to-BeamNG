@@ -300,14 +300,23 @@ class TerrainWorkflow:
         # nutzen beide dieselbe trimmed_centerline), siehe extend_gallery_centerline_ends()-Docstring.
         structure_road_polygons = extend_gallery_centerline_ends(structure_road_polygons, config.GALLERY_CENTERLINE_EXTENSION)
 
-        # Galerien wie normale Straßen einbetten (dieselben Böschungs-/Einbettungs-Parameter) - NUR die
-        # bergseitige Böschung entfällt (no_slope_side): die (massive) Wand reicht ohnehin bis in den Hang,
-        # ein künstlicher Böschungswinkel daneben wäre überflüssig - das Gelände dort bleibt auf
-        # natürlicher Höhe stehen (Böschungsbreite 0, siehe build_road_embankment_profiles()-Docstring).
-        # Ohne avalanche_protector:left/right-Tag (kein zuverlässiger Fallback) bleibt die Böschung auf
-        # beiden Seiten normal wie bei einer Oberflächenstraße.
+        # Galerien wie normale Straßen einbetten (dieselben Böschungs-/Einbettungs-Parameter), aber mit
+        # festen statt berechneten Böschungsbreiten auf beiden Seiten (slope_width_override, siehe
+        # build_road_embankment_profiles()-Docstring und config.GALLERY_VALLEY_SLOPE_WIDTH): bergseits 0 m
+        # (die massive Wand reicht ohnehin bis in den Hang), talseits ein kurzer fester Wert (das DGM zeigt
+        # dort die reale Talseiten-Struktur statt echtem Naturgelände, eine berechnete Breite wäre
+        # verrauscht/facettiert). Ohne avalanche_protector:left/right-Tag (kein zuverlässiger Fallback)
+        # bleibt die Böschung auf beiden Seiten normal wie bei einer Oberflächenstraße.
+        def _gallery_slope_override(osm_tags):
+            open_side = resolve_open_side(osm_tags or {})
+            if open_side == "left":
+                return {"left": config.GALLERY_VALLEY_SLOPE_WIDTH, "right": 0.0}
+            if open_side == "right":
+                return {"right": config.GALLERY_VALLEY_SLOPE_WIDTH, "left": 0.0}
+            return {}
+
         gallery_roads = [
-            {**r, "no_slope_side": {"left": "right", "right": "left"}.get(resolve_open_side(r.get("osm_tags", {})))}
+            {**r, "slope_width_override": _gallery_slope_override(r.get("osm_tags"))}
             for r in structure_road_polygons
             if r.get("structure_type") == "gallery"
         ]

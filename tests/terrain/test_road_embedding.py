@@ -134,7 +134,7 @@ def test_build_road_embankment_profiles_straight_road():
     assert np.allclose(road["left_slope_width"], 5.0)
 
 
-def test_no_slope_side_suppresses_the_embankment_on_that_side_only():
+def test_slope_width_override_replaces_the_computed_width_on_that_side_only():
     # Gleiches Setup wie test_build_road_embankment_profiles_straight_road(): Centerline entlang x=20,
     # Richtung +y. STANDARD-"links" (offset_points()-Konvention: Richtung +90 Grad gedreht) liegt hier bei
     # x=17 - das ist (siehe Docstring-Hinweis) genau "right_edge_xyz" dieser Funktion.
@@ -147,19 +147,19 @@ def test_no_slope_side_suppresses_the_embankment_on_that_side_only():
         def get_road_properties(self, tags):
             return {"width": 6.0}
 
-    poly = {"trimmed_centerline": centerline, "osm_tags": {}, "no_slope_side": "left"}
+    poly = {"trimmed_centerline": centerline, "osm_tags": {}, "slope_width_override": {"left": 0.0}}
     roads = build_road_embankment_profiles(
         [poly], heights, origin_x, origin_y, square_size, FakeMapper(),
         slope_angle_deg=45.0, min_slope_width=2.0, max_slope_width=30.0,
     )
 
     road = roads[0]
-    assert np.allclose(road["right_edge_xyz"][:, 0], 17.0)  # = STANDARD-"links", die unterdrückte Seite
-    assert np.allclose(road["right_slope_width"], 0.0)  # keine Böschung dort
-    assert np.allclose(road["left_slope_width"], 5.0)  # andere Seite unverändert normal
+    assert np.allclose(road["right_edge_xyz"][:, 0], 17.0)  # = STANDARD-"links", die überschriebene Seite
+    assert np.allclose(road["right_slope_width"], 0.0)  # feste Breite (0) statt berechnet
+    assert np.allclose(road["left_slope_width"], 5.0)  # andere Seite unverändert normal (berechnet)
 
 
-def test_no_slope_side_none_leaves_both_sides_normal():
+def test_slope_width_override_can_set_both_sides_to_different_fixed_values():
     size = 40
     heights = np.full((size, size), 100.0)
     origin_x, origin_y, square_size = 0.0, 0.0, 1.0
@@ -169,7 +169,28 @@ def test_no_slope_side_none_leaves_both_sides_normal():
         def get_road_properties(self, tags):
             return {"width": 6.0}
 
-    poly = {"trimmed_centerline": centerline, "osm_tags": {}, "no_slope_side": None}
+    poly = {"trimmed_centerline": centerline, "osm_tags": {}, "slope_width_override": {"left": 0.0, "right": 5.0}}
+    roads = build_road_embankment_profiles(
+        [poly], heights, origin_x, origin_y, square_size, FakeMapper(),
+        slope_angle_deg=45.0, min_slope_width=2.0, max_slope_width=30.0,
+    )
+
+    road = roads[0]
+    assert np.allclose(road["right_slope_width"], 0.0)  # STANDARD "left" -> diese Funktion "right"
+    assert np.allclose(road["left_slope_width"], 5.0)  # STANDARD "right" -> diese Funktion "left"
+
+
+def test_no_override_leaves_both_sides_normal():
+    size = 40
+    heights = np.full((size, size), 100.0)
+    origin_x, origin_y, square_size = 0.0, 0.0, 1.0
+    centerline = np.array([[20.0, y, 95.0] for y in range(5, 36)], dtype=float)
+
+    class FakeMapper:
+        def get_road_properties(self, tags):
+            return {"width": 6.0}
+
+    poly = {"trimmed_centerline": centerline, "osm_tags": {}}
     roads = build_road_embankment_profiles(
         [poly], heights, origin_x, origin_y, square_size, FakeMapper(),
         slope_angle_deg=45.0, min_slope_width=2.0, max_slope_width=30.0,

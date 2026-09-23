@@ -263,12 +263,18 @@ GALLERY_CURB_WIDTH = 0.25  # Breite des Sockels (von der Fahrbahnkante nach inne
 GALLERY_CENTERLINE_EXTENSION = 2.0  # Verlängerung je Ende, in Metern
 
 # Galerien werden (anders als Brücken/Tunnel) wie normale Straßen ins Terrain eingebettet (siehe
-# terrain_workflow.py::process_tile(), Böschung + embed_roads_into_heightmap - dieselben Parameter wie bei
-# jeder Oberflächenstraße) statt ein separates Terrain-Loch zu bekommen: Boden/Wand/Dach sind massive
-# Quader (GALLERY_FLOOR_THICKNESS/GALLERY_WALL_THICKNESS/GALLERY_ROOF_THICKNESS), die treffen das Gelände
-# von sich aus sauber. NUR die bergseitige Böschung entfällt (build_road_embankment_profiles()s
-# "no_slope_side") - die massive Wand reicht ohnehin bis in den Hang, das Gelände bleibt dort auf
-# natürlicher Höhe stehen statt künstlich zur Fahrbahnkante hin zu blenden.
+# terrain_workflow.py::process_tile(), Böschung + embed_roads_into_heightmap) statt ein separates Terrain-
+# Loch zu bekommen: Boden/Wand/Dach sind massive Quader (GALLERY_FLOOR_THICKNESS/GALLERY_WALL_THICKNESS/
+# GALLERY_ROOF_THICKNESS), die treffen das Gelände von sich aus sauber. Beide Böschungsseiten bekommen dabei
+# über build_road_embankment_profiles()s "slope_width_override" einen festen statt den üblichen, aus der
+# Höhendifferenz berechneten Wert (siehe dort):
+# - Bergseite: 0 m (keine Böschung) - die massive Wand reicht ohnehin bis in den Hang, das Gelände bleibt
+#   dort auf natürlicher Höhe stehen statt künstlich zur Fahrbahnkante hin zu blenden.
+# - Talseite: GALLERY_VALLEY_SLOPE_WIDTH statt der berechneten Breite - das DGM zeigt an einer Galerie dort
+#   nicht das ursprüngliche Gelände, sondern die reale Talseiten-Struktur (Brüstung/Dachüberstand); die
+#   daraus abgeleitete Böschungsbreite wäre verrauscht und ergäbe eine sichtbar facettierte Böschung statt
+#   einer glatten, kurzen Angleichung ans Gelände.
+GALLERY_VALLEY_SLOPE_WIDTH = 5.0  # feste Böschungsbreite talseits, in Metern
 TUNNEL_MATERIAL_NAME = "tunnel_concrete"  # Wand-/Decke-/Rahmen-/Dach-Material (Textur: CONCRETE_TEXTURE_NAME)
 
 # === LOD2-DACH-TEXTUR ===

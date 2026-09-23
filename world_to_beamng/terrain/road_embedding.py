@@ -285,14 +285,21 @@ def build_road_embankment_profiles(
         min_slope_width: config.MIN_SLOPE_WIDTH
         max_slope_width: Obergrenze der Böschungsbreite (Meter)
 
-    Optionales Feld je Straßen-Dict: "no_slope_side" ("left" | "right" | None) - unterdrückt die
-    Böschung auf einer Seite komplett (Böschungsbreite 0, das Gelände bleibt dort auf natürlicher Höhe
-    stehen statt zur Straßenkante hin zu blenden). "left"/"right" folgen dabei der STANDARD-Konvention
-    (wie offset_points()/resolve_open_side(): links = Centerline-Richtung um +90° gedreht) - NICHT der
-    (rein internen, siehe Hinweis unten) links/rechts-Zuordnung dieser Funktion; die Übersetzung passiert
-    intern. Für Galerien: die bergseitige Böschung braucht keinen künstlichen Winkel mehr, weil die
-    (jetzt massive, siehe config.GALLERY_WALL_THICKNESS) Wand ohnehin bis in den Hang reicht - siehe
-    tunnels/gallery_mesh.py::resolve_open_side().
+    Optionales Feld je Straßen-Dict: "slope_width_override" (Dict, Schlüssel "left"/"right", Wert = feste
+    Böschungsbreite in Metern) - ersetzt die berechnete Böschungsbreite auf der jeweiligen Seite durch
+    einen festen Wert statt sie aus der Höhendifferenz zum natürlichen Gelände abzuleiten (0.0 = gar keine
+    Böschung, das Gelände bleibt dort auf natürlicher Höhe stehen). "left"/"right" folgen dabei der
+    STANDARD-Konvention (wie offset_points()/resolve_open_side(): links = Centerline-Richtung um +90°
+    gedreht) - NICHT der (rein internen, siehe Hinweis unten) links/rechts-Zuordnung dieser Funktion; die
+    Übersetzung passiert intern.
+
+    Für Galerien: die bergseitige Böschung braucht keinen künstlichen Winkel mehr, weil die (jetzt massive,
+    siehe config.GALLERY_WALL_THICKNESS) Wand ohnehin bis in den Hang reicht (Override 0.0). Die talseitige
+    Böschung bekommt stattdessen einen kurzen FESTEN Wert (statt der berechneten Breite): das DGM zeigt an
+    einer Galerie nicht das ursprüngliche Gelände, sondern die reale Talseiten-Struktur (Brüstung/
+    Dachüberstand) - die daraus abgeleitete Höhendifferenz/Böschungsbreite wäre entsprechend verrauscht und
+    ergäbe eine sichtbar facettierte, spitze Böschung statt einer glatten Angleichung ans Gelände (siehe
+    config.GALLERY_VALLEY_SLOPE_WIDTH). Siehe tunnels/gallery_mesh.py::resolve_open_side().
 
     Returns:
         Liste von Dicts, je Straße:
@@ -351,12 +358,12 @@ def build_road_embankment_profiles(
         right_slope_width = np.clip(np.maximum(min_slope_width, right_diff / tan_angle), None, max_slope_width)
 
         # STANDARD-"links" (point + perp*half) ist oben "right_xy", STANDARD-"rechts" ist "left_xy" (siehe
-        # Hinweis) - die no_slope_side-Zuordnung muss deshalb gespiegelt werden.
-        no_slope_side = poly.get("no_slope_side")
-        if no_slope_side == "left":
-            right_slope_width = np.zeros_like(right_slope_width)
-        elif no_slope_side == "right":
-            left_slope_width = np.zeros_like(left_slope_width)
+        # Hinweis) - die slope_width_override-Zuordnung muss deshalb gespiegelt werden.
+        override = poly.get("slope_width_override") or {}
+        if "left" in override:
+            right_slope_width = np.full_like(right_slope_width, override["left"])
+        if "right" in override:
+            left_slope_width = np.full_like(left_slope_width, override["right"])
 
         roads.append(
             {
