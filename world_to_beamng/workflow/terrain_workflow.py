@@ -311,24 +311,28 @@ class TerrainWorkflow:
 
         # Galerien wie normale Straßen einbetten (dieselben Böschungs-/Einbettungs-Parameter), aber mit
         # festen statt berechneten Böschungsbreiten auf beiden Seiten (slope_width_override, siehe
-        # build_road_embankment_profiles()-Docstring und config.GALLERY_VALLEY_SLOPE_WIDTH): bergseits 0 m
-        # (die massive Wand reicht ohnehin bis in den Hang), talseits ein kurzer fester Wert (das DGM zeigt
-        # dort die reale Talseiten-Struktur statt echtem Naturgelände, eine berechnete Breite wäre
-        # verrauscht/facettiert). Ohne avalanche_protector:left/right-Tag (kein zuverlässiger Fallback)
-        # bleibt die Böschung auf beiden Seiten normal wie bei einer Oberflächenstraße.
+        # build_road_embankment_profiles()-Docstring):
+        # - Bergseits: GALLERY_MOUNTAIN_EMBED_MARGIN (1 m) über die Innenkante der (massiven) Wand hinaus
+        #   FLACH auf Fahrbahnhöhe (flat_shoulder_sides, keine Interpolation zum Gelände - die Wand reicht
+        #   ohnehin bis in den Hang, dieser schmale Saum sorgt nur für einen sauberen Wand-Boden-Übergang).
+        # - Talseits: GALLERY_VALLEY_SLOPE_WIDTH, echte Abwärts-Interpolation zum natürlichen Gelände (das
+        #   DGM zeigt direkt an der Fahrbahnkante die reale Talseiten-Struktur statt Naturgelände, siehe
+        #   build_road_embankment_profiles()-Docstring - eine berechnete Breite wäre verrauscht/facettiert).
+        # Ohne avalanche_protector:left/right-Tag (kein zuverlässiger Fallback) bleibt die Böschung auf
+        # beiden Seiten normal wie bei einer Oberflächenstraße.
         def _gallery_slope_override(osm_tags):
             open_side = resolve_open_side(osm_tags or {})
             if open_side == "left":
-                return {"left": config.GALLERY_VALLEY_SLOPE_WIDTH, "right": 0.0}
+                return {"left": config.GALLERY_VALLEY_SLOPE_WIDTH, "right": config.GALLERY_MOUNTAIN_EMBED_MARGIN}, {"right"}
             if open_side == "right":
-                return {"right": config.GALLERY_VALLEY_SLOPE_WIDTH, "left": 0.0}
-            return {}
+                return {"right": config.GALLERY_VALLEY_SLOPE_WIDTH, "left": config.GALLERY_MOUNTAIN_EMBED_MARGIN}, {"left"}
+            return {}, set()
 
-        gallery_roads = [
-            {**r, "slope_width_override": _gallery_slope_override(r.get("osm_tags"))}
-            for r in structure_road_polygons
-            if r.get("structure_type") == "gallery"
-        ]
+        def _gallery_road(r):
+            override, flat_sides = _gallery_slope_override(r.get("osm_tags"))
+            return {**r, "slope_width_override": override, "flat_shoulder_sides": flat_sides}
+
+        gallery_roads = [_gallery_road(r) for r in structure_road_polygons if r.get("structure_type") == "gallery"]
         embeddable_roads = surface_road_polygons + gallery_roads
 
         embankment_profiles = build_road_embankment_profiles(

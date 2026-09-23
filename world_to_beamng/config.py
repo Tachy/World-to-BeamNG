@@ -274,13 +274,16 @@ GALLERY_CURB_WIDTH = 0.25  # Breite des Sockels (von der Fahrbahnkante nach inne
 # GALLERY_ROOF_THICKNESS), die treffen das Gelände von sich aus sauber. Beide Böschungsseiten bekommen dabei
 # über build_road_embankment_profiles()s "slope_width_override" einen festen statt den üblichen, aus der
 # Höhendifferenz berechneten Wert (siehe dort):
-# - Bergseite: 0 m (keine Böschung) - die massive Wand reicht ohnehin bis in den Hang, das Gelände bleibt
-#   dort auf natürlicher Höhe stehen statt künstlich zur Fahrbahnkante hin zu blenden.
+# - Bergseite: GALLERY_MOUNTAIN_EMBED_MARGIN - kein Böschungswinkel, sondern ein schmaler FLACHER Saum auf
+#   Fahrbahnhöhe (flat_shoulder_sides) direkt an der Innenkante der (massiven) Wand, für einen sauberen
+#   Wand-Boden-Übergang. Jenseits davon bleibt das Gelände auf natürlicher Höhe stehen - die Wand reicht
+#   ohnehin bis in den Hang.
 # - Talseite: GALLERY_VALLEY_SLOPE_WIDTH statt der berechneten Breite - das DGM zeigt an einer Galerie dort
 #   nicht das ursprüngliche Gelände, sondern die reale Talseiten-Struktur (Brüstung/Dachüberstand); die
 #   daraus abgeleitete Böschungsbreite wäre verrauscht und ergäbe eine sichtbar facettierte Böschung statt
 #   einer glatten, kurzen Angleichung ans Gelände.
 GALLERY_VALLEY_SLOPE_WIDTH = 5.0  # feste Böschungsbreite talseits, in Metern
+GALLERY_MOUNTAIN_EMBED_MARGIN = 1.0  # flacher Saum bergseits über die Wand-Innenkante hinaus, in Metern
 TUNNEL_MATERIAL_NAME = "tunnel_concrete"  # Wand-/Decke-/Rahmen-/Dach-Material (Textur: CONCRETE_TEXTURE_NAME)
 
 # === LOD2-DACH-TEXTUR ===

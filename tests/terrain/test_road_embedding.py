@@ -215,6 +215,135 @@ def test_slope_width_override_can_set_both_sides_to_different_fixed_values():
     assert np.allclose(road["left_slope_width"], 5.0)  # STANDARD "right" -> diese Funktion "left"
 
 
+def test_slope_width_override_samples_natural_z_past_the_override_corridor_not_at_the_edge():
+    """Regression: bei einer Galerie zeigt das DGM direkt an der Fahrbahnkante nicht das natürliche
+    Gelände, sondern die reale Talseiten-Struktur (Brüstung/Dachüberstand) - empirisch an zwei echten
+    Galerien (Gotthard) bestätigt: Höhensprung von 2.6-13.9m schon 2m hinter der Kante. natural_z MUSS
+    deshalb am fernen Ende des überschriebenen Korridors abgetastet werden (Kante + Override-Breite),
+    sonst "glättet" die Böschung auf die erhöhte Struktur-Höhe statt talwärts zu gehen - sichtbar als
+    stehenbleibende Geländespitze statt eines Gefälles."""
+    size = 40
+    origin_x, origin_y, square_size = 0.0, 0.0, 1.0
+    centerline = np.array([[20.0, y, 95.0] for y in range(5, 36)], dtype=float)
+
+    # Nachgebautes DGM-Muster einer echten Galerie: bis kurz hinter die Fahrbahnkante (x=17, STANDARD-
+    # "links") noch die erhöhte Bauwerksoberfläche (95, ~Straßenniveau), danach (x<=12, Kante+5) das
+    # deutlich tiefere echte Gelände (50).
+    heights = np.full((size, size), 95.0)
+    heights[:, :13] = 50.0  # x < 13 -> "echtes Gelände" jenseits des Korridors (Kante bei x=17, +5 -> x=12)
+
+    class FakeMapper:
+        def get_road_properties(self, tags):
+            return {"width": 6.0}
+
+    poly = {"trimmed_centerline": centerline, "osm_tags": {}, "slope_width_override": {"left": 5.0}}
+    roads = build_road_embankment_profiles(
+        [poly], heights, origin_x, origin_y, square_size, FakeMapper(),
+        slope_angle_deg=45.0, min_slope_width=2.0, max_slope_width=30.0,
+    )
+
+    road = roads[0]
+    # STANDARD-"left"-Override betrifft "right_*" dieser Funktion (siehe Hinweis oben in der Datei).
+    assert np.allclose(road["right_slope_width"], 5.0)
+    # Die Kante selbst (x=17) läge noch komplett im erhöhten (95) Bereich - ohne den Fix würde
+    # right_natural_z dort abgetastet und läge bei ~95, nicht bei den echten ~50 jenseits des Korridors.
+    assert np.allclose(road["right_natural_z"], 50.0)
+
+
+def test_slope_width_override_of_zero_keeps_sampling_natural_z_at_the_edge():
+    """Override=0 (z.B. Galerie-Bergseite) bedeutet "keine Böschung" - hier gibt es keinen Korridor, der
+    natural_z verfälschen könnte, also bleibt die Abtastung an der Kante (ohnehin irrelevant, da
+    _blend_one_side bei Breite 0 gar nichts mehr anfasst)."""
+    size = 40
+    origin_x, origin_y, square_size = 0.0, 0.0, 1.0
+    centerline = np.array([[20.0, y, 95.0] for y in range(5, 36)], dtype=float)
+    heights = np.full((size, size), 100.0)
+    heights[:, 17] = 80.0  # Wert exakt an der Kante (x=17)
+
+    class FakeMapper:
+        def get_road_properties(self, tags):
+            return {"width": 6.0}
+
+    poly = {"trimmed_centerline": centerline, "osm_tags": {}, "slope_width_override": {"left": 0.0}}
+    roads = build_road_embankment_profiles(
+        [poly], heights, origin_x, origin_y, square_size, FakeMapper(),
+        slope_angle_deg=45.0, min_slope_width=2.0, max_slope_width=30.0,
+    )
+
+    road = roads[0]
+    assert np.allclose(road["right_slope_width"], 0.0)
+    assert np.allclose(road["right_natural_z"], 80.0)  # unverändert an der Kante abgetastet
+
+
+def test_flat_shoulder_side_stays_at_road_height_and_ignores_the_real_heightmap():
+    """Galerie-Bergseite: 1 m flacher Saum auf Fahrbahnhöhe direkt an der Wand-Innenkante (kein
+    Böschungswinkel, keine Interpolation zum Gelände) - natural_z muss der Kantenhöhe selbst entsprechen,
+    unabhängig davon, was tatsächlich im (hier extra "unnatürlich" gewählten) Heightmap steht."""
+    size = 40
+    origin_x, origin_y, square_size = 0.0, 0.0, 1.0
+    centerline = np.array([[20.0, y, 95.0] for y in range(5, 36)], dtype=float)
+
+    # Absichtlich NICHT bei 95 (Straßenhöhe): beweist, dass der flache Saum das reale Heightmap komplett
+    # ignoriert, statt es (wie ohne flat_shoulder_sides) am fernen Ende abzutasten.
+    heights = np.full((size, size), 40.0)
+
+    class FakeMapper:
+        def get_road_properties(self, tags):
+            return {"width": 6.0}
+
+    poly = {
+        "trimmed_centerline": centerline, "osm_tags": {},
+        "slope_width_override": {"left": 1.0}, "flat_shoulder_sides": {"left"},
+    }
+    roads = build_road_embankment_profiles(
+        [poly], heights, origin_x, origin_y, square_size, FakeMapper(),
+        slope_angle_deg=45.0, min_slope_width=2.0, max_slope_width=30.0,
+    )
+
+    road = roads[0]
+    assert np.allclose(road["right_slope_width"], 1.0)
+    assert np.allclose(road["right_natural_z"], 95.0)  # = Kantenhöhe (Centerline-Z), NICHT 40 aus dem Heightmap
+
+
+def test_flat_shoulder_side_produces_a_constant_height_corridor_when_blended():
+    """Wie oben, aber End-to-End über apply_embankment_blend() + embed_roads_into_heightmap() (dieselbe
+    Reihenfolge wie in terrain_workflow.py::process_tile()): der 1m-Korridor bergseits (x=16..17, jenseits
+    der Fahrbahnkante bei x=17) muss konstant auf Fahrbahnhöhe (95) bleiben, obwohl das rohe Heightmap dort
+    absichtlich einen abweichenden Wert (40) zeigt - er darf nicht durchscheinen."""
+    size = 40
+    origin_x, origin_y, square_size = 0.0, 0.0, 1.0
+    centerline = np.array([[20.0, y, 95.0] for y in range(5, 36)], dtype=float)
+
+    # Überall auf Fahrbahnhöhe (95) - die NICHT überschriebene Seite (x=23) sieht dadurch diff=0 und bleibt
+    # bei min_slope_width (2m, nicht "davonlaufend"), nur der geprüfte Flach-Saum-Bereich (x=14..16, jenseits
+    # des 1m-Korridors bei x=16..17) weicht bewusst ab, um zu beweisen, dass er ignoriert wird.
+    heights = np.full((size, size), 95.0)
+    heights[:, 14:17] = 40.0
+
+    class FakeMapper:
+        def get_road_properties(self, tags):
+            return {"width": 6.0}
+
+    poly = {
+        "trimmed_centerline": centerline, "osm_tags": {},
+        "slope_width_override": {"left": 1.0}, "flat_shoulder_sides": {"left"},
+        "road_polygon": np.array([[17.0, 5.0], [23.0, 5.0], [23.0, 35.0], [17.0, 35.0]]),
+    }
+    roads = build_road_embankment_profiles(
+        [poly], heights, origin_x, origin_y, square_size, FakeMapper(),
+        slope_angle_deg=45.0, min_slope_width=2.0, max_slope_width=30.0,
+    )
+
+    blended = apply_embankment_blend(heights, origin_x, origin_y, square_size, roads)
+    result = embed_roads_into_heightmap(blended, origin_x, origin_y, square_size, [poly])
+
+    # STANDARD-"left"-Override betrifft die "right_xy"-Kante bei x=17 (siehe Docstring-Hinweis) - der
+    # 1m-Korridor reicht bis x=16. Jede Zelle darin muss exakt 95 sein (Fahrbahnhöhe), nicht 40.
+    assert np.allclose(result[10:30, 17], 95.0)  # Kante selbst (von embed gesetzt)
+    assert np.allclose(result[10:30, 16], 95.0)  # 1m-Korridor (vom flachen Saum überschrieben)
+    assert np.allclose(result[10:30, 14], 40.0)  # außerhalb des Korridors: unverändertes rohes Gelände
+
+
 def test_no_override_leaves_both_sides_normal():
     size = 40
     heights = np.full((size, size), 100.0)

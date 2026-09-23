@@ -297,18 +297,33 @@ def build_road_embankment_profiles(
     Optionales Feld je Straßen-Dict: "slope_width_override" (Dict, Schlüssel "left"/"right", Wert = feste
     Böschungsbreite in Metern) - ersetzt die berechnete Böschungsbreite auf der jeweiligen Seite durch
     einen festen Wert statt sie aus der Höhendifferenz zum natürlichen Gelände abzuleiten (0.0 = gar keine
-    Böschung, das Gelände bleibt dort auf natürlicher Höhe stehen). "left"/"right" folgen dabei der
-    STANDARD-Konvention (wie offset_points()/resolve_open_side(): links = Centerline-Richtung um +90°
-    gedreht) - NICHT der (rein internen, siehe Hinweis unten) links/rechts-Zuordnung dieser Funktion; die
-    Übersetzung passiert intern.
+    Böschung, das Gelände bleibt dort auf natürlicher Höhe stehen). Bei einem Wert > 0 gibt es zwei Modi
+    für diese Seite, gesteuert über das optionale Feld "flat_shoulder_sides" (Set/Liste mit "left"/"right",
+    STANDARD-Konvention wie unten):
+    - NICHT in flat_shoulder_sides (Standard): natural_z wird NICHT an der Fahrbahnkante abgetastet,
+      sondern am FERNEN Ende des überschriebenen Korridors (Kante + Override-Breite) - echte Abwärts-/
+      Aufwärts-Interpolation zum Gelände dort. Siehe Galerie-Talseite unten für den Grund.
+    - IN flat_shoulder_sides: natural_z wird auf die Kantenhöhe selbst gesetzt - der ganze Korridor bleibt
+      FLACH auf Fahrbahnhöhe (keine Interpolation zum Gelände). Siehe Galerie-Bergseite unten.
 
-    Für Galerien: die bergseitige Böschung braucht keinen künstlichen Winkel mehr, weil die (jetzt massive,
-    siehe config.GALLERY_WALL_THICKNESS) Wand ohnehin bis in den Hang reicht (Override 0.0). Die talseitige
-    Böschung bekommt stattdessen einen kurzen FESTEN Wert (statt der berechneten Breite): das DGM zeigt an
-    einer Galerie nicht das ursprüngliche Gelände, sondern die reale Talseiten-Struktur (Brüstung/
-    Dachüberstand) - die daraus abgeleitete Höhendifferenz/Böschungsbreite wäre entsprechend verrauscht und
-    ergäbe eine sichtbar facettierte, spitze Böschung statt einer glatten Angleichung ans Gelände (siehe
-    config.GALLERY_VALLEY_SLOPE_WIDTH). Siehe tunnels/gallery_mesh.py::resolve_open_side().
+    "left"/"right" folgen dabei der STANDARD-Konvention (wie offset_points()/resolve_open_side(): links =
+    Centerline-Richtung um +90° gedreht) - NICHT der (rein internen, siehe Hinweis unten)
+    links/rechts-Zuordnung dieser Funktion; die Übersetzung passiert intern.
+
+    Für Galerien:
+    - Bergseite (flat_shoulder_sides): config.GALLERY_MOUNTAIN_EMBED_MARGIN als schmaler FLACHER Saum auf
+      Fahrbahnhöhe direkt an der Innenkante der (massiven, siehe config.GALLERY_WALL_THICKNESS) Wand - für
+      einen sauberen Wand-Boden-Übergang, keinen künstlichen Böschungswinkel. Jenseits davon bleibt das
+      Gelände unverändert (die Wand reicht ohnehin bis in den Hang).
+    - Talseite (NICHT in flat_shoulder_sides): config.GALLERY_VALLEY_SLOPE_WIDTH als kurzer FESTER Wert
+      (statt der berechneten Breite) - das DGM zeigt an einer Galerie nicht das ursprüngliche Gelände,
+      sondern die reale Talseiten-Struktur (Brüstung/Dachüberstand) - direkt an der Fahrbahnkante zeigt es
+      daher NICHT den Übergang ins Tal, sondern die Bauwerksoberfläche selbst (Höhensprung von mehreren
+      Metern typischerweise schon 2 m hinter der Kante, empirisch an echten Galerien im DGM gemessen).
+      Würde natural_z weiterhin an der Kante abgetastet, "glättete" die Böschung auf diesen erhöhten, kaum
+      unter Straßenniveau liegenden Wert - sichtbar als stehenbleibende Geländespitze statt eines Gefälles
+      talwärts. Deshalb wird natural_z hier am fernen Ende des Korridors (Kante + GALLERY_VALLEY_SLOPE_WIDTH)
+      abgetastet, wo das DGM wieder echtes Gelände zeigt. Siehe tunnels/gallery_mesh.py::resolve_open_side().
 
     Returns:
         Liste von Dicts, je Straße:
@@ -369,10 +384,34 @@ def build_road_embankment_profiles(
         # STANDARD-"links" (point + perp*half) ist oben "right_xy", STANDARD-"rechts" ist "left_xy" (siehe
         # Hinweis) - die slope_width_override-Zuordnung muss deshalb gespiegelt werden.
         override = poly.get("slope_width_override") or {}
+        flat_sides = poly.get("flat_shoulder_sides") or ()
         if "left" in override:
-            right_slope_width = np.full_like(right_slope_width, override["left"])
+            width_left = override["left"]
+            right_slope_width = np.full_like(right_slope_width, width_left)
+            if width_left > 0:
+                if "left" in flat_sides:
+                    # Flacher Saum auf Fahrbahnhöhe (Galerie-Bergseite): natural_z = Kantenhöhe selbst,
+                    # keine Interpolation zum Gelände (siehe Docstring).
+                    right_natural_z = z.copy()
+                else:
+                    # natural_z NICHT an der Fahrbahnkante (dort zeigt das DGM bei einer Galerie das
+                    # Bauwerk selbst, siehe Docstring), sondern am FERNEN Ende des überschriebenen
+                    # Korridors abtasten - erst dort zeigt das DGM wieder echtes Gelände. Am Bordstein
+                    # gemessen: Höhensprung von mehreren Metern schon 2m hinter der Kante (Dachüberstand/
+                    # Brüstung), die Böschung "glättete" bisher auf diesen erhöhten Wert statt talwärts.
+                    right_natural_z = sample_heightmap_bilinear(
+                        heights, origin_x, origin_y, square_size, xy + perp * (half_width + width_left)
+                    )
         if "right" in override:
-            left_slope_width = np.full_like(left_slope_width, override["right"])
+            width_right = override["right"]
+            left_slope_width = np.full_like(left_slope_width, width_right)
+            if width_right > 0:
+                if "right" in flat_sides:
+                    left_natural_z = z.copy()
+                else:
+                    left_natural_z = sample_heightmap_bilinear(
+                        heights, origin_x, origin_y, square_size, xy - perp * (half_width + width_right)
+                    )
 
         roads.append(
             {
