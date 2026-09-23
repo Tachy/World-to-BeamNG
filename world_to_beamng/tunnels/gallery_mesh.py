@@ -70,15 +70,23 @@ def build_gallery_mesh(
     floor_material: str,
     roof_material: str,
     column_spacing: float = 6.0,
-    roof_thickness: float = 0.35,
+    roof_thickness: float = 0.5,
+    floor_thickness: float = 5.0,
+    wall_thickness: float = 5.0,
     column_size: float = 0.4,
     tile_m: float = 5.0,
     open_side: Optional[str] = None,
 ) -> Dict:
     """
-    Galerie-Mesh: Boden, Dach (Ober-/Unterseite), eine bergseitige Wand und Stützen auf der talseitig offenen Seite.
+    Galerie-Mesh: Boden, Dach und bergseitige Wand sind echte Quader (nicht nur dünne Flächen) - Boden
+    floor_thickness nach unten, Dach roof_thickness nach oben, bergseitige Wand wall_thickness weiter in
+    den Hang hinein. Dazu Stützen auf der talseitig offenen Seite (keine Wand dort). Beide Enden werden
+    komplett verschlossen (Boden-/Dach-/Wand-Querschnitt) - wirkt wie ein sauberer Schnitt durchs Bauwerk,
+    passend zu den (siehe extend_gallery_centerline_ends()) etwas über die OSM-Way-Grenze hinaus verlängerten
+    Enden.
 
     Args:
+        floor_thickness, wall_thickness: siehe config.GALLERY_FLOOR_THICKNESS/GALLERY_WALL_THICKNESS
         open_side: "left" | "right" | None - wenn gesetzt (aus resolve_open_side(), zuverlässiger OSM-Tag),
             gilt diese Seite für die GESAMTE Galerie als offen statt sie per valley_side() (Höhenvergleich,
             nur Fallback) punktweise zu bestimmen.
@@ -89,10 +97,12 @@ def build_gallery_mesh(
     points = np.array(coords, dtype=float)
     xy = points[:, :2]
     floor_z = points[:, 2]
+    floor_bottom_z = floor_z - floor_thickness
     roof_bottom_z = floor_z + height
     roof_top_z = roof_bottom_z + roof_thickness
 
     left, right = offset_points(xy, width / 2.0, closed=False)
+    outer_left, outer_right = offset_points(xy, width / 2.0 + wall_thickness, closed=False)
     # +1 = rechts offen (Tal), -1 = links offen - siehe open_side/resolve_open_side()-Docstring.
     if open_side == "left":
         side = np.full(len(points), -1.0)
@@ -105,6 +115,9 @@ def build_gallery_mesh(
     along = np.concatenate([[0.0], np.cumsum(steps)]) / tile_m
     across = width / tile_m
     across_h = height / tile_m
+    floor_h = floor_thickness / tile_m
+    roof_h = roof_thickness / tile_m
+    wall_extra = wall_thickness / tile_m
 
     def p3(pt_xy, z):
         return [float(pt_xy[0]), float(pt_xy[1]), float(z)]
@@ -118,11 +131,29 @@ def build_gallery_mesh(
         direction = direction / np.linalg.norm(direction)
         side_normal = [float(-direction[1]), float(direction[0]), 0.0]
 
+        # Boden: Fahrbahn-Oberseite (Straßenmaterial) + Unterseite + beide Randflächen (Quader).
         floor_builder.quad(
             [p3(left[i], floor_z[i]), p3(left[j], floor_z[j]), p3(right[j], floor_z[j]), p3(right[i], floor_z[i])],
             [[u0, 0.0], [u1, 0.0], [u1, across], [u0, across]],
             [0.0, 0.0, 1.0],
         )
+        roof_builder.quad(
+            [p3(left[i], floor_bottom_z[i]), p3(right[i], floor_bottom_z[i]), p3(right[j], floor_bottom_z[j]), p3(left[j], floor_bottom_z[j])],
+            [[u0, 0.0], [u0, across], [u1, across], [u1, 0.0]],
+            [0.0, 0.0, -1.0],
+        )
+        roof_builder.quad(
+            [p3(left[i], floor_bottom_z[i]), p3(left[j], floor_bottom_z[j]), p3(left[j], floor_z[j]), p3(left[i], floor_z[i])],
+            [[u0, 0.0], [u1, 0.0], [u1, floor_h], [u0, floor_h]],
+            [float(side_normal[0]), float(side_normal[1]), 0.0],
+        )
+        roof_builder.quad(
+            [p3(right[i], floor_z[i]), p3(right[j], floor_z[j]), p3(right[j], floor_bottom_z[j]), p3(right[i], floor_bottom_z[i])],
+            [[u0, 0.0], [u1, 0.0], [u1, floor_h], [u0, floor_h]],
+            [-float(side_normal[0]), -float(side_normal[1]), 0.0],
+        )
+
+        # Dach: Unter-/Oberseite (wie zuvor) + jetzt zusätzlich beide Randflächen (Quader statt Platte).
         roof_builder.quad(
             [p3(left[i], roof_bottom_z[i]), p3(right[i], roof_bottom_z[i]), p3(right[j], roof_bottom_z[j]), p3(left[j], roof_bottom_z[j])],
             [[u0, 0.0], [u0, across], [u1, across], [u1, 0.0]],
@@ -133,17 +164,55 @@ def build_gallery_mesh(
             [[u0, 0.0], [u1, 0.0], [u1, across], [u0, across]],
             [0.0, 0.0, 1.0],
         )
+        roof_builder.quad(
+            [p3(left[i], roof_bottom_z[i]), p3(left[j], roof_bottom_z[j]), p3(left[j], roof_top_z[j]), p3(left[i], roof_top_z[i])],
+            [[u0, 0.0], [u1, 0.0], [u1, roof_h], [u0, roof_h]],
+            [float(side_normal[0]), float(side_normal[1]), 0.0],
+        )
+        roof_builder.quad(
+            [p3(right[i], roof_top_z[i]), p3(right[j], roof_top_z[j]), p3(right[j], roof_bottom_z[j]), p3(right[i], roof_bottom_z[i])],
+            [[u0, 0.0], [u1, 0.0], [u1, roof_h], [u0, roof_h]],
+            [-float(side_normal[0]), -float(side_normal[1]), 0.0],
+        )
 
-        # bergseitige Wand: die Seite, die (an diesem Segment) NICHT talwärts liegt; bei einem Wechsel mitten im
+        # Bergseitige Wand (jetzt ein Quader, wall_thickness weiter in den Hang hinein statt einer dünnen
+        # Fläche): die Seite, die (an diesem Segment) NICHT talwärts liegt; bei einem Wechsel mitten im
         # Segment (selten) gewinnt die Seite am Segment-Anfang - akzeptierte Vereinfachung.
         mountain_is_left = side[i] > 0
         edge = left if mountain_is_left else right
+        outer_edge = outer_left if mountain_is_left else outer_right
         wall_normal = [-side_normal[0], -side_normal[1], 0.0] if mountain_is_left else side_normal
-        roof_builder.quad(
+        outward_normal = [-wall_normal[0], -wall_normal[1], 0.0]
+
+        roof_builder.quad(  # Innenfläche (sichtbar aus dem Innenraum)
             [p3(edge[i], floor_z[i]), p3(edge[j], floor_z[j]), p3(edge[j], roof_bottom_z[j]), p3(edge[i], roof_bottom_z[i])],
             [[u0, 0.0], [u1, 0.0], [u1, across_h], [u0, across_h]],
             wall_normal,
         )
+        roof_builder.quad(  # Außenfläche, wall_thickness weiter im Hang
+            [p3(outer_edge[i], floor_z[i]), p3(outer_edge[i], roof_bottom_z[i]), p3(outer_edge[j], roof_bottom_z[j]), p3(outer_edge[j], floor_z[j])],
+            [[u0, 0.0], [u0, across_h], [u1, across_h], [u1, 0.0]],
+            outward_normal,
+        )
+        roof_builder.quad(  # Wand-Unterseite (Boden-Niveau, Innen- bis Außenkante)
+            [p3(edge[i], floor_z[i]), p3(outer_edge[i], floor_z[i]), p3(outer_edge[j], floor_z[j]), p3(edge[j], floor_z[j])],
+            [[u0, 0.0], [u0, wall_extra], [u1, wall_extra], [u1, 0.0]],
+            [0.0, 0.0, -1.0],
+        )
+        roof_builder.quad(  # Wand-Oberseite (Decken-Unterkante-Niveau, Innen- bis Außenkante)
+            [p3(edge[i], roof_bottom_z[i]), p3(edge[j], roof_bottom_z[j]), p3(outer_edge[j], roof_bottom_z[j]), p3(outer_edge[i], roof_bottom_z[i])],
+            [[u0, 0.0], [u1, 0.0], [u1, wall_extra], [u0, wall_extra]],
+            [0.0, 0.0, 1.0],
+        )
+
+    _add_end_caps(
+        roof_builder, 0, xy[0] - xy[1], left, right, outer_left, outer_right, floor_z, floor_bottom_z,
+        roof_bottom_z, roof_top_z, side, across, floor_h, roof_h, wall_extra, across_h,
+    )
+    _add_end_caps(
+        roof_builder, len(points) - 1, xy[-1] - xy[-2], left, right, outer_left, outer_right, floor_z,
+        floor_bottom_z, roof_bottom_z, roof_top_z, side, across, floor_h, roof_h, wall_extra, across_h,
+    )
 
     cum = np.concatenate([[0.0], np.cumsum(steps)])
     total_len = float(cum[-1]) if len(cum) else 0.0
@@ -155,7 +224,10 @@ def build_gallery_mesh(
         cx = open_edge[idx - 1, 0] + t * (open_edge[idx, 0] - open_edge[idx - 1, 0])
         cy = open_edge[idx - 1, 1] + t * (open_edge[idx, 1] - open_edge[idx - 1, 1])
         cz = float(floor_z[idx - 1] + t * (floor_z[idx] - floor_z[idx - 1]))
-        add_box_column(roof_builder, cx, cy, cz, cz + height, column_size, tile_m)
+        # Profil relativ zur Galerie-Richtung ausgerichtet (nicht achsenparallel zur Welt) - sonst stehen
+        # die Stützen bei diagonal verlaufenden Galerien sichtbar schief zur Wand-/Dachkante.
+        column_direction = xy[idx] - xy[idx - 1]
+        add_box_column(roof_builder, cx, cy, cz, cz + height, column_size, tile_m, direction=tuple(column_direction))
 
     all_vertices = floor_builder.vertices + roof_builder.vertices
     all_uvs = floor_builder.uvs + roof_builder.uvs
@@ -171,13 +243,55 @@ def build_gallery_mesh(
     }
 
 
+def _add_end_caps(
+    builder: "MeshBuilder",
+    idx: int,
+    outward_xy: np.ndarray,
+    left, right, outer_left, outer_right,
+    floor_z, floor_bottom_z, roof_bottom_z, roof_top_z,
+    side, across, floor_h, roof_h, wall_extra, across_h,
+) -> None:
+    """
+    Stirnfläche an einem Ende (idx=0 oder idx=len-1): voller Boden-Querschnitt (Quader-Dicke) + voller
+    Dach-Querschnitt + Wand-Querschnitt (nur deren eigener Fußabdruck, Innen- bis Außenkante) - macht aus
+    dem offenen Schalen-Ende einen sauberen, massiven Schnitt statt eines Blicks in den Hohlraum.
+    """
+    norm = float(np.hypot(outward_xy[0], outward_xy[1]))
+    normal = [float(outward_xy[0] / norm), float(outward_xy[1] / norm), 0.0] if norm > 1e-9 else [1.0, 0.0, 0.0]
+
+    def p3(pt_xy, z):
+        return [float(pt_xy[0]), float(pt_xy[1]), float(z)]
+
+    builder.quad(  # Boden-Stirnfläche
+        [p3(left[idx], floor_bottom_z[idx]), p3(right[idx], floor_bottom_z[idx]), p3(right[idx], floor_z[idx]), p3(left[idx], floor_z[idx])],
+        [[0.0, 0.0], [across, 0.0], [across, floor_h], [0.0, floor_h]],
+        normal,
+    )
+    builder.quad(  # Dach-Stirnfläche
+        [p3(left[idx], roof_bottom_z[idx]), p3(right[idx], roof_bottom_z[idx]), p3(right[idx], roof_top_z[idx]), p3(left[idx], roof_top_z[idx])],
+        [[0.0, 0.0], [across, 0.0], [across, roof_h], [0.0, roof_h]],
+        normal,
+    )
+
+    mountain_is_left = side[idx] > 0
+    edge_pt = left[idx] if mountain_is_left else right[idx]
+    outer_pt = outer_left[idx] if mountain_is_left else outer_right[idx]
+    builder.quad(  # Wand-Stirnfläche (nur der Wand-Fußabdruck: Innen- bis Außenkante)
+        [p3(edge_pt, floor_z[idx]), p3(outer_pt, floor_z[idx]), p3(outer_pt, roof_bottom_z[idx]), p3(edge_pt, roof_bottom_z[idx])],
+        [[0.0, 0.0], [wall_extra, 0.0], [wall_extra, across_h], [0.0, across_h]],
+        normal,
+    )
+
+
 def build_galleries(
     galleries: Sequence[Dict],
     ground_at: HeightAt,
     roof_material: str,
     height: float = 5.0,
     column_spacing: float = 6.0,
-    roof_thickness: float = 0.35,
+    roof_thickness: float = 0.5,
+    floor_thickness: float = 5.0,
+    wall_thickness: float = 5.0,
     column_size: float = 0.4,
 ) -> List[Dict]:
     """Mesh-Dicts für den DAE-Export, eines je Galerie (`galleries`: [{"id","coords","width","floor_material",
@@ -189,7 +303,8 @@ def build_galleries(
             continue
         mesh = build_gallery_mesh(
             coords, gallery["width"], height, ground_at, gallery["floor_material"], roof_material,
-            column_spacing=column_spacing, roof_thickness=roof_thickness, column_size=column_size,
+            column_spacing=column_spacing, roof_thickness=roof_thickness, floor_thickness=floor_thickness,
+            wall_thickness=wall_thickness, column_size=column_size,
             open_side=resolve_open_side(gallery.get("osm_tags", {})),
         )
         meshes.append({"id": f"gallery_{gallery['id']}", **mesh})

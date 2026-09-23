@@ -40,10 +40,13 @@ def test_valley_side_flips_when_the_slope_is_mirrored():
 
 def test_roof_and_floor_are_flat_at_the_given_heights():
     ground_at = lambda x, y: 500.0 - 2.0 * np.asarray(y, float)
-    mesh = build_gallery_mesh(_straight_coords(z=500.0), width=8.0, height=5.0, ground_at=ground_at, floor_material=FLOOR, roof_material=ROOF, roof_thickness=0.35)
+    mesh = build_gallery_mesh(
+        _straight_coords(z=500.0), width=8.0, height=5.0, ground_at=ground_at, floor_material=FLOOR,
+        roof_material=ROOF, roof_thickness=0.35, floor_thickness=3.0,
+    )
     v = mesh["vertices"]
 
-    assert v[:, 2].min() == pytest.approx(500.0)
+    assert v[:, 2].min() == pytest.approx(497.0)  # Boden(500) - Bodendicke(3)
     assert v[:, 2].max() == pytest.approx(505.35)  # Boden(500) + Höhe(5) + Dachdicke(0.35)
 
 
@@ -55,18 +58,52 @@ def test_faces_are_split_by_material():
     assert len(mesh["faces"][FLOOR]) > 0 and len(mesh["faces"][ROOF]) > 0
 
 
+def _off_grid_vertices_near(vertices, y, grid_step=5.0, tol=0.3):
+    """Vertices nahe y, deren X NICHT auf dem Centerline-Punktraster (Vielfache von grid_step) liegt - Boden/
+    Dach/Wand-Flächen haben nur Vertices auf dem Punktraster, nur Stützen fügen Vertices dazwischen ein."""
+    x, y_coord = vertices[:, 0], vertices[:, 1]
+    on_grid = np.abs((x / grid_step) - np.round(x / grid_step)) < 0.01
+    return np.sum((~on_grid) & (np.abs(y_coord - y) < tol))
+
+
 def test_columns_are_on_the_valley_side_not_the_mountain_side():
-    # Boden/Dach spannen immer beide Kanten (y=+4 und y=-4) - reine Vertex-Präsenz an einer Kante unterscheidet
-    # also NICHT, wo die Stützen sitzen. Stattdessen: Stützen fügen an ihrer Kante zusätzliche Vertices ein
-    # (4 Seitenflächen je Stütze), an der Bergseite (nur die Wandfläche) nicht - die Talseite muss daher
-    # spürbar mehr Vertices nahe ihrer Kante haben als die Bergseite.
+    # Boden/Dach/Wand spannen immer beide Kanten (y=+4 und y=-4) und liegen nur auf dem 5m-Centerline-
+    # Punktraster - nur Stützen (hier bei x=5,15,...,55, exakt auf dem Raster in diesem Szenario deckungs-
+    # gleich mit column_spacing=10) fügen zusätzliche Vertices EXAKT an ihrer x-Position ein. Um das von
+    # Boden/Dach/Wand-Vertices (ebenfalls bei Vielfachen von 5) zu unterscheiden, column_spacing hier bewusst
+    # NICHT auf dem 5m-Raster wählen.
     ground_at = lambda x, y: 500.0 - 2.0 * np.asarray(y, float)  # fällt nach +y -> +y ist die Talseite (links)
-    mesh = build_gallery_mesh(_straight_coords(length=60.0, z=500.0), width=8.0, height=5.0, ground_at=ground_at, floor_material=FLOOR, roof_material=ROOF, column_spacing=10.0)
+    mesh = build_gallery_mesh(_straight_coords(length=60.0, z=500.0), width=8.0, height=5.0, ground_at=ground_at, floor_material=FLOOR, roof_material=ROOF, column_spacing=12.0)
 
     v = np.array(mesh["vertices"])
-    near_valley_edge = np.sum(np.abs(v[:, 1] - 4.0) < 0.3)  # +y = Talseite in diesem Szenario
-    near_mountain_edge = np.sum(np.abs(v[:, 1] + 4.0) < 0.3)
-    assert near_valley_edge > near_mountain_edge
+    assert _off_grid_vertices_near(v, y=4.0) > 0  # Talseite: Stützen-Vertices abseits des Punktrasters
+    assert _off_grid_vertices_near(v, y=-4.0) == 0  # Bergseite: keine Stützen
+
+
+def test_wall_extends_wall_thickness_into_the_mountain():
+    ground_at = lambda x, y: 500.0 - 2.0 * np.asarray(y, float)  # Bergseite ist -y (rechts)
+    mesh = build_gallery_mesh(
+        _straight_coords(z=500.0), width=8.0, height=5.0, ground_at=ground_at, floor_material=FLOOR,
+        roof_material=ROOF, wall_thickness=3.0, column_spacing=1000.0,  # keine Stützen (verfälschen die Kante sonst)
+    )
+
+    v = np.array(mesh["vertices"])
+    # Bergseite (y<0): die Wand-Außenfläche reicht bis width/2 + wall_thickness = 4 + 3 = 7 m von der Achse.
+    assert v[:, 1].min() == pytest.approx(-7.0)
+    # Talseite (y>0) bleibt bei der reinen Fahrbahnbreite, width/2 = 4 m.
+    assert v[:, 1].max() == pytest.approx(4.0)
+
+
+def test_ends_are_capped_with_outward_facing_faces():
+    ground_at = lambda x, y: 500.0 - 2.0 * np.asarray(y, float)
+    mesh = build_gallery_mesh(_straight_coords(z=500.0), width=8.0, height=5.0, ground_at=ground_at, floor_material=FLOOR, roof_material=ROOF)
+
+    v, n = np.array(mesh["vertices"]), np.array(mesh["normals"])
+    # Stirnflächen am Anfang (x=0, Normale -x) und Ende (x=60, Normale +x).
+    start_faces = np.abs(v[:, 0]) < 1e-6
+    end_faces = np.abs(v[:, 0] - 60.0) < 1e-6
+    assert np.any(start_faces & (n[:, 0] < -0.99))
+    assert np.any(end_faces & (n[:, 0] > 0.99))
 
 
 def test_build_galleries_returns_one_mesh_per_gallery():
@@ -104,13 +141,12 @@ def test_open_side_override_ignores_ground_at_even_when_it_disagrees():
     ground_at = lambda x, y: 500.0 - 2.0 * np.asarray(y, float)
     mesh = build_gallery_mesh(
         _straight_coords(length=60.0, z=500.0), width=8.0, height=5.0, ground_at=ground_at,
-        floor_material=FLOOR, roof_material=ROOF, column_spacing=10.0, open_side="right",
+        floor_material=FLOOR, roof_material=ROOF, column_spacing=12.0, open_side="right",
     )
 
     v = np.array(mesh["vertices"])
-    near_valley_edge = np.sum(np.abs(v[:, 1] + 4.0) < 0.3)  # "right" = -y offen
-    near_mountain_edge = np.sum(np.abs(v[:, 1] - 4.0) < 0.3)
-    assert near_valley_edge > near_mountain_edge
+    assert _off_grid_vertices_near(v, y=-4.0) > 0  # "right" = -y offen -> Stützen dort
+    assert _off_grid_vertices_near(v, y=4.0) == 0
 
 
 def test_build_galleries_uses_the_osm_tag_when_present():
@@ -120,9 +156,8 @@ def test_build_galleries_uses_the_osm_tag_when_present():
         "osm_tags": {"avalanche_protector:right": "open"},
     }]
 
-    meshes = build_galleries(galleries, ground_at, roof_material=ROOF, column_spacing=10.0)
+    meshes = build_galleries(galleries, ground_at, roof_material=ROOF, column_spacing=12.0)
 
     v = np.array(meshes[0]["vertices"])
-    near_valley_edge = np.sum(np.abs(v[:, 1] + 4.0) < 0.3)
-    near_mountain_edge = np.sum(np.abs(v[:, 1] - 4.0) < 0.3)
-    assert near_valley_edge > near_mountain_edge
+    assert _off_grid_vertices_near(v, y=-4.0) > 0
+    assert _off_grid_vertices_near(v, y=4.0) == 0

@@ -199,7 +199,7 @@ class TerrainWorkflow:
         # WICHTIG: Erzeuge tatsächliche Straßen-Polygone (Puffer um Centerline)
         from shapely.geometry import LineString
         from ..config import OSM_MAPPER
-        from ..geometry.road_structures import classify_structure, split_by_structure_type
+        from ..geometry.road_structures import classify_structure, extend_gallery_centerline_ends, split_by_structure_type
         from ..utils.debug_exporter import DebugNetworkExporter
 
         road_slope_polygons_2d = []
@@ -294,6 +294,10 @@ class TerrainWorkflow:
         # Brücken/Tunnel/Galerien werden NICHT ins Terrain eingebettet und bekommen keine Böschung - siehe
         # Design-Spec Abschnitt 3 (das Gelände bleibt darunter/daneben vollständig natürlich).
         surface_road_polygons, structure_road_polygons = split_by_structure_type(road_slope_polygons_2d)
+        # Galerie-Enden ein Stück in den angrenzenden "surface"-Straßenabschnitt hinein verlängern -
+        # zentral hier, VOR jeder Verwendung von structure_road_polygons (Terrain-Loch, -Glättung, Mesh
+        # nutzen alle dieselbe trimmed_centerline), siehe extend_gallery_centerline_ends()-Docstring.
+        structure_road_polygons = extend_gallery_centerline_ends(structure_road_polygons, config.GALLERY_CENTERLINE_EXTENSION)
 
         embankment_profiles = build_road_embankment_profiles(
             surface_road_polygons,
@@ -798,6 +802,8 @@ class TerrainWorkflow:
             height=config.GALLERY_HEIGHT,
             column_spacing=config.GALLERY_COLUMN_SPACING,
             roof_thickness=config.GALLERY_ROOF_THICKNESS,
+            floor_thickness=config.GALLERY_FLOOR_THICKNESS,
+            wall_thickness=config.GALLERY_WALL_THICKNESS,
             column_size=config.GALLERY_COLUMN_SIZE,
         )
         return tunnel_meshes + gallery_meshes

@@ -6,6 +6,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 import numpy as np
+import pytest
 
 from world_to_beamng.terrain.road_embedding import (
     embed_roads_into_heightmap,
@@ -425,15 +426,20 @@ def test_smooth_gallery_terrain_pulls_the_building_spike_toward_natural_terrain(
     assert heights[13, 15] == 250.0  # Eingabe bleibt unverändert
 
 
-def test_smooth_gallery_terrain_is_a_single_50_50_blend_not_a_gradient_ramp():
-    # Flaches Umland, EIN Ausreißer mitten im Korridor - kein interpolierter Verlauf über die Breite
-    # (wie apply_embankment_blend), sondern genau der Mittelwert aus Ausreißer und nächster Naturzelle.
-    heights = np.full((30, 30), 100.0)
-    heights[15, 15] = 300.0
+def test_smooth_gallery_terrain_interpolates_linearly_between_the_two_corridor_edges():
+    # Bergseitiger Rand (y=15+half_width=24) konstant 200, talseitiger Rand (y=15-half_width=6) konstant
+    # 100 - alles dazwischen soll (invers-distanzgewichtet) linear zwischen den beiden Rändern liegen,
+    # kein bloßer 50/50-Mix mit der nächstgelegenen Naturzelle mehr (frühere Version).
+    heights = np.full((30, 30), 999.0)
+    heights[24, :] = 200.0
+    heights[6, :] = 100.0
 
     result = smooth_gallery_terrain(heights, 0.0, 0.0, 1.0, [_gallery()], width_margin=6.0)
 
-    assert result[15, 15] == 0.5 * 300.0 + 0.5 * 100.0
+    assert result[15, 15] == pytest.approx(150.0)  # Mitte des Korridors: genau der Mittelwert
+    assert result[21, 15] == pytest.approx(200.0 * 15 / 18 + 100.0 * 3 / 18)  # näher am Bergrand (Abstand 3 statt 9)
+    assert result[9, 15] == pytest.approx(200.0 * 3 / 18 + 100.0 * 15 / 18)  # näher am Talrand (Abstand 3 statt 9)
+    assert result[21, 15] > result[15, 15] > result[9, 15]  # monoton von Berg- zu Talrand
 
 
 def test_smooth_gallery_terrain_without_galleries_is_a_noop():

@@ -23,7 +23,6 @@ from typing import Dict, List
 import numpy as np
 from affine import Affine
 from rasterio.features import rasterize
-from scipy.ndimage import distance_transform_edt
 from scipy.spatial import cKDTree
 from shapely import intersects_xy
 from shapely.geometry import LineString, Polygon
@@ -228,17 +227,26 @@ def smooth_gallery_terrain(
     width_margin: float,
 ) -> np.ndarray:
     """
-    Dämpft den Sprung am Rand des (gegenüber dem späteren Hole deutlich breiteren) Galerie-Korridors:
-    jede Korridor-Zelle wird zur Hälfte mit der Höhe der nächstgelegenen Zelle AUSSERHALB des Korridors
-    gemischt. MUSS vor mark_gallery_interior_as_holes() laufen, das den (schmaleren) Fahrbahn-Korridor
-    danach als Hole ausstanzt.
+    Interpoliert das Terrain im (gegenüber dem späteren Hole deutlich breiteren) Galerie-Korridor linear
+    zwischen der natürlichen Geländehöhe am bergseitigen und am talseitigen Korridor-Rand - ergibt eine
+    durchgehend geneigte, zum echten Hangverlauf passende Fläche statt eines bloßen 50/50-Mixes mit der
+    nächstgelegenen Naturzelle (frühere Version). MUSS vor mark_gallery_interior_as_holes() laufen, das
+    den (schmaleren) Fahrbahn-Korridor danach als Hole ausstanzt.
 
-    Grund: das DGM zeigt an einer bestehenden Galerie nicht das ursprüngliche Gelände, sondern das
-    Bauwerk selbst (Dachkante, Stützen, Bergseitenwand-Fundament). Ohne diesen Schritt blieben direkt
-    am Rand des (schmaleren) Holes sichtbare, kantige "Gebäude-Polygone" im Terrain stehen, weil dort
-    weiterhin die rohe (bauwerk-kontaminierte) DGM-Höhe gerendert wird. Bewusst kein Interpolations-
-    Verlauf über die Korridorbreite (keine Rampe von Kante zu Kante wie apply_embankment_blend) - nur
-    ein einzelner 50/50-Mix pro Zelle mit dem nächsten echten Naturgelände.
+    Grund/Historie: das DGM zeigt an einer bestehenden Galerie nicht das ursprüngliche Gelände, sondern
+    das Bauwerk selbst (Dachkante, Stützen, Bergseitenwand-Fundament). Ohne Glättung blieben direkt am
+    Rand des (schmaleren) Holes sichtbare, kantige "Gebäude-Polygone" im Terrain stehen. Der frühere
+    einzelne 50/50-Mix (Commit "Flatten the gallery corridor edge...") war bewusst konservativ; jetzt,
+    wo Boden/Wand/Dach echte Quader sind (config.GALLERY_FLOOR_THICKNESS/GALLERY_WALL_THICKNESS/
+    GALLERY_ROOF_THICKNESS - massive Kontaktfläche zum Gelände), darf grosszügiger geglättet werden: eine
+    durchgehend lineare Rand-zu-Rand-Fläche sieht neben einem massiven Bauwerk plausibler aus als ein
+    Flickenteppich aus einzelnen Nachbarwerten.
+
+    Technik: pro Centerline-Punkt wird die natürliche Höhe am linken und rechten Korridor-Rand
+    (Centerline ± half_width) abgetastet (dieselbe Technik wie build_road_embankment_profiles()); jede
+    Korridor-Zelle wird dann invers-distanzgewichtet zwischen der jeweils nächstgelegenen linken und
+    rechten Randzelle interpoliert (2-Punkt-IDW - reicht, weil linker/rechter Rand nahezu parallel zur
+    Centerline verlaufen, ein exaktes Querprofil ist nicht nötig).
 
     Args:
         heights: (size, size) float Array (nach Böschung/Straßen-Einbettung, NICHT natural_heights)
@@ -250,22 +258,68 @@ def smooth_gallery_terrain(
     Returns:
         Neues (size, size) float Array (Eingabe bleibt unverändert)
     """
-    polygons = _gallery_corridor_polygons(gallery_road_polygons, width_margin)
-    if not polygons:
-        return heights.copy()
-
-    transform = Affine.translation(origin_x, origin_y) * Affine.scale(square_size, square_size)
-    corridor_mask = rasterize([(p, 1) for p in polygons], out_shape=heights.shape, transform=transform, fill=0, dtype="uint8").astype(bool)
-    if not corridor_mask.any():
-        return heights.copy()
-
-    # distance_transform_edt liefert je Korridor-Zelle (= "Vordergrund", nonzero) den Index der nächstgelegenen
-    # Zelle AUSSERHALB des Korridors (= "Hintergrund", 0) - exakt das nächste echte Naturgelände.
-    nearest_rows, nearest_cols = distance_transform_edt(corridor_mask, return_distances=False, return_indices=True)
-    nearest_natural = heights[nearest_rows, nearest_cols]
-
     result = heights.copy()
-    result[corridor_mask] = 0.5 * heights[corridor_mask] + 0.5 * nearest_natural[corridor_mask]
+    size_y, size_x = heights.shape
+
+    for road in gallery_road_polygons:
+        centerline = np.asarray(road.get("trimmed_centerline", []), dtype=np.float64)
+        width = road.get("width")
+        if len(centerline) < 2 or not width:
+            continue
+
+        half_width = width / 2.0 + width_margin
+        xy = centerline[:, :2]
+        polygon = LineString(xy).buffer(half_width, cap_style=2)
+        if polygon.is_empty:
+            continue
+
+        # Randlinien exakt am Korridor-Rand (halbe Fahrbahnbreite + width_margin) - dieselbe Punkt-Normalen-
+        # Technik wie build_road_embankment_profiles()/mark_gallery_interior_as_holes() (Historie).
+        directions = np.diff(xy, axis=0)
+        norms = np.linalg.norm(directions, axis=1, keepdims=True)
+        norms[norms < 1e-9] = 1.0
+        directions = directions / norms
+        point_dirs = np.empty_like(xy)
+        point_dirs[0] = directions[0]
+        point_dirs[-1] = directions[-1]
+        for i in range(1, len(xy) - 1):
+            avg = directions[i - 1] + directions[i]
+            n = np.linalg.norm(avg)
+            point_dirs[i] = avg / n if n > 1e-9 else directions[i - 1]
+        perp = np.column_stack([-point_dirs[:, 1], point_dirs[:, 0]])
+
+        left_xy = xy + perp * half_width
+        right_xy = xy - perp * half_width
+        left_z = sample_heightmap_bilinear(heights, origin_x, origin_y, square_size, left_xy)
+        right_z = sample_heightmap_bilinear(heights, origin_x, origin_y, square_size, right_xy)
+
+        min_x, min_y, max_x, max_y = polygon.bounds
+        col_start = max(0, int(np.floor((min_x - origin_x) / square_size)))
+        col_end = min(size_x - 1, int(np.ceil((max_x - origin_x) / square_size)))
+        row_start = max(0, int(np.floor((min_y - origin_y) / square_size)))
+        row_end = min(size_y - 1, int(np.ceil((max_y - origin_y) / square_size)))
+        if col_start > col_end or row_start > row_end:
+            continue
+
+        cols = np.arange(col_start, col_end + 1)
+        rows = np.arange(row_start, row_end + 1)
+        cell_x = origin_x + cols * square_size
+        cell_y = origin_y + rows * square_size
+        grid_x, grid_y = np.meshgrid(cell_x, cell_y)
+
+        inside = _cells_in_polygon(grid_x, grid_y, np.asarray(polygon.exterior.coords))
+        if not np.any(inside):
+            continue
+
+        qx, qy = grid_x[inside], grid_y[inside]
+        dl, il = cKDTree(left_xy).query(np.column_stack([qx, qy]))
+        dr, ir = cKDTree(right_xy).query(np.column_stack([qx, qy]))
+        denom = np.maximum(dl + dr, 1e-9)
+        blended = (left_z[il] * dr + right_z[ir] * dl) / denom
+
+        sub = result[row_start : row_end + 1, col_start : col_end + 1]
+        sub[inside] = blended
+
     return result
 
 

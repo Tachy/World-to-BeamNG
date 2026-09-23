@@ -5,7 +5,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from world_to_beamng.geometry.road_structures import classify_structure, split_by_structure_type
+import numpy as np
+import pytest
+
+from world_to_beamng.geometry.road_structures import classify_structure, extend_gallery_centerline_ends, split_by_structure_type
 
 
 def test_bridge_tag_is_classified_as_bridge():
@@ -54,3 +57,49 @@ def test_split_by_structure_type_separates_surface_from_structures():
 
     assert [r["road_id"] for r in surface] == [1, 5]
     assert [r["road_id"] for r in structures] == [2, 3, 4]
+
+
+# --- extend_gallery_centerline_ends ---------------------------------------------------------------------
+
+
+def _gallery(centerline):
+    return {"road_id": 1, "structure_type": "gallery", "trimmed_centerline": np.array(centerline, dtype=float)}
+
+
+def test_both_ends_are_extrapolated_by_the_given_distance():
+    road = _gallery([(0.0, 0.0, 100.0), (10.0, 0.0, 100.0), (20.0, 0.0, 110.0)])
+
+    result = extend_gallery_centerline_ends([road], extension_m=2.0)
+
+    coords = result[0]["trimmed_centerline"]
+    assert coords[0] == pytest.approx([-2.0, 0.0, 100.0])  # exakt entgegen der Richtung zu Punkt 1
+    assert coords[-1] == pytest.approx([22.0, 0.0, 112.0])  # Steigung des letzten Segments (1 m Höhe je 10 m) mit extrapoliert
+    assert coords[1] == pytest.approx([10.0, 0.0, 100.0])  # innere Punkte unverändert
+
+
+def test_only_gallery_entries_are_touched():
+    surface_road = {"road_id": 2, "structure_type": "surface", "trimmed_centerline": np.array([(0.0, 0.0, 100.0), (10.0, 0.0, 100.0)])}
+    tunnel = {"road_id": 3, "structure_type": "tunnel", "trimmed_centerline": np.array([(0.0, 0.0, 100.0), (10.0, 0.0, 100.0)])}
+
+    result = extend_gallery_centerline_ends([surface_road, tunnel], extension_m=2.0)
+
+    assert result[0]["trimmed_centerline"][0] == pytest.approx([0.0, 0.0, 100.0])
+    assert result[1]["trimmed_centerline"][0] == pytest.approx([0.0, 0.0, 100.0])
+
+
+def test_zero_extension_is_a_noop_and_returns_the_same_list():
+    roads = [_gallery([(0.0, 0.0, 100.0), (10.0, 0.0, 100.0)])]
+
+    result = extend_gallery_centerline_ends(roads, extension_m=0.0)
+
+    assert result is roads  # unveraendert durchgereicht (dieselbe Liste)
+
+
+def test_short_or_missing_centerline_is_left_alone():
+    degenerate = {"road_id": 4, "structure_type": "gallery", "trimmed_centerline": np.array([(0.0, 0.0, 100.0)])}
+    missing = {"road_id": 5, "structure_type": "gallery"}
+
+    result = extend_gallery_centerline_ends([degenerate, missing], extension_m=2.0)
+
+    assert result[0] is degenerate
+    assert result[1] is missing
