@@ -14,6 +14,7 @@ from .. import config
 from ..core.cache_manager import CacheManager
 from ..managers import MaterialManager, ItemManager, DAEExporter
 from .tile_processor import TileProcessor
+from ..progress import PipelineTask
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +64,7 @@ class TerrainWorkflow:
         self,
         tiles: List[Dict],
         global_offset: Tuple[float, float],
+        task: PipelineTask,
         bbox_margin: float = 50.0,
         buildings_data: Optional[Dict] = None,
     ) -> Dict:
@@ -99,6 +101,8 @@ class TerrainWorkflow:
         )
         from ..io.cache import calculate_global_tiles_hash
 
+        sub = task.begin_subtask("OSM-Daten laden")
+
         # 1. Höhendaten aller Kacheln zu einer Punktwolke kombinieren
         height_points, height_elevations = self.tile_processor.load_height_data_multi(tiles)
         if height_points is None:
@@ -122,7 +126,9 @@ class TerrainWorkflow:
 
         if not osm_data:
             logger.warning("  [!] Keine OSM-Daten")
+            sub.fail("keine OSM-Daten")
             return {"status": "failed", "reason": "no_osm_data"}
+        sub.finish()
 
         # 5. Straßen extrahieren
         roads = extract_roads_from_osm(osm_data)
@@ -140,6 +146,7 @@ class TerrainWorkflow:
         # bevor die Tile-Schleife beginnt.
 
         # 6b. LoD2-Gebäude laden (wenn aktiviert und noch nicht übergeben)
+        sub = task.begin_subtask("Gebäude normalisieren")
         if buildings_data is None and config.LOD2_ENABLED:
             from ..io.lod2 import cache_lod2_buildings, load_buildings_from_cache
 
@@ -176,6 +183,10 @@ class TerrainWorkflow:
 
             towers = ChurchTowerFinder.from_osm(osm_data, make_local_transform(global_offset)).mark(buildings_data)
             logger.info(f"  [OK] {towers} Kirchen mit Turm erkannt (Turmuhr statt Fenster)")
+
+        sub.finish(f"{len(buildings_data)} Gebäude" if buildings_data else "keine LoD2-Gebäude")
+
+        sub = task.begin_subtask("Straßennetz + Infrastruktur")
 
         # Berechne Grid-Bounds aus lokalen Punkten für Clipping
         grid_bounds_local = (
@@ -535,6 +546,8 @@ class TerrainWorkflow:
         # FERTIGEN Heightmap abgetastet (die Positionen kommen als reine XY-Punkte aus OSM, nicht von
         # einer Straßen-Centerline).
         poi_points = self._collect_poi_points(osm_data, global_offset, heights, terrain_origin_x, terrain_origin_y, grid_bounds_local)
+
+        sub.finish(f"{len(road_slope_polygons_2d)} Straßensegmente")
 
         z_min = float(heights.min())
         z_max = float(heights.max())
@@ -1268,7 +1281,7 @@ class TerrainWorkflow:
             overwrite=True,
         )
 
-    def export_tile(self, tile_x: int, tile_y: int, mesh_data: Dict) -> int:
+    def export_tile(self, tile_x: int, tile_y: int, mesh_data: Dict, task: PipelineTask) -> int:
         """
         Exportiere EINE einzelne Kachel komplett (DecalRoad-Straßen + eigenes .ter).
 
@@ -1283,23 +1296,41 @@ class TerrainWorkflow:
         Returns:
             Anzahl der erzeugten DecalRoad-Items
         """
-        road_count = self.export_decal_roads(mesh_data)
-        self.export_water(mesh_data)
-        self.export_walls(mesh_data)
-        self.export_bridges(mesh_data)
-        self.export_tunnels(mesh_data)
-        self.export_merged_terrain(
-            heights=mesh_data["heightmap"],
-            layer_map=mesh_data["layer_map"],
-            terrain_material_names=list(mesh_data["terrain_material_names"]),
-            terrain_origin_x=mesh_data["terrain_origin_x"],
-            terrain_origin_y=mesh_data["terrain_origin_y"],
-            terrain_size=mesh_data["terrain_size"],
-            z_min=mesh_data["z_min"],
-            max_height=mesh_data["max_height"],
-            photo_tile_names=mesh_data["photo_tile_names"],
-            layer_variants=mesh_data.get("layer_variants"),
-            variant_parents=mesh_data.get("variant_parents"),
-            photo_extents=mesh_data.get("photo_extents"),
-        )
+        with task.subtask("DecalRoads") as sub:
+            road_count = self.export_decal_roads(mesh_data)
+            sub.finish(f"{road_count} Straßen" if road_count else "keine Straßen")
+
+        with task.subtask("Wasser") as sub:
+            count = self.export_water(mesh_data)
+            sub.finish(f"{count} Objekte" if count else "keine Wasserflächen")
+
+        with task.subtask("Mauern") as sub:
+            count = self.export_walls(mesh_data)
+            sub.finish(f"{count} Mauern" if count else "keine Mauern")
+
+        with task.subtask("Brücken") as sub:
+            count = self.export_bridges(mesh_data)
+            sub.finish(f"{count} Brücken" if count else "keine Brücken")
+
+        with task.subtask("Tunnel/Galerien") as sub:
+            count = self.export_tunnels(mesh_data)
+            sub.finish(f"{count} Mesh(e)" if count else "keine Tunnel/Galerien")
+
+        with task.subtask("Terrain-Export") as sub:
+            self.export_merged_terrain(
+                heights=mesh_data["heightmap"],
+                layer_map=mesh_data["layer_map"],
+                terrain_material_names=list(mesh_data["terrain_material_names"]),
+                terrain_origin_x=mesh_data["terrain_origin_x"],
+                terrain_origin_y=mesh_data["terrain_origin_y"],
+                terrain_size=mesh_data["terrain_size"],
+                z_min=mesh_data["z_min"],
+                max_height=mesh_data["max_height"],
+                photo_tile_names=mesh_data["photo_tile_names"],
+                layer_variants=mesh_data.get("layer_variants"),
+                variant_parents=mesh_data.get("variant_parents"),
+                photo_extents=mesh_data.get("photo_extents"),
+            )
+            sub.finish()
+
         return road_count
