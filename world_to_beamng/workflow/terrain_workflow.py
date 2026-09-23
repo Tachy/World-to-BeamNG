@@ -85,6 +85,7 @@ class TerrainWorkflow:
             tiles: Liste von Tile-Metadaten (typischerweise alle DGM1-Kacheln
                 eines Exports)
             global_offset: Globaler Offset (origin_x, origin_y)
+            task: PipelineTask für die Fortschrittsanzeige der Unteraufgaben
             bbox_margin: BBox-Erweiterung in Metern
             buildings_data: Optional - LoD2 Gebäudedaten
 
@@ -1293,6 +1294,7 @@ class TerrainWorkflow:
         Args:
             tile_x, tile_y: unbenutzt, nur für Aufrufer-Kompatibilität
             mesh_data: Mesh-Daten aus process_tile()
+            task: PipelineTask für die Fortschrittsanzeige der Unteraufgaben
 
         Returns:
             Anzahl der erzeugten DecalRoad-Items

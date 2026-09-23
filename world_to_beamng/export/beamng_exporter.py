@@ -17,7 +17,7 @@ from ..io.beamng_install import get_beamng_install_dir
 from ..io.vineyard_assets import ITEM_NAMES as VINEYARD_ITEM_NAMES, ensure_vineyard_assets
 from ..workflow import TileProcessor, TerrainWorkflow, BuildingWorkflow, HorizonWorkflow, ForestWorkflow
 from world_to_beamng.logging_config import LoggerConfig
-from ..progress import Pipeline, PipelineTask
+from ..progress import Pipeline
 
 logger = LoggerConfig.get_logger()
 
@@ -29,7 +29,7 @@ class BeamNGExporter:
     Vereinfacht die API und orchestriert alle Sub-Workflows.
 
     Beispiel:
-        >>> exporter = BeamNGExporter()
+        >>> exporter = BeamNGExporter(pipeline)
         >>> exporter.export_complete_level(tiles)
     """
 

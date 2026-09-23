@@ -14,13 +14,24 @@ Balken/Spinner erscheinen statt sie zu zerreißen.
 
 from __future__ import annotations
 
+import time
 from contextlib import contextmanager
 from typing import Iterator, Optional
 
 from rich.console import Console
+from rich.markup import escape
 from rich.progress import Progress, SpinnerColumn, TimeElapsedColumn
 
 console = Console()
+
+
+def _status_line(style: str, symbol: str, name: str, summary: str, elapsed: float, indent: str = "") -> str:
+    """Baue eine escapte, farbige Status-Zeile (Name/Summary können beliebigen Text enthalten)."""
+    text = f"[{style}]{indent}{symbol} {escape(name)}[/{style}]"
+    if summary:
+        text += f" - {escape(summary)}"
+    text += f" ({elapsed:.1f}s)"
+    return text
 
 
 class Subtask:
@@ -31,6 +42,7 @@ class Subtask:
         self._task_id = task_id
         self._name = name
         self._finalized = False
+        self._start = time.perf_counter()
 
     def advance(self, n: int = 1) -> None:
         self._progress.advance(self._task_id, n)
@@ -40,22 +52,24 @@ class Subtask:
             return
         self._finalized = True
         self._progress.remove_task(self._task_id)
-        text = f"[green]  ✓ {self._name}[/green]" + (f" - {summary}" if summary else "")
-        console.print(text)
+        elapsed = time.perf_counter() - self._start
+        console.print(_status_line("green", "✓", self._name, summary, elapsed, indent="  "))
 
     def warn(self, summary: str) -> None:
         if self._finalized:
             return
         self._finalized = True
         self._progress.remove_task(self._task_id)
-        console.print(f"[yellow]  ⚠ {self._name} - {summary}[/yellow]")
+        elapsed = time.perf_counter() - self._start
+        console.print(_status_line("yellow", "⚠", self._name, summary, elapsed, indent="  "))
 
     def fail(self, summary: str) -> None:
         if self._finalized:
             return
         self._finalized = True
         self._progress.remove_task(self._task_id)
-        console.print(f"[red]  ✗ {self._name} - {summary}[/red]")
+        elapsed = time.perf_counter() - self._start
+        console.print(_status_line("red", "✗", self._name, summary, elapsed, indent="  "))
 
 
 class PipelineTask:
@@ -73,14 +87,16 @@ class PipelineTask:
         )
 
     def __enter__(self) -> "PipelineTask":
-        console.print(f"[bold cyan]▶ {self.name}[/bold cyan]")
+        console.print(f"[bold cyan]▶ {escape(self.name)}[/bold cyan]")
+        self._start = time.perf_counter()
         self._progress.start()
         return self
 
     def __exit__(self, exc_type, exc, tb) -> bool:
         self._progress.stop()
         if exc_type is not None:
-            self.fail(str(exc))
+            if not self._finalized:
+                self.fail(str(exc) or type(exc).__name__)
             return False
         if not self._finalized:
             self.done()
@@ -103,16 +119,18 @@ class PipelineTask:
 
     def done(self, summary: str = "") -> None:
         self._finalized = True
-        text = f"[bold green]✓ {self.name}[/bold green]" + (f" - {summary}" if summary else "")
-        console.print(text)
+        elapsed = time.perf_counter() - self._start
+        console.print(_status_line("bold green", "✓", self.name, summary, elapsed))
 
     def warn(self, summary: str) -> None:
         self._finalized = True
-        console.print(f"[bold yellow]⚠ {self.name} - {summary}[/bold yellow]")
+        elapsed = time.perf_counter() - self._start
+        console.print(_status_line("bold yellow", "⚠", self.name, summary, elapsed))
 
     def fail(self, summary: str) -> None:
         self._finalized = True
-        console.print(f"[bold red]✗ {self.name} - {summary}[/bold red]")
+        elapsed = time.perf_counter() - self._start
+        console.print(_status_line("bold red", "✗", self.name, summary, elapsed))
 
 
 class Pipeline:

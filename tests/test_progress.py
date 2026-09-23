@@ -111,3 +111,131 @@ def test_pipeline_banner_prints_bold_text_outside_any_task(buffer):
 
     output = buffer.getvalue()
     assert "BeamNG Level Export - 4 Tiles" in output
+
+
+def test_task_warn_prints_yellow_marker(buffer):
+    pipeline = Pipeline()
+    with pipeline.task("Wasser") as task:
+        task.warn("keine Quellen gefunden")
+
+    output = buffer.getvalue()
+    assert "⚠" in output
+    assert "Wasser" in output
+    assert "keine Quellen gefunden" in output
+
+
+def test_subtask_warn_prints_yellow_marker(buffer):
+    pipeline = Pipeline()
+    with pipeline.task("Terrain + Straßen") as task:
+        sub = task.begin_subtask("Brücken")
+        sub.warn("Geometrie unplausibel")
+
+    output = buffer.getvalue()
+    assert "⚠" in output
+    assert "Brücken" in output
+    assert "Geometrie unplausibel" in output
+
+
+def test_task_fail_with_brackets_in_summary_prints_literally_and_does_not_raise(buffer):
+    """Regression: summary strings (z.B. str(exc)) können literale eckige Klammern
+    enthalten (Dateipfade, Fehlermeldungen) - die dürfen nicht als rich-Markup geparst
+    werden und weder verschluckt werden noch eine MarkupError auslösen."""
+    pipeline = Pipeline()
+    with pytest.raises(RuntimeError):
+        with pipeline.task("Terrain + Straßen") as task:
+            raise RuntimeError("Pfad nicht gefunden: [/tmp/missing]")
+
+    output = buffer.getvalue()
+    assert "[/tmp/missing]" in output
+
+
+def test_task_done_with_brackets_in_summary_prints_literally(buffer):
+    pipeline = Pipeline()
+    with pipeline.task("Texturen") as task:
+        task.done("geladen aus [cache]")
+
+    output = buffer.getvalue()
+    assert "geladen aus [cache]" in output
+
+
+def test_task_warn_with_brackets_in_summary_prints_literally(buffer):
+    pipeline = Pipeline()
+    with pipeline.task("Wasser") as task:
+        task.warn("unbekanntes Tag [waterway=weird]")
+
+    output = buffer.getvalue()
+    assert "unbekanntes Tag [waterway=weird]" in output
+
+
+def test_subtask_finish_with_brackets_in_summary_prints_literally(buffer):
+    pipeline = Pipeline()
+    with pipeline.task("Terrain + Straßen") as task:
+        sub = task.begin_subtask("Brücken")
+        sub.finish("Textur [/data/textures/x.png] geladen")
+
+    output = buffer.getvalue()
+    assert "Textur [/data/textures/x.png] geladen" in output
+
+
+def test_subtask_fail_with_brackets_in_summary_prints_literally_and_does_not_raise(buffer):
+    pipeline = Pipeline()
+    with pytest.raises(RuntimeError):
+        with pipeline.task("Terrain + Straßen") as task:
+            with task.subtask("Wasser"):
+                raise RuntimeError("boom [x]")
+
+    output = buffer.getvalue()
+    assert "boom [x]" in output
+
+
+def test_task_name_with_brackets_is_escaped_and_does_not_raise(buffer):
+    pipeline = Pipeline()
+    with pipeline.task("Import [test]") as task:
+        task.done()
+
+    output = buffer.getvalue()
+    assert "Import [test]" in output
+
+
+def test_task_exit_without_message_uses_exception_type_name(buffer):
+    """Ein Fehler ohne Nachricht (z.B. ein bloßes assert - str(exc) == "") darf nicht
+    zu einer Zeile führen, die nach dem Trennstrich einfach nichts mehr zeigt.
+    (AssertionError() direkt konstruiert statt `assert False`, damit pytests
+    Assertion-Rewriting hier keine Nachricht in die Exception einfügt.)"""
+    pipeline = Pipeline()
+    with pytest.raises(AssertionError):
+        with pipeline.task("Terrain + Straßen") as task:
+            raise AssertionError()
+
+    output = buffer.getvalue()
+    assert "AssertionError" in output
+    assert " - \n" not in output
+    assert not output.rstrip().endswith(" -")
+
+
+def test_task_exit_does_not_double_report_after_explicit_done(buffer):
+    """Wenn done()/warn() bereits im with-Block aufgerufen wurde, darf eine
+    anschließend durchgereichte Exception die Zeile nicht nochmal (als fail) drucken."""
+    pipeline = Pipeline()
+    with pytest.raises(RuntimeError):
+        with pipeline.task("Terrain + Straßen") as task:
+            task.warn("teilweise fertig")
+            raise RuntimeError("boom danach")
+
+    output = buffer.getvalue()
+    assert output.count("⚠") == 1
+    assert "✗" not in output
+
+
+def test_task_and_subtask_report_elapsed_seconds(buffer):
+    pipeline = Pipeline()
+    with pipeline.task("Texturen") as task:
+        with task.subtask("Laden") as sub:
+            sub.finish("ok")
+        task.done("fertig")
+
+    output = buffer.getvalue()
+    import re
+
+    assert re.search(r"Laden.*\(\d+\.\d+s\)", output)
+    assert re.search(r"Texturen.*\(\d+\.\d+s\)", output)
