@@ -412,51 +412,34 @@ def _gallery(x0=5.0, x1=25.0, y=15.0, z=100.0, width=6.0):
     return {"trimmed_centerline": centerline, "width": width}
 
 
-def test_gallery_hole_covers_the_whole_corridor_when_terrain_is_always_below_the_roof():
+def test_gallery_hole_covers_the_whole_corridor_regardless_of_natural_terrain():
+    # Kein natural_heights-Parameter mehr: das natürliche Gelände (egal ob hoch oder niedrig) darf den
+    # Korridor nicht blockieren - eine Lawinengalerie hat im DGM fast überall Erdüberwurf über der
+    # Dach-Oberkante, ein Höhenvergleich würde den Korridor also fast nirgends öffnen (siehe Docstring).
     layer_map = np.full((30, 30), 3, dtype=np.uint8)
-    natural_heights = np.full((30, 30), 100.0)  # überall unter der Dach-Oberkante (100+5+0.5=105.5)
 
-    result = mark_gallery_interior_as_holes(
-        layer_map, natural_heights, 0.0, 0.0, 1.0, [_gallery()], width_margin=1.0, height=5.0, roof_thickness=0.5
-    )
+    result = mark_gallery_interior_as_holes(layer_map, 0.0, 0.0, 1.0, [_gallery()], width_margin=1.0)
 
     assert result[15, 15] == EMPTY_LAYER_VALUE  # Mitte des Korridors
+    assert result[15, 6] == EMPTY_LAYER_VALUE  # nahe des einen Endes
+    assert result[15, 24] == EMPTY_LAYER_VALUE  # nahe des anderen Endes
     assert (layer_map == 3).all()  # Eingabe bleibt unverändert
 
 
-def test_gallery_hole_stays_away_where_the_natural_terrain_is_already_above_the_roof():
+def test_gallery_hole_is_bounded_to_the_corridor_width_and_length():
     layer_map = np.full((30, 30), 3, dtype=np.uint8)
-    natural_heights = np.full((30, 30), 110.0)  # überall über der Dach-Oberkante (105.5) - Berghang läuft drüber
 
-    result = mark_gallery_interior_as_holes(
-        layer_map, natural_heights, 0.0, 0.0, 1.0, [_gallery()], width_margin=1.0, height=5.0, roof_thickness=0.5
-    )
+    # Breite 6 m + 1 m Rand -> Halbbreite 4 m; Centerline bei y=15, x=5..25.
+    result = mark_gallery_interior_as_holes(layer_map, 0.0, 0.0, 1.0, [_gallery()], width_margin=1.0)
 
-    assert (result == 3).all()  # keine Löcher - das natürliche Gelände bleibt vollständig stehen
-
-
-def test_gallery_hole_is_limited_to_the_dipped_section_with_smooth_polygon_edges():
-    layer_map = np.full((30, 30), 3, dtype=np.uint8)
-    natural_heights = np.full((30, 30), 110.0)
-    natural_heights[8:23, 12:19] = 100.0  # Senke bei x=12..18 (deckt auch die Rand-Abtastpunkte y=11/19 ab)
-
-    result = mark_gallery_interior_as_holes(
-        layer_map, natural_heights, 0.0, 0.0, 1.0, [_gallery()], width_margin=1.0, height=5.0, roof_thickness=0.5
-    )
-
-    assert result[15, 15] == EMPTY_LAYER_VALUE  # in der Senke: Loch
-    assert result[15, 5] == 3 and result[15, 25] == 3  # weit weg von der Senke: Gelände bleibt natürlich
-
-    # glatte (gerasterte Polygon-)Kante statt Einzelzellen-Flickenteppich: an der Loch-Kante sind ganze
-    # Zeilen (über die Korridorbreite) konsistent Loch bzw. nicht, keine isolierten Einzelzellen.
-    hole_row = result[15, :] == EMPTY_LAYER_VALUE
-    transitions = np.count_nonzero(np.diff(hole_row.astype(int)) != 0)
-    assert transitions == 2  # genau ein zusammenhängender Loch-Abschnitt entlang der Achse
+    assert result[15, 15] == EMPTY_LAYER_VALUE  # im Korridor
+    assert result[3, 15] == 3  # weit seitlich außerhalb der Halbbreite: Gelände bleibt natürlich
+    assert result[15, 0] == 3  # jenseits des Centerline-Endpunkts: Gelände bleibt natürlich
 
 
 def test_gallery_hole_without_galleries_is_a_noop():
     layer_map = np.full((10, 10), 3, dtype=np.uint8)
 
-    result = mark_gallery_interior_as_holes(layer_map, np.full((10, 10), 100.0), 0.0, 0.0, 1.0, [], width_margin=1.0, height=5.0, roof_thickness=0.5)
+    result = mark_gallery_interior_as_holes(layer_map, 0.0, 0.0, 1.0, [], width_margin=1.0)
 
     assert (result == 3).all()

@@ -243,8 +243,8 @@ GALLERY_COLUMN_SIZE = 0.4  # Querschnitt der (quadratischen) Stützen, in Metern
 # Galerien bekommen (anders als Brücken/Tunnel) ihr eigenes Boden-/Wand-/Dach-Mesh auf echtem Straßenniveau,
 # liegen aber - anders als ein tief im Berg liegender Tunnel - direkt am Hang: das unveränderte natürliche
 # Gelände würde Durchfahrt, Eingang und die bergseitige Wand/Dachkante blockieren. Terrain-Hole (Layer 255)
-# statt Einebnen, da die Galerie schon ein eigenes Boden-Mesh hat (sonst Z-Fighting) - siehe
-# terrain_materials.mark_structure_roads_as_holes().
+# über den gesamten Korridor statt Einebnen, da die Galerie schon ein eigenes Boden-Mesh hat (sonst
+# Z-Fighting) - siehe road_embedding.mark_gallery_interior_as_holes().
 GALLERY_TERRAIN_HOLE_MARGIN = 1.0  # Puffer über die Fahrbahnbreite hinaus, in Metern (Seitenwand/Dachkante)
 TUNNEL_MATERIAL_NAME = "tunnel_concrete"  # Wand-/Decke-/Rahmen-/Dach-Material (Textur: CONCRETE_TEXTURE_NAME)
 

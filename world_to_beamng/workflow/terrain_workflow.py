@@ -401,9 +401,10 @@ class TerrainWorkflow:
         # Galerien: eigenes Boden-/Wand-/Dach-Mesh auf echtem Straßenniveau, aber das Gelände bleibt sonst
         # unverändert stehen (Design-Spec Abschnitt 3) und würde Durchfahrt/Eingang/Wand blockieren, da die
         # Galerie - anders als ein Tunnel tief im Berg - direkt am Hang liegt. Terrain-Hole statt Einebnen
-        # (die Galerie hat schon ein eigenes Boden-Mesh, sonst Z-Fighting) - aber NUR dort, wo das natürliche
-        # Gelände (natural_heights, vor jeder Änderung) wirklich unter die Dach-Oberkante reicht: darüber
-        # bleibt der Hang stehen, das ist bei einer Lawinengalerie der Sinn der Sache.
+        # (die Galerie hat schon ein eigenes Boden-Mesh, sonst Z-Fighting) - über die GESAMTE Korridorlänge,
+        # nicht nur dort, wo das natürliche Gelände zufällig niedrig genug ist (siehe
+        # mark_gallery_interior_as_holes()-Docstring: der Erdüberwurf einer Lawinengalerie liegt im DGM
+        # fast überall über der Dach-Oberkante, ein nur bereichsweises Loch ließ die Galerie blockiert).
         gallery_roads = [
             {**r, "width": OSM_MAPPER.get_road_properties(r.get("osm_tags", {}))["width"]}
             for r in structure_road_polygons
@@ -411,9 +412,8 @@ class TerrainWorkflow:
         ]
         if gallery_roads:
             layer_map = mark_gallery_interior_as_holes(
-                layer_map, natural_heights, terrain_origin_x, terrain_origin_y, config.TERRAIN_SQUARE_SIZE,
+                layer_map, terrain_origin_x, terrain_origin_y, config.TERRAIN_SQUARE_SIZE,
                 gallery_roads, width_margin=config.GALLERY_TERRAIN_HOLE_MARGIN,
-                height=config.GALLERY_HEIGHT, roof_thickness=config.GALLERY_ROOF_THICKNESS,
             )
 
         # Überschussrand der Zweierpotenz-Heightmap (nur Extrapolation) als Hole: das sichtbare
