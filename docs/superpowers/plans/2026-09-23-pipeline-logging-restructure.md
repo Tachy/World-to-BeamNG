@@ -30,7 +30,7 @@
 - Modify: `requirements.txt`
 
 **Interfaces:**
-- Produces: `world_to_beamng.progress.console` (geteilte `rich.console.Console`-Instanz), `world_to_beamng.progress.Pipeline` (Klasse, kein `__init__`-Parameter), `Pipeline.task(name: str) -> ContextManager[PipelineTask]`, `Pipeline.skip(name: str, reason: str) -> None`, `PipelineTask.subtask(name: str, total: Optional[int] = None) -> ContextManager[Subtask]`, `PipelineTask.begin_subtask(name: str, total: Optional[int] = None) -> Subtask`, `PipelineTask.done(summary: str = "") -> None`, `PipelineTask.warn(summary: str) -> None`, `PipelineTask.fail(summary: str) -> None`, `Subtask.advance(n: int = 1) -> None`, `Subtask.finish(summary: str = "") -> None`, `Subtask.warn(summary: str) -> None`, `Subtask.fail(summary: str) -> None`.
+- Produces: `world_to_beamng.progress.console` (geteilte `rich.console.Console`-Instanz), `world_to_beamng.progress.Pipeline` (Klasse, kein `__init__`-Parameter), `Pipeline.task(name: str) -> ContextManager[PipelineTask]`, `Pipeline.skip(name: str, reason: str) -> None`, `Pipeline.banner(text: str) -> None`, `PipelineTask.subtask(name: str, total: Optional[int] = None) -> ContextManager[Subtask]`, `PipelineTask.begin_subtask(name: str, total: Optional[int] = None) -> Subtask`, `PipelineTask.done(summary: str = "") -> None`, `PipelineTask.warn(summary: str) -> None`, `PipelineTask.fail(summary: str) -> None`, `Subtask.advance(n: int = 1) -> None`, `Subtask.finish(summary: str = "") -> None`, `Subtask.warn(summary: str) -> None`, `Subtask.fail(summary: str) -> None`.
 
 - [ ] **Step 1: `rich` installieren und exakte Version ermitteln**
 
@@ -221,6 +221,10 @@ class Pipeline:
         with t:
             yield t
 
+    def banner(self, text: str) -> None:
+        """Einmalige, fett gedruckte Kopfzeile außerhalb jeder Hauptaufgabe (z.B. Lauf-Zusammenfassung)."""
+        console.print(f"[bold]{text}[/bold]")
+
     def skip(self, name: str, reason: str) -> None:
         console.print(f"[dim]\u23ed {name} - übersprungen ({reason})[/dim]")
 ```
@@ -308,12 +312,20 @@ def test_pipeline_skip_prints_marker_without_opening_a_task(buffer):
     assert "Horizont exportieren" in output
     assert "übersprungen" in output
     assert "PHASE5_ENABLED=False" in output
+
+
+def test_pipeline_banner_prints_bold_text_outside_any_task(buffer):
+    pipeline = Pipeline()
+    pipeline.banner("BeamNG Level Export - 4 Tiles")
+
+    output = buffer.getvalue()
+    assert "BeamNG Level Export - 4 Tiles" in output
 ```
 
 - [ ] **Step 7: Alle Tests ausführen**
 
 Run: `D:\Eigene_Programme\World-to-BeamNG\.venv\Scripts\python.exe -m pytest tests/test_progress.py -v`
-Expected: PASS (8 Tests)
+Expected: PASS (9 Tests)
 
 - [ ] **Step 8: Commit**
 
@@ -596,13 +608,13 @@ Alt (Banner-Block):
 
 Neu:
 ```python
-        from .. import progress as progress_module
-
-        progress_module.console.print(
-            f"[bold]BeamNG Level Export[/bold] - {len(tiles)} Tiles, Offset {global_offset}, "
+        self.pipeline.banner(
+            f"BeamNG Level Export - {len(tiles)} Tiles, Offset {global_offset}, "
             f"Forests: {'ein' if forests_enabled else 'aus'}"
         )
 ```
+
+(`Pipeline.banner()` kommt aus Task 1 - hält die Regel ein, dass rich-Markup ausschließlich in `progress.py` verfasst wird; `beamng_exporter.py` übergibt nur reinen Text.)
 
 Direkt danach, um `registry.prepare_textures()` (Hauptaufgabe 1: Texturen):
 
