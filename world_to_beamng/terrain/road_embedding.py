@@ -34,6 +34,7 @@ def embed_roads_into_heightmap(
     origin_y: float,
     square_size: float,
     road_slope_polygons_2d: List[Dict],
+    clamp_to_max: bool = False,
 ) -> np.ndarray:
     """
     Setzt heights dort exakt auf Straßen-Centerline-Höhe, wo eine Straße
@@ -47,6 +48,12 @@ def embed_roads_into_heightmap(
             2D-Straßenumriss, bereits um halbe Straßenbreite gebuffert) und
             "trimmed_centerline" ((N,3) x,y,z-Punkte) - dieselbe Struktur wie
             für build_road_embankment_profiles()
+        clamp_to_max: False (Standard) setzt die Höhe unbedingt auf Centerline-Niveau (normale Straßen/
+            Galerien). True senkt nur Zellen ab, die HÖHER als die Centerline-Höhe liegen (np.minimum),
+            lässt niedrigere Zellen unverändert - für Brücken-Auflager: das Gelände quer zur Fahrbahn ist
+            dort nicht zwingend flach und könnte sonst stellenweise durchs (flache) Deck ragen, aber der
+            Talboden, den die Brücke überspannt, muss unverändert sichtbar bleiben (siehe
+            TerrainWorkflow.process_tile()).
 
     Returns:
         Neues (size, size) float Array
@@ -55,7 +62,7 @@ def embed_roads_into_heightmap(
     size_y, size_x = heights.shape
 
     for road in road_slope_polygons_2d:
-        _embed_road(result, origin_x, origin_y, square_size, road, size_x, size_y)
+        _embed_road(result, origin_x, origin_y, square_size, road, size_x, size_y, clamp_to_max=clamp_to_max)
 
     return result
 
@@ -163,8 +170,10 @@ def _embed_road(
     road: Dict,
     size_x: int,
     size_y: int,
+    clamp_to_max: bool = False,
 ) -> None:
-    """Setzt alle Rasterzellen innerhalb des Straßenpolygons auf Centerline-Höhe."""
+    """Setzt alle Rasterzellen innerhalb des Straßenpolygons auf Centerline-Höhe (oder kappt sie nur nach
+    oben, siehe embed_roads_into_heightmap()'s clamp_to_max)."""
     polygon = np.asarray(road["road_polygon"], dtype=np.float64)
     centerline = np.asarray(road["trimmed_centerline"], dtype=np.float64)
     if len(polygon) < 3 or len(centerline) < 2:
@@ -198,7 +207,7 @@ def _embed_road(
     )
 
     sub = heights[row_start : row_end + 1, col_start : col_end + 1]
-    sub[inside] = target_z
+    sub[inside] = np.minimum(sub[inside], target_z) if clamp_to_max else target_z
 
 
 def sample_heightmap_bilinear(

@@ -91,6 +91,41 @@ def test_embed_roads_follows_curved_centerline_height():
     assert result[10, 2] < result[10, 18]
 
 
+# --- embed_roads_into_heightmap(clamp_to_max=True) - Brücken-Auflager -----------------------------------
+
+
+def test_clamp_to_max_lowers_terrain_above_the_deck():
+    size = 20
+    heights = np.full((size, size), 120.0)  # Gelände ragt komplett über das Deck (100) hinaus
+    origin_x, origin_y, square_size = 0.0, 0.0, 1.0
+
+    road = _road(
+        polygon_xy=[[5, 5], [15, 5], [15, 15], [5, 15]],
+        centerline_xyz=[[5, 10, 100], [15, 10, 100]],
+    )
+
+    result = embed_roads_into_heightmap(heights, origin_x, origin_y, square_size, [road], clamp_to_max=True)
+
+    assert np.isclose(result[10, 10], 100.0)  # auf Deck-Niveau gekappt
+    assert result[1, 1] == 120.0  # außerhalb der Brückenbreite unverändert
+
+
+def test_clamp_to_max_leaves_terrain_below_the_deck_untouched():
+    size = 20
+    heights = np.full((size, size), 40.0)  # Talboden weit UNTER dem Deck (100)
+    origin_x, origin_y, square_size = 0.0, 0.0, 1.0
+
+    road = _road(
+        polygon_xy=[[5, 5], [15, 5], [15, 15], [5, 15]],
+        centerline_xyz=[[5, 10, 100], [15, 10, 100]],
+    )
+
+    result = embed_roads_into_heightmap(heights, origin_x, origin_y, square_size, [road], clamp_to_max=True)
+
+    assert result[10, 10] == 40.0  # Talboden bleibt sichtbar, nicht auf Deck-Niveau angehoben
+    assert heights[10, 10] == 40.0  # Original unverändert (Funktion gibt Kopie zurück)
+
+
 def test_sample_heightmap_bilinear_matches_grid_points():
     heights = np.array([[0.0, 10.0], [20.0, 30.0]])
     # Exact grid points should return exact values

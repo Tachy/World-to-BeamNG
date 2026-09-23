@@ -347,6 +347,19 @@ class TerrainWorkflow:
             embeddable_roads,
         )
 
+        # Brücken: Terrain, das innerhalb der Brückenbreite HÖHER als das Deck liegt, auf Deck-Niveau kappen
+        # (nicht unbedingt setzen wie oben) - betrifft praktisch nur die Brücken-Enden (Auflager), wo die
+        # Fahrbahn ins natürliche Gelände übergeht und das quer zur Fahrtrichtung nicht zwingend flach ist;
+        # ohne Kappung könnte das Gelände dort stellenweise durchs (flache) Deck ragen. Der Talboden, den
+        # die Brücke überspannt, bleibt unverändert sichtbar (deutlich unter Deck-Niveau, clamp_to_max
+        # greift dort nicht).
+        bridge_roads = [r for r in structure_road_polygons if r.get("structure_type") == "bridge"]
+        if bridge_roads:
+            heights = embed_roads_into_heightmap(
+                heights, terrain_origin_x, terrain_origin_y, config.TERRAIN_SQUARE_SIZE, bridge_roads,
+                clamp_to_max=True,
+            )
+
         # Layer-Map: EIN Luftbild-Material für die gesamte Fläche, dann OSM-
         # Landnutzung obenauf (siehe build_photo_fallback_layer()).
         layer_map, photo_tile_names = build_photo_fallback_layer(terrain_size)
