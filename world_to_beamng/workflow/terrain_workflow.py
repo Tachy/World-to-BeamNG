@@ -212,7 +212,7 @@ class TerrainWorkflow:
         # WICHTIG: Erzeuge tatsächliche Straßen-Polygone (Puffer um Centerline)
         from shapely.geometry import LineString
         from ..config import OSM_MAPPER
-        from ..geometry.road_structures import classify_structure, extend_gallery_centerline_ends, split_by_structure_type
+        from ..geometry.road_structures import classify_structure, split_by_structure_type
         from ..utils.debug_exporter import DebugNetworkExporter
 
         road_slope_polygons_2d = []
@@ -308,12 +308,6 @@ class TerrainWorkflow:
         # dagegen WERDEN wie normale Straßen eingebettet (siehe unten) - kein separates Terrain-Loch mehr
         # nötig, seit Boden/Wand/Dach massive Quader sind (tunnels/gallery_mesh.py).
         surface_road_polygons, structure_road_polygons = split_by_structure_type(road_slope_polygons_2d)
-        # Galerie-Enden ein Stück in den angrenzenden "surface"-Straßenabschnitt hinein verlängern -
-        # zentral hier, VOR jeder Verwendung von structure_road_polygons (Terrain-Einbettung und Mesh
-        # nutzen beide dieselbe trimmed_centerline), siehe extend_gallery_centerline_ends()-Docstring.
-        structure_road_polygons = extend_gallery_centerline_ends(
-            structure_road_polygons, config.GALLERY_CENTERLINE_EXTENSION, osm_mapper=OSM_MAPPER
-        )
 
         # Galerien wie normale Straßen einbetten (dieselben Böschungs-/Einbettungs-Parameter), aber mit
         # festen statt berechneten Böschungsbreiten auf beiden Seiten (slope_width_override, siehe

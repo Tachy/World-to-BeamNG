@@ -85,8 +85,8 @@ def build_gallery_mesh(
     den Hang hinein (bündig mit der Dach-Oberkante). Dazu Stützen UND ein durchlaufender Sockel
     (curb_height/curb_width, wie der Bordstein bei Brücken) auf der talseitig offenen Seite (keine Wand
     dort). Beide Enden werden komplett verschlossen (Boden-/Dach-/Wand-Querschnitt) - wirkt wie ein
-    sauberer Schnitt durchs Bauwerk, passend zu den (siehe extend_gallery_centerline_ends()) etwas über
-    die OSM-Way-Grenze hinaus verlängerten Enden.
+    sauberer Schnitt durchs Bauwerk, exakt an den ursprünglichen OSM-Way-Grenzpunkten (keine künstliche
+    Verlängerung der Centerline).
 
     Args:
         floor_thickness, wall_thickness: siehe config.GALLERY_FLOOR_THICKNESS/GALLERY_WALL_THICKNESS

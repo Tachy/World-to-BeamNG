@@ -258,19 +258,15 @@ TUNNEL_PORTAL_FRAME_MARGIN = 0.6  # Rahmenbreite um die Portalöffnung, in Meter
 GALLERY_HEIGHT = 5.0  # lichte Höhe der (rechteckigen, nicht kreisrunden) Galerie, in Metern
 GALLERY_COLUMN_SPACING = 6.0  # Stützenabstand auf der offenen Talseite, in Metern
 # Boden/Dach/bergseitige Wand sind echte Quader (nicht nur dünne Flächen), damit die Galerie auch von
-# außen/an den (jetzt verlängerten, siehe GALLERY_CENTERLINE_EXTENSION) Enden wie ein massives Bauwerk
-# wirkt statt wie eine hohle Schale - siehe tunnels/gallery_mesh.py::build_gallery_mesh().
+# außen/an den Enden wie ein massives Bauwerk wirkt statt wie eine hohle Schale - siehe
+# tunnels/gallery_mesh.py::build_gallery_mesh(). Die Enden liegen exakt an den ursprünglichen
+# OSM-Way-Grenzpunkten (keine künstliche Verlängerung mehr).
 GALLERY_ROOF_THICKNESS = 0.5  # Dachdicke nach oben, in Metern
 GALLERY_FLOOR_THICKNESS = 5.0  # Bodendicke nach unten, in Metern
 GALLERY_WALL_THICKNESS = 5.0  # Dicke der bergseitigen Wand in den Hang hinein, in Metern (bündig mit der Dach-Oberkante)
 GALLERY_COLUMN_SIZE = 0.4  # Querschnitt der (quadratischen) Stützen, in Metern
 GALLERY_CURB_HEIGHT = 0.5  # Höhe des Sockels auf der Stützenseite, in Metern
 GALLERY_CURB_WIDTH = 0.25  # Breite des Sockels (von der Fahrbahnkante nach innen versetzt), in Metern
-
-# Die Galerie-Centerline endet in OSM exakt an der Grenze zum nächsten (normalen) Straßenabschnitt -
-# um diese Grenze wird die Galerie an BEIDEN Enden verlängert (siehe geometry.road_structures::
-# extend_gallery_centerline_ends()), wirkt auf Terrain-Loch, -Glättung UND Mesh gleichermaßen.
-GALLERY_CENTERLINE_EXTENSION = 2.0  # Verlängerung je Ende, in Metern
 
 # Galerien werden (anders als Brücken/Tunnel) wie normale Straßen ins Terrain eingebettet (siehe
 # terrain_workflow.py::process_tile(), Böschung + embed_roads_into_heightmap) statt ein separates Terrain-
