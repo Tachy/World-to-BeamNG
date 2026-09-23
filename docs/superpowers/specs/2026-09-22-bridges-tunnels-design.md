@@ -227,6 +227,12 @@ reale Pfeilerabstände von Viadukten).
   `config.DECAL_ROAD_MIN_NODE_SPACING`-Äquivalent).
 - Galerie-Talseite wird aus lokalem Geländevergleich bestimmt, nicht aus
   einem OSM-Tag (kein zuverlässiger Tag dafür verfügbar).
+  **Korrektur (2026-09-23):** `avalanche_protector:left`/`:right=open` ist
+  ein zuverlässiger Tag und wird jetzt vorrangig ausgewertet (siehe
+  `gallery_mesh.resolve_open_side()`) - der Geländevergleich ist nur noch
+  Fallback ohne Tag. Grund: das DGM zeigt an einer bestehenden Galerie das
+  Bauwerk selbst (Erdüberwurf/Dach) statt des ursprünglichen Hangs, ein
+  Höhenvergleich links/rechts der Centerline ist dort unzuverlässig.
 
 ## 11. Tests
 

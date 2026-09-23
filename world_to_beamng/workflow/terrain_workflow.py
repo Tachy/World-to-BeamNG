@@ -759,6 +759,7 @@ class TerrainWorkflow:
                     "coords": road["trimmed_centerline"],
                     "width": config.OSM_MAPPER.get_road_properties(road.get("osm_tags", {}))["width"],
                     "floor_material": f"{config.OSM_MAPPER.get_road_properties(road.get('osm_tags', {})).get('internal_name', 'road_default')}_structure",
+                    "osm_tags": road.get("osm_tags", {}),
                 }
                 for road in structure_road_polygons
                 if road.get("structure_type") == structure_type

@@ -8,7 +8,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 import numpy as np
 import pytest
 
-from world_to_beamng.tunnels.gallery_mesh import build_gallery_mesh, build_galleries, valley_side
+from world_to_beamng.tunnels.gallery_mesh import build_gallery_mesh, build_galleries, resolve_open_side, valley_side
 
 FLOOR, ROOF = "asphalt_road_standard", "tunnel_concrete"
 
@@ -83,3 +83,46 @@ def test_build_galleries_skips_degenerate_galleries():
     galleries = [{"id": 1, "coords": [(0.0, 0.0, 500.0)], "width": 8.0, "floor_material": FLOOR}]
 
     assert build_galleries(galleries, ground_at, roof_material=ROOF) == []
+
+
+# --- resolve_open_side / open_side-Override ----------------------------------------------------------------------
+
+
+def test_resolve_open_side_reads_the_avalanche_protector_tag():
+    assert resolve_open_side({"avalanche_protector:left": "open"}) == "left"
+    assert resolve_open_side({"avalanche_protector:right": "open"}) == "right"
+
+
+def test_resolve_open_side_is_none_without_a_reliable_tag():
+    assert resolve_open_side({}) is None
+    assert resolve_open_side({"avalanche_protector:left": "no"}) is None
+
+
+def test_open_side_override_ignores_ground_at_even_when_it_disagrees():
+    # ground_at würde die Talseite auf +y (links) legen (siehe test_valley_side_picks_the_lower_natural_terrain) -
+    # der Tag muss trotzdem gewinnen, das DGM zeigt an einer bestehenden Galerie ja das Bauwerk selbst.
+    ground_at = lambda x, y: 500.0 - 2.0 * np.asarray(y, float)
+    mesh = build_gallery_mesh(
+        _straight_coords(length=60.0, z=500.0), width=8.0, height=5.0, ground_at=ground_at,
+        floor_material=FLOOR, roof_material=ROOF, column_spacing=10.0, open_side="right",
+    )
+
+    v = np.array(mesh["vertices"])
+    near_valley_edge = np.sum(np.abs(v[:, 1] + 4.0) < 0.3)  # "right" = -y offen
+    near_mountain_edge = np.sum(np.abs(v[:, 1] - 4.0) < 0.3)
+    assert near_valley_edge > near_mountain_edge
+
+
+def test_build_galleries_uses_the_osm_tag_when_present():
+    ground_at = lambda x, y: 500.0 - 2.0 * np.asarray(y, float)  # würde ohne Tag "left" liefern
+    galleries = [{
+        "id": 1, "coords": _straight_coords(length=60.0, z=500.0), "width": 8.0, "floor_material": FLOOR,
+        "osm_tags": {"avalanche_protector:right": "open"},
+    }]
+
+    meshes = build_galleries(galleries, ground_at, roof_material=ROOF, column_spacing=10.0)
+
+    v = np.array(meshes[0]["vertices"])
+    near_valley_edge = np.sum(np.abs(v[:, 1] + 4.0) < 0.3)
+    near_mountain_edge = np.sum(np.abs(v[:, 1] - 4.0) < 0.3)
+    assert near_valley_edge > near_mountain_edge

@@ -4,7 +4,7 @@ Stützen statt einer zweiten Wand) - siehe Design-Spec Abschnitt 6. Keine Portal
 den Fels geschnittenen Öffnungen, sondern offene Schutzbauten entlang der Straße - ihre Enden bleiben rechtwinklig.
 """
 
-from typing import Callable, Dict, List, Sequence, Tuple
+from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -13,11 +13,37 @@ from ..walls.mesh_parts import MeshBuilder, add_box_column, offset_points
 HeightAt = Callable[[np.ndarray, np.ndarray], np.ndarray]
 
 
+def resolve_open_side(osm_tags: Dict) -> Optional[str]:
+    """
+    Liest die talseitig offene Wand direkt aus den OSM-Tags `avalanche_protector:left`/
+    `avalanche_protector:right` (Wert "open"), falls vorhanden - "left"/"right" folgen dabei der
+    Digitalisierungsrichtung der Way, exakt dieselbe Konvention wie offset_points()/valley_side().
+
+    Deutlich zuverlässiger als der Höhenvergleich in valley_side(): das DGM erfasst am Bauwerk nicht
+    das ursprüngliche Gelände, sondern die bereits fertige Galerie samt Erdüberwurf/Dach - "natürliche"
+    Geländehöhe links/rechts der Centerline gibt es an dieser Stelle also gar nicht, die Galerie
+    verschwindet dadurch im Zweifel komplett im (in Wirklichkeit gar nicht natürlichen) "Gelände".
+
+    Returns:
+        "left" | "right" | None (kein Tag vorhanden -> Aufrufer muss auf valley_side() zurückfallen)
+    """
+    if str(osm_tags.get("avalanche_protector:left", "")).lower() == "open":
+        return "left"
+    if str(osm_tags.get("avalanche_protector:right", "")).lower() == "open":
+        return "right"
+    return None
+
+
 def valley_side(xy: np.ndarray, ground_at: HeightAt, half_width: float) -> np.ndarray:
     """
     Pro Punkt: +1.0, wenn die Seite RECHTS der Laufrichtung talwärts liegt (niedrigere natürliche Geländehöhe),
     sonst -1.0 (links talwärts). Gleiche Technik wie terrain.road_embedding.build_road_embankment_profiles()
     (natürliche Geländehöhe links/rechts der Centerline vergleichen).
+
+    NUR ein Fallback für den (seltenen) Fall ohne `avalanche_protector:left`/`:right`-Tag (siehe
+    resolve_open_side()) - das DGM an einer bestehenden Galerie zeigt bereits das Bauwerk selbst statt
+    des ursprünglichen Hangs, ein Höhenvergleich links/rechts der Centerline ist dort bestenfalls eine
+    grobe Näherung.
     """
     directions = np.diff(xy, axis=0)
     directions = np.vstack([directions, directions[-1:]])
@@ -47,9 +73,15 @@ def build_gallery_mesh(
     roof_thickness: float = 0.35,
     column_size: float = 0.4,
     tile_m: float = 5.0,
+    open_side: Optional[str] = None,
 ) -> Dict:
     """
     Galerie-Mesh: Boden, Dach (Ober-/Unterseite), eine bergseitige Wand und Stützen auf der talseitig offenen Seite.
+
+    Args:
+        open_side: "left" | "right" | None - wenn gesetzt (aus resolve_open_side(), zuverlässiger OSM-Tag),
+            gilt diese Seite für die GESAMTE Galerie als offen statt sie per valley_side() (Höhenvergleich,
+            nur Fallback) punktweise zu bestimmen.
 
     Returns:
         {"vertices", "uvs", "normals", "faces": {floor_material: [...], roof_material: [...]}}
@@ -61,7 +93,13 @@ def build_gallery_mesh(
     roof_top_z = roof_bottom_z + roof_thickness
 
     left, right = offset_points(xy, width / 2.0, closed=False)
-    side = valley_side(xy, ground_at, width / 2.0)  # +1 = rechts offen (Tal), -1 = links offen
+    # +1 = rechts offen (Tal), -1 = links offen - siehe open_side/resolve_open_side()-Docstring.
+    if open_side == "left":
+        side = np.full(len(points), -1.0)
+    elif open_side == "right":
+        side = np.full(len(points), 1.0)
+    else:
+        side = valley_side(xy, ground_at, width / 2.0)
 
     steps = np.linalg.norm(np.diff(xy, axis=0), axis=1)
     along = np.concatenate([[0.0], np.cumsum(steps)]) / tile_m
@@ -142,7 +180,8 @@ def build_galleries(
     roof_thickness: float = 0.35,
     column_size: float = 0.4,
 ) -> List[Dict]:
-    """Mesh-Dicts für den DAE-Export, eines je Galerie (`galleries`: [{"id","coords","width","floor_material"}, ...])."""
+    """Mesh-Dicts für den DAE-Export, eines je Galerie (`galleries`: [{"id","coords","width","floor_material",
+    "osm_tags"}, ...] - "osm_tags" optional, für resolve_open_side())."""
     meshes = []
     for gallery in galleries:
         coords = gallery["coords"]
@@ -151,6 +190,7 @@ def build_galleries(
         mesh = build_gallery_mesh(
             coords, gallery["width"], height, ground_at, gallery["floor_material"], roof_material,
             column_spacing=column_spacing, roof_thickness=roof_thickness, column_size=column_size,
+            open_side=resolve_open_side(gallery.get("osm_tags", {})),
         )
         meshes.append({"id": f"gallery_{gallery['id']}", **mesh})
     return meshes
