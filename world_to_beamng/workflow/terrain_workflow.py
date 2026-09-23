@@ -106,6 +106,7 @@ class TerrainWorkflow:
         # 1. Höhendaten aller Kacheln zu einer Punktwolke kombinieren
         height_points, height_elevations = self.tile_processor.load_height_data_multi(tiles)
         if height_points is None:
+            sub.fail("keine Höhendaten")
             return {"status": "failed", "reason": "no_height_data"}
 
         # Kombinierter Hash über alle Kacheln - Cache-Identität für OSM/
