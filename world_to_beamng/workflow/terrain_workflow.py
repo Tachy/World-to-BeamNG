@@ -311,7 +311,9 @@ class TerrainWorkflow:
         # Galerie-Enden ein Stück in den angrenzenden "surface"-Straßenabschnitt hinein verlängern -
         # zentral hier, VOR jeder Verwendung von structure_road_polygons (Terrain-Einbettung und Mesh
         # nutzen beide dieselbe trimmed_centerline), siehe extend_gallery_centerline_ends()-Docstring.
-        structure_road_polygons = extend_gallery_centerline_ends(structure_road_polygons, config.GALLERY_CENTERLINE_EXTENSION)
+        structure_road_polygons = extend_gallery_centerline_ends(
+            structure_road_polygons, config.GALLERY_CENTERLINE_EXTENSION, osm_mapper=OSM_MAPPER
+        )
 
         # Galerien wie normale Straßen einbetten (dieselben Böschungs-/Einbettungs-Parameter), aber mit
         # festen statt berechneten Böschungsbreiten auf beiden Seiten (slope_width_override, siehe

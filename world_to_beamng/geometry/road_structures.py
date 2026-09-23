@@ -49,20 +49,30 @@ def _extrapolate_point(end_point: np.ndarray, next_point: np.ndarray, extension_
     return end_point + direction * (extension_m / xy_len)
 
 
-def extend_gallery_centerline_ends(road_slope_polygons_2d: List[Dict], extension_m: float) -> List[Dict]:
+def extend_gallery_centerline_ends(road_slope_polygons_2d: List[Dict], extension_m: float, osm_mapper=None) -> List[Dict]:
     """
     Verschiebt den Grenzpunkt zum nächsten Streckenabschnitt an BEIDEN Enden jeder Galerie-Centerline um
     extension_m (Meter, horizontal) nach außen entlang der Centerline-Richtung (lineare Extrapolation,
     Höhe folgt derselben Steigung wie das jeweils äußerste Segment).
 
-    Wirkt auf Terrain-Loch, Terrain-Glättung UND Galerie-Mesh gleichermaßen, da alle drei dieselbe
-    "trimmed_centerline" verwenden (siehe terrain/road_embedding.py, tunnels/gallery_mesh.py) - deshalb
-    hier zentral direkt nach split_by_structure_type() angewendet, statt an jeder Verwendungsstelle
-    einzeln. Nur "gallery"-Einträge werden verändert, Tunnel/Brücken bleiben unverändert.
+    Wirkt auf Galerie-Mesh UND Terrain-Einbettung gleichermaßen, da beide dieselbe "trimmed_centerline"
+    verwenden (siehe tunnels/gallery_mesh.py, terrain/road_embedding.py) - deshalb hier zentral direkt
+    nach split_by_structure_type() angewendet, statt an jeder Verwendungsstelle einzeln. Nur
+    "gallery"-Einträge werden verändert, Tunnel/Brücken bleiben unverändert.
+
+    WICHTIG: "road_polygon" (das 2D-Straßenpolygon, das embed_roads_into_heightmap()/
+    apply_embankment_blend() für den Punkt-in-Polygon-Test benutzen) wird mit derselben Verlängerung
+    neu gebuffert, sonst bleibt der Einbettungsbereich an den alten, unverlängerten Enden stehen -
+    natürliches Gelände (Peaks, sichtbar bergseits durch die Wand oder vor den Stützen) bliebe dort
+    unbehandelt, obwohl das Galerie-Mesh (aus derselben verlängerten Centerline gebaut) bereits darüber
+    sitzt. Braucht dafür osm_mapper (für dieselbe Breite wie beim ursprünglichen road_polygon-Aufbau,
+    siehe workflow/terrain_workflow.py::process_tile()) - ohne osm_mapper bleibt "road_polygon"
+    unverändert (nur für Tests/Aufrufer, die dieses Feld nicht brauchen).
 
     Args:
         road_slope_polygons_2d: Liste von Straßen-Dicts (wie split_by_structure_type())
         extension_m: Verlängerung je Ende, in Metern (0 = keine Änderung)
+        osm_mapper: OSMMapper-Instanz (für get_road_properties()["width"]) - siehe oben
 
     Returns:
         Neue Liste (Eingabe-Dicts bleiben unverändert, nur Galerie-Einträge werden per Kopie ersetzt)
@@ -79,5 +89,13 @@ def extend_gallery_centerline_ends(road_slope_polygons_2d: List[Dict], extension
         coords = np.asarray(centerline, dtype=float).copy()
         coords[0] = _extrapolate_point(coords[0], coords[1], extension_m)
         coords[-1] = _extrapolate_point(coords[-1], coords[-2], extension_m)
-        result.append({**road, "trimmed_centerline": coords})
+
+        updated = {**road, "trimmed_centerline": coords}
+        if osm_mapper is not None:
+            from shapely.geometry import LineString
+
+            width = osm_mapper.get_road_properties(road.get("osm_tags", {}))["width"]
+            line = LineString(coords[:, :2])
+            updated["road_polygon"] = np.array(line.buffer(width / 2.0, cap_style=2).exterior.coords[:-1])
+        result.append(updated)
     return result

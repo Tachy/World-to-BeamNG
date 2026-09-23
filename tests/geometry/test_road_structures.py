@@ -103,3 +103,38 @@ def test_short_or_missing_centerline_is_left_alone():
 
     assert result[0] is degenerate
     assert result[1] is missing
+
+
+def test_without_an_osm_mapper_road_polygon_is_left_untouched():
+    """Reiner Centerline-Test (wie die Tests oben) - kein osm_mapper -> road_polygon unverändert/fehlt."""
+    road = _gallery([(0.0, 0.0, 100.0), (10.0, 0.0, 100.0)])
+    road["road_polygon"] = np.array([[0.0, -3.0], [10.0, -3.0], [10.0, 3.0], [0.0, 3.0]])
+
+    result = extend_gallery_centerline_ends([road], extension_m=2.0)
+
+    assert result[0]["road_polygon"] is road["road_polygon"]
+
+
+class _FakeMapper:
+    def get_road_properties(self, tags):
+        return {"width": 6.0}
+
+
+def test_with_an_osm_mapper_road_polygon_is_rebuilt_to_cover_the_extended_centerline():
+    """Regression: road_polygon wurde bisher NIE mitverlängert (nur trimmed_centerline) - embed_roads_
+    into_heightmap()/apply_embankment_blend() blieben dadurch an den alten, unverlängerten Enden stehen,
+    obwohl das Galerie-Mesh (aus der verlängerten Centerline gebaut) bereits darüber sitzt. Siehe
+    tests/terrain/test_road_embedding.py::test_gallery_extension_zone_is_now_embedded_too für den
+    direkten Beleg am Heightmap."""
+    road = _gallery([(0.0, 10.0, 100.0), (20.0, 10.0, 100.0)])
+
+    result = extend_gallery_centerline_ends([road], extension_m=2.0, osm_mapper=_FakeMapper())
+
+    polygon = result[0]["road_polygon"]
+    # width=6.0 -> half_width=3.0; verlängerte Centerline reicht jetzt von x=-2 bis x=22 (siehe
+    # test_both_ends_are_extrapolated_by_the_given_distance) - das neu gebufferte Polygon muss diesen
+    # ganzen Bereich abdecken, nicht nur das ursprüngliche x=[0, 20].
+    assert polygon[:, 0].min() == pytest.approx(-2.0, abs=1e-6)
+    assert polygon[:, 0].max() == pytest.approx(22.0, abs=1e-6)
+    assert polygon[:, 1].min() == pytest.approx(10.0 - 3.0, abs=1e-6)
+    assert polygon[:, 1].max() == pytest.approx(10.0 + 3.0, abs=1e-6)
