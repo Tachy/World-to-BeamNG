@@ -269,9 +269,8 @@ class TerrainWorkflow:
             embed_roads_into_heightmap,
             build_road_embankment_profiles,
             apply_embankment_blend,
-            smooth_gallery_terrain,
-            mark_gallery_interior_as_holes,
         )
+        from ..tunnels.gallery_mesh import resolve_open_side
         from ..terrain.terrain_materials import (
             build_photo_fallback_layer,
             mark_padding_as_holes,
@@ -291,16 +290,31 @@ class TerrainWorkflow:
         # im Heightmap erzeugen (das Mesh generiert keine Böschungs-Geometrie mehr - siehe Spec Abschnitt 4b).
         # WICHTIG: muss auf den noch UNVERÄNDERTEN heights laufen, damit
         # "natürliche Höhe" wirklich natürlich ist (vor embed_roads_into_heightmap).
-        # Brücken/Tunnel/Galerien werden NICHT ins Terrain eingebettet und bekommen keine Böschung - siehe
-        # Design-Spec Abschnitt 3 (das Gelände bleibt darunter/daneben vollständig natürlich).
+        # Brücken/Tunnel werden NICHT ins Terrain eingebettet und bekommen keine Böschung - siehe
+        # Design-Spec Abschnitt 3 (das Gelände bleibt darunter/daneben vollständig natürlich). Galerien
+        # dagegen WERDEN wie normale Straßen eingebettet (siehe unten) - kein separates Terrain-Loch mehr
+        # nötig, seit Boden/Wand/Dach massive Quader sind (tunnels/gallery_mesh.py).
         surface_road_polygons, structure_road_polygons = split_by_structure_type(road_slope_polygons_2d)
         # Galerie-Enden ein Stück in den angrenzenden "surface"-Straßenabschnitt hinein verlängern -
-        # zentral hier, VOR jeder Verwendung von structure_road_polygons (Terrain-Loch, -Glättung, Mesh
-        # nutzen alle dieselbe trimmed_centerline), siehe extend_gallery_centerline_ends()-Docstring.
+        # zentral hier, VOR jeder Verwendung von structure_road_polygons (Terrain-Einbettung und Mesh
+        # nutzen beide dieselbe trimmed_centerline), siehe extend_gallery_centerline_ends()-Docstring.
         structure_road_polygons = extend_gallery_centerline_ends(structure_road_polygons, config.GALLERY_CENTERLINE_EXTENSION)
 
+        # Galerien wie normale Straßen einbetten (dieselben Böschungs-/Einbettungs-Parameter) - NUR die
+        # bergseitige Böschung entfällt (no_slope_side): die (massive) Wand reicht ohnehin bis in den Hang,
+        # ein künstlicher Böschungswinkel daneben wäre überflüssig - das Gelände dort bleibt auf
+        # natürlicher Höhe stehen (Böschungsbreite 0, siehe build_road_embankment_profiles()-Docstring).
+        # Ohne avalanche_protector:left/right-Tag (kein zuverlässiger Fallback) bleibt die Böschung auf
+        # beiden Seiten normal wie bei einer Oberflächenstraße.
+        gallery_roads = [
+            {**r, "no_slope_side": {"left": "right", "right": "left"}.get(resolve_open_side(r.get("osm_tags", {})))}
+            for r in structure_road_polygons
+            if r.get("structure_type") == "gallery"
+        ]
+        embeddable_roads = surface_road_polygons + gallery_roads
+
         embankment_profiles = build_road_embankment_profiles(
-            surface_road_polygons,
+            embeddable_roads,
             heights,
             terrain_origin_x,
             terrain_origin_y,
@@ -321,7 +335,7 @@ class TerrainWorkflow:
             terrain_origin_x,
             terrain_origin_y,
             config.TERRAIN_SQUARE_SIZE,
-            surface_road_polygons,
+            embeddable_roads,
         )
 
         # Layer-Map: EIN Luftbild-Material für die gesamte Fläche, dann OSM-
@@ -374,9 +388,10 @@ class TerrainWorkflow:
         from ..geometry.road_surfaces import union_road_surfaces
 
         # Alle Straßenflächen EINMAL vereinigt (vereinfacht): dient Maske, Reben-Ausschluss und dem Wald.
-        # Nur echte Oberflächenstraßen - Brücken/Tunnel/Galerien sollen die Vegetation nicht mehr blockieren,
-        # sonst bliebe z.B. beim Tunnel ein kahler Streifen über dem ganzen Bergrücken.
-        road_surface_union = union_road_surfaces(surface_road_polygons)
+        # Oberflächenstraßen UND Galerien (jetzt wie normale Straßen ins Terrain eingebettet, siehe oben) -
+        # nur Brücken/Tunnel bleiben außen vor, die sollen die Vegetation nicht blockieren, sonst bliebe
+        # z.B. beim Tunnel ein kahler Streifen über dem ganzen Bergrücken.
+        road_surface_union = union_road_surfaces(surface_road_polygons + gallery_roads)
         road_shapes = [road_surface_union] if road_surface_union is not None else []
         building_shapes = [
             p["geometry"]
@@ -401,31 +416,6 @@ class TerrainWorkflow:
                 config.TERRAIN_SQUARE_SIZE,
                 building_shapes,
                 buffer=config.GROUND_COVER_BUILDING_MARGIN,
-            )
-
-        # Galerien: eigenes Boden-/Wand-/Dach-Mesh auf echtem Straßenniveau, aber das Gelände bleibt sonst
-        # unverändert stehen (Design-Spec Abschnitt 3) und würde Durchfahrt/Eingang/Wand blockieren, da die
-        # Galerie - anders als ein Tunnel tief im Berg - direkt am Hang liegt. Terrain-Hole statt Einebnen
-        # (die Galerie hat schon ein eigenes Boden-Mesh, sonst Z-Fighting) - über die GESAMTE Korridorlänge,
-        # nicht nur dort, wo das natürliche Gelände zufällig niedrig genug ist (siehe
-        # mark_gallery_interior_as_holes()-Docstring: der Erdüberwurf einer Lawinengalerie liegt im DGM
-        # fast überall über der Dach-Oberkante, ein nur bereichsweises Loch ließ die Galerie blockiert).
-        # ERST glätten (smooth_gallery_terrain, breiterer Rand), DANN das (schmalere) Loch stanzen: das DGM
-        # zeigt am Bauwerk selbst statt des ursprünglichen Hangs, ohne Glätten blieben am Lochrand sichtbare
-        # Gebäude-Polygone im Terrain stehen.
-        gallery_roads = [
-            {**r, "width": OSM_MAPPER.get_road_properties(r.get("osm_tags", {}))["width"]}
-            for r in structure_road_polygons
-            if r.get("structure_type") == "gallery"
-        ]
-        if gallery_roads:
-            heights = smooth_gallery_terrain(
-                heights, terrain_origin_x, terrain_origin_y, config.TERRAIN_SQUARE_SIZE,
-                gallery_roads, width_margin=config.GALLERY_TERRAIN_SMOOTH_MARGIN,
-            )
-            layer_map = mark_gallery_interior_as_holes(
-                layer_map, terrain_origin_x, terrain_origin_y, config.TERRAIN_SQUARE_SIZE,
-                gallery_roads, width_margin=config.GALLERY_TERRAIN_HOLE_MARGIN,
             )
 
         # Überschussrand der Zweierpotenz-Heightmap (nur Extrapolation) als Hole: das sichtbare
@@ -805,6 +795,8 @@ class TerrainWorkflow:
             floor_thickness=config.GALLERY_FLOOR_THICKNESS,
             wall_thickness=config.GALLERY_WALL_THICKNESS,
             column_size=config.GALLERY_COLUMN_SIZE,
+            curb_height=config.GALLERY_CURB_HEIGHT,
+            curb_width=config.GALLERY_CURB_WIDTH,
         )
         return tunnel_meshes + gallery_meshes
 

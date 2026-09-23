@@ -21,11 +21,9 @@ import math
 from typing import Dict, List
 
 import numpy as np
-from affine import Affine
-from rasterio.features import rasterize
 from scipy.spatial import cKDTree
 from shapely import intersects_xy
-from shapely.geometry import LineString, Polygon
+from shapely.geometry import Polygon
 
 from .. import config
 
@@ -203,181 +201,6 @@ def _embed_road(
     sub[inside] = target_z
 
 
-def _gallery_corridor_polygons(gallery_road_polygons: List[Dict], width_margin: float) -> list:
-    """Ein gepuffertes Korridor-Polygon je Galerie (Centerline, halbe Fahrbahnbreite + width_margin)."""
-    polygons = []
-    for road in gallery_road_polygons:
-        centerline = np.asarray(road.get("trimmed_centerline", []), dtype=np.float64)
-        width = road.get("width")
-        if len(centerline) < 2 or not width:
-            continue
-        half_width = width / 2.0 + width_margin
-        polygon = LineString(centerline[:, :2]).buffer(half_width, cap_style=2)
-        if not polygon.is_empty:
-            polygons.append(polygon)
-    return polygons
-
-
-def smooth_gallery_terrain(
-    heights: np.ndarray,
-    origin_x: float,
-    origin_y: float,
-    square_size: float,
-    gallery_road_polygons: List[Dict],
-    width_margin: float,
-) -> np.ndarray:
-    """
-    Interpoliert das Terrain im (gegenüber dem späteren Hole deutlich breiteren) Galerie-Korridor linear
-    zwischen der natürlichen Geländehöhe am bergseitigen und am talseitigen Korridor-Rand - ergibt eine
-    durchgehend geneigte, zum echten Hangverlauf passende Fläche statt eines bloßen 50/50-Mixes mit der
-    nächstgelegenen Naturzelle (frühere Version). MUSS vor mark_gallery_interior_as_holes() laufen, das
-    den (schmaleren) Fahrbahn-Korridor danach als Hole ausstanzt.
-
-    Grund/Historie: das DGM zeigt an einer bestehenden Galerie nicht das ursprüngliche Gelände, sondern
-    das Bauwerk selbst (Dachkante, Stützen, Bergseitenwand-Fundament). Ohne Glättung blieben direkt am
-    Rand des (schmaleren) Holes sichtbare, kantige "Gebäude-Polygone" im Terrain stehen. Der frühere
-    einzelne 50/50-Mix (Commit "Flatten the gallery corridor edge...") war bewusst konservativ; jetzt,
-    wo Boden/Wand/Dach echte Quader sind (config.GALLERY_FLOOR_THICKNESS/GALLERY_WALL_THICKNESS/
-    GALLERY_ROOF_THICKNESS - massive Kontaktfläche zum Gelände), darf grosszügiger geglättet werden: eine
-    durchgehend lineare Rand-zu-Rand-Fläche sieht neben einem massiven Bauwerk plausibler aus als ein
-    Flickenteppich aus einzelnen Nachbarwerten.
-
-    Technik: pro Centerline-Punkt wird die natürliche Höhe am linken und rechten Korridor-Rand
-    (Centerline ± half_width) abgetastet (dieselbe Technik wie build_road_embankment_profiles()); jede
-    Korridor-Zelle wird dann invers-distanzgewichtet zwischen der jeweils nächstgelegenen linken und
-    rechten Randzelle interpoliert (2-Punkt-IDW - reicht, weil linker/rechter Rand nahezu parallel zur
-    Centerline verlaufen, ein exaktes Querprofil ist nicht nötig).
-
-    Args:
-        heights: (size, size) float Array (nach Böschung/Straßen-Einbettung, NICHT natural_heights)
-        gallery_road_polygons: wie mark_gallery_interior_as_holes()
-        width_margin: Rand über die halbe Fahrbahnbreite hinaus, in Metern - deutlich größer als
-            config.GALLERY_TERRAIN_HOLE_MARGIN (siehe config.GALLERY_TERRAIN_SMOOTH_MARGIN), damit auch
-            die etwas breitere reale Struktur mitgeglättet wird.
-
-    Returns:
-        Neues (size, size) float Array (Eingabe bleibt unverändert)
-    """
-    result = heights.copy()
-    size_y, size_x = heights.shape
-
-    for road in gallery_road_polygons:
-        centerline = np.asarray(road.get("trimmed_centerline", []), dtype=np.float64)
-        width = road.get("width")
-        if len(centerline) < 2 or not width:
-            continue
-
-        half_width = width / 2.0 + width_margin
-        xy = centerline[:, :2]
-        polygon = LineString(xy).buffer(half_width, cap_style=2)
-        if polygon.is_empty:
-            continue
-
-        # Randlinien exakt am Korridor-Rand (halbe Fahrbahnbreite + width_margin) - dieselbe Punkt-Normalen-
-        # Technik wie build_road_embankment_profiles()/mark_gallery_interior_as_holes() (Historie).
-        directions = np.diff(xy, axis=0)
-        norms = np.linalg.norm(directions, axis=1, keepdims=True)
-        norms[norms < 1e-9] = 1.0
-        directions = directions / norms
-        point_dirs = np.empty_like(xy)
-        point_dirs[0] = directions[0]
-        point_dirs[-1] = directions[-1]
-        for i in range(1, len(xy) - 1):
-            avg = directions[i - 1] + directions[i]
-            n = np.linalg.norm(avg)
-            point_dirs[i] = avg / n if n > 1e-9 else directions[i - 1]
-        perp = np.column_stack([-point_dirs[:, 1], point_dirs[:, 0]])
-
-        left_xy = xy + perp * half_width
-        right_xy = xy - perp * half_width
-        left_z = sample_heightmap_bilinear(heights, origin_x, origin_y, square_size, left_xy)
-        right_z = sample_heightmap_bilinear(heights, origin_x, origin_y, square_size, right_xy)
-
-        min_x, min_y, max_x, max_y = polygon.bounds
-        col_start = max(0, int(np.floor((min_x - origin_x) / square_size)))
-        col_end = min(size_x - 1, int(np.ceil((max_x - origin_x) / square_size)))
-        row_start = max(0, int(np.floor((min_y - origin_y) / square_size)))
-        row_end = min(size_y - 1, int(np.ceil((max_y - origin_y) / square_size)))
-        if col_start > col_end or row_start > row_end:
-            continue
-
-        cols = np.arange(col_start, col_end + 1)
-        rows = np.arange(row_start, row_end + 1)
-        cell_x = origin_x + cols * square_size
-        cell_y = origin_y + rows * square_size
-        grid_x, grid_y = np.meshgrid(cell_x, cell_y)
-
-        inside = _cells_in_polygon(grid_x, grid_y, np.asarray(polygon.exterior.coords))
-        if not np.any(inside):
-            continue
-
-        qx, qy = grid_x[inside], grid_y[inside]
-        dl, il = cKDTree(left_xy).query(np.column_stack([qx, qy]))
-        dr, ir = cKDTree(right_xy).query(np.column_stack([qx, qy]))
-        denom = np.maximum(dl + dr, 1e-9)
-        blended = (left_z[il] * dr + right_z[ir] * dl) / denom
-
-        sub = result[row_start : row_end + 1, col_start : col_end + 1]
-        sub[inside] = blended
-
-    return result
-
-
-def mark_gallery_interior_as_holes(
-    layer_map: np.ndarray,
-    origin_x: float,
-    origin_y: float,
-    square_size: float,
-    gallery_road_polygons: List[Dict],
-    width_margin: float,
-) -> np.ndarray:
-    """
-    Markiert den GESAMTEN Fahrbahn-Korridor jeder Galerie als Terrain-Hole (Layer 255) - über die
-    volle Länge, mit konstanter Breite, parallel zur Ober- und Unterkante der Galerie (Achse der
-    Centerline). Kein Flickenteppich mehr abhängig vom natürlichen Geländeverlauf (siehe Historie
-    unten) - die Galerie ist sonst über weite Strecken nicht befahrbar.
-
-    Galerien haben (anders als Brücken/Tunnel) ihr eigenes Boden-/Wand-/Dach-Mesh auf echtem
-    Straßenniveau (siehe tunnels/gallery_mesh.py), aber das Gelände bleibt sonst unverändert stehen
-    und würde Durchfahrt, Eingang und die bergseitige Wand blockieren, da eine Galerie - anders als ein
-    tief im Berg liegender Tunnel - direkt am Hang liegt.
-
-    Frühere Version (bis inkl. Commit 5f708e6) hat das Loch auf die Abschnitte beschränkt, an denen
-    das natürliche Gelände (aus dem unveränderten DGM) unter die Dach-Oberkante reicht - Idee: der
-    Berghang, der über die Galerie hinwegläuft, ist bei einer Lawinengalerie der eigentliche Zweck des
-    Bauwerks, also sollte das Gelände dort sichtbar bleiben. In der Praxis (Galleria artificiale Piano
-    dei buoi, Gotthard) blieb die Galerie aber über fast die gesamte Länge blockiert: das DGM zeigt dort
-    (Lawinenschutz-Erdüberwurf) fast überall Gelände über der Dach-Oberkante, die Bedingung griff also
-    kaum - und BeamNGs Heightmap-Terrain kennt ohnehin keine "Höhle" (die Fläche ist die einzige
-    Kollisions-/Sichtfläche je Rasterzelle, darunter gibt es kein separates Luftvolumen) - ein nur
-    bereichsweises Loch lässt den Korridor dort blockiert, wo das Gelände natürlich hoch genug ist,
-    unabhängig davon, ob das geologisch "richtig" aussehen würde.
-
-    Args:
-        layer_map: (size, size) Layer-Indizes
-        gallery_road_polygons: Einträge mit "trimmed_centerline" ((N,3) x,y,z-Punkte) und "width"
-            (Fahrbahnbreite in Metern)
-        width_margin: zusätzlicher Rand über die reine Fahrbahnbreite hinaus, in Metern (Seitenwand/
-            Dachkante ragen etwas darüber hinaus)
-
-    Returns:
-        Neue layer_map (Eingabe bleibt unverändert)
-    """
-    from .ter_writer import EMPTY_LAYER_VALUE
-
-    result = layer_map.copy()
-    hole_polygons = _gallery_corridor_polygons(gallery_road_polygons, width_margin)
-
-    if not hole_polygons:
-        return result
-
-    shapes = [(polygon, 1) for polygon in hole_polygons]
-    transform = Affine.translation(origin_x, origin_y) * Affine.scale(square_size, square_size)
-    mask = rasterize(shapes, out_shape=result.shape, transform=transform, fill=0, dtype="uint8")
-    result[mask == 1] = EMPTY_LAYER_VALUE
-    return result
-
-
 def sample_heightmap_bilinear(
     heights: np.ndarray,
     origin_x: float,
@@ -462,6 +285,15 @@ def build_road_embankment_profiles(
         min_slope_width: config.MIN_SLOPE_WIDTH
         max_slope_width: Obergrenze der Böschungsbreite (Meter)
 
+    Optionales Feld je Straßen-Dict: "no_slope_side" ("left" | "right" | None) - unterdrückt die
+    Böschung auf einer Seite komplett (Böschungsbreite 0, das Gelände bleibt dort auf natürlicher Höhe
+    stehen statt zur Straßenkante hin zu blenden). "left"/"right" folgen dabei der STANDARD-Konvention
+    (wie offset_points()/resolve_open_side(): links = Centerline-Richtung um +90° gedreht) - NICHT der
+    (rein internen, siehe Hinweis unten) links/rechts-Zuordnung dieser Funktion; die Übersetzung passiert
+    intern. Für Galerien: die bergseitige Böschung braucht keinen künstlichen Winkel mehr, weil die
+    (jetzt massive, siehe config.GALLERY_WALL_THICKNESS) Wand ohnehin bis in den Hang reicht - siehe
+    tunnels/gallery_mesh.py::resolve_open_side().
+
     Returns:
         Liste von Dicts, je Straße:
             {
@@ -517,6 +349,14 @@ def build_road_embankment_profiles(
 
         left_slope_width = np.clip(np.maximum(min_slope_width, left_diff / tan_angle), None, max_slope_width)
         right_slope_width = np.clip(np.maximum(min_slope_width, right_diff / tan_angle), None, max_slope_width)
+
+        # STANDARD-"links" (point + perp*half) ist oben "right_xy", STANDARD-"rechts" ist "left_xy" (siehe
+        # Hinweis) - die no_slope_side-Zuordnung muss deshalb gespiegelt werden.
+        no_slope_side = poly.get("no_slope_side")
+        if no_slope_side == "left":
+            right_slope_width = np.zeros_like(right_slope_width)
+        elif no_slope_side == "right":
+            left_slope_width = np.zeros_like(left_slope_width)
 
         roads.append(
             {

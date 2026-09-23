@@ -94,6 +94,45 @@ def test_wall_extends_wall_thickness_into_the_mountain():
     assert v[:, 1].max() == pytest.approx(4.0)
 
 
+def test_wall_is_flush_with_the_roof_top():
+    ground_at = lambda x, y: 500.0 - 2.0 * np.asarray(y, float)  # Bergseite ist -y (rechts)
+    mesh = build_gallery_mesh(
+        _straight_coords(z=500.0), width=8.0, height=5.0, ground_at=ground_at, floor_material=FLOOR,
+        roof_material=ROOF, roof_thickness=0.5, column_spacing=1000.0,  # keine Stützen (verfälschen die Kante sonst)
+    )
+
+    v = np.array(mesh["vertices"])
+    mountain_side = np.abs(v[:, 1] + 4.0) < 6.0  # gesamte Bergseite (Wand reicht bis y=-9 bei wall_thickness=5)
+    assert v[mountain_side][:, 2].max() == pytest.approx(505.5)  # Boden(500) + Höhe(5) + Dachdicke(0.5)
+
+
+def test_curb_is_on_the_open_side_only():
+    ground_at = lambda x, y: 500.0 - 2.0 * np.asarray(y, float)  # Talseite (offen) ist +y
+    mesh = build_gallery_mesh(
+        _straight_coords(z=500.0), width=8.0, height=5.0, ground_at=ground_at, floor_material=FLOOR,
+        roof_material=ROOF, curb_height=0.5, curb_width=0.25, column_spacing=1000.0,
+    )
+
+    v = np.array(mesh["vertices"])
+    at_valley_edge = np.abs(v[:, 1] - 4.0) < 0.01
+    at_mountain_edge = np.abs(v[:, 1] + 4.0) < 0.01
+    # Sockel-Oberkante (500.5 = Boden 500 + Sockelhöhe 0.5) nur auf der Talseite, nicht auf der Bergseite.
+    assert np.any(np.isclose(v[at_valley_edge][:, 2], 500.5))
+    assert not np.any(np.isclose(v[at_mountain_edge][:, 2], 500.5))
+
+
+def test_curb_does_not_widen_the_gallery_footprint():
+    # Sockel liegt curb_width INNERHALB der Fahrbahnkante, ragt also nicht über die bisherige Breite hinaus.
+    ground_at = lambda x, y: 500.0 - 2.0 * np.asarray(y, float)
+    mesh = build_gallery_mesh(
+        _straight_coords(z=500.0), width=8.0, height=5.0, ground_at=ground_at, floor_material=FLOOR,
+        roof_material=ROOF, curb_height=0.5, curb_width=0.25, wall_thickness=0.0, column_spacing=1000.0,
+    )
+
+    v = np.array(mesh["vertices"])
+    assert v[:, 1].max() == pytest.approx(4.0)  # width / 2
+
+
 def test_ends_are_capped_with_outward_facing_faces():
     ground_at = lambda x, y: 500.0 - 2.0 * np.asarray(y, float)
     mesh = build_gallery_mesh(_straight_coords(z=500.0), width=8.0, height=5.0, ground_at=ground_at, floor_material=FLOOR, roof_material=ROOF)

@@ -13,10 +13,7 @@ from world_to_beamng.terrain.road_embedding import (
     sample_heightmap_bilinear,
     build_road_embankment_profiles,
     apply_embankment_blend,
-    smooth_gallery_terrain,
-    mark_gallery_interior_as_holes,
 )
-from world_to_beamng.terrain.ter_writer import EMPTY_LAYER_VALUE
 
 
 def _road(polygon_xy, centerline_xyz):
@@ -135,6 +132,52 @@ def test_build_road_embankment_profiles_straight_road():
     assert np.allclose(road["left_natural_z"], 100.0)
     # height_diff = |100 - 95| = 5, tan(45deg) = 1 -> slope_width = 5.0
     assert np.allclose(road["left_slope_width"], 5.0)
+
+
+def test_no_slope_side_suppresses_the_embankment_on_that_side_only():
+    # Gleiches Setup wie test_build_road_embankment_profiles_straight_road(): Centerline entlang x=20,
+    # Richtung +y. STANDARD-"links" (offset_points()-Konvention: Richtung +90 Grad gedreht) liegt hier bei
+    # x=17 - das ist (siehe Docstring-Hinweis) genau "right_edge_xyz" dieser Funktion.
+    size = 40
+    heights = np.full((size, size), 100.0)
+    origin_x, origin_y, square_size = 0.0, 0.0, 1.0
+    centerline = np.array([[20.0, y, 95.0] for y in range(5, 36)], dtype=float)
+
+    class FakeMapper:
+        def get_road_properties(self, tags):
+            return {"width": 6.0}
+
+    poly = {"trimmed_centerline": centerline, "osm_tags": {}, "no_slope_side": "left"}
+    roads = build_road_embankment_profiles(
+        [poly], heights, origin_x, origin_y, square_size, FakeMapper(),
+        slope_angle_deg=45.0, min_slope_width=2.0, max_slope_width=30.0,
+    )
+
+    road = roads[0]
+    assert np.allclose(road["right_edge_xyz"][:, 0], 17.0)  # = STANDARD-"links", die unterdrückte Seite
+    assert np.allclose(road["right_slope_width"], 0.0)  # keine Böschung dort
+    assert np.allclose(road["left_slope_width"], 5.0)  # andere Seite unverändert normal
+
+
+def test_no_slope_side_none_leaves_both_sides_normal():
+    size = 40
+    heights = np.full((size, size), 100.0)
+    origin_x, origin_y, square_size = 0.0, 0.0, 1.0
+    centerline = np.array([[20.0, y, 95.0] for y in range(5, 36)], dtype=float)
+
+    class FakeMapper:
+        def get_road_properties(self, tags):
+            return {"width": 6.0}
+
+    poly = {"trimmed_centerline": centerline, "osm_tags": {}, "no_slope_side": None}
+    roads = build_road_embankment_profiles(
+        [poly], heights, origin_x, origin_y, square_size, FakeMapper(),
+        slope_angle_deg=45.0, min_slope_width=2.0, max_slope_width=30.0,
+    )
+
+    road = roads[0]
+    assert np.allclose(road["left_slope_width"], 5.0)
+    assert np.allclose(road["right_slope_width"], 5.0)
 
 
 def test_apply_embankment_blend_interpolates_correctly():
@@ -406,86 +449,3 @@ def test_blend_one_side_is_identical_to_the_full_bounding_box_reference():
             np.testing.assert_array_equal(actual, expected)
 
 
-# --- smooth_gallery_terrain ---------------------------------------------------------------------------------------
-
-
-def test_smooth_gallery_terrain_pulls_the_building_spike_toward_natural_terrain():
-    # Glatter Hang (Höhe steigt mit y) - simuliert das umliegende, unberührte Gelände.
-    y_idx = np.arange(30.0).reshape(-1, 1)
-    heights = np.tile(100.0 + y_idx, (1, 30))
-    # "Gebäude-Spitze" mitten im späteren Korridor (x=5..25, y=15) - das DGM zeigt hier das Bauwerk, nicht den Hang.
-    heights[13:18, 10:21] = 250.0
-
-    result = smooth_gallery_terrain(heights, 0.0, 0.0, 1.0, [_gallery()], width_margin=6.0)
-
-    # Im Korridor: klar Richtung Naturgelände gezogen (50/50-Mix), nicht mehr die rohe Spitze (250).
-    assert result[15, 15] < 200.0
-    # Weit außerhalb des (breiteren) Glättungs-Korridors: unverändert.
-    assert result[2, 15] == heights[2, 15]
-    assert result[15, 2] == heights[15, 2]
-    assert heights[13, 15] == 250.0  # Eingabe bleibt unverändert
-
-
-def test_smooth_gallery_terrain_interpolates_linearly_between_the_two_corridor_edges():
-    # Bergseitiger Rand (y=15+half_width=24) konstant 200, talseitiger Rand (y=15-half_width=6) konstant
-    # 100 - alles dazwischen soll (invers-distanzgewichtet) linear zwischen den beiden Rändern liegen,
-    # kein bloßer 50/50-Mix mit der nächstgelegenen Naturzelle mehr (frühere Version).
-    heights = np.full((30, 30), 999.0)
-    heights[24, :] = 200.0
-    heights[6, :] = 100.0
-
-    result = smooth_gallery_terrain(heights, 0.0, 0.0, 1.0, [_gallery()], width_margin=6.0)
-
-    assert result[15, 15] == pytest.approx(150.0)  # Mitte des Korridors: genau der Mittelwert
-    assert result[21, 15] == pytest.approx(200.0 * 15 / 18 + 100.0 * 3 / 18)  # näher am Bergrand (Abstand 3 statt 9)
-    assert result[9, 15] == pytest.approx(200.0 * 3 / 18 + 100.0 * 15 / 18)  # näher am Talrand (Abstand 3 statt 9)
-    assert result[21, 15] > result[15, 15] > result[9, 15]  # monoton von Berg- zu Talrand
-
-
-def test_smooth_gallery_terrain_without_galleries_is_a_noop():
-    heights = np.full((10, 10), 100.0)
-
-    result = smooth_gallery_terrain(heights, 0.0, 0.0, 1.0, [], width_margin=6.0)
-
-    assert (result == 100.0).all()
-
-
-# --- mark_gallery_interior_as_holes ------------------------------------------------------------------------------
-
-
-def _gallery(x0=5.0, x1=25.0, y=15.0, z=100.0, width=6.0):
-    centerline = np.column_stack([np.linspace(x0, x1, int(x1 - x0) + 1), np.full(int(x1 - x0) + 1, y), np.full(int(x1 - x0) + 1, z)])
-    return {"trimmed_centerline": centerline, "width": width}
-
-
-def test_gallery_hole_covers_the_whole_corridor_regardless_of_natural_terrain():
-    # Kein natural_heights-Parameter mehr: das natürliche Gelände (egal ob hoch oder niedrig) darf den
-    # Korridor nicht blockieren - eine Lawinengalerie hat im DGM fast überall Erdüberwurf über der
-    # Dach-Oberkante, ein Höhenvergleich würde den Korridor also fast nirgends öffnen (siehe Docstring).
-    layer_map = np.full((30, 30), 3, dtype=np.uint8)
-
-    result = mark_gallery_interior_as_holes(layer_map, 0.0, 0.0, 1.0, [_gallery()], width_margin=1.0)
-
-    assert result[15, 15] == EMPTY_LAYER_VALUE  # Mitte des Korridors
-    assert result[15, 6] == EMPTY_LAYER_VALUE  # nahe des einen Endes
-    assert result[15, 24] == EMPTY_LAYER_VALUE  # nahe des anderen Endes
-    assert (layer_map == 3).all()  # Eingabe bleibt unverändert
-
-
-def test_gallery_hole_is_bounded_to_the_corridor_width_and_length():
-    layer_map = np.full((30, 30), 3, dtype=np.uint8)
-
-    # Breite 6 m + 1 m Rand -> Halbbreite 4 m; Centerline bei y=15, x=5..25.
-    result = mark_gallery_interior_as_holes(layer_map, 0.0, 0.0, 1.0, [_gallery()], width_margin=1.0)
-
-    assert result[15, 15] == EMPTY_LAYER_VALUE  # im Korridor
-    assert result[3, 15] == 3  # weit seitlich außerhalb der Halbbreite: Gelände bleibt natürlich
-    assert result[15, 0] == 3  # jenseits des Centerline-Endpunkts: Gelände bleibt natürlich
-
-
-def test_gallery_hole_without_galleries_is_a_noop():
-    layer_map = np.full((10, 10), 3, dtype=np.uint8)
-
-    result = mark_gallery_interior_as_holes(layer_map, 0.0, 0.0, 1.0, [], width_margin=1.0)
-
-    assert (result == 3).all()
