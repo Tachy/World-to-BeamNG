@@ -30,6 +30,14 @@ def _interp_at(cum: np.ndarray, arr: np.ndarray, s: float):
     return arr[idx - 1] + t * (arr[idx] - arr[idx - 1])
 
 
+def _direction_at(cum: np.ndarray, xy: np.ndarray, s: float) -> Tuple[float, float]:
+    """Fahrtrichtung (nicht normiert) an der Bogenlänge `s` - für add_box_column()'s `direction`, damit
+    Pfeiler-/Pfosten-Profile relativ zur Brücke ausgerichtet sind statt achsenparallel zur Welt."""
+    idx = max(1, min(int(np.searchsorted(cum, s)), len(xy) - 1))
+    d = xy[idx] - xy[idx - 1]
+    return float(d[0]), float(d[1])
+
+
 def _build_edge_beam(xy_line: np.ndarray, top_z: np.ndarray, thickness: float, tile_m: float) -> MeshBuilder:
     """Dünner, rechteckiger Balken entlang `xy_line` (Handlauf): Ober-/Unterseite plus beide Seitenflächen.
     `top_z` gibt die Oberkante je Punkt von `xy_line` an (folgt damit demselben Höhenprofil wie das Deck)."""
@@ -212,7 +220,7 @@ def build_bridge_mesh(
         ground_z = float(ground_at(np.array([cx]), np.array([cy]))[0])
         if deck_bottom_z - ground_z < min_pier_clearance:
             continue
-        add_box_column(pier_builder, cx, cy, ground_z, deck_bottom_z, pier_size, tile_m)
+        add_box_column(pier_builder, cx, cy, ground_z, deck_bottom_z, pier_size, tile_m, direction=_direction_at(cum, xy, s))
 
     # Geländer: Pfosten + durchlaufender Handlauf beidseits, auf der Bordstein-Oberkante
     railing_builder = MeshBuilder()
@@ -223,7 +231,7 @@ def build_bridge_mesh(
             px, py = _interp_at(cum, edge_xy, s)
             post_bottom_z = float(_interp_at(cum, curb_top, s))
             post_top_z = post_bottom_z + railing_height
-            add_box_column(railing_builder, px, py, post_bottom_z, post_top_z, railing_post_size, tile_m)
+            add_box_column(railing_builder, px, py, post_bottom_z, post_top_z, railing_post_size, tile_m, direction=_direction_at(cum, edge_xy, s))
         beam = _build_edge_beam(edge_xy, rail_top, railing_post_size, tile_m)
         railing_builder.vertices += beam.vertices
         railing_builder.uvs += beam.uvs

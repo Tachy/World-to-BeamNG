@@ -58,11 +58,36 @@ def unit_vector(vector: np.ndarray) -> List[float]:
     return [0.0, 0.0, 1.0] if length < 1e-12 else [float(c) for c in vector / length]
 
 
-def add_box_column(builder: "MeshBuilder", cx: float, cy: float, bottom_z: float, top_z: float, size: float, tile_m: float) -> None:
+def add_box_column(
+    builder: "MeshBuilder",
+    cx: float,
+    cy: float,
+    bottom_z: float,
+    top_z: float,
+    size: float,
+    tile_m: float,
+    direction: Tuple[float, float] = (1.0, 0.0),
+) -> None:
     """Rechteckige Stütze (4 Seitenflächen) von `bottom_z` bis `top_z`, quadratischer Querschnitt `size` - für
-    Brücken-Pfeiler (bridges/bridge_mesh.py) und Galerie-Stützen (tunnels/gallery_mesh.py)."""
+    Brücken-Pfeiler (bridges/bridge_mesh.py) und Galerie-Stützen (tunnels/gallery_mesh.py).
+
+    Args:
+        direction: (dx, dy) Fahrtrichtung an der Stützen-Position (muss nicht normiert sein) - das Profil
+            ist relativ dazu ausgerichtet (Kanten parallel/quer zur Straße/Galerie), nicht an den Welt-
+            Achsen. Default (1, 0) = achsenparallel, für Aufrufer ohne Richtungsinformation.
+    """
     half = size / 2.0
-    corners = [(cx - half, cy - half), (cx + half, cy - half), (cx + half, cy + half), (cx - half, cy + half)]
+    dx, dy = float(direction[0]), float(direction[1])
+    norm = (dx * dx + dy * dy) ** 0.5
+    dx, dy = (dx / norm, dy / norm) if norm > 1e-9 else (1.0, 0.0)
+    fwd = (dx * half, dy * half)
+    left = (-dy * half, dx * half)
+    corners = [
+        (cx - fwd[0] - left[0], cy - fwd[1] - left[1]),
+        (cx + fwd[0] - left[0], cy + fwd[1] - left[1]),
+        (cx + fwd[0] + left[0], cy + fwd[1] + left[1]),
+        (cx - fwd[0] + left[0], cy - fwd[1] + left[1]),
+    ]
     height_tiles = (top_z - bottom_z) / tile_m
     for i in range(4):
         a, b = corners[i], corners[(i + 1) % 4]
