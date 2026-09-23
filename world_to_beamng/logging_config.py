@@ -13,13 +13,17 @@ import sys
 from pathlib import Path
 from typing import Optional
 
+from rich.logging import RichHandler
+
+from .progress import console
+
 
 class LoggerConfig:
     """
     Zentrale Logger-Konfiguration (Singleton).
 
-    Verwaltet:
-    - Console-Output (immer aktiv)
+    Verwaltet den Paket-Logger "world_to_beamng" und dessen:
+    - Console-Output (immer aktiv, über RichHandler an shared progress.py Console)
     - File-Output (optional)
     - Log-Level (DEBUG, INFO, WARNING, ERROR)
     - Einheitliches Format
@@ -66,7 +70,7 @@ class LoggerConfig:
         Hole zentrale Logger-Instanz.
 
         Returns:
-            logging.Logger für w2b-Modul
+            logging.Logger für world_to_beamng-Paket
         """
         if cls._logger is None:
             cls.get_instance()
@@ -74,21 +78,28 @@ class LoggerConfig:
 
     def _setup_logger(self) -> None:
         """Konfiguriere Logger mit Console- und optional File-Handler."""
-        logger_instance = logging.getLogger("w2b")
+        logger_instance = logging.getLogger("world_to_beamng")
         logger_instance.setLevel(self.level)
         logger_instance.handlers.clear()  # Verhindere Duplikate bei mehrfachen Calls
 
-        # Unterschiedliche Formatter: Konsole nur Message, File mit Zusatzinfos
-        console_formatter = logging.Formatter(fmt="%(message)s")
+        # File-Formatter mit Zusatzinfos; die Konsole übernimmt Level-Farbe/-Badge über RichHandler
         file_formatter = logging.Formatter(
             fmt="%(asctime)s | %(levelname)-8s | %(name)s:%(funcName)s() | %(message)s",
             datefmt="%H:%M:%S",
         )
 
-        # Console-Handler (immer aktiv, stdout) – nur Text ohne Meta-Infos
-        console_handler = logging.StreamHandler(sys.stdout)
+        # Console-Handler (immer aktiv, stdout) - teilt sich die Konsole mit progress.py, damit
+        # Log-Zeilen sauber oberhalb aktiver Balken/Spinner erscheinen. markup=False ist Pflicht:
+        # bestehende Log-Nachrichten enthalten literale eckige Klammern ("[OK]", "[i]", "[!]", ...),
+        # die NICHT als rich-Markup geparst werden dürfen.
+        console_handler = RichHandler(
+            console=console,
+            markup=False,
+            show_time=False,
+            show_path=False,
+            rich_tracebacks=True,
+        )
         console_handler.setLevel(self.level)
-        console_handler.setFormatter(console_formatter)
         logger_instance.addHandler(console_handler)
 
         # File-Handler (optional)
@@ -101,6 +112,11 @@ class LoggerConfig:
             logger_instance.info(
                 f"Logger initialisiert: Datei={self.log_file}, Level={logging.getLevelName(self.level)}"
             )
+
+        # Geschwätzige Third-Party-Logger dämpfen: sie nutzen ebenfalls logging.getLogger(__name__)
+        # und würden sonst durch den jetzt korrekt propagierenden Root-Cause-Fix mitgeloggt.
+        for noisy in ("urllib3", "PIL", "matplotlib"):
+            logging.getLogger(noisy).setLevel(logging.WARNING)
 
         # Setze Klassen-Variable damit get_logger() es findet
         LoggerConfig._logger = logger_instance
