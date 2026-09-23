@@ -6,8 +6,26 @@ import logging
 import os
 from pathlib import Path, PurePosixPath
 
-from .osm.osm_mapper import OSMMapper
 from .logging_config import LoggerConfig
+
+# === LOGGING ===
+# Muss VOR jedem anderen Modul-Import in dieser Datei passieren: Module wie osm/osm_mapper.py
+# rufen beim eigenen Import bereits logger = LoggerConfig.get_logger() auf. LoggerConfig ist ein
+# Singleton mit "nur einmal erzeugen"-Guard (siehe logging_config.py::get_instance()) - wer zuerst
+# get_instance()/get_logger() aufruft, legt den Level endgültig fest; jeder spätere Aufruf (auch
+# mit anderen Werten, wie hier) wird dann stillschweigend zum No-Op. Vor diesem Fix lief
+# `from .osm.osm_mapper import OSMMapper` zuerst, fror den Level auf die Default-Werte (INFO) ein -
+# DEBUG_VERBOSE/LOGGING_LEVEL hatten dadurch nie eine Wirkung.
+#
+# Steuerung ausschließlich über LOG_LEVEL (per Umgebungsvariable überschreibbar, kein Editieren
+# von config.py nötig): DEBUG | INFO | WARNING | ERROR | CRITICAL.
+#   PowerShell:  $env:LOG_LEVEL = "WARNING"; python world_to_beamng.py
+#   Bash:        LOG_LEVEL=WARNING python world_to_beamng.py
+LOG_LEVEL = (os.environ.get("LOG_LEVEL") or "INFO").upper()  # leer/nicht gesetzt -> INFO
+LOGGING_FILE = None  # Path("logs/world_to_beamng.log")  # Optional; None = nur stdout
+LoggerConfig.get_instance(log_file=LOGGING_FILE, level=LOG_LEVEL)
+
+from .osm.osm_mapper import OSMMapper
 
 LEVEL_NAME = "world_to_beamng"  # Name des BeamNG Levels (muss mit BEAMNG_DIR übereinstimmen)
 
@@ -150,7 +168,6 @@ TERRAIN_MAX_HEIGHT_BUFFER = 50.0
 
 # DEBUG / EXPORTS
 DEBUG_EXPORTS = True  # Debug-Dumps (Netz, Grid) nur bei Bedarf aktivieren
-DEBUG_VERBOSE = False  # Zusätzliche Konsolen-Logs
 
 # === LANDNUTZUNG / BODENBEWUCHS ===
 # Bodenbewuchs (Gras, Blumen, Farn ...) als BeamNG-GroundCover-Objekte je Terrain-Layer.
@@ -166,13 +183,6 @@ VINEYARDS_ENABLED = True
 # Abstand der Reben zum Rand von Straßen/Gebäuden in Metern. Die Zeilen laufen sonst bis exakt an die
 # Polygongrenze des Weinbergs und enden hier auf den Zentimeter an dieser Ausschlusszone.
 VINEYARD_EXCLUSION_MARGIN = 2.0
-
-# === LOGGING ===
-LOGGING_FILE = None  # Path("logs/world_to_beamng.log")  # Optional; None = nur stdout
-LOGGING_LEVEL = logging.DEBUG if DEBUG_VERBOSE else logging.INFO
-
-# Initialisiere zentrale Logger-Instanz
-LoggerConfig.get_instance(log_file=LOGGING_FILE, level=LOGGING_LEVEL, verbose=DEBUG_VERBOSE)
 
 # === STRASSENGLÄTTUNG / OPTIONEN ===
 ENABLE_ROAD_SMOOTHING = True  # False = Spline-Glättung komplett aus

@@ -10,11 +10,22 @@ Unterstützt:
 
 import logging
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Union
 
 from rich.logging import RichHandler
 
 from .progress import console
+
+# Erlaubte Level-Namen für LOG_LEVEL (config.py) - bewusst eine eigene, feste Zuordnung statt der
+# (teils veralteten/undokumentierten) String->Level-Auflösung von logging.getLevelName(), damit ein
+# Tippfehler in der Umgebungsvariable einen klaren Fehler wirft statt still das Falsche zu tun.
+LEVEL_NAMES = {
+    "DEBUG": logging.DEBUG,
+    "INFO": logging.INFO,
+    "WARNING": logging.WARNING,
+    "ERROR": logging.ERROR,
+    "CRITICAL": logging.CRITICAL,
+}
 
 
 class LoggerConfig:
@@ -24,43 +35,49 @@ class LoggerConfig:
     Verwaltet den Paket-Logger "world_to_beamng" und dessen:
     - Console-Output (immer aktiv, über RichHandler an shared progress.py Console)
     - File-Output (optional)
-    - Log-Level (DEBUG, INFO, WARNING, ERROR)
+    - Log-Level (DEBUG, INFO, WARNING, ERROR, CRITICAL) - einzige Steuerung: der `level`-Parameter
+      (config.py setzt ihn aus der Umgebungsvariable LOG_LEVEL, siehe dort)
     - Einheitliches Format
     """
 
     _instance: Optional["LoggerConfig"] = None
     _logger: Optional[logging.Logger] = None
 
-    def __init__(self, log_file: Optional[Path] = None, level: int = logging.INFO, verbose: bool = False):
+    def __init__(self, log_file: Optional[Path] = None, level: Union[int, str] = logging.INFO):
         """
         Initialisiere Logger.
 
         Args:
             log_file: Pfad zu Logfile (None = nur Console)
-            level: Logging-Level (logging.DEBUG, INFO, WARNING, ERROR)
-            verbose: True = Force DEBUG level (ignoriert level Parameter)
+            level: Logging-Level als int (logging.DEBUG/.../CRITICAL) oder Name ("DEBUG", "INFO", ...)
         """
         self.log_file = log_file
-        self.level = logging.DEBUG if verbose else level
+        self.level = self._resolve_level(level)
         self._setup_logger()
 
+    @staticmethod
+    def _resolve_level(level: Union[int, str]) -> int:
+        if not isinstance(level, str):
+            return level
+        try:
+            return LEVEL_NAMES[level.upper()]
+        except KeyError:
+            raise ValueError(f"Unbekanntes Log-Level {level!r} - erlaubt: {', '.join(LEVEL_NAMES)}") from None
+
     @classmethod
-    def get_instance(
-        cls, log_file: Optional[Path] = None, level: int = logging.INFO, verbose: bool = False
-    ) -> "LoggerConfig":
+    def get_instance(cls, log_file: Optional[Path] = None, level: Union[int, str] = logging.INFO) -> "LoggerConfig":
         """
         Hole Singleton-Instanz (erstelle bei Bedarf).
 
         Args:
             log_file: Pfad zu Logfile (None = nur Console)
-            level: Logging-Level
-            verbose: True = DEBUG level
+            level: Logging-Level als int oder Name (siehe __init__)
 
         Returns:
             LoggerConfig Singleton-Instanz
         """
         if cls._instance is None:
-            cls._instance = cls(log_file, level, verbose)
+            cls._instance = cls(log_file, level)
         return cls._instance
 
     @classmethod
