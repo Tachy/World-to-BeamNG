@@ -266,7 +266,9 @@ GALLERY_FLOOR_THICKNESS = 5.0  # Bodendicke nach unten, in Metern
 GALLERY_WALL_THICKNESS = 5.0  # Dicke der bergseitigen Wand in den Hang hinein, in Metern (bündig mit der Dach-Oberkante)
 GALLERY_COLUMN_SIZE = 0.4  # Querschnitt der (quadratischen) Stützen, in Metern
 GALLERY_CURB_HEIGHT = 0.5  # Höhe des Sockels auf der Stützenseite, in Metern
-GALLERY_CURB_WIDTH = 0.25  # Breite des Sockels (von der Fahrbahnkante nach innen versetzt), in Metern
+GALLERY_CURB_WIDTH = 0.4  # Breite des Sockels (von der Fahrbahnkante nach innen versetzt), in Metern - deckt
+# sich mit GALLERY_COLUMN_SIZE, damit die Stütze exakt auf dem Sockel-Fußabdruck sitzt (siehe
+# gallery_mesh.py::build_gallery_mesh(), Stützen-Schleife) und ihre Außenkante bündig mit der Dachkante bleibt.
 
 # Galerien werden (anders als Brücken/Tunnel) wie normale Straßen ins Terrain eingebettet (siehe
 # terrain_workflow.py::process_tile(), Böschung + embed_roads_into_heightmap) statt ein separates Terrain-
@@ -283,7 +285,7 @@ GALLERY_CURB_WIDTH = 0.25  # Breite des Sockels (von der Fahrbahnkante nach inne
 #   daraus abgeleitete Böschungsbreite wäre verrauscht und ergäbe eine sichtbar facettierte Böschung statt
 #   einer glatten, kurzen Angleichung ans Gelände.
 GALLERY_VALLEY_SLOPE_WIDTH = 5.0  # feste Böschungsbreite talseits, in Metern
-GALLERY_MOUNTAIN_EMBED_MARGIN = 1.0  # flacher Saum bergseits über die Wand-Innenkante hinaus, in Metern
+GALLERY_MOUNTAIN_EMBED_MARGIN = 1.3  # flacher Saum bergseits über die Wand-Innenkante hinaus, in Metern
 TUNNEL_MATERIAL_NAME = "tunnel_concrete"  # Wand-/Decke-/Rahmen-/Dach-Material (Textur: CONCRETE_TEXTURE_NAME)
 
 # === LOD2-DACH-TEXTUR ===

@@ -133,6 +133,47 @@ def test_curb_does_not_widen_the_gallery_footprint():
     assert v[:, 1].max() == pytest.approx(4.0)  # width / 2
 
 
+def test_columns_sit_flush_on_top_of_the_curb_not_in_the_floor():
+    """Regression: Stützen steckten bisher vom Boden-Niveau an im Sockel (Z-Überlappung) - die Basis muss
+    jetzt auf der Sockel-Oberkante sitzen, die Oberkante bleibt unverändert bei der Dach-Unterkante (die
+    Stütze wird dadurch um curb_height kürzer)."""
+    ground_at = lambda x, y: 500.0 - 2.0 * np.asarray(y, float)  # +y ist Talseite (offen)
+    mesh = build_gallery_mesh(
+        _straight_coords(length=60.0, z=500.0), width=8.0, height=5.0, ground_at=ground_at,
+        floor_material=FLOOR, roof_material=ROOF, column_spacing=12.0,
+        curb_height=0.5, curb_width=0.4, column_size=0.4,
+    )
+    v = np.array(mesh["vertices"])
+
+    # Stützen-Vertices: abseits des 5m-Punktrasters (x) UND nahe der Talseiten-Kante (y=4, Stützen-Außenkante).
+    off_grid = np.abs((v[:, 0] / 5.0) - np.round(v[:, 0] / 5.0)) >= 0.01
+    near_valley_edge = np.abs(v[:, 1] - 4.0) < 0.5
+    column_vertices = v[off_grid & near_valley_edge]
+
+    assert len(column_vertices) > 0
+    assert column_vertices[:, 2].min() == pytest.approx(500.5)  # Sockel-Oberkante (Boden 500 + 0.5), nicht 500
+    assert column_vertices[:, 2].max() == pytest.approx(505.0)  # unverändert: Boden(500) + Höhe(5)
+
+
+def test_columns_footprint_is_centered_on_the_curb_and_flush_with_the_roof_edge():
+    """Regression: Stützen standen bisher auf der Fahrbahnkante zentriert (Dachkante schnitt durch die
+    Stützenmitte). Jetzt auf der Sockel-Mittellinie zentriert - bei curb_width == column_size fällt die
+    Stützen-Außenkante exakt mit der (unveränderten) Dach-/Fahrbahnkante zusammen."""
+    ground_at = lambda x, y: 500.0 - 2.0 * np.asarray(y, float)
+    mesh = build_gallery_mesh(
+        _straight_coords(length=60.0, z=500.0), width=8.0, height=5.0, ground_at=ground_at,
+        floor_material=FLOOR, roof_material=ROOF, column_spacing=12.0,
+        curb_height=0.5, curb_width=0.4, column_size=0.4,
+    )
+    v = np.array(mesh["vertices"])
+    off_grid = np.abs((v[:, 0] / 5.0) - np.round(v[:, 0] / 5.0)) >= 0.01
+    column_vertices = v[off_grid]
+
+    assert len(column_vertices) > 0
+    assert column_vertices[:, 1].max() == pytest.approx(4.0)  # = width/2 = Dach-/Fahrbahnkante, kein Überstand
+    assert column_vertices[:, 1].min() == pytest.approx(3.6)  # Sockel-Mitte (3.8) - halbe Stützenbreite (0.2)
+
+
 def test_ends_are_capped_with_outward_facing_faces():
     ground_at = lambda x, y: 500.0 - 2.0 * np.asarray(y, float)
     mesh = build_gallery_mesh(_straight_coords(z=500.0), width=8.0, height=5.0, ground_at=ground_at, floor_material=FLOOR, roof_material=ROOF)

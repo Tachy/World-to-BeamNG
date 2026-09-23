@@ -75,23 +75,27 @@ def build_gallery_mesh(
     wall_thickness: float = 5.0,
     column_size: float = 0.4,
     curb_height: float = 0.5,
-    curb_width: float = 0.25,
+    curb_width: float = 0.4,
     tile_m: float = 5.0,
     open_side: Optional[str] = None,
 ) -> Dict:
     """
     Galerie-Mesh: Boden, Dach und bergseitige Wand sind echte Quader (nicht nur dünne Flächen) - Boden
     floor_thickness nach unten, Dach roof_thickness nach oben, bergseitige Wand wall_thickness weiter in
-    den Hang hinein (bündig mit der Dach-Oberkante). Dazu Stützen UND ein durchlaufender Sockel
-    (curb_height/curb_width, wie der Bordstein bei Brücken) auf der talseitig offenen Seite (keine Wand
-    dort). Beide Enden werden komplett verschlossen (Boden-/Dach-/Wand-Querschnitt) - wirkt wie ein
-    sauberer Schnitt durchs Bauwerk, exakt an den ursprünglichen OSM-Way-Grenzpunkten (keine künstliche
-    Verlängerung der Centerline).
+    den Hang hinein (bündig mit der Dach-Oberkante). Dazu ein durchlaufender Sockel (curb_height/curb_width,
+    wie der Bordstein bei Brücken) auf der talseitig offenen Seite (keine Wand dort) UND Stützen, die BÜNDIG
+    auf dem Sockel sitzen: im Grundriss auf dessen Mittellinie zentriert (curb_width == column_size ->
+    Stützen-Außenkante == Fahrbahnkante == Dachkante, alles bündig) und in der Höhe auf der Sockel-Oberkante
+    aufsetzend statt im Boden zu stecken (Stützenhöhe entsprechend um curb_height verkürzt, die Oberkante
+    bleibt bei der Dach-Unterkante). Beide Enden werden komplett verschlossen (Boden-/Dach-/Wand-Querschnitt)
+    - wirkt wie ein sauberer Schnitt durchs Bauwerk, exakt an den ursprünglichen OSM-Way-Grenzpunkten (keine
+    künstliche Verlängerung der Centerline).
 
     Args:
         floor_thickness, wall_thickness: siehe config.GALLERY_FLOOR_THICKNESS/GALLERY_WALL_THICKNESS
         curb_height, curb_width: siehe config.GALLERY_CURB_HEIGHT/GALLERY_CURB_WIDTH - Sockel auf der
-            Stützenseite, curb_width nach innen von der Fahrbahnkante versetzt
+            Stützenseite, curb_width nach innen von der Fahrbahnkante versetzt; column_size sollte curb_width
+            entsprechen, damit die Stütze bündig auf dem Sockel sitzt (siehe Docstring oben)
         open_side: "left" | "right" | None - wenn gesetzt (aus resolve_open_side(), zuverlässiger OSM-Tag),
             gilt diese Seite für die GESAMTE Galerie als offen statt sie per valley_side() (Höhenvergleich,
             nur Fallback) punktweise zu bestimmen.
@@ -110,6 +114,12 @@ def build_gallery_mesh(
     left, right = offset_points(xy, width / 2.0, closed=False)
     outer_left, outer_right = offset_points(xy, width / 2.0 + wall_thickness, closed=False)
     inner_left, inner_right = offset_points(xy, max(width / 2.0 - curb_width, 0.0), closed=False)
+    # Mittellinie des Sockel-Grundrisses (zwischen curb_inner und curb_edge = left/right) - die Stützen
+    # sitzen dort zentriert (bündig mit dem Sockel-Fußabdruck, siehe Stützen-Schleife unten). Elementweiser
+    # Mittelwert zweier offset_points()-Ergebnisse auf derselben (ggf. gehrungsgeschnittenen) Normalen ist
+    # exakt gleichwertig zu einem eigenen offset_points()-Aufruf mit dem gemittelten Abstand.
+    mid_left = (left + inner_left) / 2.0
+    mid_right = (right + inner_right) / 2.0
     # +1 = rechts offen (Tal), -1 = links offen - siehe open_side/resolve_open_side()-Docstring.
     if open_side == "left":
         side = np.full(len(points), -1.0)
@@ -258,14 +268,23 @@ def build_gallery_mesh(
     for s in column_positions:
         idx = max(1, min(int(np.searchsorted(cum, s)), len(points) - 1))
         t = (s - cum[idx - 1]) / max(cum[idx] - cum[idx - 1], 1e-9)
-        open_edge = right if side[idx - 1] > 0 else left
+        # Bündig auf dem Sockel: im Grundriss auf dessen Mittellinie zentriert (mid_left/mid_right, siehe
+        # oben) statt auf der Fahrbahnkante - Sockel und Stütze haben denselben Fußabdruck.
+        open_edge = mid_right if side[idx - 1] > 0 else mid_left
         cx = open_edge[idx - 1, 0] + t * (open_edge[idx, 0] - open_edge[idx - 1, 0])
         cy = open_edge[idx - 1, 1] + t * (open_edge[idx, 1] - open_edge[idx - 1, 1])
-        cz = float(floor_z[idx - 1] + t * (floor_z[idx] - floor_z[idx - 1]))
+        floor_base = float(floor_z[idx - 1] + t * (floor_z[idx] - floor_z[idx - 1]))
+        # Basis auf Sockel-Oberkante (statt Boden-Niveau) - sonst steckt die Stütze zur Hälfte im Sockel.
+        # Oberkante bleibt bei floor_z + height (Dach-Unterkante, unverändert), die Stütze wird dadurch um
+        # curb_height kürzer als zuvor.
+        column_bottom = floor_base + curb_height
+        column_top = floor_base + height
         # Profil relativ zur Galerie-Richtung ausgerichtet (nicht achsenparallel zur Welt) - sonst stehen
         # die Stützen bei diagonal verlaufenden Galerien sichtbar schief zur Wand-/Dachkante.
         column_direction = xy[idx] - xy[idx - 1]
-        add_box_column(roof_builder, cx, cy, cz, cz + height, column_size, tile_m, direction=tuple(column_direction))
+        add_box_column(
+            roof_builder, cx, cy, column_bottom, column_top, column_size, tile_m, direction=tuple(column_direction)
+        )
 
     all_vertices = floor_builder.vertices + roof_builder.vertices
     all_uvs = floor_builder.uvs + roof_builder.uvs
@@ -342,7 +361,7 @@ def build_galleries(
     wall_thickness: float = 5.0,
     column_size: float = 0.4,
     curb_height: float = 0.5,
-    curb_width: float = 0.25,
+    curb_width: float = 0.4,
 ) -> List[Dict]:
     """Mesh-Dicts für den DAE-Export, eines je Galerie (`galleries`: [{"id","coords","width","floor_material",
     "osm_tags"}, ...] - "osm_tags" optional, für resolve_open_side())."""
