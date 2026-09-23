@@ -5,7 +5,7 @@ Refactored Version mit modularer Architektur.
 Main Entry Point für die Anwendung.
 
 Benötigte Pakete:
-  pip install requests numpy scipy pyproj pyvista shapely rtree
+  pip install requests numpy scipy pyproj pyvista shapely rtree rich
 """
 
 import sys
@@ -21,6 +21,7 @@ logger = LoggerConfig.get_logger()
 from world_to_beamng.export import BeamNGExporter
 from world_to_beamng.textures.registry import MissingTexturesError
 from world_to_beamng.geometry import coordinates
+from world_to_beamng.progress import Pipeline
 from world_to_beamng.utils.tile_scanner import scan_elevation_tiles, compute_global_center, resolve_source_crs_epsg
 
 
@@ -29,40 +30,28 @@ def main():
 
     start_time = time.time()
 
-    # 1. Konfiguration ist bereits global geladen
-    # Anpassungen können direkt gemacht werden:
-    # config.GRID_SPACING = 1.5
-    # config.ROAD_CLIP_MARGIN = -30.0
+    pipeline = Pipeline()
+    exporter = BeamNGExporter(pipeline)
 
-    # 2. Exporter initialisieren (ohne Config-Parameter!)
-    exporter = BeamNGExporter()
+    with pipeline.task("Vorbereitung") as task:
+        tiles = scan_elevation_tiles(dgm_dir=config.HEIGHT_DATA_DIR)
 
-    # 3. Tiles scannen
-    logger.info("\n" + "=" * 60)
-    logger.info("WORLD-TO-BEAMNG - BeamNG Level Export")
-    logger.info("=" * 60)
+        if not tiles:
+            task.fail("keine DGM1-Kacheln gefunden")
+            return
 
-    tiles = scan_elevation_tiles(dgm_dir=config.HEIGHT_DATA_DIR)
+        # Quell-CRS auflösen (aus GeoTIFF-Kacheln automatisch erkannt, sonst config.SOURCE_CRS_EPSG) -
+        # MUSS vor jeder weiteren Koordinatentransformation gesetzt werden (OSM-BBox, LoD2, Horizont, ...)
+        source_epsg = resolve_source_crs_epsg(tiles)
+        coordinates.set_source_crs(source_epsg)
 
-    if not tiles:
-        logger.error("[!] Keine DGM1-Kacheln gefunden - Abbruch")
-        return
+        global_center = compute_global_center(tiles)
+        # 3-Tupel: (x, y, z) - z ist der Mittelwert der Höhen oder 0
+        global_offset = (global_center[0], global_center[1], global_center[2] if len(global_center) > 2 else 0.0)
 
-    # 3b. Quell-CRS auflösen (aus GeoTIFF-Kacheln automatisch erkannt, sonst config.SOURCE_CRS_EPSG) -
-    # MUSS vor jeder weiteren Koordinatentransformation gesetzt werden (OSM-BBox, LoD2, Horizont, ...)
-    source_epsg = resolve_source_crs_epsg(tiles)
-    coordinates.set_source_crs(source_epsg)
-    logger.info(f"Quell-CRS: EPSG:{source_epsg}")
+        task.done(f"{len(tiles)} Tiles, EPSG:{source_epsg}, Offset {global_offset}")
 
-    # 4. Globalen Offset berechnen
-    global_center = compute_global_center(tiles)
-    # 3-Tupel: (x, y, z) - z ist der Mittelwert der Höhen oder 0
-    global_offset = (global_center[0], global_center[1], global_center[2] if len(global_center) > 2 else 0.0)
-
-    logger.info(f"Gefundene Tiles: {len(tiles)}")
-    logger.info(f"Global Offset: {global_offset}")
-
-    # 5. Export durchführen
+    # Export durchführen
     try:
         stats = exporter.export_complete_level(
             tiles=tiles,
@@ -74,7 +63,7 @@ def main():
         logger.error(f"\n[!] Export abgebrochen:\n{error}")
         sys.exit(1)
 
-    # 6. Statistiken
+    # Statistiken
     elapsed = time.time() - start_time
     logger.info(f"\n{'='*60}")
     logger.info("EXPORT ABGESCHLOSSEN")
