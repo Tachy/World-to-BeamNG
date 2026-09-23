@@ -75,7 +75,7 @@ def test_a_missing_procedural_texture_is_generated_once_and_then_used(dirs, dds,
     calls = []
     library.store_texture("photo_tex", _maps(), 1.5, "Foto", lib)
 
-    with caplog.at_level("INFO"):
+    with caplog.at_level("INFO", logger="world_to_beamng"):
         paths = registry.prepare_textures(out, lib, (_procedural(calls), _photo()))
         registry.prepare_textures(out, lib, (_procedural(calls), _photo()))  # zweiter Lauf: liegt jetzt vor
 

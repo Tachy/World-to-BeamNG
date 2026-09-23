@@ -97,7 +97,7 @@ def test_a_source_that_covers_only_part_of_the_area_warns_and_leaves_black(tmp_p
     partial = _write(tmp_path / "src.tif", bounds=(LON_MIN, LAT_MIN, 7.7, LAT_MAX))  # bis etwa zur Gebietsmitte
     out = tmp_path / "horizon.tif"
 
-    with caplog.at_level("WARNING"):
+    with caplog.at_level("WARNING", logger="world_to_beamng"):
         coverage = build_horizon_image(partial, out, AREA, size_px=64)
 
     assert 0.4 < coverage < 0.7

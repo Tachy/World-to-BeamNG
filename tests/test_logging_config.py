@@ -112,7 +112,7 @@ def test_config_LOG_LEVEL_env_var_survives_the_real_import_order():
     assert int(out) == logging.WARNING
 
 
-def test_config_LOG_LEVEL_defaults_to_info_without_the_env_var():
+def test_config_LOG_LEVEL_defaults_to_warning_without_the_env_var():
     out = _run_fresh_process(
         "from world_to_beamng import config\n"
         "import logging\n"
@@ -120,4 +120,4 @@ def test_config_LOG_LEVEL_defaults_to_info_without_the_env_var():
         {"LOG_LEVEL": ""},  # sicherstellen, dass eine evtl. gesetzte Variable NICHT durchschlägt
     )
 
-    assert int(out) == logging.INFO
+    assert int(out) == logging.WARNING

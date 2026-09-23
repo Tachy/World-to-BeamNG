@@ -458,7 +458,7 @@ def test_attribution_is_logged_on_fresh_download(mock_get, tmp_path, monkeypatch
         int(params["width"]), int(params["height"])
     )
 
-    with caplog.at_level("INFO"):
+    with caplog.at_level("INFO", logger="world_to_beamng"):
         ensure_horizon_texture(AREA_UTM, size_px=32)
 
     assert config.EOX_ATTRIBUTION_NOTICE in caplog.text
@@ -496,7 +496,7 @@ def test_attribution_is_logged_on_cache_hit_too_but_only_once_per_process(mock_g
     # Rohmosaik existiert schon) - die Lizenz-Attributionspflicht knüpft an die NUTZUNG des
     # Bildmaterials, nicht an den Download, also muss auch hier geloggt werden (vorher wurde die
     # Meldung nur im Cache-Miss-Zweig geloggt und wäre hier komplett ausgeblieben).
-    with caplog.at_level("INFO"):
+    with caplog.at_level("INFO", logger="world_to_beamng"):
         ensure_horizon_texture(AREA_UTM, size_px=32)
     assert mock_get.call_count == calls_from_seeding  # kein neuer Netzwerk-Request -> echter Cache-Hit
     assert caplog.text.count(config.EOX_ATTRIBUTION_NOTICE) == 1
@@ -504,7 +504,7 @@ def test_attribution_is_logged_on_cache_hit_too_but_only_once_per_process(mock_g
 
     # Zweiter Aufruf (wieder ein Cache-Hit, jetzt auch die Textur selbst) im SELBEN Prozess: nicht
     # nochmal loggen.
-    with caplog.at_level("INFO"):
+    with caplog.at_level("INFO", logger="world_to_beamng"):
         ensure_horizon_texture(AREA_UTM, size_px=32)
     assert config.EOX_ATTRIBUTION_NOTICE not in caplog.text
     assert sentinel2_fetch._attribution_logged is True

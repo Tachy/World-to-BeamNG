@@ -101,7 +101,7 @@ def test_a_texture_with_missing_channels_is_skipped_with_a_warning(tmp_path, wri
     _write_texture(lib, "roof_gravel")
     _write_texture(lib, "rubble_stone_wall", channels=("color",))
 
-    with caplog.at_level("WARNING"):
+    with caplog.at_level("WARNING", logger="world_to_beamng"):
         paths = library.ensure_library_textures(out, lib)
 
     assert "rubble_stone_wall" not in paths
