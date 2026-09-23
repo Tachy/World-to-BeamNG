@@ -13,7 +13,7 @@ import json
 import re
 import uuid
 import shutil
-from typing import Dict, Any, Optional, List, Sequence, Tuple
+from typing import Callable, Dict, Any, Optional, List, Sequence, Tuple
 from pathlib import Path
 from world_to_beamng import config
 from world_to_beamng.managers.environment import build_environment_lines, load_environment_defaults
@@ -477,80 +477,98 @@ class ItemManager:
         logger.info(f"  [OK] Fahrzeug-Spawn auf nächster Straße zur Gebietsmitte: {position}")
         return position, rotation_matrix
 
+    IDENTITY_ROTATION_MATRIX = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]
+
     @staticmethod
     def _slugify_spawn_object_name(display_name: str) -> str:
-        """Straßenname -> gültiger, lesbarer SpawnSphere-Objektname (z.B. "Gotthardstrasse" -> "spawn_gotthardstrasse")."""
+        """Anzeigename -> gültiger, lesbarer SpawnSphere-Objektname (z.B. "Hospental" -> "spawn_hospental")."""
         slug = re.sub(r"[^A-Za-z0-9]+", "_", display_name).strip("_").lower()
         return f"spawn_{slug}" if slug else "spawn_unnamed"
 
-    def _compute_named_spawn_points(self, road_polygons, max_points: Optional[int] = None) -> List[Dict]:
+    def _compute_poi_spawn_points(
+        self,
+        poi_points,
+        max_points: Optional[int] = None,
+        preview_builder: Optional[Callable[[str, Tuple[float, float]], Optional[str]]] = None,
+    ) -> List[Dict]:
         """
-        Ein zusätzlicher, in der BeamNG-Fahrzeugauswahl wählbarer Spawn-Punkt je eindeutig benannter
-        OSM-Straße (osm_tags["name"]) - ergänzt den automatischen Standard-Spawn
+        Ein zusätzlicher, in der BeamNG-Fahrzeugauswahl wählbarer Spawn-Punkt je POI (Ort oder großer
+        Parkplatz, siehe osm/poi_points.py) - ergänzt den automatischen Standard-Spawn
         (_compute_vehicle_spawn()), ersetzt ihn nicht.
 
-        Bei mehreren Straßen-Ways desselben Namens (z.B. an Kreuzungen aufgeteilt) gewinnt der Way mit
-        den meisten Centerline-Punkten (Näherung für "am längsten"); dessen mittlerer Punkt (samt
-        Tangente für die Ausrichtung, wie _compute_vehicle_spawn()) wird der Spawn-Punkt. Tunnel/
-        Galerien werden ausgeschlossen (ungeeigneter Spawn-Ort - dunkel/eng), Brücken bleiben erlaubt.
+        Frühere Version (bis inkl. Commit a424cbf) hat stattdessen einen Spawn je eindeutig benannter
+        OSM-Straße gebaut - als Label in der Fahrzeugauswahl aber wenig aussagekräftig ("Nuova strada
+        del Passo del San Gottardo"). Orte/Parkplätze sind für Spieler leichter wiederzuerkennen.
+
+        Rangfolge bei mehr Kandidaten als max_points: zuerst alle "place"-POIs (Orte), sortiert nach
+        Bekanntheit (osm.poi_points.PLACE_RANK: Stadt vor Dorf vor Weiler), danach "parking"-POIs
+        sortiert nach Fläche - ein Ort ist als Spawn-Landmarke aussagekräftiger als jeder Parkplatz.
+        Punkte ohne brauchbare Richtungsinformation bekommen eine neutrale (Identitäts-)Ausrichtung -
+        anders als bei einer Straßen-Centerline gibt es an einem Ort/Parkplatz keine natürliche Tangente.
 
         Args:
-            road_polygons: wie _compute_vehicle_spawn() - Liste von Dicts mit "trimmed_centerline"
-                ((N,3)-Array), optional "osm_tags" (Dict) und "structure_type" (str)
-            max_points: höchstens so viele Punkte (Default: config.MAX_NAMED_SPAWN_POINTS); bei mehr
-                benannten Straßen gewinnen die mit den meisten Centerline-Punkten
+            poi_points: Liste von Dicts {"name", "position": [x, y, z], "kind": "place"|"parking",
+                "rank": float} - siehe TerrainWorkflow._collect_poi_points()
+            max_points: höchstens so viele Punkte (Default: config.MAX_POI_SPAWN_POINTS)
+            preview_builder: optional (object_name, (x, y)) -> Vorschaubild-Pfad (relativ zum Level-
+                Root) oder None - siehe io/aerial.py::build_poi_preview_image(). Ohne Vorschaubild
+                fällt BeamNG auf das Level-Vorschaubild zurück (siehe levels.lua imageExistsDefault()).
 
         Returns:
-            Liste von Dicts: {"object_name", "display_name", "position", "rotationMatrix"}
+            Liste von Dicts: {"object_name", "display_name", "position", "rotationMatrix", "preview"}
         """
-        import numpy as np
-
         if max_points is None:
-            max_points = config.MAX_NAMED_SPAWN_POINTS
-        if not road_polygons:
+            max_points = config.MAX_POI_SPAWN_POINTS
+        if not poi_points:
             return []
 
-        longest_by_name: Dict[str, Dict] = {}
-        for road in road_polygons:
-            if road.get("structure_type") in ("tunnel", "gallery"):
-                continue
-            name = (road.get("osm_tags") or {}).get("name")
-            centerline = road.get("trimmed_centerline")
-            if not name or centerline is None or len(centerline) < 2:
-                continue
-            current = longest_by_name.get(name)
-            if current is None or len(centerline) > len(current["trimmed_centerline"]):
-                longest_by_name[name] = {"trimmed_centerline": centerline, "name": name}
+        kind_priority = {"place": 0, "parking": 1}
+        ranked = sorted(
+            poi_points, key=lambda p: (kind_priority.get(p.get("kind"), 2), -(p.get("rank") or 0.0))
+        )[:max_points]
 
-        ranked = sorted(longest_by_name.values(), key=lambda r: -len(r["trimmed_centerline"]))[:max_points]
+        # Doppelte Anzeigenamen (v.a. unbenannte Parkplätze -> "Parkplatz") durchnummerieren, damit die
+        # Fahrzeugauswahl sie unterscheidbar auflistet - erstes Auftreten bleibt unnummeriert.
+        name_occurrence: Dict[str, int] = {}
+        display_names = []
+        for poi in ranked:
+            name = poi["name"]
+            name_occurrence[name] = name_occurrence.get(name, 0) + 1
+            n = name_occurrence[name]
+            display_names.append(name if n == 1 else f"{name} {n}")
 
         used_object_names = set()
         result = []
-        for road in ranked:
-            coords = np.asarray(road["trimmed_centerline"], dtype=float)
-            idx = len(coords) // 2
-            neighbor_idx = idx + 1 if idx + 1 < len(coords) else idx - 1
-            tangent = coords[neighbor_idx][:2] - coords[idx][:2]
-            norm = float(np.hypot(tangent[0], tangent[1]))
-            if norm < 1e-6:
-                continue  # zwei identische Punkte - keine brauchbare Richtung, dieser Name entfällt
+        for poi, display_name in zip(ranked, display_names):
+            x, y, z = (float(v) for v in poi["position"])
+            position = [x, y, z + 0.3]
 
-            dx, dy = float(tangent[0] / norm), float(tangent[1] / norm)
-            rotation_matrix = [dy, dx, 0.0, -dx, dy, 0.0, 0.0, 0.0, 1.0]  # siehe _compute_vehicle_spawn()
-            position = [float(coords[idx][0]), float(coords[idx][1]), float(coords[idx][2]) + 0.3]
-
-            object_name = base_name = self._slugify_spawn_object_name(road["name"])
+            object_name = base_name = self._slugify_spawn_object_name(display_name)
             suffix = 2
             while object_name in used_object_names:
                 object_name = f"{base_name}_{suffix}"
                 suffix += 1
             used_object_names.add(object_name)
 
-            result.append({"object_name": object_name, "display_name": road["name"], "position": position, "rotationMatrix": rotation_matrix})
+            preview = preview_builder(object_name, (x, y)) if preview_builder else None
+
+            result.append({
+                "object_name": object_name,
+                "display_name": display_name,
+                "position": position,
+                "rotationMatrix": self.IDENTITY_ROTATION_MATRIX,
+                "preview": preview,
+            })
 
         return result
 
-    def save(self, filepath: Optional[Path] = None, road_polygons=None) -> None:
+    def save(
+        self,
+        filepath: Optional[Path] = None,
+        road_polygons=None,
+        poi_points=None,
+        preview_builder: Optional[Callable[[str, Tuple[float, float]], Optional[str]]] = None,
+    ) -> None:
         """
         Exportiere Items in die richtige BeamNG-Struktur.
 
@@ -563,6 +581,10 @@ class ItemManager:
             filepath: Optionaler custom Pfad, ansonsten aus config.ITEMS_JSON
             road_polygons: Straßen-Dicts mit "trimmed_centerline" für die automatische
                 Fahrzeug-Spawn-Position (optional) - siehe _compute_vehicle_spawn()
+            poi_points: POI-Dicts (Orte, große Parkplätze) für zusätzliche, wählbare Spawn-Punkte
+                (optional) - siehe _compute_poi_spawn_points()
+            preview_builder: optional (object_name, (x, y)) -> Vorschaubild-Pfad, an
+                _compute_poi_spawn_points() durchgereicht
         """
         from .. import config
 
@@ -580,7 +602,7 @@ class ItemManager:
         playerdroppoints_items = playerdroppoints_dir / "items.level.json"
 
         spawn_position, spawn_rotation = self._compute_vehicle_spawn(road_polygons)
-        named_spawns = self._compute_named_spawn_points(road_polygons)
+        poi_spawns = self._compute_poi_spawn_points(poi_points, preview_builder=preview_builder)
 
         # Schreibe main/items.level.json im JSONL-Format (nur MissionGroup)
         # (json.dumps statt json.dump auf die Datei: der C-Encoder ist ~5x schneller)
@@ -612,33 +634,40 @@ class ItemManager:
                     spawn_line["rotationMatrix"] = spawn_rotation
                 f.write(encode(spawn_line) + "\n")
 
-            # Zusätzliche, benannte Spawn-Punkte (ein SpawnSphere je eindeutig benannter Straße)
-            for named_spawn in named_spawns:
+            # Zusätzliche POI-Spawn-Punkte (ein SpawnSphere je Ort/großem Parkplatz)
+            for poi_spawn in poi_spawns:
                 f.write(
                     encode(
                         {
-                            "name": named_spawn["object_name"],
+                            "name": poi_spawn["object_name"],
                             "class": "SpawnSphere",
                             "dataBlock": "SpawnSphereMarker",
-                            "persistentId": str(uuid.uuid5(uuid.NAMESPACE_URL, f"world_to_beamng/spawn/{named_spawn['object_name']}")),
-                            "position": named_spawn["position"],
+                            "persistentId": str(uuid.uuid5(uuid.NAMESPACE_URL, f"world_to_beamng/spawn/{poi_spawn['object_name']}")),
+                            "position": poi_spawn["position"],
                             "spawnClass": "Player",
                             "radius": 10,
                             "sphereWeight": 100,
                             "indoorWeight": 100,
                             "parentId": "PlayerDropPoints",
-                            "rotationMatrix": named_spawn["rotationMatrix"],
+                            "rotationMatrix": poi_spawn["rotationMatrix"],
                         }
                     )
                     + "\n"
                 )
 
         # info.json-Liste für die BeamNG-Fahrzeugauswahl: der Standard-Spawn ("spawn") zuerst (bekommt
-        # dadurch das 'default'-Flag, siehe lua/ge/extensions/core/levels.lua), dann die benannten.
-        if named_spawns:
+        # dadurch das 'default'-Flag, siehe lua/ge/extensions/core/levels.lua), dann die POI-Spawns.
+        if poi_spawns:
             self.set_info_json_fields(
                 spawnPoints=[{"objectname": "spawn"}]
-                + [{"objectname": ns["object_name"], "name": ns["display_name"]} for ns in named_spawns]
+                + [
+                    {
+                        "objectname": ps["object_name"],
+                        "name": ps["display_name"],
+                        **({"preview": ps["preview"]} if ps.get("preview") else {}),
+                    }
+                    for ps in poi_spawns
+                ]
             )
 
     @property

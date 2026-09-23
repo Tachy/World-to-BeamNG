@@ -514,6 +514,12 @@ class TerrainWorkflow:
         if config.TUNNELS_ENABLED:
             tunnel_meshes = self._build_tunnels(structure_road_polygons, heights, terrain_origin_x, terrain_origin_y)
 
+        # POI-Kandidaten (Orte, große Parkplätze) für zusätzliche, in der Fahrzeugauswahl wählbare Spawn-
+        # Punkte - siehe osm/poi_points.py und ItemManager._compute_poi_spawn_points(). Höhe auf der
+        # FERTIGEN Heightmap abgetastet (die Positionen kommen als reine XY-Punkte aus OSM, nicht von
+        # einer Straßen-Centerline).
+        poi_points = self._collect_poi_points(osm_data, global_offset, heights, terrain_origin_x, terrain_origin_y, grid_bounds_local)
+
         z_min = float(heights.min())
         z_max = float(heights.max())
         max_height = (z_max - z_min) + config.TERRAIN_MAX_HEIGHT_BUFFER
@@ -533,6 +539,7 @@ class TerrainWorkflow:
             "layer_variants": photo_tiles["layer_variants"] if photo_tiles else None,
             "variant_parents": photo_tiles["variant_parents"] if photo_tiles else None,
             "photo_extents": photo_tiles["photo_extents"] if photo_tiles else None,
+            "poi_points": poi_points,  # Orte/große Parkplätze für ItemManager._compute_poi_spawn_points()
             "vineyard_instances": vineyard_instances,  # Forest-Items (grape_vine)
             "water": water,  # {"rivers": [...], "ponds": [...]} für export_water()
             "wall_meshes": wall_meshes,  # Mesh-Dicts der Bruchsteinmauern für export_walls()
@@ -794,6 +801,50 @@ class TerrainWorkflow:
             column_size=config.GALLERY_COLUMN_SIZE,
         )
         return tunnel_meshes + gallery_meshes
+
+    def _collect_poi_points(
+        self,
+        osm_data: List[Dict],
+        global_offset: Tuple[float, float],
+        heights: np.ndarray,
+        terrain_origin_x: float,
+        terrain_origin_y: float,
+        grid_bounds_local: Tuple[float, float, float, float],
+    ) -> List[Dict]:
+        """POI-Kandidaten (Orte, große Parkplätze) samt Höhe auf der fertigen Heightmap - siehe
+        osm/poi_points.py. Nur innerhalb der echten Terrainfläche (die OSM-Abfrage reicht über das
+        Terrain hinaus, siehe generate_vineyards()-Aufrufer)."""
+        if not config.POI_SPAWN_POINTS_ENABLED:
+            return []
+
+        from ..osm.landuse_polygons import make_local_transform
+        from ..osm.poi_points import extract_parking_points, extract_place_points
+
+        to_local = make_local_transform(global_offset)
+        candidates = extract_place_points(osm_data, to_local) + extract_parking_points(
+            osm_data, to_local, min_area_m2=config.POI_MIN_PARKING_AREA_M2
+        )
+        if not candidates:
+            return []
+
+        margin = config.POI_SPAWN_BOUNDS_MARGIN
+        x_min, x_max, y_min, y_max = grid_bounds_local
+        in_bounds = [
+            c for c in candidates
+            if x_min + margin <= c["position_xy"][0] <= x_max - margin
+            and y_min + margin <= c["position_xy"][1] <= y_max - margin
+        ]
+        if not in_bounds:
+            return []
+
+        height_at = make_height_sampler_for_water(heights, terrain_origin_x, terrain_origin_y)
+        xs = np.array([c["position_xy"][0] for c in in_bounds])
+        ys = np.array([c["position_xy"][1] for c in in_bounds])
+        zs = height_at(xs, ys)
+        return [
+            {**candidate, "position": [float(x), float(y), float(z)]}
+            for candidate, x, y, z in zip(in_bounds, xs, ys, zs)
+        ]
 
     def export_tunnels(self, mesh_data: Dict) -> int:
         """

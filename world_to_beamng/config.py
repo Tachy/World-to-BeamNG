@@ -48,11 +48,21 @@ LOD2_ENABLED = False  # LoD2-Gebäude verarbeiten
 PHASE5_ENABLED = True  # Horizont-Layer aktivieren (erfordert DGM30 + DOP300 Daten)
 FORESTS_ENABLED = True  # Wald-Export global aktivieren/deaktivieren
 
-# Zusätzlich zum automatischen Standard-Spawn (nächste Straße zur Gebietsmitte) bekommt jede eindeutig
-# benannte OSM-Straße (osm_tags["name"]) einen eigenen, in der Fahrzeugauswahl wählbaren Spawn-Punkt -
-# siehe ItemManager._compute_named_spawn_points(). Tunnel/Galerien werden ausgeschlossen (ungeeigneter
-# Spawn-Ort), Brücken bleiben erlaubt. Bei mehr benannten Straßen als das Limit gewinnen die längsten.
-MAX_NAMED_SPAWN_POINTS = 20
+# Zusätzlich zum automatischen Standard-Spawn (nächste Straße zur Gebietsmitte) bekommt jeder gefundene
+# POI (Ort bzw. großer Parkplatz, siehe osm/poi_points.py) einen eigenen, in der Fahrzeugauswahl wählbaren
+# Spawn-Punkt - siehe ItemManager._compute_poi_spawn_points(). Straßennamen ("Nuova strada del Passo del
+# San Gottardo") waren als Label wenig aussagekräftig, deshalb die Umstellung auf Orte/Parkplätze. Bei
+# mehr POI-Kandidaten als das Limit gewinnen zuerst die größeren/bekannteren Orte, dann die größten
+# Parkplätze (siehe osm.poi_points.PLACE_RANK).
+POI_SPAWN_POINTS_ENABLED = True
+MAX_POI_SPAWN_POINTS = 20
+POI_MIN_PARKING_AREA_M2 = 500.0  # kleinere Parkplätze (Wohnstraße, Einzelgarage) sind kein sinnvoller Spawn-Ort
+POI_SPAWN_BOUNDS_MARGIN = 20.0  # Rand zur Terrainkante, in Metern (OSM-Abfrage reicht über das Terrain hinaus)
+
+# POI-Vorschaubild ("preview" in info.json spawnPoints[], siehe lua/ge/extensions/core/levels.lua): Draufsicht-
+# Ausschnitt aus dem bereits gebauten Luftbild, Ort mittig - siehe io/aerial.py::build_poi_preview_image().
+POI_PREVIEW_CROP_SIZE_M = 300.0  # Kantenlänge (Meter) des Luftbild-Ausschnitts
+POI_PREVIEW_PIXEL_SIZE = 512  # Kantenlänge (Pixel) des gespeicherten Vorschaubilds
 
 
 # === MATERIAL-EINSTELLUNGEN ===

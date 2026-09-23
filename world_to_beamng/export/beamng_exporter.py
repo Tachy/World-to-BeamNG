@@ -4,7 +4,7 @@ Zentrale BeamNG-Exporter-Fassade.
 Bietet eine einheitliche API für den gesamten Export-Workflow.
 """
 
-from typing import List, Dict, Tuple
+from typing import List, Dict, Optional, Tuple
 from pathlib import Path
 import json
 
@@ -86,6 +86,15 @@ class BeamNGExporter:
         # Straßen-Centerlines für die automatische Fahrzeug-Spawn-Position (siehe
         # managers/item_manager.py::_compute_vehicle_spawn())
         self.road_polygons = None
+
+        # POI-Kandidaten (Orte, große Parkplätze) für zusätzliche Spawn-Punkte, siehe
+        # managers/item_manager.py::_compute_poi_spawn_points()
+        self.poi_points = None
+
+        # Foto-Kacheln (+ Status) für POI-Vorschaubilder, siehe _finalize_export()/io/aerial.py::
+        # build_poi_preview_image() - None/"none" bis export_complete_level() sie gebaut hat.
+        self.aerial_photos = None
+        self.aerial_photo_status = "none"
 
     def export_complete_level(
         self,
@@ -276,6 +285,11 @@ class BeamNGExporter:
         except Exception as e:
             logger.error(f"[!] Fehler bei Luftbild-Verarbeitung: {e}")
 
+        # Für POI-Vorschaubilder in _finalize_export() (build_poi_preview_image() schneidet aus den
+        # bereits gebauten Luftbild-PNGs, siehe dort) - nur sinnvoll, wenn ein Foto tatsächlich vorliegt.
+        self.aerial_photos = photos
+        self.aerial_photo_status = status
+
         # Phase 1: Terrain + Straßen - ALLE Kacheln als EINE zusammenhängende
         # Fläche verarbeiten (ein Grid, ein Straßennetz, ein Junction-Pass).
         # Clipping findet nur noch am Außenrand der Gesamtfläche statt, nicht
@@ -292,6 +306,7 @@ class BeamNGExporter:
             # Straßen-Centerlines für die automatische Fahrzeug-Spawn-Position (bereits mit der
             # späteren Terrain-Einbettungshöhe, siehe road_embedding.py)
             self.road_polygons = result.get("road_slope_polygons_2d")
+            self.poi_points = result.get("poi_points")
 
             self.terrain.export_tile(0, 0, result)
 
@@ -482,6 +497,21 @@ class BeamNGExporter:
             ROOF_TRIM_MATERIAL, **untextured(OSM_MAPPER.get_building_properties("roof_trim")), **hints("roof")
         )
 
+    def _build_poi_preview(self, object_name: str, position_xy: Tuple[float, float]) -> Optional[str]:
+        """
+        preview_builder für ItemManager._compute_poi_spawn_points(): Draufsicht-Ausschnitt aus dem
+        bereits gebauten Luftbild, POI mittig - siehe io/aerial.py::build_poi_preview_image().
+
+        Returns:
+            Pfad relativ zum Level-Root (info.json spawnPoints[].preview) oder None bei Fehlschlag
+        """
+        from ..io.aerial import POI_PREVIEW_SUBDIR, build_poi_preview_image
+
+        relative_path = f"{POI_PREVIEW_SUBDIR}/{object_name}.jpg"
+        output_path = config.BEAMNG_DIR / relative_path
+        ok = build_poi_preview_image(config.BEAMNG_DIR_TEXTURES, output_path, self.aerial_photos, position_xy)
+        return relative_path if ok else None
+
     def _finalize_export(self, include_forests: bool = False):
         """Finalisiere Export: Speichere Materials/Items/Forest JSON und Debug-Daten."""
         # Materials (nutze config.MATERIALS_JSON)
@@ -489,8 +519,13 @@ class BeamNGExporter:
         mat_path = config.BEAMNG_DIR / config.MATERIALS_JSON
         logger.info(f"\n[✓] Materials: {mat_path.name}")
 
-        # Items inkl. automatischer Fahrzeug-Spawn-Position (nächste Straße zur Gebietsmitte)
-        self.items.save(road_polygons=self.road_polygons)
+        # Items inkl. automatischer Fahrzeug-Spawn-Position (nächste Straße zur Gebietsmitte) und POI-
+        # Spawn-Punkten (Orte, große Parkplätze) samt Vorschaubild aus dem bereits gebauten Luftbild.
+        self.items.save(
+            road_polygons=self.road_polygons,
+            poi_points=self.poi_points,
+            preview_builder=self._build_poi_preview if self.aerial_photo_status in ("current", "built") else None,
+        )
         items_path = config.BEAMNG_DIR / config.ITEMS_JSON
         logger.info(f"[✓] Items: {items_path.name}")
 
