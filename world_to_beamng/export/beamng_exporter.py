@@ -102,6 +102,10 @@ class BeamNGExporter:
         self.aerial_photos = None
         self.aerial_photo_status = "none"
 
+        # Dekodierte Luftbilder für _build_poi_preview() - siehe io/aerial.py::build_poi_preview_image()
+        # Docstring: erspart bei mehreren POIs auf derselben Foto-Kachel das wiederholte Dekodieren.
+        self._poi_preview_photo_cache: dict = {}
+
     def export_complete_level(
         self,
         tiles: List[Dict],
@@ -521,7 +525,10 @@ class BeamNGExporter:
 
         relative_path = f"{POI_PREVIEW_SUBDIR}/{object_name}.jpg"
         output_path = config.BEAMNG_DIR / relative_path
-        ok = build_poi_preview_image(config.BEAMNG_DIR_TEXTURES, output_path, self.aerial_photos, position_xy)
+        ok = build_poi_preview_image(
+            config.BEAMNG_DIR_TEXTURES, output_path, self.aerial_photos, position_xy,
+            image_cache=self._poi_preview_photo_cache,
+        )
         return relative_path if ok else None
 
     def _finalize_export(self, include_forests: bool = False):

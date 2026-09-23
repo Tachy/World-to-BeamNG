@@ -41,14 +41,27 @@ class MeshBuilder:
         self.faces: List[List[int]] = []
 
     def quad(self, corners: Sequence[Sequence[float]], uvs: Sequence[Sequence[float]], normal: Sequence[float]) -> None:
-        """Viereck mit eigenen Eckpunkten; der Umlaufsinn wird so gewählt, dass die Fläche zur Normalen zeigt."""
+        """Viereck mit eigenen Eckpunkten; der Umlaufsinn wird so gewählt, dass die Fläche zur Normalen zeigt.
+
+        Kreuz-/Skalarprodukt bewusst in reinem Python statt über numpy: quad() läuft in engen
+        Schleifen (Brücken/Tunnel/Mauern) mit Zehntausenden Aufrufen auf 3er-Vektoren - dort
+        dominiert numpys Dispatch-Overhead (u.a. moveaxis() in np.cross()) klar gegenüber der
+        eigentlichen Rechnung (siehe pyinstrument-Profil vom 4x4km-Export: allein MeshBuilder.quad
+        in _build_bridges() ~5s von 67s Gesamtzeit).
+        """
         base = len(self.vertices)
         self.vertices.extend([list(c) for c in corners])
         self.uvs.extend([list(u) for u in uvs])
         self.normals.extend([list(normal)] * 4)
+        nx, ny, nz = normal
         for tri in ([0, 1, 2], [0, 2, 3]):
-            a, b, c = (np.array(corners[i], dtype=float) for i in tri)
-            if np.dot(np.cross(b - a, c - a), normal) < 0:
+            a, b, c = corners[tri[0]], corners[tri[1]], corners[tri[2]]
+            bax, bay, baz = b[0] - a[0], b[1] - a[1], b[2] - a[2]
+            cax, cay, caz = c[0] - a[0], c[1] - a[1], c[2] - a[2]
+            cross_x = bay * caz - baz * cay
+            cross_y = baz * cax - bax * caz
+            cross_z = bax * cay - bay * cax
+            if cross_x * nx + cross_y * ny + cross_z * nz < 0:
                 tri = [tri[0], tri[2], tri[1]]
             self.faces.append([base + tri[0], base + tri[1], base + tri[2]])
 

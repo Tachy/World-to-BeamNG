@@ -6,6 +6,7 @@ import json
 import zipfile
 import math
 from pathlib import Path
+from typing import Dict, Optional
 from PIL import Image, ImageEnhance
 from io import BytesIO
 from world_to_beamng.logging_config import LoggerConfig
@@ -663,7 +664,27 @@ def _photo_containing(photos, xy):
     return min(photos, key=_center_dist) if photos else None
 
 
-def build_poi_preview_image(textures_dir, output_path, photos, position_xy, crop_size_m=None, target_pixel_size=None):
+def _load_rgb_photo(source_path: Path, image_cache: Optional[Dict[Path, "Image.Image"]]) -> "Image.Image":
+    """Lädt ein Luftbild als RGB (voll dekodiert), optional über `image_cache` wiederverwendet.
+
+    Die zusammengesetzten Luftbild-PNGs sind bei einem größeren Export oft >100 MB; `.convert("RGB")`
+    dekodiert dabei IMMER das gesamte Bild (PNG unterstützt kein partielles Decoding), unabhängig vom
+    späteren Ausschnitt. Ohne Cache zahlt jeder Aufruf (z.B. je POI-Vorschaubild, bis zu
+    config.MAX_POI_SPAWN_POINTS mal für denselben Foto-Kachel) diese Dekodierkosten erneut.
+    """
+    if image_cache is not None and source_path in image_cache:
+        return image_cache[source_path]
+    with Image.open(source_path) as img:
+        rgb = img.convert("RGB")  # eigenständige, vom Dateihandle unabhängige Kopie
+    if image_cache is not None:
+        image_cache[source_path] = rgb
+    return rgb
+
+
+def build_poi_preview_image(
+    textures_dir, output_path, photos, position_xy, crop_size_m=None, target_pixel_size=None,
+    image_cache: Optional[Dict[Path, "Image.Image"]] = None,
+):
     """
     Vorschaubild für einen POI-Spawn-Punkt (info.json spawnPoints[].preview, siehe
     lua/ge/extensions/core/levels.lua): quadratischer Ausschnitt aus dem bereits gebauten Luftbild,
@@ -677,6 +698,9 @@ def build_poi_preview_image(textures_dir, output_path, photos, position_xy, crop
         position_xy: (x, y) des POI in lokalen Koordinaten
         crop_size_m: Kantenlänge (Meter) des Ausschnitts (Default: config.POI_PREVIEW_CROP_SIZE_M)
         target_pixel_size: Kantenlänge (Pixel) des gespeicherten Bilds (Default: config.POI_PREVIEW_PIXEL_SIZE)
+        image_cache: optionales Dict {Pfad: bereits dekodiertes RGB-Image}, über mehrere Aufrufe hinweg
+            vom Aufrufer offengehalten (siehe BeamNGExporter._build_poi_preview) - erspart bei mehreren
+            POIs auf derselben Foto-Kachel das wiederholte Dekodieren desselben Bildes.
 
     Returns:
         True bei Erfolg, False wenn keine passende Foto-Kachel gefunden/gelesen werden konnte (das
@@ -702,28 +726,28 @@ def build_poi_preview_image(textures_dir, output_path, photos, position_xy, crop
     x, y = position_xy
     half = crop_size_m / 2.0
     try:
-        with Image.open(source_path) as source:
-            px_per_m_x = source.width / width_m
-            px_per_m_y = source.height / height_m
+        source = _load_rgb_photo(source_path, image_cache)
+        px_per_m_x = source.width / width_m
+        px_per_m_y = source.height / height_m
 
-            left = (x - half - bx_min) * px_per_m_x
-            right = (x + half - bx_min) * px_per_m_x
-            top = (by_max - (y + half)) * px_per_m_y  # Zeile 0 = Norden
-            bottom = (by_max - (y - half)) * px_per_m_y
+        left = (x - half - bx_min) * px_per_m_x
+        right = (x + half - bx_min) * px_per_m_x
+        top = (by_max - (y + half)) * px_per_m_y  # Zeile 0 = Norden
+        bottom = (by_max - (y - half)) * px_per_m_y
 
-            # An den Bild-Rand klemmen (POI nahe der Kachel-Kante): Ausschnitt bleibt im Bild, ist dann
-            # nur nicht mehr exakt mittig - besser als ein leeres/abgeschnittenes Vorschaubild.
-            left, right = max(0.0, left), min(float(source.width), right)
-            top, bottom = max(0.0, top), min(float(source.height), bottom)
-            if right - left < 2 or bottom - top < 2:
-                return False
+        # An den Bild-Rand klemmen (POI nahe der Kachel-Kante): Ausschnitt bleibt im Bild, ist dann
+        # nur nicht mehr exakt mittig - besser als ein leeres/abgeschnittenes Vorschaubild.
+        left, right = max(0.0, left), min(float(source.width), right)
+        top, bottom = max(0.0, top), min(float(source.height), bottom)
+        if right - left < 2 or bottom - top < 2:
+            return False
 
-            crop = source.convert("RGB").crop((round(left), round(top), round(right), round(bottom)))
-            crop = crop.resize((target_pixel_size, target_pixel_size), Image.Resampling.LANCZOS)
+        crop = source.crop((round(left), round(top), round(right), round(bottom)))
+        crop = crop.resize((target_pixel_size, target_pixel_size), Image.Resampling.LANCZOS)
 
-            output_path = Path(output_path)
-            output_path.parent.mkdir(parents=True, exist_ok=True)
-            crop.save(output_path, "JPEG", quality=85)
+        output_path = Path(output_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        crop.save(output_path, "JPEG", quality=85)
     except OSError as exc:
         logger.debug(f"  [POI-Preview] {source_path} übersprungen: {exc}")
         return False

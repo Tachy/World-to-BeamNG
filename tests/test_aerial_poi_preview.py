@@ -93,3 +93,75 @@ def test_no_matching_photo_tile_returns_false(tmp_path):
     ok = build_poi_preview_image(textures, out, [], position_xy=(100.0, 100.0))
 
     assert ok is False
+
+
+def test_image_cache_is_populated_and_reused_across_calls(tmp_path):
+    """Mehrere POIs auf derselben Foto-Kachel: das dekodierte Bild landet im Cache und wird
+    wiederverwendet statt erneut von der Platte gelesen/dekodiert zu werden (siehe
+    io/aerial.py::_load_rgb_photo()-Docstring - bei ~140-MB-Luftbildern sonst der Hauptzeitfresser
+    beim Export)."""
+    textures = tmp_path / "textures"
+    textures.mkdir()
+    _photo(textures, "aerial_photo", (250, 20, 20), size=200)
+    photos = [{"name": "aerial_photo", "bounds": (0.0, 200.0, 0.0, 200.0)}]
+    cache = {}
+
+    ok1 = build_poi_preview_image(
+        textures, tmp_path / "a.jpg", photos, position_xy=(50.0, 50.0),
+        crop_size_m=40.0, target_pixel_size=32, image_cache=cache,
+    )
+    ok2 = build_poi_preview_image(
+        textures, tmp_path / "b.jpg", photos, position_xy=(150.0, 150.0),
+        crop_size_m=40.0, target_pixel_size=32, image_cache=cache,
+    )
+
+    assert ok1 is True and ok2 is True
+    assert len(cache) == 1  # dieselbe Foto-Kachel, nur einmal im Cache
+    assert Image.open(tmp_path / "a.jpg").size == (32, 32)
+    assert Image.open(tmp_path / "b.jpg").size == (32, 32)
+
+
+def test_image_cache_avoids_reopening_the_source_file_a_second_time(tmp_path, monkeypatch):
+    textures = tmp_path / "textures"
+    textures.mkdir()
+    _photo(textures, "aerial_photo", (250, 20, 20), size=200)
+    photos = [{"name": "aerial_photo", "bounds": (0.0, 200.0, 0.0, 200.0)}]
+    cache = {}
+
+    import world_to_beamng.io.aerial as aerial_module
+
+    real_open = aerial_module.Image.open
+    opened_paths = []
+
+    def counting_open(path, *args, **kwargs):
+        opened_paths.append(Path(path))
+        return real_open(path, *args, **kwargs)
+
+    monkeypatch.setattr(aerial_module.Image, "open", counting_open)
+
+    build_poi_preview_image(
+        textures, tmp_path / "a.jpg", photos, position_xy=(50.0, 50.0),
+        crop_size_m=40.0, target_pixel_size=32, image_cache=cache,
+    )
+    build_poi_preview_image(
+        textures, tmp_path / "b.jpg", photos, position_xy=(150.0, 150.0),
+        crop_size_m=40.0, target_pixel_size=32, image_cache=cache,
+    )
+
+    assert len(opened_paths) == 1  # zweiter Aufruf bedient sich aus dem Cache
+
+
+def test_without_a_cache_behaviour_is_unchanged(tmp_path):
+    """image_cache=None (Default) - Rückwärtskompatibilität, jeder Aufruf dekodiert frisch."""
+    textures = tmp_path / "textures"
+    textures.mkdir()
+    _photo(textures, "aerial_photo", (250, 20, 20), size=200)
+    photos = [{"name": "aerial_photo", "bounds": (0.0, 200.0, 0.0, 200.0)}]
+
+    ok = build_poi_preview_image(
+        textures, tmp_path / "a.jpg", photos, position_xy=(50.0, 50.0),
+        crop_size_m=40.0, target_pixel_size=32,
+    )
+
+    assert ok is True
+    assert Image.open(tmp_path / "a.jpg").size == (32, 32)
