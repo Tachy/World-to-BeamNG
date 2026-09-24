@@ -19,12 +19,12 @@ from world_to_beamng.tunnels.tunnel_portal import plan_tunnels, portal_local_coo
 FLOOR = 100.0
 COVER = 1.2
 SHELL_RATIO = 0.1  # Wandstärke : Durchmesser
-COLLAR = 1.3
+COLLAR_RATIO = 0.1  # Portalkragen: Wandstärke an der dünnsten Stelle : Durchmesser
 
 
 def _plans(coords, galleries=None):
     tunnel = {"id": 1, "coords": coords, "width": 7.0, "floor_material": "f"}
-    return plan_tunnels([tunnel], width_margin=1.5, segment_step=10.0, wing=COLLAR, flat_depth=1.5, length=3.5,
+    return plan_tunnels([tunnel], width_margin=1.5, segment_step=10.0, collar_ratio=COLLAR_RATIO, flat_depth=1.5, length=3.5,
                         shell_ratio=SHELL_RATIO, galleries=galleries)
 
 
@@ -138,7 +138,7 @@ def test_steep_hillside_behind_the_portal_is_cut_down_to_the_collar_not_the_othe
     result, holes = _shape(plans, heights)
 
     assert portal["top_z"] == top_before and portal["bottom_z"] == bottom_before
-    radius, outer = portal["radius"], portal["half_width"]
+    outer = portal["half_width"]
     rows, cols = np.nonzero(holes)
     assert len(rows) > 0
     for r, c in zip(rows, cols):
@@ -146,8 +146,7 @@ def test_steep_hillside_behind_the_portal_is_cut_down_to_the_collar_not_the_othe
             for x in (c, c + 1):
                 along, across = portal_local_coords(portal, np.array([float(x)]), np.array([float(y)]))
                 if 0.0 <= along[0] <= portal["length"] and abs(across[0]) < outer:
-                    collar = FLOOR + radius / 2.0 + math.sqrt(outer**2 - across[0] ** 2)
-                    assert result[y, x] <= collar + 1e-6
+                    assert result[y, x] <= portal["top_z"] + 1e-6  # unter der Oberkante des Kragens
     assert result[60, 40] == pytest.approx(130.0)  # weiter hinten bleibt der Hang
 
 
@@ -192,5 +191,85 @@ def test_gallery_transition_is_a_portal_even_with_mountain_in_front():
     assert portal["open"] is True
     assert result[60, 31] == pytest.approx(FLOOR - 0.05)
     assert holes[60, 31]
-    assert portal["top_z"] == top_before  # Stirnwand wächst nicht mit dem Hang
-    assert result[60, 32] <= top_before - 0.1 + 1e-6  # Hang im Grundriss der Stirnwand auf deren Oberkante abgetragen
+    assert portal["top_z"] == top_before  # das Portal wächst nicht mit dem Hang
+    assert result[60, 32] <= top_before - 0.1 + 1e-6  # Hang im Grundriss des Portals unter dessen Kontur abgetragen
+
+
+def test_without_collar_the_hillside_at_the_portal_stays_inside_the_shell_wall():
+    tunnel = {"id": 1, "coords": [(30.0, 60.0, FLOOR), (90.0, 60.0, FLOOR)], "width": 7.0, "floor_material": "f"}
+    plans = plan_tunnels([tunnel], width_margin=1.5, segment_step=10.0, collar_ratio=0.0, flat_depth=1.5, length=3.5,
+                         shell_ratio=SHELL_RATIO)
+    heights = np.full((120, 120), 130.0)
+    heights[:, :30] = FLOOR
+    heights[:, 91:] = FLOOR
+    portal = plans[0]["portals"][0]
+    radius, outer = portal["radius"], portal["radius"] + portal["shell"]
+
+    result, holes = _shape(plans, heights)
+
+    rows, cols = np.nonzero(holes)
+    assert len(rows) > 0
+    for r, c in zip(rows, cols):
+        for y in (r, r + 1):
+            for x in (c, c + 1):
+                along, across = portal_local_coords(portal, np.array([float(x)]), np.array([float(y)]))
+                if 0.0 <= along[0] <= portal["length"] and abs(across[0]) < outer:
+                    # unter der Außenfläche der Schale, aber über dem Röhreninneren
+                    assert result[y, x] <= FLOOR + radius / 2.0 + math.sqrt(outer**2 - across[0] ** 2) + 1e-6
+
+
+
+def test_tilted_entrance_keeps_the_whole_opening_free_and_hides_the_hole_edge_behind_the_face():
+    tilt = math.tan(math.radians(20.0))
+    tunnel = {"id": 1, "coords": [(30.0, 60.0, FLOOR), (90.0, 60.0, FLOOR)], "width": 7.0, "floor_material": "f"}
+    plans = plan_tunnels([tunnel], width_margin=1.5, segment_step=10.0, collar_ratio=0.0, flat_depth=1.5, length=3.5,
+                         shell_ratio=SHELL_RATIO, tilt_deg=20.0)
+    heights = np.full((120, 120), 130.0)
+    heights[:, :30] = FLOOR
+    heights[:, 91:] = FLOOR
+    portal = plans[0]["portals"][0]
+    radius, outer = portal["radius"], portal["radius"] + portal["shell"]
+
+    result, holes = _shape(plans, heights)
+
+    for x in range(30, 34):
+        for y in range(55, 66):
+            along, across = portal_local_coords(portal, np.array([float(x)]), np.array([float(y)]))
+            top = (outer + radius / 2.0) - 0.0  # Außenkrone über dem Boden
+            if along[0] < top * tilt and abs(across[0]) < radius:
+                assert result[y, x] <= FLOOR  # vor der geneigten Stirnseite: Öffnung frei
+    rows, cols = np.nonzero(holes)
+    assert len(rows) > 0
+    for r, c in zip(rows, cols):
+        for y in (r, r + 1):
+            for x in (c, c + 1):
+                along, across = portal_local_coords(portal, np.array([float(x)]), np.array([float(y)]))
+                height = result[y, x] - FLOOR
+                if height > 0.3 and abs(across[0]) < outer and along[0] < portal["length"]:
+                    assert along[0] >= height * tilt - 1e-6  # Lochkante liegt hinter der geneigten Stirnseite
+
+
+
+@pytest.mark.parametrize("angle_deg", [0.0, 30.0, 45.0])
+def test_portal_hole_cells_stay_within_the_collar_sides_for_any_tunnel_direction(angle_deg):
+    # Rasterzellen (1 m, diagonal 1,41 m) an der Portalstufe reichen seitlich bis ~R + 1,4 m - der Kragen muss sie decken
+    a = math.radians(angle_deg)
+    direction = np.array([math.cos(a), math.sin(a)])
+    start = np.array([40.0, 40.0])
+    end = start + direction * 60.0
+    tunnel = {"id": 1, "coords": [(*start, FLOOR), (*end, FLOOR)], "width": 6.5, "floor_material": "f"}
+    plans = plan_tunnels([tunnel], width_margin=1.5, segment_step=10.0, flat_depth=1.5, length=3.5,
+                         shell_ratio=SHELL_RATIO, tilt_deg=20.0, collar_ratio=COLLAR_RATIO, collar_min_side=1.5)
+    size = 160
+    gx, gy = np.meshgrid(np.arange(size, dtype=float), np.arange(size, dtype=float))
+    along_total = (gx - start[0]) * direction[0] + (gy - start[1]) * direction[1]
+    heights = np.where((along_total > 0.0) & (along_total < 60.0), 130.0, FLOOR)  # Berg zwischen den Portalen
+
+    result, holes = _shape(plans, heights)
+
+    for p in [q for q in plans[0]["portals"] if q["open"]]:
+        rows, cols = np.nonzero(holes)
+        for r, c in zip(rows, cols):
+            along, across = portal_local_coords(p, np.array([c, c + 1, c, c + 1], float), np.array([r, r, r + 1, r + 1], float))
+            if along.max() >= -1.0 and along.min() <= p["length"] + 1.0:
+                assert np.abs(across).max() <= p["half_width"] + 1e-6

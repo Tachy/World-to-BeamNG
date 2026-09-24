@@ -313,19 +313,29 @@ TUNNEL_APPROACH_MAX_DISTANCE = 40.0  # so weit wird höchstens vom Portal weg ge
 # Röhre, Portal + Gelände (siehe tunnels/tunnel_mesh.py, tunnels/tunnel_portal.py, terrain/tunnel_terrain.py): die
 # Röhre ist ein Zylinder mit Außenschale und darf frei stehen; das Gelände wird nur unmittelbar an Röhre und Portal
 # angepasst - wo es in die Röhre ragt, liegt Erde TUNNEL_COVER über der Schale (keine Böschungen, keine Dämme).
-# Am offenen Portal sitzt ein runder Betonkragen, der die Terrain-Löcher an der Portalebene verdeckt.
+# Am offenen Portal verdecken Röhrenschale bzw. Kragen die Terrain-Löcher an der Portalebene.
 # Kein Tunnelbau für Wege ohne Straßen-/Radverkehr (Pfad-"Tunnel" in den Bergen, Baustellen): nur Straßen und Radwege
 TUNNEL_EXCLUDED_HIGHWAYS = frozenset({
     "path", "footway", "steps", "bridleway", "pedestrian", "corridor", "via_ferrata", "elevator", "construction", "proposed",
 })
 TUNNEL_SHELL_RATIO = 1.0 / 15.0  # Wandstärke der Röhrenschale : Röhrendurchmesser (1:15) - kleine Tunnel, dünne Wände
-TUNNEL_COVER = 1.2  # Erde über der Röhrenschale, wo das Gelände in die Röhre ragt, in Metern
-TUNNEL_PORTAL_WING = 1.3  # runder Portalkragen ragt so weit über die Röhrenschale hinaus (> TUNNEL_COVER), in Metern
+TUNNEL_COVER = 0.5  # mindestens so viel Erde über der Röhrenschale, wo das Gelände in die Röhre ragt, in Metern
+# Portalkragen an Eingang und Übergang zur Galerie: außen rechteckig, an der dünnsten Stelle (links, rechts, oben) diese
+# Wandstärke im Verhältnis zum Röhrendurchmesser (1:10); das Gelände im Portalbereich wird auf seine Oberkante abgetragen.
+TUNNEL_PORTAL_COLLAR_RATIO = 0.1
+# Kragenseiten links/rechts mindestens so stark: die Loch-Zellen an der Portalstufe reichen bis zu eine Rasterdiagonale
+# (1,41 m bei 1-m-Raster) seitlich über den Röhrenradius hinaus und müssen im Kragen verborgen bleiben
+TUNNEL_PORTAL_COLLAR_MIN_SIDE = 1.5  # in Metern
+# Stirnseite der Tunneleingänge (nicht der Übergänge in eine Galerie) um so viel Grad zur Bergseite gekippt; die flache
+# Portal-Zone reicht dann bis hinter die Stirnseite an der Außenkrone - dort liegt die Lochkante verborgen.
+TUNNEL_PORTAL_TILT_DEG = 20.0
 TUNNEL_PORTAL_FLAT_DEPTH = 1.5  # so tief hinter der Portalebene liegt das Terrain noch auf Bodenhöhe, in Metern
 TUNNEL_PORTAL_LENGTH = 3.5  # Länge des Portalkragens in den Berg hinein, in Metern (> FLAT_DEPTH + 1 Zelle Loch)
 # Übergang Tunnel -> Galerie (docs/superpowers/specs/2026-09-24-tunnel-gallery-transition-design.md): ein
-# Tunnel-Portal, das höchstens so weit von einem Galerie-Endpunkt liegt, bekommt eine Stirnwand mit Galerie-Öffnung.
+# Tunnel-Portal, das höchstens so weit von einem Galerie-Endpunkt liegt, ist ein Übergang (rundes Portal plus Flächen
+# zwischen Röhrenbogen und Galerie-Querschnitt).
 TUNNEL_TRANSITION_ENDPOINT_TOL = 0.5  # in Metern
+TUNNEL_TRANSITION_COVER_THICKNESS = 0.2  # massive Abdeckplatten zwischen Röhrenbogen und Galerie-Querschnitt, in Metern
 # Höhenprofil von Tunnel/Galerie-Ketten (geometry/polygon.py::apply_structure_elevation_profiles): an einer Galerie zeigt
 # das DGM das Dach - Stützpunkte (DGM - GALLERY_HEIGHT - GALLERY_ROOF_THICKNESS) nur so weit von den Kettenenden und
 # voneinander entfernt, Median über +- GALLERY_ROOF_SAMPLE_WINDOW Meter.

@@ -75,16 +75,17 @@ def _plan_tunnels(structure_road_polygons: List[Dict]) -> List[Dict]:
         tunnels,
         width_margin=config.TUNNEL_WIDTH_MARGIN,
         segment_step=config.TUNNEL_SEGMENT_STEP,
-        wing=config.TUNNEL_PORTAL_WING,
         flat_depth=config.TUNNEL_PORTAL_FLAT_DEPTH,
         length=config.TUNNEL_PORTAL_LENGTH,
         galleries=_structure_items(structure_road_polygons, "gallery"),
         gallery_height=config.GALLERY_HEIGHT,
         gallery_roof_thickness=config.GALLERY_ROOF_THICKNESS,
-        gallery_floor_thickness=config.GALLERY_FLOOR_THICKNESS,
         gallery_wall_thickness=config.GALLERY_WALL_THICKNESS,
         transition_tol=config.TUNNEL_TRANSITION_ENDPOINT_TOL,
         shell_ratio=config.TUNNEL_SHELL_RATIO,
+        tilt_deg=config.TUNNEL_PORTAL_TILT_DEG,
+        collar_ratio=config.TUNNEL_PORTAL_COLLAR_RATIO,
+        collar_min_side=config.TUNNEL_PORTAL_COLLAR_MIN_SIDE,
     )
 
 
@@ -591,7 +592,7 @@ class TerrainWorkflow:
             )
 
         # Tunnel: Stücke zu Ketten verbinden, Portale festlegen und das Gelände darauf abstimmen - Überdeckung
-        # über der Röhre, Portal-Zone auf Bodenhöhe, Loch-Zellen im Portalblock (siehe terrain/tunnel_terrain.py).
+        # über der Röhre, Portal-Zone auf Bodenhöhe, Loch-Zellen hinter dem Portal (siehe terrain/tunnel_terrain.py).
         # Nach der Straßen-Einbettung, die Oberflächenstraßen selbst bleiben dabei unangetastet.
         from ..geometry.road_surfaces import union_road_surfaces
 
@@ -711,7 +712,7 @@ class TerrainWorkflow:
         # Zuletzt, damit Malen/Maskieren oben unverändert auf der vollen Layer-Map laufen.
         if config.TERRAIN_PADDING_AS_HOLES:
             layer_map = mark_padding_as_holes(layer_map, data_cols=nx, data_rows=ny)
-        # Tunnelportale: Loch-Zellen an der Portalebene (liegen komplett im Portalblock)
+        # Tunnelportale: Loch-Zellen an der Portalebene (verdeckt von Röhrenschale bzw. Kragen)
         if tunnel_holes is not None and np.any(tunnel_holes):
             from ..terrain.ter_writer import EMPTY_LAYER_VALUE
 
@@ -1078,9 +1079,8 @@ class TerrainWorkflow:
             wall_material=config.TUNNEL_MATERIAL_NAME,
             portal_material=config.TUNNEL_MATERIAL_NAME,
             arc_segments=config.TUNNEL_ARC_SEGMENTS,
+            transition_cover=config.TUNNEL_TRANSITION_COVER_THICKNESS,
         )
-        # Übergangs-Portale: dort schließt die Portalwand die Galerie (keine eigene Stirnfläche, siehe gallery_mesh.py)
-        transition_points = [p["xy"] for plan in tunnel_plans for p in plan["portals"] if p.get("kind") == "gallery"]
         gallery_meshes = build_galleries(
             _structure_items(structure_road_polygons, "gallery"),
             ground_at,
@@ -1093,8 +1093,6 @@ class TerrainWorkflow:
             column_size=config.GALLERY_COLUMN_SIZE,
             curb_height=config.GALLERY_CURB_HEIGHT,
             curb_width=config.GALLERY_CURB_WIDTH,
-            transition_points=transition_points,
-            transition_tol=config.TUNNEL_TRANSITION_ENDPOINT_TOL,
         )
         return tunnel_meshes + gallery_meshes
 

@@ -10,9 +10,8 @@ das Röhreninnere laufen. Deshalb:
    Gelände schon höher, bleibt es; liegt es unter der Röhre, bleibt es auch (die Röhre steht dort frei). Keine
    seitlichen Böschungen, keine Dämme ins Tal.
 2. Portal-Zone (je offenem Portal): zwischen Portalebene und flat_depth liegt das Gelände knapp unter dem
-   Röhrenboden (dort verdeckt es der Boden der Röhre); dahinter wird der Hang im Grundriss des Portalbauwerks auf
-   dessen Außenkontur abgetragen (runder Kragen bzw. Oberkante der Galerie-Stirnwand) - das Bauwerk wächst nicht mit
-   dem Hang.
+   Röhrenboden (dort verdeckt es der Boden der Röhre); dahinter wird der Hang im Grundriss des Portals auf dessen
+   runde Außenkontur abgetragen (Kragen bzw. Röhrenschale) - das Portal wächst nicht mit dem Hang.
 3. Löcher: eine Rasterzelle über der Röhre (Abstand <= Radius + HOLE_BAND_MARGIN), deren Ecken teils auf/unter dem
    Röhrenboden und teils darüber liegen, liefe als schräge Fläche durch die Röhre - sie wird Terrain-Loch. Das
    passiert an der Portalstufe (verdeckt vom Kragen) und dort, wo die Röhre aus dem Gelände austritt (verdeckt von
@@ -38,7 +37,7 @@ from ..tunnels.tunnel_portal import portal_local_coords
 DENSE_STEP = 0.5  # Abtastung der Centerline für die Abstandsberechnung, in Metern
 WINDOW = 100.0  # Centerline-Abschnitt je Verarbeitungsfenster, in Metern
 ENTER_TOLERANCE = 0.3  # so weit darf das Gelände über den Röhrenboden ragen, ohne als "in der Röhre" zu gelten
-HOLE_BAND_MARGIN = 0.3  # Loch-Zellen reichen so weit seitlich über den Röhrenradius hinaus, in Metern
+HOLE_BAND_MARGIN = 0.0  # Loch nur, wenn eine Zellecke innerhalb des Röhrenradius liegt (sonst schneidet die Fläche das Innere nicht)
 FLOOR_CLEARANCE = 0.05  # so weit liegt das Gelände in der Portal-Zone unter dem Röhrenboden, in Metern
 STRUCTURE_CLEARANCE = 0.1  # so weit bleibt der abgetragene Hang unter der Außenkontur des Portalbauwerks, in Metern
 OPEN_PROBE_DIST = 3.0  # Abstand vor der Portalebene, an dem offenes Gelände geprüft wird, in Metern
@@ -147,9 +146,10 @@ def _shape_portal(heights, origin_x, origin_y, square_size, portal, protected) -
     apron = free & (np.abs(across) <= radius + 1.0) & (along >= -APRON_LENGTH) & (along < 0.0)
     view[apron] = np.minimum(view[apron], floor_z)
 
-    # Hang im Grundriss des Bauwerks auf dessen Außenkontur abtragen (runder Kragen bzw. Stirnwand-Oberkante)
+    # Hang im Grundriss des Portals auf dessen Außenkontur abtragen: Oberkante des rechteckigen Kragens bzw. ohne
+    # Kragen die runde Röhrenschale
     behind = free & in_structure & (along >= flat_depth) & (along <= length)
-    if portal.get("kind") == "gallery":
+    if portal.get("collar", 0.0) > 0.0:
         limit = np.full(gx.shape, portal["top_z"] - STRUCTURE_CLEARANCE)
     else:
         limit = floor_z + radius / 2.0 + np.sqrt(np.maximum(half_width**2 - across**2, 0.0)) - STRUCTURE_CLEARANCE

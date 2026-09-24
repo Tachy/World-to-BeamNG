@@ -260,20 +260,6 @@ def test_end_caps_can_be_left_out():
     assert _cap_faces(uncapped, 60.0, 1.0)  # anderes Ende bleibt verschlossen
 
 
-@pytest.mark.parametrize("reverse", [False, True])
-def test_transition_removes_only_the_cap_at_the_transition_end(reverse):
-    ground_at = lambda x, y: 500.0 - 2.0 * np.asarray(y, float)
-    coords = _straight_coords()
-    if reverse:
-        coords = coords[::-1]
-    gallery = {"id": 7, "coords": coords, "width": 8.0, "floor_material": FLOOR, "osm_tags": {}}
-
-    mesh = build_galleries([gallery], ground_at, ROOF, transition_points=[(0.0, 0.0)], transition_tol=0.5)[0]
-
-    assert not _cap_faces(mesh, 0.0, -1.0)  # am Übergang (x = 0) keine Stirnfläche
-    assert _cap_faces(mesh, 60.0, 1.0)  # freies Ende verschlossen
-
-
 def test_without_tag_the_whole_gallery_opens_to_the_majority_valley_side():
     # Gelände kippt bei x = 42: davor liegt rechts (-y) das Tal, danach links (+y). Die Galerie ist trotzdem auf
     # ganzer Länge nach EINER Seite offen - der mit der Mehrheit (rechts), die Bergwand durchgehend links.

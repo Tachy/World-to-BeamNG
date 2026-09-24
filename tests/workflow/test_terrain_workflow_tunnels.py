@@ -132,7 +132,7 @@ def test_build_tunnels_creates_tube_plus_portals_for_a_tunnel_and_one_mesh_per_g
     tunnel_road = _road(1, "tunnel", {"highway": "trunk", "tunnel": "yes"})
     gallery_road = _road(2, "gallery", {"highway": "primary", "tunnel": "avalanche_protector"})
 
-    plans = plan_tunnels(_structure_items([tunnel_road, gallery_road], "tunnel"), width_margin=1.5, segment_step=10.0, wing=2.0, flat_depth=1.5, length=3.5)
+    plans = plan_tunnels(_structure_items([tunnel_road, gallery_road], "tunnel"), width_margin=1.5, segment_step=10.0, collar_ratio=0.1, flat_depth=1.5, length=3.5)
 
     meshes = TerrainWorkflow._build_tunnels(SimpleNamespace(), [tunnel_road, gallery_road], plans, heights, 0.0, 0.0)
 
@@ -173,7 +173,7 @@ def test_plan_tunnels_marks_the_portal_at_a_covered_gallery_as_transition():
     assert start["kind"] == "gallery" and end["kind"] == "open"
 
 
-def test_gallery_at_a_transition_gets_no_end_cap_in_the_workflow():
+def test_gallery_at_a_transition_keeps_its_end_cap_in_the_workflow():
     roads = _tunnel_and_gallery()
     plans = _plan_tunnels(roads)
     heights = np.full((300, 300), 500.0)
@@ -184,7 +184,7 @@ def test_gallery_at_a_transition_gets_no_end_cap_in_the_workflow():
     v, n = gallery["vertices"], gallery["normals"]
     faces = [f for fs in gallery["faces"].values() for f in fs]
     at_portal = [f for f in faces if np.allclose(v[f][:, 0], 0.0) and np.allclose(n[f[0]], [1.0, 0.0, 0.0])]
-    assert at_portal == []  # die Portalwand schließt die Galerie, keine eigene Stirnfläche
+    assert at_portal  # kein Portalquader mehr: die Galerie schließt ihren Querschnitt selbst
     assert any(m["id"] == "tunnel_1_portal_start" for m in meshes)
 
 

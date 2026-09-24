@@ -157,7 +157,7 @@ def test_chain_tunnel_pieces_does_not_join_at_a_three_way_joint_or_across_widths
 
 
 def _plans(tunnels):
-    return plan_tunnels(tunnels, width_margin=1.5, segment_step=10.0, wing=2.0, flat_depth=1.5, length=3.5)
+    return plan_tunnels(tunnels, width_margin=1.5, segment_step=10.0, collar_ratio=0.1, flat_depth=1.5, length=3.5)
 
 
 def test_build_tunnels_returns_one_tube_and_two_portal_blocks_per_chain():
@@ -181,29 +181,28 @@ def test_portal_block_opening_matches_the_first_tube_ring():
     assert ring <= block_front  # jede Ringkante der Röhre ist auch Kante der Portalöffnung
 
 
-def test_open_portal_is_a_round_collar_around_the_shell():
-    # Rundes Portal statt Rechteckblock: Kragen = Röhrenschale + `wing` Meter, Höhe hängt nicht vom Hang ab
-    plans = plan_tunnels([_piece(1, _straight_coords(length=100.0))], width_margin=1.5, segment_step=10.0, wing=1.3,
-                         flat_depth=1.5, length=3.5, shell_ratio=0.1)
+def test_open_portal_collar_is_rectangular_with_a_tenth_of_the_diameter_at_its_thinnest_points():
+    # Außen viereckig; links, rechts und oben an der dünnsten Stelle Wandstärke = Durchmesser / 10
+    plans = plan_tunnels([_piece(1, _straight_coords(length=100.0))], width_margin=1.5, segment_step=10.0, collar_ratio=0.1,
+                         flat_depth=1.5, length=3.5, shell_ratio=1.0 / 15.0)
     portal = plans[0]["portals"][0]
-    radius, crown, shell = portal["radius"], portal["crown"], portal["shell"]
-    collar_radius = radius + shell + 1.3
+    radius, crown = portal["radius"], portal["crown"]
+    wall = 0.1 * 2.0 * radius
     block = build_tunnels(plans, WALL, FRAME)[1]
     v = block["vertices"]
 
-    assert portal["half_width"] == pytest.approx(collar_radius)
-    assert portal["top_z"] == pytest.approx(500.0 + crown + shell + 1.3)
-    assert portal["bottom_z"] == pytest.approx(500.0 - shell - 1.3)
-    assert v[:, 0].min() == pytest.approx(0.0) and v[:, 0].max() == pytest.approx(3.5)  # Portalebene bis Kragenende
+    assert portal["collar"] == pytest.approx(wall)
+    assert portal["half_width"] == pytest.approx(radius + wall)  # dünnste Stelle seitlich: Kreis bei ±R
+    assert portal["top_z"] == pytest.approx(500.0 + crown + wall)  # dünnste Stelle oben: über der Krone
+    assert portal["bottom_z"] == pytest.approx(500.0 - wall)
+    assert v[:, 0].min() == pytest.approx(0.0) and v[:, 0].max() == pytest.approx(3.5)
+    assert np.abs(v[:, 1]).max() == pytest.approx(radius + wall)
     assert v[:, 2].max() == pytest.approx(portal["top_z"]) and v[:, 2].min() == pytest.approx(portal["bottom_z"])
-    center = np.array([0.0, 500.0 + radius / 2.0])
-    upper = v[v[:, 2] > 500.0]
-    assert np.hypot(upper[:, 1] - center[0], upper[:, 2] - center[1]).max() == pytest.approx(collar_radius, abs=1e-6)
 
-    # Stirnseite = Kragenring: kein Dreieck in der Öffnung, Fläche = Kragenkontur minus lichter Querschnitt
-    from shapely.geometry import Polygon
+    # Stirnseite = Rechteck minus lichter Querschnitt, kein Dreieck in der Öffnung
+    from shapely.geometry import Polygon, box
 
-    from world_to_beamng.tunnels.tunnel_mesh import arc_cross_section, shell_cross_section
+    from world_to_beamng.tunnels.tunnel_mesh import arc_cross_section
 
     front_area = 0.0
     for face in block["faces"][FRAME]:
@@ -214,8 +213,24 @@ def test_open_portal_is_a_round_collar_around_the_shell():
         front_area += abs((y1 - y0) * (z2 - z0) - (y2 - y0) * (z1 - z0)) / 2.0
         cy, cz = pts[:, 1].mean(), pts[:, 2].mean() - 500.0
         assert not (cz > 0.0 and math.hypot(cy, cz - radius / 2.0) < radius - 1e-6)
-    expected = Polygon(shell_cross_section(radius, 12, shell + 1.3)).area - Polygon(arc_cross_section(radius, 12)).area
-    assert front_area == pytest.approx(expected, rel=1e-6)
+    frame = box(-radius - wall, -wall, radius + wall, crown + wall)
+    assert front_area == pytest.approx(frame.difference(Polygon(arc_cross_section(radius, 12))).area, rel=1e-6)
+
+
+def test_tilted_entrance_collar_front_follows_the_tilted_face_and_the_flat_zone_reaches_behind_its_top():
+    plans = plan_tunnels([_piece(1, _straight_coords(length=100.0))], width_margin=1.5, segment_step=10.0, collar_ratio=0.1,
+                         flat_depth=1.5, length=3.5, shell_ratio=1.0 / 15.0, tilt_deg=20.0)
+    portal = plans[0]["portals"][0]
+    tilt = math.tan(math.radians(20.0))
+    block = build_tunnels(plans, WALL, FRAME)[1]
+    v, n = block["vertices"], block["normals"]
+
+    front = [f for f in block["faces"][FRAME] if n[f[0]][0] < -0.5]
+    assert front
+    for f in front:
+        for x, _, z in v[f]:
+            assert x == pytest.approx((z - 500.0) * tilt, abs=1e-6)
+    assert portal["flat_depth"] == pytest.approx((portal["top_z"] - 500.0) * tilt)
 
 
 def test_build_tunnels_skips_too_short_tunnels():
@@ -299,7 +314,7 @@ def test_tube_without_shell_stays_unchanged():
 def test_build_tunnels_gives_the_tube_a_shell_and_caps_only_ends_without_portal():
     # Ein Stirnring der Schale in derselben Ebene wie die Kragen-Stirnseite gäbe Z-Fighting - nur geschlossene Enden
     # (kein offenes Portal, z.B. mitten im Berg) bekommen ihn.
-    plans = plan_tunnels([_piece(1, _straight_coords(length=100.0))], width_margin=1.5, segment_step=10.0, wing=1.3,
+    plans = plan_tunnels([_piece(1, _straight_coords(length=100.0))], width_margin=1.5, segment_step=10.0, collar_ratio=0.1,
                          flat_depth=1.5, length=3.5, shell_ratio=0.1)
     plans[0]["portals"][1]["open"] = False
     tube = build_tunnels(plans, "wall", "concrete")[0]
@@ -315,11 +330,92 @@ def test_build_tunnels_gives_the_tube_a_shell_and_caps_only_ends_without_portal(
 def test_shell_thickness_is_a_tenth_of_the_tube_diameter():
     # Kleinere Tunnel bekommen dünnere Wände: Wandstärke : Durchmesser = 1 : 10
     wide = plan_tunnels([_piece(1, _straight_coords(length=100.0), width=6.5)], width_margin=1.5, segment_step=10.0,
-                        wing=1.3, flat_depth=1.5, length=3.5, shell_ratio=0.1)[0]
+                        collar_ratio=0.1, flat_depth=1.5, length=3.5, shell_ratio=0.1)[0]
     narrow = plan_tunnels([_piece(2, _straight_coords(length=100.0), width=2.5)], width_margin=1.5, segment_step=10.0,
-                          wing=1.3, flat_depth=1.5, length=3.5, shell_ratio=0.1)[0]
+                          collar_ratio=0.1, flat_depth=1.5, length=3.5, shell_ratio=0.1)[0]
 
     for plan in (wide, narrow):
         assert plan["shell"] == pytest.approx(0.1 * 2.0 * plan["radius"])
         assert all(p["shell"] == pytest.approx(plan["shell"]) for p in plan["portals"])
     assert narrow["shell"] < wide["shell"]
+
+
+def test_without_collar_the_portal_is_the_tube_end_ring_with_the_shell_thickness():
+    # Am Portal soll dieselbe Wandstärke (1:15) zu sehen sein wie an der Röhre: kein Kragen, die Röhre schließt selbst
+    plans = plan_tunnels([_piece(1, _straight_coords(length=100.0))], width_margin=1.5, segment_step=10.0, collar_ratio=0.0,
+                         flat_depth=1.5, length=3.5, shell_ratio=1.0 / 15.0)
+    meshes = build_tunnels(plans, "wall", "concrete")
+
+    assert [m["id"] for m in meshes] == ["tunnel_1"]
+    tube = meshes[0]
+    v, n = tube["vertices"], tube["normals"]
+    rings = [f for f in tube["faces"]["concrete"] if abs(n[f[0]][0]) > 0.99]
+    assert any(np.allclose(v[f][:, 0], 0.0) for f in rings) and any(np.allclose(v[f][:, 0], 100.0) for f in rings)
+    portal = plans[0]["portals"][0]
+    assert portal["half_width"] == pytest.approx(portal["radius"] + portal["shell"])
+
+
+TILT = math.tan(math.radians(20.0))
+
+
+def test_tunnel_entrance_face_leans_20_degrees_into_the_mountain():
+    # Vorderseite des Portals um 20° zur Bergseite gekippt: am Boden auf der Portalebene, oben weiter im Berg
+    width = 8.0
+    radius = tunnel_radius(width)
+    shell = radius * 2.0 / 15.0
+    mesh = build_tunnel_mesh(
+        _straight_coords(length=100.0, z=500.0), width=width, floor_material=FLOOR, wall_material=WALL, arc_segments=12,
+        shell_thickness=shell, shell_material=SHELL, tilt_start=TILT,
+    )
+    v = mesh["vertices"]
+
+    front = v[v[:, 0] < 5.0]  # Vertices des ersten Rings (Segmentlänge 10 m)
+    for x, _, z in front:
+        assert x == pytest.approx((z - 500.0) * TILT, abs=1e-6)  # auf der geneigten Ebene
+    crown = front[np.argmax(front[:, 2])]
+    assert crown[0] == pytest.approx((tunnel_crown_height(width) + shell) * TILT, abs=1e-6)
+    end = v[v[:, 0] > 95.0]
+    assert np.allclose(end[:, 0], 100.0)  # anderes Ende senkrecht
+
+    caps = [f for f in mesh["faces"][SHELL] if mesh["normals"][f[0]][0] < -0.5]
+    assert caps
+    for f in caps:
+        assert mesh["normals"][f[0]] == pytest.approx([-math.cos(math.radians(20.0)), 0.0, math.sin(math.radians(20.0))])
+
+
+def test_plan_tilts_only_tunnel_entrances_and_moves_the_flat_zone_behind_the_face():
+    tunnel = _piece(1, _straight_coords(length=100.0))
+    gallery = {"id": 2, "coords": [(-50.0, 0.0, 500.0), (0.0, 0.0, 500.0)], "width": 6.5, "floor_material": FLOOR,
+               "osm_tags": {"covered": "yes"}}
+    start, end = plan_tunnels([tunnel], width_margin=1.5, segment_step=10.0, collar_ratio=0.0, flat_depth=1.5, length=3.5,
+                              shell_ratio=1.0 / 15.0, tilt_deg=20.0, galleries=[gallery])[0]["portals"]
+
+    assert start["kind"] == "gallery" and start["tilt"] == 0.0 and start["flat_depth"] == 1.5
+    assert end["tilt"] == pytest.approx(TILT)
+    face_depth = (end["crown"] + end["shell"]) * TILT  # so weit reicht die Stirnseite oben in den Berg
+    assert end["flat_depth"] == pytest.approx(max(1.5, face_depth))
+    assert end["length"] >= end["flat_depth"] + 1.5
+
+
+def test_build_tunnels_tilts_the_tube_end_at_a_tunnel_entrance():
+    plans = plan_tunnels([_piece(1, _straight_coords(length=100.0))], width_margin=1.5, segment_step=10.0, collar_ratio=0.0,
+                         flat_depth=1.5, length=3.5, shell_ratio=1.0 / 15.0, tilt_deg=20.0)
+    tube = build_tunnels(plans, "wall", "concrete")[0]
+    v = tube["vertices"]
+
+    top_front = v[(v[:, 0] < 5.0)][:, 0].max()
+    assert top_front == pytest.approx((plans[0]["crown"] + plans[0]["shell"]) * TILT, abs=1e-6)
+
+
+def test_collar_sides_are_at_least_the_minimum_side_width_top_stays_a_tenth():
+    # Seitlich mindestens collar_min_side (deckt die Loch-Zellen an der Portalstufe, Rasterdiagonale 1,41 m), oben 1:10
+    plans = plan_tunnels([_piece(1, _straight_coords(length=100.0))], width_margin=1.5, segment_step=10.0, collar_ratio=0.1,
+                         flat_depth=1.5, length=3.5, shell_ratio=1.0 / 15.0, collar_min_side=1.5)
+    portal = plans[0]["portals"][0]
+    radius, crown = portal["radius"], portal["crown"]
+    block = build_tunnels(plans, WALL, FRAME)[1]
+    v = block["vertices"]
+
+    assert portal["half_width"] == pytest.approx(radius + 1.5)
+    assert portal["top_z"] == pytest.approx(500.0 + crown + 0.2 * radius)
+    assert np.abs(v[:, 1]).max() == pytest.approx(radius + 1.5)

@@ -180,6 +180,8 @@ def build_tunnel_mesh(
     shell_material: str = None,
     cap_start: bool = True,
     cap_end: bool = True,
+    tilt_start: float = 0.0,
+    tilt_end: float = 0.0,
 ) -> Dict:
     """
     Röhren-Mesh (Boden + kreisrunder 240°-Bogen darüber) entlang `coords` (bereits das Tunnel-Höhenprofil).
@@ -188,6 +190,8 @@ def build_tunnel_mesh(
     Mit shell_thickness > 0 bekommt die Röhre eine Außenschale (siehe shell_cross_section()) samt Stirnringen an
     beiden Enden: sie ist dann auch von außen ein massiver Zylinder und darf frei im Gelände stehen. cap_start/
     cap_end = False lässt den Stirnring weg (dort steht ein Portalbauwerk in derselben Ebene - sonst Z-Fighting).
+    tilt_start/tilt_end (tan des Neigungswinkels): die Stirnseite dort ist zur Bergseite gekippt - ein Punkt in Höhe h
+    über dem Boden rückt um h * tilt in die Röhre (Boden bleibt auf der Portalebene, siehe _end_shift()).
 
     Die Querschnitts-Ringe sitzen an den Centerline-Punkten und stehen dort auf Gehrung (wie die Bodenkanten aus
     offset_points()): benachbarte Segmente teilen sich exakt denselben Ring, die Röhre ist auch in Kurven dicht.
@@ -210,6 +214,8 @@ def build_tunnel_mesh(
         rings[:, k, 2] = floor_z + height
     rings[:, 0, :2] = right  # Bodenränder exakt wie das Boden-Mesh (kein Rundungsspalt)
     rings[:, arc_segments, :2] = left
+    shift = _end_shift(xy, tilt_start, tilt_end)
+    rings[:, :, :2] += shift[:, None, :] * (rings[:, :, 2:3] - floor_z[:, None, None])
 
     seg_len = np.linalg.norm(np.diff(xy, axis=0), axis=1)
     along = np.concatenate([[0.0], np.cumsum(seg_len)]) / tile_m
@@ -249,7 +255,7 @@ def build_tunnel_mesh(
 
     builders = [(floor_material, floor_builder), (wall_material, wall_builder)]
     if shell_thickness > 0.0:
-        builders.append((shell_material or wall_material, _build_shell(xy, floor_z, miter_right, radius, arc_segments, shell_thickness, tile_m, cap_start, cap_end)))
+        builders.append((shell_material or wall_material, _build_shell(xy, floor_z, miter_right, shift, radius, arc_segments, shell_thickness, tile_m, cap_start, cap_end)))
 
     vertices, uvs, normals, faces = [], [], [], {}
     for material, builder in builders:
@@ -267,7 +273,18 @@ def build_tunnel_mesh(
     }
 
 
-def _build_shell(xy, floor_z, miter_right, radius, arc_segments, thickness, tile_m, cap_start=True, cap_end=True) -> MeshBuilder:
+def _end_shift(xy: np.ndarray, tilt_start: float, tilt_end: float) -> np.ndarray:
+    """Horizontale Verschiebung je Meter Höhe über dem Boden, je Centerline-Punkt: an einem gekippten Ende tilt mal
+    Einheitsvektor ins Röhreninnere (höchstens so weit, dass die Krone vor dem Nachbarring bleibt), sonst 0."""
+    shift = np.zeros_like(xy)
+    for index, neighbour, tilt in ((0, 1, tilt_start), (len(xy) - 1, len(xy) - 2, tilt_end)):
+        if tilt > 0.0 and len(xy) >= 2:
+            inward = xy[neighbour] - xy[index]
+            shift[index] = inward / np.linalg.norm(inward) * tilt
+    return shift
+
+
+def _build_shell(xy, floor_z, miter_right, shift, radius, arc_segments, thickness, tile_m, cap_start=True, cap_end=True) -> MeshBuilder:
     """Außenschale der Röhre (Mantel entlang der Achse, Normalen nach außen) plus Stirnring an den gewünschten Enden."""
     from shapely import constrained_delaunay_triangles
     from shapely.geometry import Polygon
@@ -277,7 +294,9 @@ def _build_shell(xy, floor_z, miter_right, radius, arc_segments, thickness, tile
     builder = MeshBuilder()
 
     def world(i, across, height):
-        return [float(xy[i, 0] + miter_right[i, 0] * across), float(xy[i, 1] + miter_right[i, 1] * across), float(floor_z[i] + height)]
+        x = xy[i, 0] + miter_right[i, 0] * across + shift[i, 0] * height
+        y = xy[i, 1] + miter_right[i, 1] * across + shift[i, 1] * height
+        return [float(x), float(y), float(floor_z[i] + height)]
 
     edge_len = [math.dist(profile[k], profile[(k + 1) % len(profile)]) for k in range(len(profile))]
     perimeter = np.concatenate([[0.0], np.cumsum(edge_len)]) / tile_m
@@ -308,13 +327,18 @@ def _build_shell(xy, floor_z, miter_right, radius, arc_segments, thickness, tile
         neighbour = 1 if index == 0 else index - 1
         axis = (xy[index] - xy[neighbour]) if index else (xy[neighbour] - xy[index])
         axis = axis / np.linalg.norm(axis)
-        normal = [float(sign * axis[0]), float(sign * axis[1]), 0.0]
+        # gekippte Stirnseite: Normale nach außen und um den Neigungswinkel nach oben
+        tilt = float(np.linalg.norm(shift[index]))
+        cos, sin = 1.0 / math.hypot(1.0, tilt), tilt / math.hypot(1.0, tilt)
+        normal = [float(sign * axis[0] * cos), float(sign * axis[1] * cos), float(sin)]
         for tri in triangles:
             builder.triangle([world(index, c, h) for c, h in tri], [[c / tile_m, h / tile_m] for c, h in tri], normal)
     return builder
 
 
-def build_tunnels(plans: Sequence[Dict], wall_material: str, portal_material: str, arc_segments: int = 12) -> List[Dict]:
+def build_tunnels(
+    plans: Sequence[Dict], wall_material: str, portal_material: str, arc_segments: int = 12, transition_cover: float = 0.2
+) -> List[Dict]:
     """
     Mesh-Dicts für den DAE-Export: je Tunnel-Kette die Röhre (mit Außenschale aus plan["shell"], Material wie die
     Portale) plus ein Portalbauwerk je offenem Ende.
@@ -322,19 +346,28 @@ def build_tunnels(plans: Sequence[Dict], wall_material: str, portal_material: st
     Args:
         plans: Ergebnis von tunnel_portal.plan_tunnels() - Portale mit bereits gesetzter "top_z"/"bottom_z"
             (siehe terrain/tunnel_terrain.py::shape_terrain_for_tunnels())
+        transition_cover: Dicke der massiven Abdeckplatten am Übergang in eine Galerie, in Metern
     """
     from .tunnel_portal import build_portal_block_mesh
 
     meshes = []
     for plan in plans:
+        # Eigenes Portalbauwerk nur bei Kragen mit Überstand oder Galerie-Übergang (Flächen zwischen Bogen und Galerie-
+        # Querschnitt). Ohne Kragen ist der Stirnring der Röhre das Portal (gleiche Wandstärke wie die Röhre); mit Kragen
+        # entfällt er (gleiche Ebene wie die Kragen-Stirnseite -> Z-Fighting).
+        open_portals = [p for p in plan["portals"] if p.get("open", True)]
+        structures = [p for p in open_portals if p.get("kind") == "gallery" or p.get("collar", 0.0) > 0.0]
+        collared = [p for p in open_portals if p.get("collar", 0.0) > 0.0]
         start, end = plan["portals"]
         tube = build_tunnel_mesh(
             plan["coords"], plan["tube_width"], plan["floor_material"], wall_material, arc_segments=arc_segments,
             shell_thickness=plan.get("shell", 0.0), shell_material=portal_material,
-            cap_start=not start.get("open", True), cap_end=not end.get("open", True),
+            cap_start=not any(p is start for p in collared), cap_end=not any(p is end for p in collared),
+            tilt_start=start.get("tilt", 0.0) if start.get("open", True) else 0.0,
+            tilt_end=end.get("tilt", 0.0) if end.get("open", True) else 0.0,
         )
         meshes.append({"id": f"tunnel_{plan['id']}", **tube})
-        for portal in [p for p in plan["portals"] if p.get("open", True)]:
-            block = build_portal_block_mesh(portal, portal_material, arc_segments=arc_segments)
+        for portal in structures:
+            block = build_portal_block_mesh(portal, portal_material, arc_segments=arc_segments, cover_thickness=transition_cover)
             meshes.append({"id": f"tunnel_{plan['id']}_portal_{portal['label']}", **block})
     return meshes

@@ -120,9 +120,7 @@ def build_gallery_mesh(
         open_side: "left" | "right" | None - wenn gesetzt (aus resolve_open_side(), zuverlässiger OSM-Tag),
             gilt diese Seite für die GESAMTE Galerie als offen. Ohne Tag gilt ebenfalls EINE Seite für die ganze
             Galerie: die Mehrheit der punktweisen valley_side() (Höhenvergleich, nur Fallback).
-        cap_start, cap_end: Stirnfläche am Anfang/Ende bauen - False an einem Übergang zu einem Tunnel-Portal
-            (dessen Stirnwand deckt den Galerie-Querschnitt ab; eine eigene Stirnfläche läge in derselben Ebene
-            und flackerte).
+        cap_start, cap_end: Stirnfläche am Anfang/Ende bauen (Standard: beide).
 
     Returns:
         {"vertices", "uvs", "normals", "faces": {floor_material: [...], roof_material: [...]}}
@@ -392,17 +390,11 @@ def build_galleries(
     column_size: float = 0.4,
     curb_height: float = 0.5,
     curb_width: float = 0.4,
-    transition_points: Sequence[Tuple[float, float]] = (),
-    transition_tol: float = 0.5,
 ) -> List[Dict]:
     """Mesh-Dicts für den DAE-Export, eines je Galerie (`galleries`: [{"id","coords","width","floor_material",
-    "osm_tags"}, ...] - "osm_tags" optional, für resolve_open_side()).
-
-    transition_points: (x, y) der Übergangs-Portale (tunnel_portal.plan_tunnels(), portal["kind"] == "gallery") -
-        ein Galerie-Ende, das höchstens transition_tol davon liegt, bekommt keine Stirnfläche."""
-
-    def at_transition(point) -> bool:
-        return any(np.hypot(point[0] - tx, point[1] - ty) <= transition_tol for tx, ty in transition_points)
+    "osm_tags"}, ...] - "osm_tags" optional, für resolve_open_side()). Beide Enden bekommen eine Stirnfläche, auch am
+    Übergang in einen Tunnel (dort schließt das runde Portal nur den Röhrenquerschnitt, siehe
+    tunnel_portal.transition_regions())."""
 
     meshes = []
     for gallery in galleries:
@@ -415,7 +407,6 @@ def build_galleries(
             wall_thickness=wall_thickness, column_size=column_size, curb_height=curb_height, curb_width=curb_width,
             # Vorgabe aus der Böschungslogik (terrain_workflow._gallery_embedding), sonst Tag bzw. Gelände
             open_side=gallery.get("open_side") or resolve_open_side(gallery.get("osm_tags", {})),
-            cap_start=not at_transition(coords[0]), cap_end=not at_transition(coords[-1]),
         )
         meshes.append({"id": f"gallery_{gallery['id']}", **mesh})
     return meshes
