@@ -1,33 +1,33 @@
 """
-Gelände an Tunneln: Überdeckung über der Röhre und die Portal-Zone (siehe tunnels/tunnel_portal.py).
+Gelände an Tunneln - nur unmittelbar lokal an Röhre und Portal (siehe tunnels/tunnel_mesh.py, tunnels/tunnel_portal.py).
 
-Die Heightmap ist eine einzige Fläche je Rasterzelle - sie kann nicht gleichzeitig über der Röhre (Berg) und in der
-Röhre (Luft) liegen. Deshalb:
+Die Röhre ist ein Zylinder mit Außenschale (tunnel_mesh.shell_cross_section()); sie darf frei stehen und muss nicht
+vom Gelände versteckt werden. Die Heightmap ist aber eine einzige Fläche je Rasterzelle - sie darf nicht quer durch
+das Röhreninnere laufen. Deshalb:
 
-1. Überdeckung: entlang der Röhre liegt das Gelände mindestens TUNNEL_COVER über der Krone, seitlich mit
-   TUNNEL_COVER_SLOPE ans natürliche Gelände angeböscht. Wo der Tunnel flach unter dem Hang liegt (typisch die
-   ersten Meter hinter dem Portal), ragte die Röhre sonst aus dem Gelände bzw. das Gelände in die Röhre. Nur wo
-   die Röhre mindestens zur Hälfte im Gelände steckt (Gelände an der Mittellinie mindestens halbe Kronenhöhe über
-   dem Boden): verläuft das Tunnelprofil über einer Senke durch die Luft (unplausible OSM-Daten) oder ist der
-   "Tunnel" im DGM eigentlich offene Straße (z.B. covered=yes-Galerie am Hang), entstünde sonst ein Damm.
-2. Portal-Zone: zwischen Portalebene und TUNNEL_PORTAL_FLAT_DEPTH liegt das Gelände knapp unter dem Röhrenboden
-   (dort verdeckt es der Boden der Röhre), dahinter auf Überdeckungshöhe. Die Zellen am Übergang, die in den
-   Röhrenquerschnitt reichen, werden Terrain-Löcher; sie liegen komplett im Portalblock, dessen Ober-/Unterkante
-   (portal["top_z"]/["bottom_z"]) hier an ihre Eckhöhen angepasst wird.
+1. Überdeckung: An jeder Station, an der das Gelände innerhalb der Schale über den Röhrenboden ragt
+   (ENTER_TOLERANCE), liegt im Grundriss der Schale Erde `cover` über dem runden Außenquerschnitt. Liegt das
+   Gelände schon höher, bleibt es; liegt es unter der Röhre, bleibt es auch (die Röhre steht dort frei). Keine
+   seitlichen Böschungen, keine Dämme ins Tal.
+2. Portal-Zone (je offenem Portal): zwischen Portalebene und flat_depth liegt das Gelände knapp unter dem
+   Röhrenboden (dort verdeckt es der Boden der Röhre); dahinter wird der Hang im Grundriss des Portalbauwerks auf
+   dessen Außenkontur abgetragen (runder Kragen bzw. Oberkante der Galerie-Stirnwand) - das Bauwerk wächst nicht mit
+   dem Hang.
+3. Löcher: eine Rasterzelle über der Röhre (Abstand <= Radius + HOLE_BAND_MARGIN), deren Ecken teils auf/unter dem
+   Röhrenboden und teils darüber liegen, liefe als schräge Fläche durch die Röhre - sie wird Terrain-Loch. Das
+   passiert an der Portalstufe (verdeckt vom Kragen) und dort, wo die Röhre aus dem Gelände austritt (verdeckt von
+   der Schale).
 
-3. Lücken: liegt die Röhre hinter einem offenen Portal erst nach einer kurzen Strecke (<= cover_gap_max) im
-   Gelände, wird diese Strecke mit überdeckt - sonst fiele das Gelände hinter dem Portalblock ab und schnitte
-   als Erdwand durch die Röhre. Übergänge in eine Galerie (portal["kind"] == "gallery") sind immer Portale.
-
-Oberflächenstraßen (z.B. ein Weg, der über den Tunnel führt, oder die Zufahrt) bleiben unangetastet - ihre
-Höhe bestimmt die Straßen-Einbettung.
+Oberflächenstraßen (z.B. ein Weg, der über den Tunnel führt, oder die Zufahrt) bleiben unangetastet - ihre Höhe
+bestimmt die Straßen-Einbettung.
 
 Ein Tunnel-Ende ist nur dann ein Portal, wenn davor offenes Gelände liegt (siehe _portal_is_open()): endet eine
 Kette mitten im Berg (z.B. am Kartenrand abgeschnitten oder an einer mehrdeutigen Stoßstelle), bleibt das Gelände
-dort unberührt und es entsteht kein Portalblock.
+dort unberührt und es entsteht kein Portalbauwerk. Übergänge in eine Galerie (portal["kind"] == "gallery") sind
+immer Portale.
 """
 
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Tuple
 
 import numpy as np
 from scipy.spatial import cKDTree
@@ -37,10 +37,12 @@ from ..tunnels.tunnel_portal import portal_local_coords
 
 DENSE_STEP = 0.5  # Abtastung der Centerline für die Abstandsberechnung, in Metern
 WINDOW = 100.0  # Centerline-Abschnitt je Verarbeitungsfenster, in Metern
-MAX_COVER_REACH = 20.0  # so weit seitlich über den Portalblock hinaus wirkt die Überdeckungs-Böschung höchstens
+ENTER_TOLERANCE = 0.3  # so weit darf das Gelände über den Röhrenboden ragen, ohne als "in der Röhre" zu gelten
 HOLE_BAND_MARGIN = 0.3  # Loch-Zellen reichen so weit seitlich über den Röhrenradius hinaus, in Metern
 FLOOR_CLEARANCE = 0.05  # so weit liegt das Gelände in der Portal-Zone unter dem Röhrenboden, in Metern
+STRUCTURE_CLEARANCE = 0.1  # so weit bleibt der abgetragene Hang unter der Außenkontur des Portalbauwerks, in Metern
 OPEN_PROBE_DIST = 3.0  # Abstand vor der Portalebene, an dem offenes Gelände geprüft wird, in Metern
+APRON_LENGTH = 1.5  # so weit vor der Portalebene wird das Gelände höchstens auf Bodenhöhe gehalten, in Metern
 
 
 def _portal_is_open(heights, origin_x, origin_y, square_size, portal) -> bool:
@@ -82,39 +84,9 @@ def _unprotected(protected, gx, gy) -> np.ndarray:
     return ~intersects_xy(protected, gx, gy)
 
 
-def _fill_portal_gaps(buried: np.ndarray, s: np.ndarray, start_open: bool, end_open: bool, max_gap: float) -> np.ndarray:
-    """`buried` plus die nicht eingegrabenen Strecken, die an einem offenen Portal beginnen und höchstens max_gap
-    lang sind, bevor die Röhre im Gelände steckt. Ohne diese Füllung fiele das Gelände hinter der Portal-
-    Überdeckung wieder auf Fahrbahnhöhe - die Geländefläche liefe als Erdwand quer durch die Röhre (Nordportal
-    Tunnel Fieud: ~9 m flach hinter dem Portal). Längere Strecken bleiben offen (sonst Dämme)."""
-    filled = buried.copy()
-    if max_gap <= 0.0 or not buried.any():
-        return filled
-    first = int(np.argmax(buried))
-    if start_open and first > 0 and s[first] - s[0] <= max_gap:
-        filled[:first] = True
-    last = len(buried) - 1 - int(np.argmax(buried[::-1]))
-    if end_open and last < len(buried) - 1 and s[-1] - s[last] <= max_gap:
-        filled[last + 1 :] = True
-    return filled
-
-
-def _raise_cover(heights, origin_x, origin_y, square_size, plan, cover, cover_slope, protected, cover_gap_max=0.0) -> None:
-    """Schritt 1 (siehe Moduldocstring): Überdeckung entlang der ganzen Röhre, in-place."""
-    xy, s, floor_z = _dense_centerline(plan["coords"])
-    from .road_embedding import sample_heightmap_bilinear
-
-    buried = sample_heightmap_bilinear(heights, origin_x, origin_y, square_size, xy) >= floor_z + 0.5 * plan["crown"]
+def _tube_windows(heights, origin_x, origin_y, square_size, xy, reach):
+    """(Fenster-Slice, gx, gy, Abstand zur Centerline, nächster Stationsindex) je WINDOW-Abschnitt der Röhre."""
     tree = cKDTree(xy)
-    total = s[-1]
-    start_portal, end_portal = plan["portals"]
-    buried = _fill_portal_gaps(buried, s, start_portal["open"], end_portal["open"], cover_gap_max)
-    half_width = start_portal["half_width"]
-    flat_depth = start_portal["flat_depth"]
-    reach = half_width + MAX_COVER_REACH
-    top_offset = plan["crown"] + cover
-    last = len(xy) - 1
-
     per_window = max(2, int(WINDOW / DENSE_STEP))
     for start in range(0, len(xy), per_window):
         part = xy[start : start + per_window + 1]
@@ -125,72 +97,82 @@ def _raise_cover(heights, origin_x, origin_y, square_size, plan, cover, cover_sl
         if window is None:
             continue
         view_slice, gx, gy = window
-        dist, idx = tree.query(np.column_stack([gx.ravel(), gy.ravel()]), distance_upper_bound=reach)
-        dist, idx = dist.reshape(gx.shape), idx.reshape(gx.shape)
-        # Nur Zellen seitlich der Röhre (nicht vor den Portalen: dort nächster Punkt = Endpunkt)
-        valid = np.isfinite(dist) & (idx > 0) & (idx < last)
-        idx = np.where(valid, idx, 0)
-        valid &= buried[idx]
-        along = s[idx]
-        # Vor der Portal-Zone fällt die Überdeckung zur Portalebene hin ab; innerhalb der Blockbreite regelt
-        # dort die Portal-Zone (Schritt 2) das Gelände.
-        portal_excess = np.zeros_like(along)
-        if start_portal["open"]:
-            portal_excess += np.maximum(0.0, flat_depth - along)
-        if end_portal["open"]:
-            portal_excess += np.maximum(0.0, flat_depth - (total - along))
-        valid &= ~((dist <= half_width) & (portal_excess > 0))
-        valid &= _unprotected(protected, gx, gy)
-        required = floor_z[idx] + top_offset - (np.maximum(0.0, dist - half_width) + portal_excess) / cover_slope
+        dist, idx = tree.query(np.column_stack([gx.ravel(), gy.ravel()]))
+        yield view_slice, gx, gy, dist.reshape(gx.shape), idx.reshape(gx.shape)
+
+
+def _cover_tube(heights, origin_x, origin_y, square_size, plan, cover, protected) -> None:
+    """Schritt 1 (siehe Moduldocstring), in-place."""
+    xy, _, floor_z = _dense_centerline(plan["coords"])
+    radius = plan["radius"]
+    outer = radius + plan.get("shell", 0.0)
+    last = len(xy) - 1
+
+    def footprint(dist, idx):
+        # Nur Zellen seitlich der Röhre (nicht vor den Enden: dort ist der nächste Punkt ein Endpunkt)
+        return (dist <= outer) & (idx > 0) & (idx < last)
+
+    windows = list(_tube_windows(heights, origin_x, origin_y, square_size, xy, outer + square_size))
+    enters = np.zeros(len(xy), dtype=bool)
+    for view_slice, _, _, dist, idx in windows:
+        inside = footprint(dist, idx) & (heights[view_slice] > floor_z[idx] + ENTER_TOLERANCE)
+        enters[idx[inside]] = True
+
+    for view_slice, gx, gy, dist, idx in windows:
+        valid = footprint(dist, idx) & enters[idx] & _unprotected(protected, gx, gy)
+        required = floor_z[idx] + radius / 2.0 + np.sqrt(np.maximum(outer**2 - dist**2, 0.0)) + cover
         view = heights[view_slice]
         view[valid] = np.maximum(view[valid], required[valid])
 
 
-def _shape_portal(heights, origin_x, origin_y, square_size, portal, cover, protected) -> Optional[np.ndarray]:
-    """Schritt 2 (siehe Moduldocstring) für ein Portal, in-place. Gibt die Loch-Zellen als (rows, cols) zurück
-    und passt portal["top_z"]/["bottom_z"] an deren Eckhöhen an."""
+def _shape_portal(heights, origin_x, origin_y, square_size, portal, protected) -> None:
+    """Schritt 2 (siehe Moduldocstring) für ein offenes Portal, in-place."""
     radius, half_width = portal["radius"], portal["half_width"]
     length, flat_depth = portal["length"], portal["flat_depth"]
     floor_z = portal["floor_z"]
-    top_level = floor_z + portal["crown"] + cover
 
     px, py = portal["xy"]
     extent = length + half_width + 3.0
     window = _grid_window(heights, origin_x, origin_y, square_size, px - extent, px + extent, py - extent, py + extent)
     if window is None:
-        return None
+        return
     view_slice, gx, gy = window
     along, across = portal_local_coords(portal, gx, gy)
     free = _unprotected(protected, gx, gy)
     view = heights[view_slice]
 
-    in_block = np.abs(across) <= half_width
-    flat = free & in_block & (along >= 0.0) & (along < flat_depth)
+    in_structure = np.abs(across) < half_width
+    flat = free & in_structure & (along >= 0.0) & (along < flat_depth)
     view[flat] = floor_z - FLOOR_CLEARANCE
-    apron = free & (np.abs(across) <= radius + 1.0) & (along >= -1.5) & (along < 0.0)
+    apron = free & (np.abs(across) <= radius + 1.0) & (along >= -APRON_LENGTH) & (along < 0.0)
     view[apron] = np.minimum(view[apron], floor_z)
-    covered = free & in_block & (along >= flat_depth) & (along <= length + 1.0)
-    view[covered] = np.maximum(view[covered], top_level)
 
-    # Loch-Zellen: Rasterzelle (row, col) = Quadrat mit linker unterer Ecke im Vertex (row, col). Ein Loch, wo
-    # das Quadrat die Stufe Portal-Zone -> Überdeckung überspannt und in den Röhrenquerschnitt reicht.
-    behind = along >= flat_depth
-    corners_behind = [behind[:-1, :-1], behind[:-1, 1:], behind[1:, :-1], behind[1:, 1:]]
-    mixed = np.any(corners_behind, axis=0) & ~np.all(corners_behind, axis=0)
-    band = radius + HOLE_BAND_MARGIN
-    corner_across = np.stack([across[:-1, :-1], across[:-1, 1:], across[1:, :-1], across[1:, 1:]])
-    in_band = ~(np.all(corner_across > band, axis=0) | np.all(corner_across < -band, axis=0))
-    near = np.all(np.stack([along[:-1, :-1], along[1:, 1:], along[:-1, 1:], along[1:, :-1]]) < length, axis=0)
-    hole = mixed & in_band & near
-    if not np.any(hole):
-        return None
+    # Hang im Grundriss des Bauwerks auf dessen Außenkontur abtragen (runder Kragen bzw. Stirnwand-Oberkante)
+    behind = free & in_structure & (along >= flat_depth) & (along <= length)
+    if portal.get("kind") == "gallery":
+        limit = np.full(gx.shape, portal["top_z"] - STRUCTURE_CLEARANCE)
+    else:
+        limit = floor_z + radius / 2.0 + np.sqrt(np.maximum(half_width**2 - across**2, 0.0)) - STRUCTURE_CLEARANCE
+    view[behind] = np.minimum(view[behind], limit[behind])
 
-    corner_heights = np.stack([view[:-1, :-1], view[:-1, 1:], view[1:, :-1], view[1:, 1:]])[:, hole]
-    portal["top_z"] = max(portal["top_z"], float(corner_heights.max()) + 0.1)
-    portal["bottom_z"] = min(portal["bottom_z"], float(corner_heights.min()) - 0.2)
 
-    rows, cols = np.nonzero(hole)
-    return rows + view_slice[0].start, cols + view_slice[1].start
+def _mark_holes(heights, holes, origin_x, origin_y, square_size, plan) -> None:
+    """Schritt 3 (siehe Moduldocstring): Loch-Zellen über der Röhre, in-place in `holes`."""
+    xy, _, floor_z = _dense_centerline(plan["coords"])
+    band = plan["radius"] + HOLE_BAND_MARGIN
+    last = len(xy) - 1
+    for view_slice, _, _, dist, idx in _tube_windows(heights, origin_x, origin_y, square_size, xy, band + square_size):
+        view = heights[view_slice]
+        in_band = (dist <= band) & (idx > 0) & (idx < last)
+        high = view > floor_z[idx] + ENTER_TOLERANCE
+
+        def corners(a):
+            return np.stack([a[:-1, :-1], a[:-1, 1:], a[1:, :-1], a[1:, 1:]])
+
+        cell_high = corners(high)
+        crossing = corners(in_band).any(axis=0) & cell_high.any(axis=0) & ~cell_high.all(axis=0)
+        rows, cols = np.nonzero(crossing)
+        holes[rows + view_slice[0].start, cols + view_slice[1].start] = True
 
 
 def shape_terrain_for_tunnels(
@@ -200,21 +182,18 @@ def shape_terrain_for_tunnels(
     square_size: float,
     plans: List[Dict],
     cover: float,
-    cover_slope: float,
     protected=None,
-    cover_gap_max: float = 0.0,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
-    Überdeckung + Portal-Zonen für alle Tunnel-Pläne (siehe tunnels/tunnel_portal.py::plan_tunnels()).
+    Überdeckung, Portal-Zonen und Löcher für alle Tunnel-Pläne (siehe tunnels/tunnel_portal.py::plan_tunnels()).
 
     Args:
+        cover: Erdschicht über der Röhrenschale, wo das Gelände in die Röhre ragt, in Metern
         protected: shapely-Geometrie der Oberflächenstraßen (oder None) - dort bleibt das Gelände unverändert
-        cover_gap_max: so lange Lücke zwischen offenem Portal und eingegrabener Röhre wird noch überdeckt (0 = aus)
 
     Returns:
         (neue Heightmap, Loch-Maske (bool, gleiche Shape; True = Rasterzelle wird Terrain-Loch))
-        Die Portale in `plans` bekommen dabei "open" (siehe _portal_is_open()) und ihre endgültige
-        "top_z"/"bottom_z".
+        Die Portale in `plans` bekommen dabei "open" (siehe _portal_is_open()).
     """
     result = heights.copy()
     holes = np.zeros(heights.shape, dtype=bool)
@@ -223,10 +202,10 @@ def shape_terrain_for_tunnels(
             # Übergang in eine Galerie: davor liegt immer ein Bauwerk - immer ein Portal
             portal["open"] = portal.get("kind") == "gallery" or _portal_is_open(heights, origin_x, origin_y, square_size, portal)
     for plan in plans:
-        _raise_cover(result, origin_x, origin_y, square_size, plan, cover, cover_slope, protected, cover_gap_max)
+        _cover_tube(result, origin_x, origin_y, square_size, plan, cover, protected)
     for plan in plans:
         for portal in [p for p in plan["portals"] if p["open"]]:
-            cells = _shape_portal(result, origin_x, origin_y, square_size, portal, cover, protected)
-            if cells is not None:
-                holes[cells] = True
+            _shape_portal(result, origin_x, origin_y, square_size, portal, protected)
+    for plan in plans:
+        _mark_holes(result, holes, origin_x, origin_y, square_size, plan)
     return result, holes

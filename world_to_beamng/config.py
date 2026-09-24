@@ -302,7 +302,7 @@ BRIDGE_APPROACH_MAX_EXTENSION = 40.0  # längstens so weit wird in die Nachbarst
 # Abschnitt 5/6). Ersetzt für diese Straßen die normale Terrain-Einbettung und den DecalRoad-Export.
 TUNNELS_ENABLED = True  # deckt auch Galerien (tunnel=avalanche_protector) ab
 TUNNEL_WIDTH_MARGIN = 1.5  # zusätzliche Breite über die Fahrbahnbreite hinaus, in Metern
-TUNNEL_ARC_SEGMENTS = 12  # Diskretisierung des 240°-Kreisbogens (Radius/Kronenhöhe ergeben sich aus der Breite)
+TUNNEL_ARC_SEGMENTS = 32  # Diskretisierung des 240°-Kreisbogens, 7,5° je Segment (Radius/Kronenhöhe ergeben sich aus der Breite)
 TUNNEL_SEGMENT_STEP = 10.0  # Extrusions-Schrittweite entlang der Achse, in Metern (grob, da geradlinig)
 # Der OSM-Tunnelanfang liegt oft schon im Hang (DGM = Portal-Böschung statt Straßenniveau): Portalhöhe und
 # die letzten Meter der Zufahrt werden auf die stabile Steigung der Zufahrt gebracht (siehe
@@ -310,18 +310,22 @@ TUNNEL_SEGMENT_STEP = 10.0  # Extrusions-Schrittweite entlang der Achse, in Mete
 TUNNEL_APPROACH_SLOPE_THRESHOLD = 0.10  # ab dieser Steigung gilt die Zufahrt als "noch Hangflanke"
 TUNNEL_APPROACH_STABLE_LENGTH = 6.0  # so lang muss die Steigung darunter bleiben, in Metern
 TUNNEL_APPROACH_MAX_DISTANCE = 40.0  # so weit wird höchstens vom Portal weg gesucht, in Metern
-# Portalbauwerk + Überdeckung (siehe tunnels/tunnel_portal.py und terrain/tunnel_terrain.py): über der Röhre
-# liegt das Gelände mindestens TUNNEL_COVER über der Krone (seitlich mit TUNNEL_COVER_SLOPE angeböscht), am
-# Portal steht ein Betonblock mit der Röhrenöffnung, der die Terrain-Löcher an der Portalebene verdeckt.
-TUNNEL_COVER = 1.0  # Mindest-Überdeckung über der Röhrenkrone, in Metern
-TUNNEL_COVER_SLOPE = 1.5  # seitliche Böschung der Überdeckung, horizontal:vertikal (1:1,5)
-TUNNEL_PORTAL_WING = 2.0  # Portalblock ragt so weit seitlich über den Röhrenradius hinaus, in Metern
+# Röhre, Portal + Gelände (siehe tunnels/tunnel_mesh.py, tunnels/tunnel_portal.py, terrain/tunnel_terrain.py): die
+# Röhre ist ein Zylinder mit Außenschale und darf frei stehen; das Gelände wird nur unmittelbar an Röhre und Portal
+# angepasst - wo es in die Röhre ragt, liegt Erde TUNNEL_COVER über der Schale (keine Böschungen, keine Dämme).
+# Am offenen Portal sitzt ein runder Betonkragen, der die Terrain-Löcher an der Portalebene verdeckt.
+# Kein Tunnelbau für Wege ohne Straßen-/Radverkehr (Pfad-"Tunnel" in den Bergen, Baustellen): nur Straßen und Radwege
+TUNNEL_EXCLUDED_HIGHWAYS = frozenset({
+    "path", "footway", "steps", "bridleway", "pedestrian", "corridor", "via_ferrata", "elevator", "construction", "proposed",
+})
+TUNNEL_SHELL_RATIO = 1.0 / 15.0  # Wandstärke der Röhrenschale : Röhrendurchmesser (1:15) - kleine Tunnel, dünne Wände
+TUNNEL_COVER = 1.2  # Erde über der Röhrenschale, wo das Gelände in die Röhre ragt, in Metern
+TUNNEL_PORTAL_WING = 1.3  # runder Portalkragen ragt so weit über die Röhrenschale hinaus (> TUNNEL_COVER), in Metern
 TUNNEL_PORTAL_FLAT_DEPTH = 1.5  # so tief hinter der Portalebene liegt das Terrain noch auf Bodenhöhe, in Metern
-TUNNEL_PORTAL_LENGTH = 3.5  # Länge des Portalblocks in den Berg hinein, in Metern (> FLAT_DEPTH + 1 Zelle Loch)
+TUNNEL_PORTAL_LENGTH = 3.5  # Länge des Portalkragens in den Berg hinein, in Metern (> FLAT_DEPTH + 1 Zelle Loch)
 # Übergang Tunnel -> Galerie (docs/superpowers/specs/2026-09-24-tunnel-gallery-transition-design.md): ein
 # Tunnel-Portal, das höchstens so weit von einem Galerie-Endpunkt liegt, bekommt eine Stirnwand mit Galerie-Öffnung.
 TUNNEL_TRANSITION_ENDPOINT_TOL = 0.5  # in Metern
-TUNNEL_COVER_GAP_MAX = 25.0  # so lange Lücke zwischen offenem Portal und eingegrabener Röhre wird überdeckt, in Metern
 # Höhenprofil von Tunnel/Galerie-Ketten (geometry/polygon.py::apply_structure_elevation_profiles): an einer Galerie zeigt
 # das DGM das Dach - Stützpunkte (DGM - GALLERY_HEIGHT - GALLERY_ROOF_THICKNESS) nur so weit von den Kettenenden und
 # voneinander entfernt, Median über +- GALLERY_ROOF_SAMPLE_WINDOW Meter.
@@ -372,7 +376,13 @@ GALLERY_CURB_WIDTH = 0.4  # Breite des Sockels (von der Fahrbahnkante nach innen
 #   nicht das ursprüngliche Gelände, sondern die reale Talseiten-Struktur (Brüstung/Dachüberstand); die
 #   daraus abgeleitete Böschungsbreite wäre verrauscht und ergäbe eine sichtbar facettierte Böschung statt
 #   einer glatten, kurzen Angleichung ans Gelände.
-GALLERY_VALLEY_SLOPE_WIDTH = 5.0  # feste Böschungsbreite talseits, in Metern
+GALLERY_VALLEY_SLOPE_WIDTH = 5.0  # Mindest-Böschungsbreite talseits, in Metern
+# Talseitige Referenz hinter dem Galeriedach im DGM suchen (terrain_workflow._gallery_valley_slope_widths()): talwärts
+# bis zum ersten Punkt mit tieferem Gelände (höchstens STRUCTURE_HEIGHT über der Fahrbahn) - das ist die Referenz.
+# 0: erst Gelände unter der Fahrbahn zählt; mit +2 m lag die Referenz oft noch an der steilen Dachkante im DGM.
+GALLERY_VALLEY_STRUCTURE_HEIGHT = 0.0  # DGM höher als Fahrbahn + dies = noch Galeriedach, in Metern
+GALLERY_VALLEY_SEARCH_STEP = 0.5  # Suchschritt talwärts, in Metern
+GALLERY_VALLEY_SEARCH_MAX = 20.0  # höchstens so breit wird die Böschung talseits, in Metern
 GALLERY_MOUNTAIN_EMBED_MARGIN = 1.3  # flacher Saum bergseits über die Wand-Innenkante hinaus, in Metern
 TUNNEL_MATERIAL_NAME = "tunnel_concrete"  # Wand-/Decke-/Rahmen-/Dach-Material (Textur: CONCRETE_TEXTURE_NAME)
 

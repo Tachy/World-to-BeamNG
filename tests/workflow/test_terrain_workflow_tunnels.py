@@ -132,7 +132,7 @@ def test_build_tunnels_creates_tube_plus_portals_for_a_tunnel_and_one_mesh_per_g
     tunnel_road = _road(1, "tunnel", {"highway": "trunk", "tunnel": "yes"})
     gallery_road = _road(2, "gallery", {"highway": "primary", "tunnel": "avalanche_protector"})
 
-    plans = plan_tunnels(_structure_items([tunnel_road, gallery_road], "tunnel"), width_margin=1.5, segment_step=10.0, wing=2.0, flat_depth=1.5, length=3.5, cover=1.0)
+    plans = plan_tunnels(_structure_items([tunnel_road, gallery_road], "tunnel"), width_margin=1.5, segment_step=10.0, wing=2.0, flat_depth=1.5, length=3.5)
 
     meshes = TerrainWorkflow._build_tunnels(SimpleNamespace(), [tunnel_road, gallery_road], plans, heights, 0.0, 0.0)
 
@@ -246,6 +246,62 @@ def test_untagged_gallery_embankment_uses_the_terrain_valley_side():
     override, flat_sides = _gallery_embedding(road, ground_at)
 
     assert road["open_side"] == "right"
-    assert override == {"right": config.GALLERY_VALLEY_SLOPE_WIDTH, "left": config.GALLERY_MOUNTAIN_EMBED_MARGIN}
+    assert set(override) == {"left", "right"}
+    assert np.allclose(override["right"], config.GALLERY_VALLEY_SLOPE_WIDTH)  # echtes Gelände schon an Kante + 5 m
+    assert override["left"] == config.GALLERY_MOUNTAIN_EMBED_MARGIN
     assert flat_sides == {"left"}
     assert _structure_items([road], "gallery")[0]["open_side"] == "right"  # dieselbe Seite für das Galerie-Mesh
+
+
+def test_gallery_valley_embankment_reaches_past_the_roof_the_dgm_still_shows():
+    # Das DGM zeigt über der Galerie deren Dach (~5 m über der Fahrbahn) bis ~9 m neben die Achse. Eine feste
+    # Referenz 5 m hinter der Kante (8,25 m) läge noch auf dem Dach -> Geländespitze talwärts (lange Galerie Nuova
+    # strada). Die Referenz wird talwärts gesucht, bis das DGM unter das Dachniveau fällt.
+    from world_to_beamng import config
+    from world_to_beamng.workflow.terrain_workflow import _gallery_embedding
+
+    road = _structure(2, [(-50.0, 0.0, 500.0), (0.0, 0.0, 500.0)], covered="yes", layer="-1")
+    half = config.OSM_MAPPER.get_road_properties(road["osm_tags"])["width"] / 2.0
+
+    def ground_at(x, y):
+        y = np.asarray(y, float)
+        valley = 500.0 - 5.0 + 0.5 * y  # Tal rechts (-y), bergseits (+y) steigend
+        return np.where((y < 0.0) & (y > -9.0), 505.0, valley)  # Dach der Galerie im DGM bis 9 m talseits
+
+    override, _ = _gallery_embedding(road, ground_at)
+
+    widths = np.asarray(override["right"])
+    assert np.all(half + widths > 9.0)  # Referenzpunkt jenseits des Dachs
+    # erster Suchpunkt mit tieferem Gelände (Suchschritt 0,5 m) wird direkt genommen, kein Zuschlag
+    assert np.all(half + widths <= 9.0 + config.GALLERY_VALLEY_SEARCH_STEP)
+
+
+def test_gallery_valley_embankment_keeps_the_minimum_width_when_the_valley_side_is_higher():
+    from world_to_beamng import config
+    from world_to_beamng.workflow.terrain_workflow import _gallery_embedding
+
+    road = _structure(2, [(-50.0, 0.0, 500.0), (0.0, 0.0, 500.0)], covered="yes", layer="-1")
+    ground_at = lambda x, y: 500.0 + 30.0 + 0.1 * np.asarray(y, float)  # alles weit über der Fahrbahn
+
+    override, _ = _gallery_embedding(road, ground_at)
+
+    assert np.allclose(override[road["open_side"]], config.GALLERY_VALLEY_SLOPE_WIDTH)
+
+
+@pytest.mark.parametrize("highway", ["path", "footway", "steps", "bridleway", "pedestrian", "construction"])
+def test_tunnels_of_footpaths_and_non_roads_are_not_built(highway):
+    # In den Bergen gibt es "Tunnel" für Pfade (Festungsstollen) - nur Straßen und Radwege bekommen einen Tunnelbau
+    from world_to_beamng.workflow.terrain_workflow import _plan_tunnels
+
+    roads = [_structure(1, [(0.0, 0.0, 500.0), (100.0, 0.0, 500.0)], tunnel="yes", highway=highway)]
+
+    assert _plan_tunnels(roads) == []
+
+
+@pytest.mark.parametrize("highway", ["primary", "track", "cycleway", "service"])
+def test_tunnels_of_roads_and_cycleways_are_built(highway):
+    from world_to_beamng.workflow.terrain_workflow import _plan_tunnels
+
+    roads = [_structure(1, [(0.0, 0.0, 500.0), (100.0, 0.0, 500.0)], tunnel="yes", highway=highway)]
+
+    assert len(_plan_tunnels(roads)) == 1

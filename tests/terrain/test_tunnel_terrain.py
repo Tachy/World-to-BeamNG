@@ -1,10 +1,13 @@
-"""Tests für world_to_beamng.terrain.tunnel_terrain: Überdeckung über der Tunnelröhre, Portal-Zone und die
-Loch-Zellen, die der Portalblock verdecken muss."""
+"""Tests für world_to_beamng.terrain.tunnel_terrain: Gelände nur unmittelbar an Röhre und Portal - Erde 1,20 m über
+der Röhrenschale, wo das Gelände in die Röhre ragt; keine Böschungen/Dämme; Loch-Zellen, die Kragen bzw. Schale
+verdecken."""
 
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+
+import math
 
 import numpy as np
 import pytest
@@ -14,14 +17,21 @@ from world_to_beamng.terrain.tunnel_terrain import shape_terrain_for_tunnels
 from world_to_beamng.tunnels.tunnel_portal import plan_tunnels, portal_local_coords
 
 FLOOR = 100.0
-COVER = 1.0
+COVER = 1.2
+SHELL_RATIO = 0.1  # Wandstärke : Durchmesser
+COLLAR = 1.3
+
+
+def _plans(coords, galleries=None):
+    tunnel = {"id": 1, "coords": coords, "width": 7.0, "floor_material": "f"}
+    return plan_tunnels([tunnel], width_margin=1.5, segment_step=10.0, wing=COLLAR, flat_depth=1.5, length=3.5,
+                        shell_ratio=SHELL_RATIO, galleries=galleries)
 
 
 def _setup(natural=105.0, size=120):
-    # Tunnel entlang y=60 von x=30 bis x=90, Boden auf 100 m; dazwischen Berg auf `natural` (Röhre steckt zu
-    # mehr als halber Kronenhöhe im Gelände), vor beiden Portalen Straßenniveau.
-    tunnel = {"id": 1, "coords": [(30.0, 60.0, FLOOR), (90.0, 60.0, FLOOR)], "width": 7.0, "floor_material": "f"}
-    plans = plan_tunnels([tunnel], width_margin=1.5, segment_step=10.0, wing=2.0, flat_depth=1.5, length=3.5, cover=COVER)
+    # Tunnel entlang y=60 von x=30 bis x=90, Boden auf 100 m; dazwischen Berg auf `natural`, vor beiden Portalen
+    # Straßenniveau.
+    plans = _plans([(30.0, 60.0, FLOOR), (90.0, 60.0, FLOOR)])
     heights = np.full((size, size), natural)
     heights[:, :30] = FLOOR
     heights[:, 91:] = FLOOR
@@ -29,36 +39,69 @@ def _setup(natural=105.0, size=120):
 
 
 def _shape(plans, heights, protected=None):
-    return shape_terrain_for_tunnels(heights, 0.0, 0.0, 1.0, plans, cover=COVER, cover_slope=1.5, protected=protected)
+    return shape_terrain_for_tunnels(heights, 0.0, 0.0, 1.0, plans, cover=COVER, protected=protected)
 
 
-def test_cover_raises_low_terrain_over_the_tube_and_leaves_high_terrain():
+def _cover_height(plan, across):
+    """Erde COVER über der runden Außenschale (Radius + Schale) an seitlichem Abstand `across`."""
+    radius = plan["radius"]
+    return FLOOR + radius / 2.0 + math.sqrt((radius + plan["shell"]) ** 2 - across**2) + COVER
+
+
+def test_terrain_cutting_into_the_tube_gets_1_20_m_earth_over_the_shell():
     plans, heights = _setup(natural=105.0)
-    crown = plans[0]["crown"]
 
     result, _ = _shape(plans, heights)
 
-    assert result[60, 60] == pytest.approx(FLOOR + crown + COVER)  # mitten über der Röhre
-    assert result[60 + 30, 60] == pytest.approx(105.0)  # weit seitlich: natürliches Gelände
+    assert result[60, 60] == pytest.approx(_cover_height(plans[0], 0.0))  # mitten über der Röhre
+    assert result[62, 60] == pytest.approx(_cover_height(plans[0], 2.0))  # folgt dem runden Querschnitt
 
+
+def test_terrain_already_above_the_cover_stays():
     plans, heights = _setup(natural=150.0)
+
     result, _ = _shape(plans, heights)
-    assert result[60, 60] == pytest.approx(150.0)  # Berg schon hoch genug: nichts anheben
+
+    assert result[60, 60] == pytest.approx(150.0)
 
 
-def test_cover_slopes_down_to_the_natural_terrain_on_the_side():
+def test_cover_stays_within_the_shell_footprint_no_slopes_no_dams():
     plans, heights = _setup(natural=105.0)
-    top = FLOOR + plans[0]["crown"] + COVER
-    half_width = plans[0]["portals"][0]["half_width"]
+    heights[:60, 30:91] = 60.0  # talseitig (y < 60) fällt das Gelände weit unter die Fahrbahn ab
+    radius = plans[0]["radius"]
 
     result, _ = _shape(plans, heights)
 
-    row = int(round(60 + half_width + 3.0))
-    distance = row - 60
-    assert result[row, 60] == pytest.approx(top - (distance - half_width) / 1.5)
+    outside = int(math.ceil(radius + plans[0]["shell"])) + 1
+    assert result[60 + outside, 60] == pytest.approx(105.0)  # bergseitig direkt neben der Schale: unverändert
+    assert result[60 - outside, 60] == pytest.approx(60.0)  # talseitig: kein Damm ins Tal
+    assert result[60 - outside - 10, 60] == pytest.approx(60.0)
 
 
-def test_portal_zone_is_at_floor_level_then_covered_and_the_step_becomes_holes_inside_the_block():
+def test_tube_standing_on_or_above_the_ground_is_left_free():
+    plans, heights = _setup(natural=105.0)
+    heights[:, 45:55] = 80.0  # Senke unter der Röhre: sie steht frei (Außenschale sichtbar)
+    heights[:, 65:75] = 100.2  # Gelände auf Fahrbahnhöhe: ragt nicht in die Röhre
+
+    result, _ = _shape(plans, heights)
+
+    assert result[60, 50] == pytest.approx(80.0)
+    assert result[60, 70] == pytest.approx(100.2)
+    assert result[60, 40] == pytest.approx(_cover_height(plans[0], 0.0))  # daneben weiterhin überdeckt
+
+
+def test_where_the_tube_leaves_the_ground_the_crossing_cells_become_holes():
+    # Sonst liefe die schräge Fläche zwischen Überdeckung und tiefem Gelände als Erdwand quer durch die Röhre
+    plans, heights = _setup(natural=105.0)
+    heights[:, 45:55] = 80.0
+
+    result, holes = _shape(plans, heights)
+
+    assert holes[60, 44] and holes[60, 54]  # Zellen x=44..45 und x=54..55 überspannen den Wechsel
+    assert not holes[60, 40] and not holes[60, 50]
+
+
+def test_portal_zone_is_at_floor_level_then_covered_and_the_step_holes_lie_inside_the_collar():
     plans, heights = _setup(natural=105.0)
     portal = plans[0]["portals"][0]  # Start bei x=30, Achse +x
     assert portal["axis"] == pytest.approx((1.0, 0.0))
@@ -66,32 +109,46 @@ def test_portal_zone_is_at_floor_level_then_covered_and_the_step_becomes_holes_i
     result, holes = _shape(plans, heights)
 
     assert result[60, 31] == pytest.approx(FLOOR - 0.05)  # 1 m hinter der Portalebene: unter dem Röhrenboden
-    assert result[60, 32] >= FLOOR + portal["crown"] + COVER - 1e-9  # hinter der Portal-Zone: überdeckt
+    assert result[60, 32] > FLOOR + portal["crown"]  # dahinter überdeckt
     assert holes[60, 31]  # Quadrat x=31..32 überspannt die Stufe bei 1,5 m
     assert not holes[60, 29]  # vor der Portalebene bleibt die Zufahrt geschlossen
 
+    # Jede Loch-Zelle liegt im Kragen eines Portals oder über der Röhre (dann verdeckt sie die Schale)
+    radius = portal["radius"]
     rows, cols = np.nonzero(holes)
-    # Jede Loch-Zelle liegt komplett im Portalblock (beide Portale)
     for r, c in zip(rows, cols):
         corners_x = np.array([c, c + 1, c, c + 1], dtype=float)
         corners_y = np.array([r, r, r + 1, r + 1], dtype=float)
-        inside_any = False
         for p in plans[0]["portals"]:
             along, across = portal_local_coords(p, corners_x, corners_y)
-            if np.all(along >= 0.0) and np.all(along <= p["length"]) and np.all(np.abs(across) <= p["half_width"]):
-                inside_any = True
-        assert inside_any
+            if np.all(along >= 0.0) and np.all(along <= p["length"]):
+                assert np.all(np.abs(across) <= p["half_width"])
+                break
+        else:
+            assert np.all(np.abs(corners_y - 60.0) <= radius + plans[0]["shell"] + 1.5)
 
 
-def test_portal_block_top_reaches_over_the_hole_corners():
-    plans, heights = _setup(natural=130.0)  # steiler Hang: Gelände weit über der Krone
-    result, holes = _shape(plans, heights)
+def test_steep_hillside_behind_the_portal_is_cut_down_to_the_collar_not_the_other_way_round():
+    # Früher wuchs der Portalblock bis auf die Hanghöhe (Banchi: 14 m über der Fahrbahn). Jetzt bleibt der Kragen
+    # so groß wie geplant, und das Gelände in seinem Grundriss wird auf seine Außenkontur abgetragen.
+    plans, heights = _setup(natural=130.0)
     portal = plans[0]["portals"][0]
+    top_before, bottom_before = portal["top_z"], portal["bottom_z"]
 
+    result, holes = _shape(plans, heights)
+
+    assert portal["top_z"] == top_before and portal["bottom_z"] == bottom_before
+    radius, outer = portal["radius"], portal["half_width"]
     rows, cols = np.nonzero(holes)
     assert len(rows) > 0
-    corner_max = max(result[r : r + 2, c : c + 2].max() for r, c in zip(rows, cols))
-    assert portal["top_z"] >= corner_max
+    for r, c in zip(rows, cols):
+        for y in (r, r + 1):
+            for x in (c, c + 1):
+                along, across = portal_local_coords(portal, np.array([float(x)]), np.array([float(y)]))
+                if 0.0 <= along[0] <= portal["length"] and abs(across[0]) < outer:
+                    collar = FLOOR + radius / 2.0 + math.sqrt(outer**2 - across[0] ** 2)
+                    assert result[y, x] <= collar + 1e-6
+    assert result[60, 40] == pytest.approx(130.0)  # weiter hinten bleibt der Hang
 
 
 def test_surface_roads_are_protected():
@@ -123,63 +180,17 @@ def test_tunnel_end_inside_the_mountain_is_no_portal_and_leaves_the_terrain_alon
     assert ids == ["tunnel_1", "tunnel_1_portal_end"]
 
 
-def test_no_cover_dam_where_the_tube_is_not_at_least_half_in_the_ground():
-    plans, heights = _setup(natural=105.0)
-    heights[:, 50:60] = 80.0  # Senke unter dem Tunnelboden (100 m): Röhre hinge hier in der Luft
-    heights[:, 60:70] = 101.0  # "Tunnel" im DGM auf Straßenniveau (z.B. covered=yes-Galerie)
-
-    result, _ = _shape(plans, heights)
-
-    assert result[60, 55] == pytest.approx(80.0)  # kein Damm in der Senke
-    assert result[60, 65] == pytest.approx(101.0)  # keiner über der offenen Straße
-    assert result[60, 40] > 105.0  # daneben (Röhre im Gelände) weiterhin überdeckt
-
-
-def _setup_gap(gap, size_x=160):
-    # Tunnel entlang y=60 von x=30 bis x=130; hinter dem Start-Portal `gap` Meter flach (Röhre steckt dort laut
-    # Höhenmodell nicht im Berg), danach Berg auf 105 m; vor beiden Portalen Straßenniveau.
-    tunnel = {"id": 1, "coords": [(30.0, 60.0, FLOOR), (130.0, 60.0, FLOOR)], "width": 7.0, "floor_material": "f"}
-    plans = plan_tunnels([tunnel], width_margin=1.5, segment_step=10.0, wing=2.0, flat_depth=1.5, length=3.5, cover=COVER)
-    heights = np.full((120, size_x), 105.0)
-    heights[:, : 30 + gap + 1] = FLOOR
-    heights[:, 131:] = FLOOR
-    return plans, heights
-
-
-def test_short_cover_gap_behind_the_portal_is_covered_without_a_step():
-    plans, heights = _setup_gap(8)
-    top = FLOOR + plans[0]["crown"] + COVER
-
-    result, _ = shape_terrain_for_tunnels(heights, 0.0, 0.0, 1.0, plans, cover=COVER, cover_slope=1.5, cover_gap_max=25.0)
-
-    # hinter der Portal-Zone bis in den Berg durchgehend überdeckt: keine Geländekante durch die Röhre
-    assert all(result[60, x] >= top - 1e-9 for x in range(33, 50))
-
-
-def test_cover_gap_longer_than_the_limit_stays_open():
-    plans, heights = _setup_gap(40)
-
-    result, _ = shape_terrain_for_tunnels(heights, 0.0, 0.0, 1.0, plans, cover=COVER, cover_slope=1.5, cover_gap_max=25.0)
-
-    assert result[60, 50] == pytest.approx(FLOOR)  # 20 m hinter dem Portal, mitten in der 40-m-Lücke
-
-
-def test_without_gap_limit_the_old_behaviour_stays():
-    plans, heights = _setup_gap(8)
-
-    result, _ = shape_terrain_for_tunnels(heights, 0.0, 0.0, 1.0, plans, cover=COVER, cover_slope=1.5)
-
-    assert result[60, 36] == pytest.approx(FLOOR)
-
-
 def test_gallery_transition_is_a_portal_even_with_mountain_in_front():
-    tunnel = {"id": 1, "coords": [(30.0, 60.0, FLOOR), (90.0, 60.0, FLOOR)], "width": 7.0, "floor_material": "f"}
     gallery = {"id": 2, "coords": [(0.0, 60.0, FLOOR), (30.0, 60.0, FLOOR)], "width": 6.5, "floor_material": "f", "osm_tags": {}}
-    plans = plan_tunnels([tunnel], width_margin=1.5, segment_step=10.0, wing=2.0, flat_depth=1.5, length=3.5, cover=COVER, galleries=[gallery])
+    plans = _plans([(30.0, 60.0, FLOOR), (90.0, 60.0, FLOOR)], galleries=[gallery])
     heights = np.full((120, 120), 150.0)  # auch vor dem Portal Berg - ein offenes Portal gäbe es hier nicht
+    portal = plans[0]["portals"][0]
+    top_before = portal["top_z"]
 
     result, holes = _shape(plans, heights)
 
-    assert plans[0]["portals"][0]["open"] is True
+    assert portal["open"] is True
     assert result[60, 31] == pytest.approx(FLOOR - 0.05)
     assert holes[60, 31]
+    assert portal["top_z"] == top_before  # Stirnwand wächst nicht mit dem Hang
+    assert result[60, 32] <= top_before - 0.1 + 1e-6  # Hang im Grundriss der Stirnwand auf deren Oberkante abgetragen

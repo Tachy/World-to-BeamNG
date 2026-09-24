@@ -48,6 +48,22 @@ def arc_cross_section(radius: float, segments: int) -> List[Tuple[float, float]]
     return points
 
 
+def shell_cross_section(radius: float, segments: int, thickness: float) -> List[Tuple[float, float]]:
+    """
+    Außenkontur (across, height) der Röhrenschale: 240°-Bogen mit Radius radius + thickness um denselben
+    Mittelpunkt (0, radius/2) wie der Innenbogen, unten geschlossen durch eine Bodenplatte `thickness` unter der
+    Fahrbahn. Umlauf: rechter Bogenfuß über die Krone zum linken Bogenfuß, dann links unten, rechts unten.
+    """
+    outer = radius + thickness
+    points = []
+    for k in range(segments + 1):
+        theta = math.radians(ARC_START_DEG + (k / segments) * ARC_SPAN_DEG)
+        points.append((outer * math.cos(theta), radius / 2.0 + outer * math.sin(theta)))
+    points.append((points[-1][0], -thickness))
+    points.append((points[0][0], -thickness))
+    return points
+
+
 def resample_tunnel_coords(coords: Sequence[Tuple[float, float, float]], step: float) -> List[Tuple[float, float, float]]:
     """Dünnt die (bereits linear profilierte) Centerline auf einen festen Bogenlängen-Abstand aus (XYZ gemeinsam,
     da das Höhenprofil affin in der Bogenlänge ist - siehe geometry/polygon.py::apply_structure_elevation_profiles()).
@@ -160,10 +176,18 @@ def build_tunnel_mesh(
     wall_material: str,
     arc_segments: int = 12,
     tile_m: float = 5.0,
+    shell_thickness: float = 0.0,
+    shell_material: str = None,
+    cap_start: bool = True,
+    cap_end: bool = True,
 ) -> Dict:
     """
     Röhren-Mesh (Boden + kreisrunder 240°-Bogen darüber) entlang `coords` (bereits das Tunnel-Höhenprofil).
     Radius und Kronenhöhe ergeben sich aus `width` (siehe tunnel_radius()/tunnel_crown_height()).
+
+    Mit shell_thickness > 0 bekommt die Röhre eine Außenschale (siehe shell_cross_section()) samt Stirnringen an
+    beiden Enden: sie ist dann auch von außen ein massiver Zylinder und darf frei im Gelände stehen. cap_start/
+    cap_end = False lässt den Stirnring weg (dort steht ein Portalbauwerk in derselben Ebene - sonst Z-Fighting).
 
     Die Querschnitts-Ringe sitzen an den Centerline-Punkten und stehen dort auf Gehrung (wie die Bodenkanten aus
     offset_points()): benachbarte Segmente teilen sich exakt denselben Ring, die Röhre ist auch in Kurven dicht.
@@ -223,23 +247,77 @@ def build_tunnel_mesh(
                 inward,
             )
 
-    all_vertices = floor_builder.vertices + wall_builder.vertices
-    all_uvs = floor_builder.uvs + wall_builder.uvs
-    all_normals = floor_builder.normals + wall_builder.normals
-    wall_offset = len(floor_builder.vertices)
-    wall_faces = [[a + wall_offset, b + wall_offset, c + wall_offset] for a, b, c in wall_builder.faces]
+    builders = [(floor_material, floor_builder), (wall_material, wall_builder)]
+    if shell_thickness > 0.0:
+        builders.append((shell_material or wall_material, _build_shell(xy, floor_z, miter_right, radius, arc_segments, shell_thickness, tile_m, cap_start, cap_end)))
+
+    vertices, uvs, normals, faces = [], [], [], {}
+    for material, builder in builders:
+        offset = len(vertices)
+        vertices += builder.vertices
+        uvs += builder.uvs
+        normals += builder.normals
+        faces.setdefault(material, []).extend([[a + offset, b + offset, c + offset] for a, b, c in builder.faces])
 
     return {
-        "vertices": np.array(all_vertices, dtype=float),
-        "uvs": np.array(all_uvs, dtype=float),
-        "normals": np.array(all_normals, dtype=float),
-        "faces": {floor_material: floor_builder.faces, wall_material: wall_faces},
+        "vertices": np.array(vertices, dtype=float),
+        "uvs": np.array(uvs, dtype=float),
+        "normals": np.array(normals, dtype=float),
+        "faces": faces,
     }
+
+
+def _build_shell(xy, floor_z, miter_right, radius, arc_segments, thickness, tile_m, cap_start=True, cap_end=True) -> MeshBuilder:
+    """Außenschale der Röhre (Mantel entlang der Achse, Normalen nach außen) plus Stirnring an den gewünschten Enden."""
+    from shapely import constrained_delaunay_triangles
+    from shapely.geometry import Polygon
+
+    profile = shell_cross_section(radius, arc_segments, thickness)
+    center = np.array([0.0, radius / 2.0])
+    builder = MeshBuilder()
+
+    def world(i, across, height):
+        return [float(xy[i, 0] + miter_right[i, 0] * across), float(xy[i, 1] + miter_right[i, 1] * across), float(floor_z[i] + height)]
+
+    edge_len = [math.dist(profile[k], profile[(k + 1) % len(profile)]) for k in range(len(profile))]
+    perimeter = np.concatenate([[0.0], np.cumsum(edge_len)]) / tile_m
+    seg_len = np.linalg.norm(np.diff(xy, axis=0), axis=1)
+    along = np.concatenate([[0.0], np.cumsum(seg_len)]) / tile_m
+    for i in range(len(xy) - 1):
+        j = i + 1
+        direction = (xy[j] - xy[i]) / np.linalg.norm(xy[j] - xy[i])
+        perp_right = np.array([direction[1], -direction[0]])
+        for k in range(len(profile)):
+            a, b = np.array(profile[k]), np.array(profile[(k + 1) % len(profile)])
+            normal_2d = np.array([b[1] - a[1], a[0] - b[0]])
+            normal_2d /= np.linalg.norm(normal_2d)
+            if normal_2d @ ((a + b) / 2.0 - center) < 0.0:
+                normal_2d = -normal_2d
+            builder.quad(
+                [world(i, *a), world(j, *a), world(j, *b), world(i, *b)],
+                [[along[i], perimeter[k]], [along[j], perimeter[k]], [along[j], perimeter[k + 1]], [along[i], perimeter[k + 1]]],
+                [float(perp_right[0] * normal_2d[0]), float(perp_right[1] * normal_2d[0]), float(normal_2d[1])],
+            )
+
+    # Stirnringe: Außenkontur minus lichter Querschnitt, nach außen (vom Tunnel weg) gerichtet
+    ring = Polygon(profile).difference(Polygon(arc_cross_section(radius, arc_segments)))
+    triangles = [list(t.exterior.coords)[:3] for t in constrained_delaunay_triangles(ring).geoms]
+    for index, sign, cap in ((0, -1.0, cap_start), (len(xy) - 1, 1.0, cap_end)):
+        if not cap:
+            continue
+        neighbour = 1 if index == 0 else index - 1
+        axis = (xy[index] - xy[neighbour]) if index else (xy[neighbour] - xy[index])
+        axis = axis / np.linalg.norm(axis)
+        normal = [float(sign * axis[0]), float(sign * axis[1]), 0.0]
+        for tri in triangles:
+            builder.triangle([world(index, c, h) for c, h in tri], [[c / tile_m, h / tile_m] for c, h in tri], normal)
+    return builder
 
 
 def build_tunnels(plans: Sequence[Dict], wall_material: str, portal_material: str, arc_segments: int = 12) -> List[Dict]:
     """
-    Mesh-Dicts für den DAE-Export: je Tunnel-Kette die Röhre plus ein Portalbauwerk je offenem Ende.
+    Mesh-Dicts für den DAE-Export: je Tunnel-Kette die Röhre (mit Außenschale aus plan["shell"], Material wie die
+    Portale) plus ein Portalbauwerk je offenem Ende.
 
     Args:
         plans: Ergebnis von tunnel_portal.plan_tunnels() - Portale mit bereits gesetzter "top_z"/"bottom_z"
@@ -249,7 +327,12 @@ def build_tunnels(plans: Sequence[Dict], wall_material: str, portal_material: st
 
     meshes = []
     for plan in plans:
-        tube = build_tunnel_mesh(plan["coords"], plan["tube_width"], plan["floor_material"], wall_material, arc_segments=arc_segments)
+        start, end = plan["portals"]
+        tube = build_tunnel_mesh(
+            plan["coords"], plan["tube_width"], plan["floor_material"], wall_material, arc_segments=arc_segments,
+            shell_thickness=plan.get("shell", 0.0), shell_material=portal_material,
+            cap_start=not start.get("open", True), cap_end=not end.get("open", True),
+        )
         meshes.append({"id": f"tunnel_{plan['id']}", **tube})
         for portal in [p for p in plan["portals"] if p.get("open", True)]:
             block = build_portal_block_mesh(portal, portal_material, arc_segments=arc_segments)

@@ -24,7 +24,7 @@ def _gallery(coords, width=6.5, gallery_id=2):
 
 def _plans(tunnels, galleries=None):
     return plan_tunnels(
-        tunnels, width_margin=1.5, segment_step=10.0, wing=2.0, flat_depth=1.5, length=3.5, cover=1.0,
+        tunnels, width_margin=1.5, segment_step=10.0, wing=2.0, flat_depth=1.5, length=3.5,
         galleries=galleries, gallery_height=5.0, gallery_roof_thickness=0.5, gallery_floor_thickness=5.0,
         gallery_wall_thickness=5.0, transition_tol=0.5,
     )
@@ -146,3 +146,19 @@ def test_transition_wall_has_no_hole_where_the_opening_exceeds_the_tube(tunnel_w
 
     assert front == pytest.approx(2 * hw * (top - bottom) - passage.area, rel=1e-6)
     assert step == pytest.approx(arc.area - passage.area, rel=1e-6)
+
+
+def test_transition_wall_is_only_as_large_as_tube_shell_and_gallery_need():
+    # Kein Kragenrand an der Stirnwand: Oberkante = Röhrenschale bzw. Galeriedach + 0,2 m (Banchi ragte 3,7 m übers Dach)
+    plans = plan_tunnels(
+        [_tunnel()], width_margin=1.5, segment_step=10.0, wing=1.3, flat_depth=1.5, length=3.5,
+        galleries=[_gallery([(-50.0, 0.0, 500.0), (0.0, 0.0, 500.0)])], gallery_height=5.0, gallery_roof_thickness=0.5,
+        gallery_floor_thickness=5.0, gallery_wall_thickness=5.0, transition_tol=0.5, shell_ratio=0.1,
+    )
+    start, end = plans[0]["portals"]
+
+    shell = start["shell"]
+    assert start["top_z"] == pytest.approx(500.0 + max(start["crown"] + shell, 5.0 + 0.5) + 0.2)
+    assert start["bottom_z"] == pytest.approx(500.0 - 5.0)
+    assert start["half_width"] == pytest.approx(max(start["radius"] + shell + 0.2, 3.25 + 5.0))
+    assert end["top_z"] == pytest.approx(500.0 + end["crown"] + shell + 1.3)  # offenes Portal behält den Kragen

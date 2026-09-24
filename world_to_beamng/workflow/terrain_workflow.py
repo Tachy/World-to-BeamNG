@@ -62,23 +62,29 @@ def _structure_items(structure_road_polygons: List[Dict], structure_type: str) -
 
 
 def _plan_tunnels(structure_road_polygons: List[Dict]) -> List[Dict]:
-    """Tunnel-Pläne (tunnels/tunnel_portal.py::plan_tunnels()) mit den Galerien als möglichen Übergängen."""
+    """Tunnel-Pläne (tunnels/tunnel_portal.py::plan_tunnels()) mit den Galerien als möglichen Übergängen. Nur Straßen
+    und Radwege bekommen einen Tunnelbau - Pfad-"Tunnel" in den Bergen (z.B. Festungsstollen) entfallen
+    (config.TUNNEL_EXCLUDED_HIGHWAYS)."""
     from ..tunnels.tunnel_portal import plan_tunnels
 
+    tunnels = [
+        t for t in _structure_items(structure_road_polygons, "tunnel")
+        if t["osm_tags"].get("highway") not in config.TUNNEL_EXCLUDED_HIGHWAYS
+    ]
     return plan_tunnels(
-        _structure_items(structure_road_polygons, "tunnel"),
+        tunnels,
         width_margin=config.TUNNEL_WIDTH_MARGIN,
         segment_step=config.TUNNEL_SEGMENT_STEP,
         wing=config.TUNNEL_PORTAL_WING,
         flat_depth=config.TUNNEL_PORTAL_FLAT_DEPTH,
         length=config.TUNNEL_PORTAL_LENGTH,
-        cover=config.TUNNEL_COVER,
         galleries=_structure_items(structure_road_polygons, "gallery"),
         gallery_height=config.GALLERY_HEIGHT,
         gallery_roof_thickness=config.GALLERY_ROOF_THICKNESS,
         gallery_floor_thickness=config.GALLERY_FLOOR_THICKNESS,
         gallery_wall_thickness=config.GALLERY_WALL_THICKNESS,
         transition_tol=config.TUNNEL_TRANSITION_ENDPOINT_TOL,
+        shell_ratio=config.TUNNEL_SHELL_RATIO,
     )
 
 
@@ -134,7 +140,37 @@ def _gallery_embedding(road: Dict, ground_at) -> Tuple[Dict, set]:
     open_side = gallery_open_side(road.get("osm_tags", {}), road["trimmed_centerline"], ground_at, width)
     road["open_side"] = open_side
     mountain = "left" if open_side == "right" else "right"
-    return {open_side: config.GALLERY_VALLEY_SLOPE_WIDTH, mountain: config.GALLERY_MOUNTAIN_EMBED_MARGIN}, {mountain}
+    valley_widths = _gallery_valley_slope_widths(road["trimmed_centerline"], ground_at, width / 2.0, open_side)
+    return {open_side: valley_widths, mountain: config.GALLERY_MOUNTAIN_EMBED_MARGIN}, {mountain}
+
+
+def _gallery_valley_slope_widths(centerline, ground_at, half_width: float, open_side: str) -> np.ndarray:
+    """
+    Talseitige Böschungsbreite je Centerline-Punkt einer Galerie: das DGM zeigt über der Galerie deren Dach (~5 m über
+    der Fahrbahn), oft mehrere Meter über die Fahrbahnkante hinaus. Eine feste Referenz (Kante +
+    GALLERY_VALLEY_SLOPE_WIDTH) läge dann noch auf dem Dach, die Böschung stiege talwärts an und bräche dahinter ab
+    (Spitzen an der langen Galerie der Nuova strada). Deshalb wird talwärts gesucht; der erste Punkt, an dem das
+    Gelände nicht mehr als GALLERY_VALLEY_STRUCTURE_HEIGHT über der Fahrbahn liegt, ist die Referenz - mindestens
+    GALLERY_VALLEY_SLOPE_WIDTH, höchstens GALLERY_VALLEY_SEARCH_MAX. Liegt das Gelände
+    bis dorthin überall höher (Talseite ansteigend), bleibt es bei GALLERY_VALLEY_SLOPE_WIDTH.
+    """
+    points = np.asarray(centerline, dtype=float)
+    xy, z = points[:, :2], points[:, 2]
+    tangents = np.gradient(xy, axis=0)
+    tangents /= np.maximum(np.linalg.norm(tangents, axis=1, keepdims=True), 1e-9)
+    left = np.column_stack([-tangents[:, 1], tangents[:, 0]])
+    valley = left if open_side == "left" else -left
+
+    distances = np.arange(config.GALLERY_VALLEY_SLOPE_WIDTH, config.GALLERY_VALLEY_SEARCH_MAX + 1e-9, config.GALLERY_VALLEY_SEARCH_STEP)
+    widths = np.full(len(xy), config.GALLERY_VALLEY_SLOPE_WIDTH)  # nichts gefunden (Talseite höher): Mindestbreite
+    found = np.zeros(len(xy), dtype=bool)
+    for d in distances:
+        probe = xy + valley * (half_width + d)
+        below = np.asarray(ground_at(probe[:, 0], probe[:, 1]), dtype=float) <= z + config.GALLERY_VALLEY_STRUCTURE_HEIGHT
+        hit = below & ~found
+        widths[hit] = d
+        found |= hit
+    return widths
 
 
 def _tunnel_zone_items(tunnel_plans: List[Dict]) -> List[Dict]:
@@ -578,9 +614,7 @@ class TerrainWorkflow:
                     config.TERRAIN_SQUARE_SIZE,
                     tunnel_plans,
                     cover=config.TUNNEL_COVER,
-                    cover_slope=config.TUNNEL_COVER_SLOPE,
                     protected=protected,
-                    cover_gap_max=config.TUNNEL_COVER_GAP_MAX,
                 )
 
         # Layer-Map: EIN Luftbild-Material für die gesamte Fläche, dann OSM-
@@ -785,11 +819,11 @@ class TerrainWorkflow:
 
         tunnel_spawns = plan_entrance_spawns(road_slope_polygons_2d, config.TUNNEL_SPAWN_DISTANCE, config.POI_SPAWN_EXCLUDED_HIGHWAYS)
 
-        sub.finish(f"{len(road_slope_polygons_2d)} Straßensegmente")
-
         z_min = float(heights.min())
         z_max = float(heights.max())
         max_height = (z_max - z_min) + config.TERRAIN_MAX_HEIGHT_BUFFER
+
+        sub.finish(f"{len(road_slope_polygons_2d)} Straßensegmente")
 
         return {
             "status": "success",

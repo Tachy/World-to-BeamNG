@@ -632,3 +632,24 @@ def test_blend_one_side_is_identical_to_the_full_bounding_box_reference():
             _reference_blend_one_side(expected, origin_x, origin_y, square, size, size, edge, width, natural)
             _blend_one_side(actual, origin_x, origin_y, square, size, size, edge, width, natural)
             np.testing.assert_array_equal(actual, expected)
+
+
+def test_slope_width_override_may_vary_per_centerline_point():
+    # Galerie-Talseite: die Böschungsbreite wird je Station talwärts bis hinter das Dach gesucht
+    size = 40
+    centerline = np.array([[20.0, y, 95.0] for y in range(5, 36)], dtype=float)
+    widths = np.linspace(4.0, 8.0, len(centerline))
+    heights = np.tile(np.arange(size, dtype=float), (size, 1))  # Höhe = x: natural_z verrät die Abtaststelle
+
+    class FakeMapper:
+        def get_road_properties(self, tags):
+            return {"width": 6.0}
+
+    poly = {"trimmed_centerline": centerline, "osm_tags": {}, "slope_width_override": {"left": widths}}
+    road = build_road_embankment_profiles(
+        [poly], heights, 0.0, 0.0, 1.0, FakeMapper(), slope_angle_deg=45.0, min_slope_width=2.0, max_slope_width=30.0,
+    )[0]
+
+    # STANDARD-"left" = -x (Laufrichtung +y) und betrifft "right_*" dieser Funktion
+    assert np.allclose(road["right_slope_width"], widths)
+    assert np.allclose(road["right_natural_z"], 20.0 - 3.0 - widths)

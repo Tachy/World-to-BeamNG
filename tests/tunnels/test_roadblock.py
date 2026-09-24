@@ -17,7 +17,7 @@ ENTRANCES = [(800.0, 0.0), (0.0, 0.0)]  # Endpunkte von Oberflächenstraßen (Zu
 
 def _plans(coords, width=2.0):
     tunnel = {"id": 7, "coords": coords, "width": width, "floor_material": "f"}
-    return plan_tunnels([tunnel], width_margin=1.5, segment_step=10.0, wing=2.0, flat_depth=1.5, length=3.5, cover=1.0)
+    return plan_tunnels([tunnel], width_margin=1.5, segment_step=10.0, wing=2.0, flat_depth=1.5, length=3.5)
 
 
 def test_entrance_of_a_tunnel_leaving_the_map_gets_a_barrier_row_across_the_road():

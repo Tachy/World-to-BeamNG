@@ -295,7 +295,7 @@ def build_road_embankment_profiles(
         max_slope_width: Obergrenze der Böschungsbreite (Meter)
 
     Optionales Feld je Straßen-Dict: "slope_width_override" (Dict, Schlüssel "left"/"right", Wert = feste
-    Böschungsbreite in Metern) - ersetzt die berechnete Böschungsbreite auf der jeweiligen Seite durch
+    Böschungsbreite in Metern, als Zahl oder je Centerline-Punkt als Array) - ersetzt die berechnete Böschungsbreite auf der jeweiligen Seite durch
     einen festen Wert statt sie aus der Höhendifferenz zum natürlichen Gelände abzuleiten (0.0 = gar keine
     Böschung, das Gelände bleibt dort auf natürlicher Höhe stehen). Bei einem Wert > 0 gibt es zwei Modi
     für diese Seite, gesteuert über das optionale Feld "flat_shoulder_sides" (Set/Liste mit "left"/"right",
@@ -385,33 +385,25 @@ def build_road_embankment_profiles(
         # Hinweis) - die slope_width_override-Zuordnung muss deshalb gespiegelt werden.
         override = poly.get("slope_width_override") or {}
         flat_sides = poly.get("flat_shoulder_sides") or ()
+        def overridden(key, sign, slope_width, natural_z):
+            """Böschungsbreite/natural_z einer überschriebenen Seite; key in STANDARD-Konvention, sign = Richtung."""
+            widths = np.broadcast_to(np.asarray(override[key], dtype=float), slope_width.shape).copy()
+            if not np.any(widths > 0):
+                return widths, natural_z
+            if key in flat_sides:
+                # Flacher Saum auf Fahrbahnhöhe (Galerie-Bergseite): natural_z = Kantenhöhe selbst,
+                # keine Interpolation zum Gelände (siehe Docstring).
+                return widths, z.copy()
+            # natural_z NICHT an der Fahrbahnkante (dort zeigt das DGM bei einer Galerie das Bauwerk selbst,
+            # siehe Docstring), sondern am FERNEN Ende des überschriebenen Korridors abtasten - erst dort zeigt
+            # das DGM wieder echtes Gelände. Breite 0 tastet damit von selbst an der Kante ab.
+            far = xy + sign * perp * (half_width + widths)[:, None]
+            return widths, sample_heightmap_bilinear(heights, origin_x, origin_y, square_size, far)
+
         if "left" in override:
-            width_left = override["left"]
-            right_slope_width = np.full_like(right_slope_width, width_left)
-            if width_left > 0:
-                if "left" in flat_sides:
-                    # Flacher Saum auf Fahrbahnhöhe (Galerie-Bergseite): natural_z = Kantenhöhe selbst,
-                    # keine Interpolation zum Gelände (siehe Docstring).
-                    right_natural_z = z.copy()
-                else:
-                    # natural_z NICHT an der Fahrbahnkante (dort zeigt das DGM bei einer Galerie das
-                    # Bauwerk selbst, siehe Docstring), sondern am FERNEN Ende des überschriebenen
-                    # Korridors abtasten - erst dort zeigt das DGM wieder echtes Gelände. Am Bordstein
-                    # gemessen: Höhensprung von mehreren Metern schon 2m hinter der Kante (Dachüberstand/
-                    # Brüstung), die Böschung "glättete" bisher auf diesen erhöhten Wert statt talwärts.
-                    right_natural_z = sample_heightmap_bilinear(
-                        heights, origin_x, origin_y, square_size, xy + perp * (half_width + width_left)
-                    )
+            right_slope_width, right_natural_z = overridden("left", 1.0, right_slope_width, right_natural_z)
         if "right" in override:
-            width_right = override["right"]
-            left_slope_width = np.full_like(left_slope_width, width_right)
-            if width_right > 0:
-                if "right" in flat_sides:
-                    left_natural_z = z.copy()
-                else:
-                    left_natural_z = sample_heightmap_bilinear(
-                        heights, origin_x, origin_y, square_size, xy - perp * (half_width + width_right)
-                    )
+            left_slope_width, left_natural_z = overridden("right", -1.0, left_slope_width, left_natural_z)
 
         roads.append(
             {

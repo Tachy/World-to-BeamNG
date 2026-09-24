@@ -1,13 +1,16 @@
 """
-Portalbauwerk an beiden Enden einer Tunnelröhre: ein Betonblock, der an der Portalebene (OSM-Tunnelende, dort
-schließt die Zufahrt an) beginnt und TUNNEL_PORTAL_LENGTH Meter in den Berg reicht, mit der kreisrunden
-Röhrenöffnung in der Stirnseite.
+Portalbauwerk an beiden Enden einer Tunnelröhre, von der Portalebene (OSM-Tunnelende, dort schließt die Zufahrt an)
+TUNNEL_PORTAL_LENGTH Meter in den Berg:
 
-Der Block verdeckt die Terrain-Löcher, ohne die die Heightmap die Öffnung versperren würde: eine Rasterzelle, die
+- offenes Portal: runder Betonkragen um die Röhrenschale (Außenradius Radius + Schale + TUNNEL_PORTAL_WING);
+- Übergang in eine Galerie: Stirnwand mit rechteckiger Galerie-Öffnung (Block über den Galerie-Querschnitt).
+
+Das Bauwerk verdeckt die Terrain-Löcher, ohne die die Heightmap die Öffnung versperren würde: eine Rasterzelle, die
 die Portalebene überspannt, hat vorne Straßenniveau und hinten Überdeckungshöhe - ihre schräge Fläche liefe quer
 durch die Öffnung. terrain/tunnel_terrain.py hält deshalb das Gelände bis TUNNEL_PORTAL_FLAT_DEPTH hinter der
-Portalebene auf Bodenhöhe (unter dem Röhrenboden verborgen), hebt es dahinter auf Überdeckungshöhe und macht die
-Zellen am Übergang zu Löchern; die liegen vollständig im Block, dessen Oberkante über ihre Eckhöhen reicht.
+Portalebene auf Bodenhöhe (unter dem Röhrenboden verborgen), trägt den Hang dahinter im Grundriss des Bauwerks auf
+dessen Außenkontur ab und macht die Zellen am Übergang zu Löchern. Die Größe des Bauwerks hängt nur von Röhre und
+Galerie ab, nie vom Gelände.
 """
 
 from typing import Dict, List, Sequence, Tuple
@@ -18,6 +21,9 @@ from ..walls.mesh_parts import MeshBuilder
 from .tunnel_mesh import arc_cross_section, chain_tunnel_pieces, resample_tunnel_coords, tunnel_crown_height, tunnel_radius
 
 
+TRANSITION_WALL_MARGIN = 0.2  # Stirnwand eines Übergangs reicht so weit über Röhrenschale bzw. Galeriedach hinaus, in Metern
+
+
 def plan_tunnels(
     tunnels: Sequence[Dict],
     width_margin: float,
@@ -25,13 +31,13 @@ def plan_tunnels(
     wing: float,
     flat_depth: float,
     length: float,
-    cover: float,
     galleries: Sequence[Dict] = None,
     gallery_height: float = 5.0,
     gallery_roof_thickness: float = 0.5,
     gallery_floor_thickness: float = 5.0,
     gallery_wall_thickness: float = 5.0,
     transition_tol: float = 0.5,
+    shell_ratio: float = 0.0,
 ) -> List[Dict]:
     """
     Verkettet die Tunnel-Stücke (siehe tunnel_mesh.chain_tunnel_pieces()), dünnt die Centerline aus und legt die
@@ -40,18 +46,22 @@ def plan_tunnels(
 
     Args:
         tunnels: [{"id", "coords", "width", "floor_material"}, ...]
+        shell_ratio: Wandstärke der Röhrenschale (tunnel_mesh.shell_cross_section()) im Verhältnis zum
+            Röhrendurchmesser - kleinere Tunnel bekommen dünnere Wände
+        wing: so weit ragt der runde Portalkragen über die Röhrenschale hinaus, in Metern
         galleries: Galerie-Eingaben (wie build_galleries()); ein Portal, das höchstens transition_tol von einem
             ENDPUNKT einer Galerie-Centerline liegt, ist ein Übergang Tunnel -> Galerie (portal["kind"] ==
             "gallery"): Stirnwand mit Galerie-Öffnung statt offenes Portal ins Gelände, Block auf den ganzen
             Galerie-Querschnitt vergrößert.
 
     Returns:
-        [{"id", "coords", "tube_width", "radius", "crown", "floor_material", "portals": [portal, portal]}, ...]
-        portal: {"label", "xy", "axis" (Einheitsvektor ins Tunnelinnere), "floor_z", "radius", "crown",
-        "floor_width", "half_width", "length", "flat_depth", "top_z", "bottom_z", "open", "kind" ("open" |
-        "gallery"; bei "gallery" zusätzlich "gallery_half_width", "gallery_height")}; "top_z"/"bottom_z"/
-        "open" sind Vorgaben, die terrain/tunnel_terrain.py an das tatsächliche Gelände anpasst (ein Ende
-        mitten im Berg ist kein offenes Portal und bekommt keinen Block).
+        [{"id", "coords", "tube_width", "radius", "crown", "floor_material", "shell", "portals": [portal, portal]}, ...]
+        portal: {"label", "xy", "axis" (Einheitsvektor ins Tunnelinnere), "floor_z", "radius", "crown", "shell",
+        "collar", "floor_width", "half_width", "length", "flat_depth", "top_z", "bottom_z", "open", "kind" ("open" |
+        "gallery"; bei "gallery" zusätzlich "gallery_half_width", "gallery_height")}. Offenes Portal: runder Kragen
+        (Außenradius radius + shell + collar = half_width); Übergang in eine Galerie: Stirnwand bis top_z/bottom_z.
+        Beide Maße hängen nur vom Bauwerk ab, nicht vom Gelände. "open" setzt terrain/tunnel_terrain.py (ein Ende
+        mitten im Berg ist kein offenes Portal und bekommt kein Bauwerk).
     """
     gallery_ends = []  # (x, y, Fahrbahnbreite) je Galerie-Endpunkt
     for gallery in galleries or []:
@@ -74,6 +84,7 @@ def plan_tunnels(
         tube_width = chain["width"] + width_margin
         radius = tunnel_radius(tube_width)
         crown = tunnel_crown_height(tube_width)
+        shell = shell_ratio * 2.0 * radius
         points = np.asarray(coords, dtype=float)
 
         portals = []
@@ -89,12 +100,14 @@ def plan_tunnels(
                     "floor_z": floor_z,
                     "radius": radius,
                     "crown": crown,
+                    "shell": shell,
+                    "collar": wing,
                     "floor_width": tube_width,
-                    "half_width": radius + wing,
+                    "half_width": radius + shell + wing,
                     "length": length,
                     "flat_depth": flat_depth,
-                    "top_z": floor_z + crown + cover + 0.2,
-                    "bottom_z": floor_z - 1.0,
+                    "top_z": floor_z + crown + shell + wing,
+                    "bottom_z": floor_z - shell - wing,
                     "open": True,
                     "kind": "open",
                 }
@@ -105,9 +118,10 @@ def plan_tunnels(
                 portal["kind"] = "gallery"
                 portal["gallery_half_width"] = gallery_width / 2.0
                 portal["gallery_height"] = gallery_height
-                portal["half_width"] = max(portal["half_width"], gallery_width / 2.0 + gallery_wall_thickness)
-                portal["top_z"] = max(portal["top_z"], floor_z + gallery_height + gallery_roof_thickness + 0.2)
-                portal["bottom_z"] = min(portal["bottom_z"], floor_z - gallery_floor_thickness)
+                # Stirnwand nur so groß wie Röhrenschale und Galerie-Querschnitt (ohne Kragenrand) plus Rand
+                portal["half_width"] = max(radius + shell + TRANSITION_WALL_MARGIN, gallery_width / 2.0 + gallery_wall_thickness)
+                portal["top_z"] = floor_z + max(crown + shell, gallery_height + gallery_roof_thickness) + TRANSITION_WALL_MARGIN
+                portal["bottom_z"] = floor_z - max(shell, gallery_floor_thickness)
         plans.append(
             {
                 "id": chain["id"],
@@ -116,6 +130,7 @@ def plan_tunnels(
                 "radius": radius,
                 "crown": crown,
                 "floor_material": chain["floor_material"],
+                "shell": shell,
                 "portals": portals,
             }
         )
@@ -171,6 +186,59 @@ def transition_wall_triangles(
     return triangles(wall), triangles(tube.difference(passage))
 
 
+def _build_collar_mesh(portal: Dict, material: str, arc_segments: int, tile_m: float) -> Dict:
+    """
+    Offenes Portal als runder Betonkragen: Außenkontur = Röhrenschale + portal["collar"] (tunnel_mesh.
+    shell_cross_section()), von der Portalebene portal["length"] Meter in den Berg. Stirnseite = Kragenkontur minus
+    lichter Röhrenquerschnitt (trifft exakt den ersten Röhrenring), Rückseite = Kragenkontur minus Röhrenschale.
+    """
+    from shapely import constrained_delaunay_triangles
+    from shapely.geometry import Polygon
+
+    from .tunnel_mesh import shell_cross_section
+
+    floor_z, radius, length = portal["floor_z"], portal["radius"], portal["length"]
+    shell, collar = portal.get("shell", 0.0), portal.get("collar", 0.0)
+    ux, uy = portal["axis"]
+    outer = shell_cross_section(radius, arc_segments, shell + collar)
+    center = np.array([0.0, radius / 2.0])
+    builder = MeshBuilder()
+
+    def world(along: float, across: float, height: float) -> List[float]:
+        x, y = _world_xy(portal, along, across)
+        return [float(x), float(y), float(floor_z + height)]
+
+    def ring(shape, along: float, normal) -> None:
+        for tri in constrained_delaunay_triangles(shape).geoms:
+            pts = list(tri.exterior.coords)[:3]
+            builder.triangle([world(along, c, h) for c, h in pts], [[c / tile_m, h / tile_m] for c, h in pts], normal)
+
+    ring(Polygon(outer).difference(Polygon(arc_cross_section(radius, arc_segments))), 0.0, [-ux, -uy, 0.0])
+    inner_shell = Polygon(shell_cross_section(radius, arc_segments, shell)) if shell > 0.0 else Polygon(arc_cross_section(radius, arc_segments))
+    ring(Polygon(outer).difference(inner_shell), length, [ux, uy, 0.0])
+
+    # Mantel des Kragens, Normalen vom Achsmittelpunkt weg
+    right = np.array([uy, -ux])
+    for k in range(len(outer)):
+        a, b = np.array(outer[k]), np.array(outer[(k + 1) % len(outer)])
+        normal_2d = np.array([b[1] - a[1], a[0] - b[0]])
+        normal_2d /= np.linalg.norm(normal_2d)
+        if normal_2d @ ((a + b) / 2.0 - center) < 0.0:
+            normal_2d = -normal_2d
+        builder.quad(
+            [world(0.0, *a), world(length, *a), world(length, *b), world(0.0, *b)],
+            [[0.0, a[0] / tile_m], [length / tile_m, a[0] / tile_m], [length / tile_m, b[0] / tile_m], [0.0, b[0] / tile_m]],
+            [float(right[0] * normal_2d[0]), float(right[1] * normal_2d[0]), float(normal_2d[1])],
+        )
+
+    return {
+        "vertices": np.array(builder.vertices, dtype=float),
+        "uvs": np.array(builder.uvs, dtype=float),
+        "normals": np.array(builder.normals, dtype=float),
+        "faces": {material: builder.faces},
+    }
+
+
 def build_portal_block_mesh(portal: Dict, material: str, arc_segments: int = 12, tile_m: float = 4.0) -> Dict:
     """
     Betonblock des Portals: Stirnseite (Rechteck mit der 240°-Röhrenöffnung, dazu ein Streifen unter Bodenhöhe),
@@ -214,6 +282,9 @@ def build_portal_block_mesh(portal: Dict, material: str, arc_segments: int = 12,
         if abs(point[1] - top) < 1e-6:
             return "top"
         return "right" if point[0] > 0 else "left"
+
+    if portal.get("kind") != "gallery":
+        return _build_collar_mesh(portal, material, arc_segments, tile_m)
 
     if portal.get("kind") == "gallery":
         # Übergang Tunnel -> Galerie: geschlossene Stirnwand mit rechteckiger Öffnung in Galeriegröße (Dach, Bergwand

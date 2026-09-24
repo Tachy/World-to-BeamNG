@@ -24,7 +24,7 @@ def _portals(plans):
 
 def _plans(coords, width=6.5):
     tunnel = {"id": 3, "coords": coords, "width": width, "floor_material": "f"}
-    return plan_tunnels([tunnel], width_margin=1.5, segment_step=10.0, wing=2.0, flat_depth=1.5, length=3.5, cover=1.0)
+    return plan_tunnels([tunnel], width_margin=1.5, segment_step=10.0, wing=2.0, flat_depth=1.5, length=3.5)
 
 
 def _local_axes(zone):
@@ -89,7 +89,7 @@ def test_all_zones_of_a_tunnel_share_one_zone_group_and_tunnels_differ():
     # Wie im Vanilla-Tunnel (jungle_rock_island: zoneGroup 1): die Zonen einer Röhre bilden einen zusammenhängenden Raum
     plans = _plans([(0.0, 0.0, 500.0), (300.0, 0.0, 500.0)])
     plans += plan_tunnels([{"id": 4, "coords": [(0.0, 50.0, 500.0), (100.0, 50.0, 500.0)], "width": 6.5, "floor_material": "f"}],
-                          width_margin=1.5, segment_step=10.0, wing=2.0, flat_depth=1.5, length=3.5, cover=1.0)
+                          width_margin=1.5, segment_step=10.0, wing=2.0, flat_depth=1.5, length=3.5)
 
     zones = _zones(plans)
 

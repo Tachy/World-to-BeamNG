@@ -157,7 +157,7 @@ def test_chain_tunnel_pieces_does_not_join_at_a_three_way_joint_or_across_widths
 
 
 def _plans(tunnels):
-    return plan_tunnels(tunnels, width_margin=1.5, segment_step=10.0, wing=2.0, flat_depth=1.5, length=3.5, cover=1.0)
+    return plan_tunnels(tunnels, width_margin=1.5, segment_step=10.0, wing=2.0, flat_depth=1.5, length=3.5)
 
 
 def test_build_tunnels_returns_one_tube_and_two_portal_blocks_per_chain():
@@ -181,25 +181,41 @@ def test_portal_block_opening_matches_the_first_tube_ring():
     assert ring <= block_front  # jede Ringkante der Röhre ist auch Kante der Portalöffnung
 
 
-def test_portal_block_spans_the_configured_size_and_leaves_the_opening_free():
-    plans = _plans([_piece(1, _straight_coords(length=100.0))])
+def test_open_portal_is_a_round_collar_around_the_shell():
+    # Rundes Portal statt Rechteckblock: Kragen = Röhrenschale + `wing` Meter, Höhe hängt nicht vom Hang ab
+    plans = plan_tunnels([_piece(1, _straight_coords(length=100.0))], width_margin=1.5, segment_step=10.0, wing=1.3,
+                         flat_depth=1.5, length=3.5, shell_ratio=0.1)
     portal = plans[0]["portals"][0]
+    radius, crown, shell = portal["radius"], portal["crown"], portal["shell"]
+    collar_radius = radius + shell + 1.3
     block = build_tunnels(plans, WALL, FRAME)[1]
     v = block["vertices"]
 
-    assert v[:, 0].min() == pytest.approx(0.0) and v[:, 0].max() == pytest.approx(3.5)  # Portalebene bis Blockende
-    assert v[:, 1].max() == pytest.approx(portal["radius"] + 2.0)
+    assert portal["half_width"] == pytest.approx(collar_radius)
+    assert portal["top_z"] == pytest.approx(500.0 + crown + shell + 1.3)
+    assert portal["bottom_z"] == pytest.approx(500.0 - shell - 1.3)
+    assert v[:, 0].min() == pytest.approx(0.0) and v[:, 0].max() == pytest.approx(3.5)  # Portalebene bis Kragenende
     assert v[:, 2].max() == pytest.approx(portal["top_z"]) and v[:, 2].min() == pytest.approx(portal["bottom_z"])
-    # Kein Stirnflächen-Dreieck überdeckt die Öffnung: der Schwerpunkt jedes Stirn-Dreiecks liegt außerhalb des
-    # Röhrenquerschnitts (oder unter dem Boden).
-    radius = portal["radius"]
+    center = np.array([0.0, 500.0 + radius / 2.0])
+    upper = v[v[:, 2] > 500.0]
+    assert np.hypot(upper[:, 1] - center[0], upper[:, 2] - center[1]).max() == pytest.approx(collar_radius, abs=1e-6)
+
+    # Stirnseite = Kragenring: kein Dreieck in der Öffnung, Fläche = Kragenkontur minus lichter Querschnitt
+    from shapely.geometry import Polygon
+
+    from world_to_beamng.tunnels.tunnel_mesh import arc_cross_section, shell_cross_section
+
+    front_area = 0.0
     for face in block["faces"][FRAME]:
         pts = v[face]
-        if not np.allclose(pts[:, 0], 0.0):
+        if not (np.allclose(pts[:, 0], 0.0) and block["normals"][face[0]][0] < -0.99):
             continue
+        (_, y0, z0), (_, y1, z1), (_, y2, z2) = pts
+        front_area += abs((y1 - y0) * (z2 - z0) - (y2 - y0) * (z1 - z0)) / 2.0
         cy, cz = pts[:, 1].mean(), pts[:, 2].mean() - 500.0
-        inside = cz > 0.0 and math.hypot(cy, cz - radius / 2.0) < radius - 1e-6
-        assert not inside
+        assert not (cz > 0.0 and math.hypot(cy, cz - radius / 2.0) < radius - 1e-6)
+    expected = Polygon(shell_cross_section(radius, 12, shell + 1.3)).area - Polygon(arc_cross_section(radius, 12)).area
+    assert front_area == pytest.approx(expected, rel=1e-6)
 
 
 def test_build_tunnels_skips_too_short_tunnels():
@@ -213,3 +229,97 @@ def test_chain_tunnel_pieces_joins_ends_a_few_millimetres_apart():
     b = _piece(2, [(10.004, 0.003, 500.0), (20.0, 0.0, 500.0)])
 
     assert len(chain_tunnel_pieces([a, b])) == 1
+
+
+SHELL = "tunnel_shell"
+
+
+def _shell_mesh(width=8.0, thickness=1.0, length=100.0):
+    return build_tunnel_mesh(
+        _straight_coords(length=length, z=500.0), width=width, floor_material=FLOOR, wall_material=WALL,
+        arc_segments=12, shell_thickness=thickness, shell_material=SHELL,
+    )
+
+
+def _shell_faces(mesh):
+    v, n = mesh["vertices"], mesh["normals"]
+    return [(v[f], n[f[0]]) for f in mesh["faces"][SHELL]]
+
+
+def test_shell_is_a_concentric_cylinder_one_metre_outside_the_tube_with_a_floor_slab():
+    # Röhre als Zylinder mit 1 m Wandstärke: von außen sichtbar massiv, darf frei stehen (kein Erddamm nötig)
+    width = 8.0
+    radius = tunnel_radius(width)
+    mesh = _shell_mesh(width)
+    shell_v = np.array([p for tri, _ in _shell_faces(mesh) for p in tri])
+
+    center_z = 500.0 + radius / 2.0
+    arc = shell_v[shell_v[:, 2] > 500.0]  # oberhalb des Bodens nur der äußere Bogen (und die Stirnringe)
+    assert np.hypot(arc[:, 1], arc[:, 2] - center_z).max() == pytest.approx(radius + 1.0, abs=1e-6)
+    assert shell_v[:, 2].max() == pytest.approx(500.0 + tunnel_crown_height(width) + 1.0, abs=1e-6)
+    assert shell_v[:, 2].min() == pytest.approx(500.0 - 1.0)  # Bodenplatte 1 m unter der Fahrbahn
+
+
+def test_shell_outer_faces_point_away_from_the_tube_axis():
+    radius = tunnel_radius(8.0)
+    center_z = 500.0 + radius / 2.0
+    for tri, normal in _shell_faces(_shell_mesh()):
+        if abs(normal[0]) > 0.5:
+            continue  # Stirnringe
+        c = tri.mean(axis=0)
+        radial = np.array([0.0, c[1], c[2] - center_z])
+        assert normal @ radial > 0.0
+
+
+def test_shell_is_closed_by_a_ring_at_both_ends():
+    from shapely.geometry import Polygon
+
+    from world_to_beamng.tunnels.tunnel_mesh import arc_cross_section, shell_cross_section
+
+    width, thickness = 8.0, 1.0
+    radius = tunnel_radius(width)
+    ring_area = Polygon(shell_cross_section(radius, 12, thickness)).area - Polygon(arc_cross_section(radius, 12)).area
+
+    def area(tri):
+        (_, y0, z0), (_, y1, z1), (_, y2, z2) = tri
+        return abs((y1 - y0) * (z2 - z0) - (y2 - y0) * (z1 - z0)) / 2.0
+
+    faces = _shell_faces(_shell_mesh(width, thickness))
+    start = [tri for tri, n in faces if np.allclose(tri[:, 0], 0.0) and n[0] < -0.99]
+    end = [tri for tri, n in faces if np.allclose(tri[:, 0], 100.0) and n[0] > 0.99]
+    assert sum(area(t) for t in start) == pytest.approx(ring_area, rel=1e-6)
+    assert sum(area(t) for t in end) == pytest.approx(ring_area, rel=1e-6)
+
+
+def test_tube_without_shell_stays_unchanged():
+    mesh = build_tunnel_mesh(_straight_coords(n=3), width=8.0, floor_material=FLOOR, wall_material=WALL, arc_segments=6)
+    assert set(mesh["faces"]) == {FLOOR, WALL}
+
+
+def test_build_tunnels_gives_the_tube_a_shell_and_caps_only_ends_without_portal():
+    # Ein Stirnring der Schale in derselben Ebene wie die Kragen-Stirnseite gäbe Z-Fighting - nur geschlossene Enden
+    # (kein offenes Portal, z.B. mitten im Berg) bekommen ihn.
+    plans = plan_tunnels([_piece(1, _straight_coords(length=100.0))], width_margin=1.5, segment_step=10.0, wing=1.3,
+                         flat_depth=1.5, length=3.5, shell_ratio=0.1)
+    plans[0]["portals"][1]["open"] = False
+    tube = build_tunnels(plans, "wall", "concrete")[0]
+    v, n = tube["vertices"], tube["normals"]
+
+    shell = tube["faces"]["concrete"]
+    assert shell, "Röhre ohne Außenschale"
+    start_ring = [f for f in shell if np.allclose(v[f][:, 0], 0.0) and n[f[0]][0] < -0.99]
+    end_ring = [f for f in shell if np.allclose(v[f][:, 0], 100.0) and n[f[0]][0] > 0.99]
+    assert not start_ring and end_ring
+
+
+def test_shell_thickness_is_a_tenth_of_the_tube_diameter():
+    # Kleinere Tunnel bekommen dünnere Wände: Wandstärke : Durchmesser = 1 : 10
+    wide = plan_tunnels([_piece(1, _straight_coords(length=100.0), width=6.5)], width_margin=1.5, segment_step=10.0,
+                        wing=1.3, flat_depth=1.5, length=3.5, shell_ratio=0.1)[0]
+    narrow = plan_tunnels([_piece(2, _straight_coords(length=100.0), width=2.5)], width_margin=1.5, segment_step=10.0,
+                          wing=1.3, flat_depth=1.5, length=3.5, shell_ratio=0.1)[0]
+
+    for plan in (wide, narrow):
+        assert plan["shell"] == pytest.approx(0.1 * 2.0 * plan["radius"])
+        assert all(p["shell"] == pytest.approx(plan["shell"]) for p in plan["portals"])
+    assert narrow["shell"] < wide["shell"]
