@@ -287,3 +287,21 @@ def test_task_without_subtasks_reports_no_unassigned_time(buffer, clock):
         clock.now += 3.0
 
     assert "nicht zugeordnet" not in buffer.getvalue()
+
+
+def test_subtasks_are_contiguous_so_preparation_time_counts_to_the_next_subtask(buffer, clock):
+    # Nahtlos: die Zeit zwischen zwei Teilaufgaben (Imports, Übergaben) gehört zur folgenden Teilaufgabe
+    pipeline = Pipeline()
+    with pipeline.task("Terrain + Straßen") as task:
+        clock.now += 0.5  # Imports vor der ersten Teilaufgabe
+        with task.subtask("OSM-Daten laden"):
+            clock.now += 2.0
+        clock.now += 0.5  # Übergabe an den Exporter
+        with task.subtask("DecalRoads"):
+            clock.now += 1.0
+
+    output = buffer.getvalue()
+    assert "OSM-Daten laden (2.5s)" in output
+    assert "DecalRoads (1.5s)" in output
+    assert "✓ Terrain + Straßen (4.0s)" in output
+    assert "nicht zugeordnet" not in output

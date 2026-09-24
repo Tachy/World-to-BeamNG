@@ -37,20 +37,22 @@ def _status_line(style: str, symbol: str, name: str, summary: str, elapsed: floa
 class Subtask:
     """Handle für eine einzelne Unteraufgabe (Balken oder Spinner)."""
 
-    def __init__(self, progress: Progress, task_id, name: str, on_close=None):
+    def __init__(self, progress: Progress, task_id, name: str, on_close=None, start: Optional[float] = None):
         self._progress = progress
         self._task_id = task_id
         self._name = name
         self._finalized = False
-        self._on_close = on_close  # meldet die Dauer an die Hauptaufgabe (Summe der erfassten Zeit)
-        self._start = time.perf_counter()
+        self._on_close = on_close  # meldet (Dauer, Endzeit) an die Hauptaufgabe
+        # Nahtlos: beginnt dort, wo die vorige Teilaufgabe endete (Vorbereitung zählt zur folgenden Teilaufgabe)
+        self._start = time.perf_counter() if start is None else start
 
     def _close(self, style: str, symbol: str, summary: str) -> None:
         self._finalized = True
         self._progress.remove_task(self._task_id)
-        elapsed = time.perf_counter() - self._start
+        end = time.perf_counter()
+        elapsed = end - self._start
         if self._on_close:
-            self._on_close(elapsed)
+            self._on_close(elapsed, end)
         console.print(_status_line(style, symbol, self._name, summary, elapsed, indent="  "))
 
     def advance(self, n: int = 1) -> None:
@@ -94,6 +96,7 @@ class PipelineTask:
     def __enter__(self) -> "PipelineTask":
         console.print(f"[bold cyan]▶ {escape(self.name)}[/bold cyan]")
         self._start = time.perf_counter()
+        self._mark = self._start  # Ende der zuletzt abgeschlossenen Teilaufgabe
         self._progress.start()
         return self
 
@@ -110,10 +113,11 @@ class PipelineTask:
     def begin_subtask(self, name: str, total: Optional[int] = None) -> Subtask:
         task_id = self._progress.add_task(name, total=total)
         self._subtask_count += 1
-        return Subtask(self._progress, task_id, name, on_close=self._add_subtask_time)
+        return Subtask(self._progress, task_id, name, on_close=self._add_subtask_time, start=self._mark)
 
-    def _add_subtask_time(self, elapsed: float) -> None:
+    def _add_subtask_time(self, elapsed: float, end: float) -> None:
         self._subtask_time += elapsed
+        self._mark = end
 
     def _report_unassigned(self, elapsed: float) -> None:
         """Hat die Aufgabe Teilaufgaben, müssen deren Zeiten die Gesamtzeit ergeben - den Rest sichtbar melden."""
