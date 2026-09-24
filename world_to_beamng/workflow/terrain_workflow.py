@@ -38,6 +38,197 @@ def water_bounds(grid_bounds_local):
     return (x_min + m, y_min + m, x_max - m, y_max - m)
 
 
+
+def _structure_items(structure_road_polygons: List[Dict], structure_type: str) -> List[Dict]:
+    """Tunnel-/Galerie-Eingaben für tunnels/*: {"id", "coords", "width", "floor_material", "osm_tags"} je Straße
+    mit dem gegebenen structure_type."""
+    items = []
+    for road in structure_road_polygons:
+        if road.get("structure_type") != structure_type:
+            continue
+        properties = config.OSM_MAPPER.get_road_properties(road.get("osm_tags", {}))
+        items.append(
+            {
+                "id": road["road_id"],
+                "open_side": road.get("open_side"),  # Galerien: von _gallery_embedding() ermittelt
+                "coords": road["trimmed_centerline"],
+                "width": properties["width"],
+                "floor_material": f"{properties.get('internal_name', 'road_default')}_structure",
+                "osm_tags": road.get("osm_tags", {}),
+            }
+        )
+    return items
+
+
+
+def _plan_tunnels(structure_road_polygons: List[Dict]) -> List[Dict]:
+    """Tunnel-Pläne (tunnels/tunnel_portal.py::plan_tunnels()) mit den Galerien als möglichen Übergängen."""
+    from ..tunnels.tunnel_portal import plan_tunnels
+
+    return plan_tunnels(
+        _structure_items(structure_road_polygons, "tunnel"),
+        width_margin=config.TUNNEL_WIDTH_MARGIN,
+        segment_step=config.TUNNEL_SEGMENT_STEP,
+        wing=config.TUNNEL_PORTAL_WING,
+        flat_depth=config.TUNNEL_PORTAL_FLAT_DEPTH,
+        length=config.TUNNEL_PORTAL_LENGTH,
+        cover=config.TUNNEL_COVER,
+        galleries=_structure_items(structure_road_polygons, "gallery"),
+        gallery_height=config.GALLERY_HEIGHT,
+        gallery_roof_thickness=config.GALLERY_ROOF_THICKNESS,
+        gallery_floor_thickness=config.GALLERY_FLOOR_THICKNESS,
+        gallery_wall_thickness=config.GALLERY_WALL_THICKNESS,
+        transition_tol=config.TUNNEL_TRANSITION_ENDPOINT_TOL,
+    )
+
+
+def _roadblock_items(
+    tunnel_plans: List[Dict], heights: np.ndarray, origin_x: float, origin_y: float, bounds, surface_roads: List[Dict]
+) -> List[Dict]:
+    """Straßensperren vor Tunneleinfahrten, deren Tunnel über die Kartengrenze reicht (tunnels/roadblock.py), mit
+    der Höhe des fertigen Geländes an jedem Element: [{"name", "position" (x, y, z), "rotation_matrix"}, ...].
+    Einfahrt = Portal auf dem Endpunkt einer Oberflächenstraße (`surface_roads`, road_slope_polygons_2d-Dicts)."""
+    from ..terrain.road_embedding import sample_heightmap_bilinear
+    from ..tunnels.roadblock import plan_roadblocks
+
+    blocks = plan_roadblocks(
+        tunnel_plans,
+        bounds=bounds,
+        edge_margin=config.MAP_EDGE_TUNNEL_MARGIN,
+        width_margin=config.TUNNEL_WIDTH_MARGIN,
+        distance=config.ROADBLOCK_DISTANCE,
+        side_margin=config.ROADBLOCK_SIDE_MARGIN,
+        spacing=config.ROADBLOCK_SPACING,
+        entrances=[
+            (float(p[0]), float(p[1]))
+            for road in surface_roads
+            if road.get("trimmed_centerline") is not None and len(road["trimmed_centerline"]) >= 2
+            for p in (road["trimmed_centerline"][0], road["trimmed_centerline"][-1])
+        ],
+        entrance_tol=config.TUNNEL_TRANSITION_ENDPOINT_TOL,
+    )
+    if not blocks:
+        return []
+    xy = np.array([b["xy"] for b in blocks], dtype=float)
+    z = sample_heightmap_bilinear(heights, origin_x, origin_y, config.TERRAIN_SQUARE_SIZE, xy)
+    return [
+        {"name": b["name"], "position": (float(x), float(y), float(zz)), "rotation_matrix": b["rotation_matrix"]}
+        for b, (x, y), zz in zip(blocks, xy, z)
+    ]
+
+
+
+def _gallery_embedding(road: Dict, ground_at) -> Tuple[Dict, set]:
+    """
+    Böschung einer Galerie: talseitig feste Breite GALLERY_VALLEY_SLOPE_WIDTH, bergseitig nur ein flacher Saum
+    (GALLERY_MOUNTAIN_EMBED_MARGIN) an der Wand. Die offene Seite kommt aus tunnels/gallery_mesh.gallery_open_side()
+    (Tag, sonst Gelände) und wird in road["open_side"] abgelegt - das Galerie-Mesh nimmt dieselbe Seite
+    (_structure_items() -> build_galleries()).
+
+    Returns:
+        (slope_width_override, flat_shoulder_sides) für build_road_embankment_profiles()
+    """
+    from ..tunnels.gallery_mesh import gallery_open_side
+
+    width = config.OSM_MAPPER.get_road_properties(road.get("osm_tags", {}))["width"]
+    open_side = gallery_open_side(road.get("osm_tags", {}), road["trimmed_centerline"], ground_at, width)
+    road["open_side"] = open_side
+    mountain = "left" if open_side == "right" else "right"
+    return {open_side: config.GALLERY_VALLEY_SLOPE_WIDTH, mountain: config.GALLERY_MOUNTAIN_EMBED_MARGIN}, {mountain}
+
+
+def _tunnel_zone_items(tunnel_plans: List[Dict]) -> List[Dict]:
+    """Zone-Quader, die die Tunnelröhren abdunkeln (tunnels/tunnel_zones.py), mit den Werten aus der Config."""
+    from ..tunnels.tunnel_zones import plan_tunnel_zones
+
+    return plan_tunnel_zones(
+        tunnel_plans,
+        max_length=config.TUNNEL_ZONE_MAX_LENGTH,
+        max_deviation=config.TUNNEL_ZONE_MAX_DEVIATION,
+        end_overlap=config.TUNNEL_ZONE_END_OVERLAP,
+        width_margin=config.TUNNEL_ZONE_WIDTH_MARGIN,
+        height_margin=config.TUNNEL_ZONE_HEIGHT_MARGIN,
+        portal_inset=config.TUNNEL_ZONE_PORTAL_INSET,
+        portal_depth=config.TUNNEL_ZONE_PORTAL_DEPTH,
+    )
+
+def _road_marking_lines(specs: List[Tuple[Dict, Dict, List]], node_lists: List[List[List[float]]]) -> List[Dict]:
+    """
+    Markierungslinien (Rand- und Leitlinien) aller markierten DecalRoads als {"name", "nodes", "material"} - siehe
+    geometry/road_markings.py. `specs`: (road_slope_polygon, road_props, _) je DecalRoad, `node_lists`: deren fertige
+    Knoten (mit Breitenübergängen), in derselben Reihenfolge.
+
+    An Einmündungen und Kreuzungen werden die Linien unterbrochen: geschnitten wird mit den Fahrbahnflächen aller
+    berührenden Straßen außer den Geradeaus-Partnern (dort läuft die Linie weiter) und außer Feld-/Fußwegen
+    (ROAD_MARKING_NO_GAP_HIGHWAYS).
+    """
+    from shapely import STRtree
+
+    from ..geometry.polygon import drop_close_nodes
+    from ..geometry.road_markings import (
+        EDGE,
+        build_marking_lines,
+        clip_line,
+        joint_normals,
+        junction_obstacles,
+        marking_layout,
+        road_surface_polygon,
+    )
+    from ..geometry.road_width_transitions import continuation_partners, find_continuations
+
+    if not specs:
+        return []
+    pairs = find_continuations(node_lists, config.ROAD_CONTINUATION_ENDPOINT_TOL, config.ROAD_CONTINUATION_MAX_ANGLE_DEG)
+    partners = continuation_partners(pairs)
+    normals = joint_normals(node_lists, pairs)  # Linien geknickter Geradeaus-Stöße schließen exakt aneinander an
+    centerlines = [np.asarray(nodes, dtype=float)[:, :2] for nodes in node_lists]
+    polygons = [road_surface_polygon(nodes, config.ROAD_MARKING_JUNCTION_CLEARANCE) for nodes in node_lists]
+    tree = STRtree(polygons)
+    no_gap = {
+        i for i, (poly, _, _) in enumerate(specs)
+        if poly.get("osm_tags", {}).get("highway") in config.ROAD_MARKING_NO_GAP_HIGHWAYS
+    }
+
+    lines = []
+    for index, ((poly, props, _), nodes) in enumerate(zip(specs, node_lists)):
+        layout = marking_layout(
+            poly.get("osm_tags", {}),
+            float(props.get("width", 4.0)),
+            props.get("internal_name", ""),
+            config.ROAD_MARKING_HIGHWAYS,
+            config.ROAD_MARKING_SURFACE,
+            config.ROAD_MARKING_MIN_TWO_LANE_WIDTH,
+        )
+        if layout is None:
+            continue
+        obstacles = junction_obstacles(
+            index,
+            polygons,
+            tree,
+            excluded=partners.get(index, set()) | no_gap,
+            centerlines=centerlines,
+            endpoint_tol=config.ROAD_CONTINUATION_ENDPOINT_TOL,
+        )
+        marking_lines = build_marking_lines(
+            nodes,
+            layout,
+            config.ROAD_MARKING_EDGE_INSET,
+            start_normal=normals.get((index, "start")),
+            end_normal=normals.get((index, "end")),
+        )
+        for line_idx, (kind, line) in enumerate(marking_lines):
+            material = config.ROAD_MARKING_EDGE_MATERIAL if kind == EDGE else config.ROAD_MARKING_DIVIDER_MATERIAL
+            for piece_idx, piece in enumerate(clip_line(line, obstacles, config.ROAD_MARKING_MIN_PIECE_LENGTH)):
+                line_nodes = [[x, y, z, config.ROAD_MARKING_LINE_WIDTH] for x, y, z in piece.tolist()]
+                # Innen in Kurven rücken die Linienknoten zusammen - dieselbe Mindestsegmentlänge wie bei der Fahrbahn
+                line_nodes = drop_close_nodes(line_nodes, config.DECAL_ROAD_MIN_NODE_SPACING)
+                if len(line_nodes) >= 2:
+                    lines.append(
+                        {"name": f"marking_{poly['road_id']}_{line_idx}_{piece_idx}", "nodes": line_nodes, "material": material}
+                    )
+    return lines
+
+
 class TerrainWorkflow:
     """
     Orchestriert den Terrain-Export-Workflow.
@@ -95,11 +286,7 @@ class TerrainWorkflow:
         from ..osm.parser import calculate_bbox_from_height_data, extract_roads_from_osm
         from ..osm.downloader import get_osm_data
         from ..geometry.polygon import get_road_polygons, clip_road_polygons
-        from ..geometry.junctions import (
-            detect_junctions_in_centerlines,
-            mark_junction_endpoints,
-            split_roads_at_mid_junctions,
-        )
+        from ..geometry.junctions import build_junction_network
         from ..io.cache import calculate_global_tiles_hash
 
         sub = task.begin_subtask("OSM-Daten laden")
@@ -201,11 +388,9 @@ class TerrainWorkflow:
         # Verwende ROAD_CLIP_MARGIN aus Config (negativ = erweitern!)
         road_polygons = clip_road_polygons(road_polygons, grid_bounds_local, margin=config.ROAD_CLIP_MARGIN)
 
-        # 7. Junction-Detection (benötigt road_polygons mit coords)
-        # WICHTIG: Reihenfolge wie im alten Workflow: detect → split → mark
-        junctions = detect_junctions_in_centerlines(road_polygons)
-        road_polygons, junctions = split_roads_at_mid_junctions(road_polygons, junctions)  # ZUERST Split
-        road_polygons = mark_junction_endpoints(road_polygons, junctions)  # DANN Mark
+        # 7. Junction-Detection (benötigt road_polygons mit coords): detect → split → mark, Tunnel ausgenommen
+        # (liegen auf einer anderen Ebene, bilden nie Kreuzungen - siehe build_junction_network())
+        road_polygons, junctions = build_junction_network(road_polygons)
 
         # Wandle road_polygons in road_slope_polygons_2d um (für Klassifizierung)
         # WICHTIG: NACH Junction-Detection, damit die gesplitteten Straßen verwendet werden!
@@ -282,8 +467,8 @@ class TerrainWorkflow:
             embed_roads_into_heightmap,
             build_road_embankment_profiles,
             apply_embankment_blend,
+            sample_heightmap_bilinear,
         )
-        from ..tunnels.gallery_mesh import resolve_open_side
         from ..terrain.terrain_materials import (
             DEFAULT_LANDUSE_CATEGORY,
             build_photo_fallback_layer,
@@ -319,18 +504,13 @@ class TerrainWorkflow:
         # - Talseits: GALLERY_VALLEY_SLOPE_WIDTH, echte Abwärts-Interpolation zum natürlichen Gelände (das
         #   DGM zeigt direkt an der Fahrbahnkante die reale Talseiten-Struktur statt Naturgelände, siehe
         #   build_road_embankment_profiles()-Docstring - eine berechnete Breite wäre verrauscht/facettiert).
-        # Ohne avalanche_protector:left/right-Tag (kein zuverlässiger Fallback) bleibt die Böschung auf
-        # beiden Seiten normal wie bei einer Oberflächenstraße.
-        def _gallery_slope_override(osm_tags):
-            open_side = resolve_open_side(osm_tags or {})
-            if open_side == "left":
-                return {"left": config.GALLERY_VALLEY_SLOPE_WIDTH, "right": config.GALLERY_MOUNTAIN_EMBED_MARGIN}, {"right"}
-            if open_side == "right":
-                return {"right": config.GALLERY_VALLEY_SLOPE_WIDTH, "left": config.GALLERY_MOUNTAIN_EMBED_MARGIN}, {"left"}
-            return {}, set()
+        # Ohne avalanche_protector:left/right-Tag wird die Talseite aus dem (noch natürlichen) Gelände ermittelt -
+        # dieselbe Seite nutzt später das Galerie-Mesh (siehe _gallery_embedding()).
+        def _natural_ground_at(x, y):
+            return sample_heightmap_bilinear(heights, terrain_origin_x, terrain_origin_y, config.TERRAIN_SQUARE_SIZE, np.column_stack([x, y]))
 
         def _gallery_road(r):
-            override, flat_sides = _gallery_slope_override(r.get("osm_tags"))
+            override, flat_sides = _gallery_embedding(r, _natural_ground_at)
             return {**r, "slope_width_override": override, "flat_shoulder_sides": flat_sides}
 
         gallery_roads = [_gallery_road(r) for r in structure_road_polygons if r.get("structure_type") == "gallery"]
@@ -373,6 +553,35 @@ class TerrainWorkflow:
                 heights, terrain_origin_x, terrain_origin_y, config.TERRAIN_SQUARE_SIZE, bridge_roads,
                 clamp_to_max=True,
             )
+
+        # Tunnel: Stücke zu Ketten verbinden, Portale festlegen und das Gelände darauf abstimmen - Überdeckung
+        # über der Röhre, Portal-Zone auf Bodenhöhe, Loch-Zellen im Portalblock (siehe terrain/tunnel_terrain.py).
+        # Nach der Straßen-Einbettung, die Oberflächenstraßen selbst bleiben dabei unangetastet.
+        from ..geometry.road_surfaces import union_road_surfaces
+
+        tunnel_plans = []
+        tunnel_holes = None
+        if config.TUNNELS_ENABLED:
+            from ..terrain.tunnel_terrain import shape_terrain_for_tunnels
+
+            tunnel_plans = _plan_tunnels(structure_road_polygons)
+            if tunnel_plans:
+                import shapely
+
+                protected = union_road_surfaces(surface_road_polygons + gallery_roads)
+                if protected is not None:
+                    shapely.prepare(protected)
+                heights, tunnel_holes = shape_terrain_for_tunnels(
+                    heights,
+                    terrain_origin_x,
+                    terrain_origin_y,
+                    config.TERRAIN_SQUARE_SIZE,
+                    tunnel_plans,
+                    cover=config.TUNNEL_COVER,
+                    cover_slope=config.TUNNEL_COVER_SLOPE,
+                    protected=protected,
+                    cover_gap_max=config.TUNNEL_COVER_GAP_MAX,
+                )
 
         # Layer-Map: EIN Luftbild-Material für die gesamte Fläche, dann OSM-
         # Landnutzung obenauf (siehe build_photo_fallback_layer()).
@@ -426,13 +635,17 @@ class TerrainWorkflow:
         # Straßen- und Gebäudeflächen: (1) Bodenbewuchs wächst auf dem Layer - dort geht es
         # zurück aufs Luftbild, sonst wächst Gras durch Decals und Häuser; (2) Ausschlusszone
         # für die Weinberg-Reben.
-        from ..geometry.road_surfaces import union_road_surfaces
-
         # Alle Straßenflächen EINMAL vereinigt (vereinfacht): dient Maske, Reben-Ausschluss und dem Wald.
         # Oberflächenstraßen UND Galerien (jetzt wie normale Straßen ins Terrain eingebettet, siehe oben) -
         # nur Brücken/Tunnel bleiben außen vor, die sollen die Vegetation nicht blockieren, sonst bliebe
-        # z.B. beim Tunnel ein kahler Streifen über dem ganzen Bergrücken.
-        road_surface_union = union_road_surfaces(surface_road_polygons + gallery_roads)
+        # z.B. beim Tunnel ein kahler Streifen über dem ganzen Bergrücken. Die Tunnel-Portalblöcke dagegen
+        # zählen dazu (sonst wüchsen Bäume/Gras durch den Block).
+        from ..tunnels.tunnel_portal import portal_footprint
+
+        portal_footprints = [
+            {"road_polygon": np.array(portal_footprint(portal))} for plan in tunnel_plans for portal in plan["portals"] if portal["open"]
+        ]
+        road_surface_union = union_road_surfaces(surface_road_polygons + gallery_roads + portal_footprints)
         road_shapes = [road_surface_union] if road_surface_union is not None else []
         building_shapes = [
             p["geometry"]
@@ -464,6 +677,12 @@ class TerrainWorkflow:
         # Zuletzt, damit Malen/Maskieren oben unverändert auf der vollen Layer-Map laufen.
         if config.TERRAIN_PADDING_AS_HOLES:
             layer_map = mark_padding_as_holes(layer_map, data_cols=nx, data_rows=ny)
+        # Tunnelportale: Loch-Zellen an der Portalebene (liegen komplett im Portalblock)
+        if tunnel_holes is not None and np.any(tunnel_holes):
+            from ..terrain.ter_writer import EMPTY_LAYER_VALUE
+
+            layer_map = layer_map.copy()
+            layer_map[tunnel_holes] = EMPTY_LAYER_VALUE
 
         # Vier-Bilder-Modus: erst jetzt (Malen, Masken und Löcher sind fertig) wird die Layer-Map pro Kachel in
         # physische Materialien aufgeteilt - jede Kachel bekommt ihr eigenes Foto. Die Foto-Kachelung ist ein
@@ -546,14 +765,25 @@ class TerrainWorkflow:
 
         # Tunnel (Röhre + Portale) und Galerien (Dach + Stützen) auf der fertigen Heightmap - siehe tunnels/
         tunnel_meshes = []
+        roadblocks = []
+        tunnel_zones = []
         if config.TUNNELS_ENABLED:
-            tunnel_meshes = self._build_tunnels(structure_road_polygons, heights, terrain_origin_x, terrain_origin_y)
+            tunnel_zones = _tunnel_zone_items(tunnel_plans)
+            tunnel_meshes = self._build_tunnels(structure_road_polygons, tunnel_plans, heights, terrain_origin_x, terrain_origin_y)
+            roadblocks = _roadblock_items(
+                tunnel_plans, heights, terrain_origin_x, terrain_origin_y, grid_bounds_local, surface_road_polygons
+            )
 
         # POI-Kandidaten (Orte, große Parkplätze) für zusätzliche, in der Fahrzeugauswahl wählbare Spawn-
         # Punkte - siehe osm/poi_points.py und ItemManager._compute_poi_spawn_points(). Höhe auf der
         # FERTIGEN Heightmap abgetastet (die Positionen kommen als reine XY-Punkte aus OSM, nicht von
         # einer Straßen-Centerline).
         poi_points = self._collect_poi_points(osm_data, global_offset, heights, terrain_origin_x, terrain_origin_y, grid_bounds_local)
+
+        # Wählbare Spawn-Punkte vor den Einfahrten der Tunnelketten, Blick in den Tunnel (tunnels/entrance_spawns.py)
+        from ..tunnels.entrance_spawns import plan_entrance_spawns
+
+        tunnel_spawns = plan_entrance_spawns(road_slope_polygons_2d, config.TUNNEL_SPAWN_DISTANCE, config.POI_SPAWN_EXCLUDED_HIGHWAYS)
 
         sub.finish(f"{len(road_slope_polygons_2d)} Straßensegmente")
 
@@ -582,6 +812,9 @@ class TerrainWorkflow:
             "wall_meshes": wall_meshes,  # Mesh-Dicts der Bruchsteinmauern für export_walls()
             "bridge_meshes": bridge_meshes,  # Brücken-Mesh-Dicts für export_bridges()
             "tunnel_meshes": tunnel_meshes,  # Tunnel-/Galerie-Mesh-Dicts für export_tunnels()
+            "tunnel_spawns": tunnel_spawns,  # Spawn-Punkte vor Tunneleinfahrten für ItemManager.save(fixed_spawns=...)
+            "roadblocks": roadblocks,  # Sperren vor Einfahrten von Tunneln über die Kartengrenze, für export_roadblocks()
+            "tunnel_zones": tunnel_zones,  # Zone-Quader für dunkle Tunnelröhren, für export_tunnel_zones()
             "grid": grid,
             "road_polygons": road_polygons,
             "road_slope_polygons_2d": road_slope_polygons_2d,  # Für DecalRoad-Export
@@ -794,9 +1027,11 @@ class TerrainWorkflow:
         logger.debug(f"  [OK] {len(meshes)} Brücken exportiert (bridges.dae)")
         return len(meshes)
 
-    def _build_tunnels(self, structure_road_polygons: List[Dict], heights: np.ndarray, terrain_origin_x: float, terrain_origin_y: float) -> List[Dict]:
-        """Tunnel- (Röhre+Portale) und Galerie-Meshes (Dach+Stützen) für alle Straßen mit structure_type in
-        ("tunnel", "gallery") - siehe tunnels/tunnel_mesh.py und tunnels/gallery_mesh.py."""
+    def _build_tunnels(
+        self, structure_road_polygons: List[Dict], tunnel_plans: List[Dict], heights: np.ndarray, terrain_origin_x: float, terrain_origin_y: float
+    ) -> List[Dict]:
+        """Tunnel- (Röhre+Portalblöcke, aus den Tunnel-Plänen, siehe tunnels/tunnel_portal.py) und Galerie-Meshes
+        (Dach+Stützen) für alle Straßen mit structure_type "gallery" - siehe tunnels/gallery_mesh.py."""
         from ..terrain.road_embedding import sample_heightmap_bilinear
         from ..tunnels.gallery_mesh import build_galleries
         from ..tunnels.tunnel_mesh import build_tunnels
@@ -804,32 +1039,16 @@ class TerrainWorkflow:
         def ground_at(x, y):
             return sample_heightmap_bilinear(heights, terrain_origin_x, terrain_origin_y, config.TERRAIN_SQUARE_SIZE, np.column_stack([x, y]))
 
-        def _items(structure_type):
-            return [
-                {
-                    "id": road["road_id"],
-                    "coords": road["trimmed_centerline"],
-                    "width": config.OSM_MAPPER.get_road_properties(road.get("osm_tags", {}))["width"],
-                    "floor_material": f"{config.OSM_MAPPER.get_road_properties(road.get('osm_tags', {})).get('internal_name', 'road_default')}_structure",
-                    "osm_tags": road.get("osm_tags", {}),
-                }
-                for road in structure_road_polygons
-                if road.get("structure_type") == structure_type
-            ]
-
         tunnel_meshes = build_tunnels(
-            _items("tunnel"),
-            ground_at,
+            tunnel_plans,
             wall_material=config.TUNNEL_MATERIAL_NAME,
-            frame_material=config.TUNNEL_MATERIAL_NAME,
-            width_margin=config.TUNNEL_WIDTH_MARGIN,
+            portal_material=config.TUNNEL_MATERIAL_NAME,
             arc_segments=config.TUNNEL_ARC_SEGMENTS,
-            segment_step=config.TUNNEL_SEGMENT_STEP,
-            portal_slope_sample_dist=config.TUNNEL_PORTAL_SLOPE_SAMPLE_DIST,
-            frame_margin=config.TUNNEL_PORTAL_FRAME_MARGIN,
         )
+        # Übergangs-Portale: dort schließt die Portalwand die Galerie (keine eigene Stirnfläche, siehe gallery_mesh.py)
+        transition_points = [p["xy"] for plan in tunnel_plans for p in plan["portals"] if p.get("kind") == "gallery"]
         gallery_meshes = build_galleries(
-            _items("gallery"),
+            _structure_items(structure_road_polygons, "gallery"),
             ground_at,
             roof_material=config.TUNNEL_MATERIAL_NAME,
             height=config.GALLERY_HEIGHT,
@@ -840,6 +1059,8 @@ class TerrainWorkflow:
             column_size=config.GALLERY_COLUMN_SIZE,
             curb_height=config.GALLERY_CURB_HEIGHT,
             curb_width=config.GALLERY_CURB_WIDTH,
+            transition_points=transition_points,
+            transition_tol=config.TUNNEL_TRANSITION_ENDPOINT_TOL,
         )
         return tunnel_meshes + gallery_meshes
 
@@ -886,6 +1107,43 @@ class TerrainWorkflow:
             {**candidate, "position": [float(x), float(y), float(z)]}
             for candidate, x, y, z in zip(in_bounds, xs, ys, zs)
         ]
+
+    def export_tunnel_zones(self, mesh_data: Dict) -> int:
+        """Zone- und Portal-Objekte, die die Tunnelröhren abdunkeln (siehe _tunnel_zone_items()).
+
+        Returns:
+            Anzahl Zonen
+        """
+        zones = mesh_data.get("tunnel_zones") or []
+        for zone in zones:
+            self.items.add_item(
+                zone["name"],
+                item_class=zone["class"],
+                position=zone["position"],
+                rotation_matrix=zone["rotation_matrix"],
+                scale=zone["scale"],
+                overwrite=True,
+                **zone["fields"],
+            )
+        return len(zones)
+
+    def export_roadblocks(self, mesh_data: Dict) -> int:
+        """Straßensperren (siehe _roadblock_items()) als TSStatic mit dem BeamNG-Standardasset config.ROADBLOCK_SHAPE.
+
+        Returns:
+            Anzahl Barriere-Elemente
+        """
+        blocks = mesh_data.get("roadblocks") or []
+        for block in blocks:
+            self.items.add_item(
+                block["name"],
+                item_class="TSStatic",
+                shape_name=config.ROADBLOCK_SHAPE,
+                position=block["position"],
+                rotation_matrix=block["rotation_matrix"],
+                overwrite=True,
+            )
+        return len(blocks)
 
     def export_tunnels(self, mesh_data: Dict) -> int:
         """
@@ -1065,10 +1323,12 @@ class TerrainWorkflow:
         """
         from ..config import OSM_MAPPER
         from ..geometry.polygon import drop_close_nodes
+        from ..geometry.decal_chunks import split_decal_nodes
+        from ..geometry.road_width_transitions import apply_width_transitions, close_continuation_gaps
 
         road_slope_polygons_2d = mesh_data["road_slope_polygons_2d"]
         unique_materials: Dict[str, Dict] = {}
-        count = 0
+        specs = []  # (road_slope_polygon, road_props, nodes) je exportierbarer DecalRoad
 
         for poly in road_slope_polygons_2d:
             if poly.get("structure_type", "surface") != "surface":
@@ -1088,9 +1348,6 @@ class TerrainWorkflow:
                 continue
 
             props = OSM_MAPPER.get_road_properties(poly.get("osm_tags", {}))
-            mat_name = props.get("internal_name", "road_default")
-            unique_materials[mat_name] = props
-
             width = float(props.get("width", 4.0))
             nodes = [[float(x), float(y), float(z), width] for x, y, z in centerline]
 
@@ -1100,29 +1357,60 @@ class TerrainWorkflow:
             nodes = drop_close_nodes(nodes, config.DECAL_ROAD_MIN_NODE_SPACING)
             if len(nodes) < 2:
                 continue
+            specs.append((poly, props, nodes))
+
+        # Weiche Breitenübergänge an Geradeaus-Stößen (je 5 m davor/dahinter, Spline) - siehe
+        # geometry/road_width_transitions.py. Fügt Knoten nur mit >= DECAL_ROAD_MIN_NODE_SPACING Abstand ein.
+        node_lists = apply_width_transitions(
+            [nodes for _, _, nodes in specs],
+            transition_length=config.ROAD_WIDTH_TRANSITION_LENGTH,
+            step=config.ROAD_WIDTH_TRANSITION_STEP,
+            endpoint_tol=config.ROAD_CONTINUATION_ENDPOINT_TOL,
+            max_angle_deg=config.ROAD_CONTINUATION_MAX_ANGLE_DEG,
+            min_delta=config.ROAD_WIDTH_TRANSITION_MIN_DELTA,
+            min_spacing=config.DECAL_ROAD_MIN_NODE_SPACING,
+        )
+
+        # Fahrbahn-Decals an geknickten Geradeaus-Stößen über den Stoßpunkt verlängern (sonst Keil-Lücke außen, siehe
+        # close_continuation_gaps()). Nur für die Fahrbahn - die Markierungen nutzen weiter node_lists.
+        decal_node_lists = close_continuation_gaps(
+            node_lists, config.ROAD_CONTINUATION_ENDPOINT_TOL, config.ROAD_CONTINUATION_MAX_ANGLE_DEG
+        )
+
+        count = 0
+        for (poly, props, _), nodes in zip(specs, decal_node_lists):
+            mat_name = props.get("internal_name", "road_default")
+            unique_materials[mat_name] = props
 
             # renderPriority aus dem vorhandenen "priority"-Feld ableiten
             # (surface_types in data/osm_to_beamng.json): an Kreuzungen
             # überlappen sich die (immer volle Breite habenden) Enden
             # mehrerer DecalRoad-Objekte - ohne explizite, konsistente
             # Zeichenreihenfolge sortiert BeamNG das beliebig, was an
-            # Kreuzungen wie ein "Flickenteppich" aussieht. Höherwertige
-            # Straßen (Asphalt) werden so immer über niedrigerwertigen
-            # (Dirt/Concrete) gezeichnet.
-            render_priority = int(props.get("priority", 0))
+            # Kreuzungen wie ein "Flickenteppich" aussieht. BeamNG zeichnet
+            # in ABSTEIGENDER renderPriority (kleinster Wert oben, siehe
+            # config.ROAD_RENDER_PRIORITY_BASE) - höherwertige Straßen
+            # (Asphalt) bekommen deshalb den kleineren Wert und liegen über
+            # niedrigerwertigen (Dirt/Concrete).
+            render_priority = config.ROAD_RENDER_PRIORITY_BASE - int(props.get("priority", 0))
 
-            self.items.add_decal_road(
-                name=f"road_{road_id}",
-                nodes=nodes,
-                material=mat_name,
-                drivability=props.get("drivability", 1.0),
-                overwrite=True,
-                autoLanes=True,
-                autoJunction=True,
-                improvedSpline=True,
-                renderPriority=render_priority,
-            )
-            count += 1
+            # Lange Fahrbahnen in Stücke teilen - BeamNG zeichnet pro DecalRoad nur begrenzt viel Geometrie (siehe
+            # geometry/decal_chunks.py). Die Markierungslinien bleiben ungeteilt: schmal, weit unter dem Budget.
+            chunks = split_decal_nodes(nodes, config.ROAD_DECAL_MAX_AREA, config.ROAD_DECAL_MIN_TAIL_LENGTH)
+            for chunk_idx, chunk in enumerate(chunks):
+                name = f"road_{poly.get('road_id')}" if len(chunks) == 1 else f"road_{poly.get('road_id')}_{chunk_idx}"
+                self.items.add_decal_road(
+                    name=name,
+                    nodes=chunk,
+                    material=mat_name,
+                    drivability=props.get("drivability", 1.0),
+                    overwrite=True,
+                    autoLanes=True,
+                    autoJunction=True,
+                    improvedSpline=True,
+                    renderPriority=render_priority,
+                )
+                count += 1
 
         road_material_entries = [
             OSM_MAPPER.generate_materials_json_entry(mat_name, props) for mat_name, props in unique_materials.items()
@@ -1132,7 +1420,34 @@ class TerrainWorkflow:
             if mat_name:
                 self.materials.materials[mat_name] = mat_entry
 
-        logger.debug(f"  [OK] {count} DecalRoad-Item(s) exportiert ({len(unique_materials)} Materialien)")
+        # Fahrbahnmarkierungen als eigene schmale DecalRoads obenauf (geometry/road_markings.py). drivability=-1:
+        # BeamNGs KI-Straßennetz (lua/ge/map.lua) übernimmt nur DecalRoads mit drivability > 0.
+        marking_count = 0
+        if config.ROAD_MARKINGS_ENABLED:
+            used_markings = set()
+            for line in _road_marking_lines(specs, node_lists):
+                marking = OSM_MAPPER.road_markings[line["material"]]
+                self.items.add_decal_road(
+                    name=line["name"],
+                    nodes=line["nodes"],
+                    material=line["material"],
+                    drivability=-1,
+                    overwrite=True,
+                    improvedSpline=True,
+                    textureLength=marking["textureLength"],
+                    renderPriority=config.ROAD_MARKING_RENDER_PRIORITY,
+                )
+                used_markings.add(line["material"])
+                marking_count += 1
+            for mat_name in sorted(used_markings):
+                self.materials.materials[mat_name] = OSM_MAPPER.generate_marking_material_entry(
+                    mat_name, OSM_MAPPER.road_markings[mat_name]
+                )
+
+        logger.debug(
+            f"  [OK] {count} DecalRoad-Item(s) exportiert ({len(unique_materials)} Materialien), "
+            f"{marking_count} Markierungslinie(n)"
+        )
         return count
 
     def export_ground_cover(
@@ -1323,7 +1638,13 @@ class TerrainWorkflow:
 
         with task.subtask("Tunnel/Galerien") as sub:
             count = self.export_tunnels(mesh_data)
-            sub.finish(f"{count} Mesh(e)" if count else "keine Tunnel/Galerien")
+            blocked = self.export_roadblocks(mesh_data)
+            zones = self.export_tunnel_zones(mesh_data)
+            sub.finish(
+                (f"{count} Mesh(e)" if count else "keine Tunnel/Galerien")
+                + (f", {zones} Dunkel-Zonen" if zones else "")
+                + (f", {blocked} Sperr-Elemente" if blocked else "")
+            )
 
         with task.subtask("Terrain-Export") as sub:
             self.export_merged_terrain(

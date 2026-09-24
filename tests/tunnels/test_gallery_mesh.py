@@ -241,3 +241,107 @@ def test_build_galleries_uses_the_osm_tag_when_present():
     v = np.array(meshes[0]["vertices"])
     assert _off_grid_vertices_near(v, y=-4.0) > 0
     assert _off_grid_vertices_near(v, y=4.0) == 0
+
+
+def _cap_faces(mesh, x, normal_x):
+    v, n = mesh["vertices"], mesh["normals"]
+    faces = [f for faces in mesh["faces"].values() for f in faces]
+    return [f for f in faces if np.allclose(v[f][:, 0], x) and np.allclose(n[f[0]], [normal_x, 0.0, 0.0])]
+
+
+def test_end_caps_can_be_left_out():
+    ground_at = lambda x, y: 500.0 - 2.0 * np.asarray(y, float)
+    kwargs = dict(width=8.0, height=5.0, ground_at=ground_at, floor_material=FLOOR, roof_material=ROOF)
+
+    capped = build_gallery_mesh(_straight_coords(), **kwargs)
+    uncapped = build_gallery_mesh(_straight_coords(), cap_start=False, **kwargs)
+
+    assert _cap_faces(capped, 0.0, -1.0) and not _cap_faces(uncapped, 0.0, -1.0)
+    assert _cap_faces(uncapped, 60.0, 1.0)  # anderes Ende bleibt verschlossen
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_transition_removes_only_the_cap_at_the_transition_end(reverse):
+    ground_at = lambda x, y: 500.0 - 2.0 * np.asarray(y, float)
+    coords = _straight_coords()
+    if reverse:
+        coords = coords[::-1]
+    gallery = {"id": 7, "coords": coords, "width": 8.0, "floor_material": FLOOR, "osm_tags": {}}
+
+    mesh = build_galleries([gallery], ground_at, ROOF, transition_points=[(0.0, 0.0)], transition_tol=0.5)[0]
+
+    assert not _cap_faces(mesh, 0.0, -1.0)  # am Übergang (x = 0) keine Stirnfläche
+    assert _cap_faces(mesh, 60.0, 1.0)  # freies Ende verschlossen
+
+
+def test_without_tag_the_whole_gallery_opens_to_the_majority_valley_side():
+    # Gelände kippt bei x = 42: davor liegt rechts (-y) das Tal, danach links (+y). Die Galerie ist trotzdem auf
+    # ganzer Länge nach EINER Seite offen - der mit der Mehrheit (rechts), die Bergwand durchgehend links.
+    def ground_at(x, y):
+        x, y = np.asarray(x, float), np.asarray(y, float)
+        return np.where(x < 42.0, 500.0 + 2.0 * y, 500.0 - 2.0 * y)
+
+    mesh = build_gallery_mesh(
+        _straight_coords(length=60.0, n=13), width=8.0, height=5.0, ground_at=ground_at, floor_material=FLOOR,
+        roof_material=ROOF, wall_thickness=5.0,
+    )
+    y = mesh["vertices"][:, 1]
+
+    assert np.any(np.isclose(y, 9.0))  # Außenkante der Bergwand links (4 + 5 m)
+    assert not np.any(np.isclose(y, -9.0))  # rechts nirgends eine Wand
+
+
+def _embedded_slope(valley_right: bool):
+    """Hang wie nach der Einbettung: bis 6 m neben der Achse flach (Fahrbahn + Böschungssaum, mit einer winzigen
+    Gegenneigung wie im echten Export), außerhalb fällt der Hang zur Talseite steil ab."""
+    sign = 1.0 if valley_right else -1.0  # Laufrichtung +x: rechts = -y, links = +y
+
+    def ground_at(x, y):
+        y = np.asarray(y, float)
+        slope = 500.0 + sign * y  # valley_right: rechts (-y) tiefer
+        flat = 500.0 - 0.01 * sign * y  # Gegenneigung im flachen Band: täuscht die falsche Seite vor
+        return np.where(np.abs(y) <= 6.0, flat, slope)
+
+    return ground_at
+
+
+@pytest.mark.parametrize("valley_right", [True, False])
+def test_valley_side_looks_beyond_the_embedded_band(valley_right):
+    xy = np.array([[0.0, 0.0], [10.0, 0.0], [20.0, 0.0]])
+
+    side = valley_side(xy, _embedded_slope(valley_right), half_width=3.25)
+
+    assert np.all(side == (1.0 if valley_right else -1.0))
+
+
+def test_untagged_gallery_on_an_embedded_slope_opens_to_the_valley():
+    mesh = build_gallery_mesh(
+        _straight_coords(length=60.0, n=13), width=6.5, height=5.0, ground_at=_embedded_slope(valley_right=True),
+        floor_material=FLOOR, roof_material=ROOF, wall_thickness=5.0,
+    )
+    y = mesh["vertices"][:, 1]
+
+    assert np.any(np.isclose(y, 3.25 + 5.0))  # Bergwand links (Hang steigt nach links)
+    assert not np.any(np.isclose(y, -(3.25 + 5.0)))
+
+
+def test_gallery_open_side_prefers_the_tag_and_falls_back_to_the_terrain():
+    from world_to_beamng.tunnels.gallery_mesh import gallery_open_side
+
+    coords = _straight_coords(length=60.0, n=13)
+    valley_right = _embedded_slope(valley_right=True)
+
+    assert gallery_open_side({"avalanche_protector:left": "open"}, coords, valley_right, 6.5) == "left"
+    assert gallery_open_side({}, coords, valley_right, 6.5) == "right"
+    assert gallery_open_side({}, coords, _embedded_slope(valley_right=False), 6.5) == "left"
+
+
+def test_build_galleries_uses_a_given_open_side():
+    gallery = {"id": 9, "coords": _straight_coords(length=60.0, n=13), "width": 6.5, "floor_material": FLOOR,
+               "osm_tags": {}, "open_side": "left"}
+
+    mesh = build_galleries([gallery], _embedded_slope(valley_right=True), ROOF, wall_thickness=5.0)[0]
+    y = mesh["vertices"][:, 1]
+
+    assert np.any(np.isclose(y, -(3.25 + 5.0)))  # vorgegeben links offen -> Bergwand rechts, trotz Gelände
+    assert not np.any(np.isclose(y, 3.25 + 5.0))

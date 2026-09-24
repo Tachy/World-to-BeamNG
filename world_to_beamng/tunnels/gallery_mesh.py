@@ -34,32 +34,51 @@ def resolve_open_side(osm_tags: Dict) -> Optional[str]:
     return None
 
 
-def valley_side(xy: np.ndarray, ground_at: HeightAt, half_width: float) -> np.ndarray:
-    """
-    Pro Punkt: +1.0, wenn die Seite RECHTS der Laufrichtung talwärts liegt (niedrigere natürliche Geländehöhe),
-    sonst -1.0 (links talwärts). Gleiche Technik wie terrain.road_embedding.build_road_embankment_profiles()
-    (natürliche Geländehöhe links/rechts der Centerline vergleichen).
+VALLEY_PROBE_OFFSETS = (10.0, 20.0, 40.0)  # Abstände über den Fahrbahnrand hinaus, in Metern
 
-    NUR ein Fallback für den (seltenen) Fall ohne `avalanche_protector:left`/`:right`-Tag (siehe
-    resolve_open_side()) - das DGM an einer bestehenden Galerie zeigt bereits das Bauwerk selbst statt
-    des ursprünglichen Hangs, ein Höhenvergleich links/rechts der Centerline ist dort bestenfalls eine
-    grobe Näherung.
+
+def valley_score(xy: np.ndarray, ground_at: HeightAt, half_width: float) -> np.ndarray:
+    """
+    Pro Punkt: Summe (Gelände links - Gelände rechts) in VALLEY_PROBE_OFFSETS Metern jenseits des Fahrbahnrands
+    (positiv = rechts tiefer = Tal rechts). Bewusst AUSSERHALB der Einbettung gemessen: direkt neben der Galerie ist
+    das Gelände nach der Einbettung flach (Fahrbahn, Bergwand-Saum, Böschung) - dort entschieden Zentimeter bzw.
+    ein Gleichstand die Seite (Nuova strada 2026-09-24: beide Galerien zum Berg hin offen).
     """
     directions = np.diff(xy, axis=0)
     directions = np.vstack([directions, directions[-1:]])
     norms = np.linalg.norm(directions, axis=1, keepdims=True)
     norms[norms < 1e-9] = 1.0
     directions = directions / norms
+    # dieselbe Vorzeichen-Konvention wie offset_points(): links = Punkt + (-dy, dx)
     perp = np.column_stack([-directions[:, 1], directions[:, 0]])
+    score = np.zeros(len(xy))
+    for offset in VALLEY_PROBE_OFFSETS:
+        distance = half_width + offset
+        left_xy, right_xy = xy + perp * distance, xy - perp * distance
+        score += np.asarray(ground_at(left_xy[:, 0], left_xy[:, 1]), float) - np.asarray(ground_at(right_xy[:, 0], right_xy[:, 1]), float)
+    return score
 
-    # WICHTIG: dieselbe Vorzeichen-Konvention wie offset_points() (left = point + normal, right = point - normal,
-    # normal = (-dy,dx)) - sonst zeigt diese Funktion "links"/"rechts" spiegelverkehrt zu den left[]/right[]-Arrays,
-    # die build_gallery_mesh() aus offset_points() für Wand/Stützen-Platzierung verwendet.
-    left_xy = xy + perp * half_width
-    right_xy = xy - perp * half_width
-    left_z = np.asarray(ground_at(left_xy[:, 0], left_xy[:, 1]), dtype=float)
-    right_z = np.asarray(ground_at(right_xy[:, 0], right_xy[:, 1]), dtype=float)
-    return np.where(right_z < left_z, 1.0, -1.0)
+
+def valley_side(xy: np.ndarray, ground_at: HeightAt, half_width: float) -> np.ndarray:
+    """
+    Pro Punkt: +1.0, wenn die Seite RECHTS der Laufrichtung talwärts liegt, sonst -1.0 (siehe valley_score()).
+
+    NUR ein Fallback für den Fall ohne `avalanche_protector:left`/`:right`-Tag (siehe resolve_open_side()).
+    """
+    return np.where(valley_score(xy, ground_at, half_width) > 0.0, 1.0, -1.0)
+
+
+def gallery_open_side(osm_tags: Dict, coords, ground_at: HeightAt, width: float) -> str:
+    """
+    Offene (Tal-)Seite einer Galerie in Digitalisierungsrichtung: aus `avalanche_protector:left/right=open`, sonst aus
+    dem Geländevergleich (Summe von valley_score() über die ganze Galerie, >= 0 -> "right"). EINE Stelle für Galerie-
+    Mesh und Böschung (terrain_workflow), damit beide dieselbe Seite nehmen.
+    """
+    tagged = resolve_open_side(osm_tags or {})
+    if tagged:
+        return tagged
+    xy = np.asarray(coords, dtype=float)[:, :2]
+    return "right" if float(valley_score(xy, ground_at, width / 2.0).sum()) >= 0.0 else "left"
 
 
 def build_gallery_mesh(
@@ -78,6 +97,8 @@ def build_gallery_mesh(
     curb_width: float = 0.4,
     tile_m: float = 5.0,
     open_side: Optional[str] = None,
+    cap_start: bool = True,
+    cap_end: bool = True,
 ) -> Dict:
     """
     Galerie-Mesh: Boden, Dach und bergseitige Wand sind echte Quader (nicht nur dünne Flächen) - Boden
@@ -97,8 +118,11 @@ def build_gallery_mesh(
             Stützenseite, curb_width nach innen von der Fahrbahnkante versetzt; column_size sollte curb_width
             entsprechen, damit die Stütze bündig auf dem Sockel sitzt (siehe Docstring oben)
         open_side: "left" | "right" | None - wenn gesetzt (aus resolve_open_side(), zuverlässiger OSM-Tag),
-            gilt diese Seite für die GESAMTE Galerie als offen statt sie per valley_side() (Höhenvergleich,
-            nur Fallback) punktweise zu bestimmen.
+            gilt diese Seite für die GESAMTE Galerie als offen. Ohne Tag gilt ebenfalls EINE Seite für die ganze
+            Galerie: die Mehrheit der punktweisen valley_side() (Höhenvergleich, nur Fallback).
+        cap_start, cap_end: Stirnfläche am Anfang/Ende bauen - False an einem Übergang zu einem Tunnel-Portal
+            (dessen Stirnwand deckt den Galerie-Querschnitt ab; eine eigene Stirnfläche läge in derselben Ebene
+            und flackerte).
 
     Returns:
         {"vertices", "uvs", "normals", "faces": {floor_material: [...], roof_material: [...]}}
@@ -126,7 +150,11 @@ def build_gallery_mesh(
     elif open_side == "right":
         side = np.full(len(points), 1.0)
     else:
-        side = valley_side(xy, ground_at, width / 2.0)
+        # Ohne Tag: EINE Seite für die ganze Galerie (Mehrheit der punktweisen Talseite) - eine Galerie wechselt
+        # nicht mittendrin die offene Seite, der punktweise Geländevergleich kippt am Bauwerk aber leicht.
+        # Summe der Höhendifferenzen statt Punktzählung: kein stiller Gleichstand bei halb/halb
+        total = float(valley_score(xy, ground_at, width / 2.0).sum())
+        side = np.full(len(points), 1.0 if total >= 0.0 else -1.0)
 
     steps = np.linalg.norm(np.diff(xy, axis=0), axis=1)
     along = np.concatenate([[0.0], np.cumsum(steps)]) / tile_m
@@ -259,8 +287,10 @@ def build_gallery_mesh(
         left, right, outer_left, outer_right, inner_left, inner_right, floor_z, floor_bottom_z,
         roof_bottom_z, roof_top_z, curb_top_z, side, across, floor_h, roof_h, wall_extra, wall_h, curb_h, curb_w,
     )
-    _add_end_caps(roof_builder, 0, xy[0] - xy[1], *end_cap_args)
-    _add_end_caps(roof_builder, len(points) - 1, xy[-1] - xy[-2], *end_cap_args)
+    if cap_start:
+        _add_end_caps(roof_builder, 0, xy[0] - xy[1], *end_cap_args)
+    if cap_end:
+        _add_end_caps(roof_builder, len(points) - 1, xy[-1] - xy[-2], *end_cap_args)
 
     cum = np.concatenate([[0.0], np.cumsum(steps)])
     total_len = float(cum[-1]) if len(cum) else 0.0
@@ -362,9 +392,18 @@ def build_galleries(
     column_size: float = 0.4,
     curb_height: float = 0.5,
     curb_width: float = 0.4,
+    transition_points: Sequence[Tuple[float, float]] = (),
+    transition_tol: float = 0.5,
 ) -> List[Dict]:
     """Mesh-Dicts für den DAE-Export, eines je Galerie (`galleries`: [{"id","coords","width","floor_material",
-    "osm_tags"}, ...] - "osm_tags" optional, für resolve_open_side())."""
+    "osm_tags"}, ...] - "osm_tags" optional, für resolve_open_side()).
+
+    transition_points: (x, y) der Übergangs-Portale (tunnel_portal.plan_tunnels(), portal["kind"] == "gallery") -
+        ein Galerie-Ende, das höchstens transition_tol davon liegt, bekommt keine Stirnfläche."""
+
+    def at_transition(point) -> bool:
+        return any(np.hypot(point[0] - tx, point[1] - ty) <= transition_tol for tx, ty in transition_points)
+
     meshes = []
     for gallery in galleries:
         coords = gallery["coords"]
@@ -374,7 +413,9 @@ def build_galleries(
             coords, gallery["width"], height, ground_at, gallery["floor_material"], roof_material,
             column_spacing=column_spacing, roof_thickness=roof_thickness, floor_thickness=floor_thickness,
             wall_thickness=wall_thickness, column_size=column_size, curb_height=curb_height, curb_width=curb_width,
-            open_side=resolve_open_side(gallery.get("osm_tags", {})),
+            # Vorgabe aus der Böschungslogik (terrain_workflow._gallery_embedding), sonst Tag bzw. Gelände
+            open_side=gallery.get("open_side") or resolve_open_side(gallery.get("osm_tags", {})),
+            cap_start=not at_transition(coords[0]), cap_end=not at_transition(coords[-1]),
         )
         meshes.append({"id": f"gallery_{gallery['id']}", **mesh})
     return meshes

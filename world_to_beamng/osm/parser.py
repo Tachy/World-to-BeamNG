@@ -38,6 +38,11 @@ def calculate_bbox_from_height_data(points, margin=0.0):
     return bbox
 
 
+# Lebenszyklus-Werte von highway=*: Straßen, die (noch/nicht mehr) nicht befahrbar existieren - z.B. die im Bau
+# befindliche 2. Gotthardröhre (highway=construction + tunnel=yes), die sonst als fertiger Tunnel gebaut würde.
+NON_EXISTING_HIGHWAY_VALUES = {"construction", "proposed", "planned", "abandoned", "disused", "razed", "demolished"}
+
+
 def extract_roads_from_osm(osm_elements):
     """Extrahiert nur Strassen-Ways aus allen OSM-Daten."""
     roads = [
@@ -46,6 +51,7 @@ def extract_roads_from_osm(osm_elements):
         if element.get("type") == "way"
         and "tags" in element
         and "highway" in element["tags"]
+        and element["tags"]["highway"] not in NON_EXISTING_HIGHWAY_VALUES
         and element["tags"].get("area") != "yes"  # Filtere Flächen-Features (area=yes)
     ]
     logger.info(f"  [->] {len(roads)} Strassensegmente aus {len(osm_elements)} OSM-Elementen extrahiert")

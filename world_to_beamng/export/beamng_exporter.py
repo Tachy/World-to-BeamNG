@@ -17,7 +17,7 @@ from ..io.beamng_install import get_beamng_install_dir
 from ..io.vineyard_assets import ITEM_NAMES as VINEYARD_ITEM_NAMES, ensure_vineyard_assets
 from ..workflow import TileProcessor, TerrainWorkflow, BuildingWorkflow, HorizonWorkflow, ForestWorkflow
 from world_to_beamng.logging_config import LoggerConfig
-from ..progress import Pipeline
+from ..progress import Pipeline, optional_subtask
 
 logger = LoggerConfig.get_logger()
 
@@ -96,6 +96,7 @@ class BeamNGExporter:
         # POI-Kandidaten (Orte, große Parkplätze) für zusätzliche Spawn-Punkte, siehe
         # managers/item_manager.py::_compute_poi_spawn_points()
         self.poi_points = None
+        self.tunnel_spawns = None
 
         # Foto-Kacheln (+ Status) für POI-Vorschaubilder, siehe _finalize_export()/io/aerial.py::
         # build_poi_preview_image() - None/"none" bis export_complete_level() sie gebaut hat.
@@ -312,6 +313,7 @@ class BeamNGExporter:
                 # späteren Terrain-Einbettungshöhe, siehe road_embedding.py)
                 self.road_polygons = result.get("road_slope_polygons_2d")
                 self.poi_points = result.get("poi_points")
+                self.tunnel_spawns = result.get("tunnel_spawns")
 
                 self.terrain.export_tile(0, 0, result, task=task)
 
@@ -320,13 +322,16 @@ class BeamNGExporter:
                 if config.MINIMAP_ENABLED and status in ("current", "built"):
                     from ..io.aerial import MINIMAP_FILENAME, MINIMAP_SUBDIR, build_minimap_image, minimap_info_json_fields
 
-                    x_min, x_max, y_min, y_max = combined_grid_bounds_local
-                    minimap_path = config.BEAMNG_DIR / MINIMAP_SUBDIR / MINIMAP_FILENAME
-                    if build_minimap_image(textures_dir, minimap_path, photos, combined_grid_bounds_local):
-                        self.items.set_info_json_fields(**minimap_info_json_fields(x_min, y_max, x_max - x_min))
-                        logger.info(f"[OK] Minimap gespeichert: {minimap_path}")
-                    else:
-                        logger.info("[i] Minimap übersprungen (Quellfoto fehlt)")
+                    with task.subtask("Minimap") as sub:
+                        x_min, x_max, y_min, y_max = combined_grid_bounds_local
+                        minimap_path = config.BEAMNG_DIR / MINIMAP_SUBDIR / MINIMAP_FILENAME
+                        if build_minimap_image(textures_dir, minimap_path, photos, combined_grid_bounds_local):
+                            self.items.set_info_json_fields(**minimap_info_json_fields(x_min, y_max, x_max - x_min))
+                            logger.info(f"[OK] Minimap gespeichert: {minimap_path}")
+                            sub.finish(minimap_path.name)
+                        else:
+                            logger.info("[i] Minimap übersprungen (Quellfoto fehlt)")
+                            sub.warn("Quellfoto fehlt")
 
                 # Höhenabfrage der fertigen Heightmap: der Horizont bekommt daraus sein Terrain-Loch
                 # samt Randhöhen (kein Terrain-Mesh mehr, das vernäht werden könnte)
@@ -422,6 +427,7 @@ class BeamNGExporter:
                     tile_hash=tile_hash,
                     tile_bounds=tile_bounds_local,
                     terrain_height_at=terrain_height_at,
+                    task=task,
                 )
                 stats["horizon_exported"] = horizon_dae is not None
                 if horizon_dae:
@@ -434,7 +440,7 @@ class BeamNGExporter:
 
         # Phase 4: Finalisierung
         with self.pipeline.task("Finalisierung") as task:
-            self._finalize_export(forests_enabled)
+            self._finalize_export(forests_enabled, task=task)
             task.done()
 
         return stats
@@ -531,44 +537,49 @@ class BeamNGExporter:
         )
         return relative_path if ok else None
 
-    def _finalize_export(self, include_forests: bool = False):
-        """Finalisiere Export: Speichere Materials/Items/Forest JSON und Debug-Daten."""
+    def _finalize_export(self, include_forests: bool = False, task=None):
+        """Finalisiere Export: Speichere Materials/Items/Forest JSON und Debug-Daten (je Schritt eine Teilaufgabe)."""
         # Materials (nutze config.MATERIALS_JSON)
-        self.materials.save()  # nutzt automatisch config.MATERIALS_JSON
-        mat_path = config.BEAMNG_DIR / config.MATERIALS_JSON
-        logger.info(f"\n[✓] Materials: {mat_path.name}")
+        with optional_subtask(task, "Materials"):
+            self.materials.save()  # nutzt automatisch config.MATERIALS_JSON
+            mat_path = config.BEAMNG_DIR / config.MATERIALS_JSON
+            logger.info(f"\n[✓] Materials: {mat_path.name}")
 
         # Items inkl. automatischer Fahrzeug-Spawn-Position (nächste Straße zur Gebietsmitte) und POI-
         # Spawn-Punkten (Orte, große Parkplätze) samt Vorschaubild aus dem bereits gebauten Luftbild.
-        self.items.save(
-            road_polygons=self.road_polygons,
-            poi_points=self.poi_points,
-            preview_builder=self._build_poi_preview if self.aerial_photo_status in ("current", "built") else None,
-        )
-        items_path = config.BEAMNG_DIR / config.ITEMS_JSON
-        logger.info(f"[✓] Items: {items_path.name}")
+        with optional_subtask(task, "Items + Spawn-Punkte"):
+            self.items.save(
+                road_polygons=self.road_polygons,
+                poi_points=self.poi_points,
+                preview_builder=self._build_poi_preview if self.aerial_photo_status in ("current", "built") else None,
+                fixed_spawns=self.tunnel_spawns,
+            )
+            items_path = config.BEAMNG_DIR / config.ITEMS_JSON
+            logger.info(f"[✓] Items: {items_path.name}")
 
-        # info.json ins Level-Root-Verzeichnis schreiben
-        self.items.save_info_json()
-        info_path = config.BEAMNG_DIR / "info.json"
-        logger.debug(f"[✓] Info: {info_path.name}")
+            # info.json ins Level-Root-Verzeichnis schreiben
+            self.items.save_info_json()
+            info_path = config.BEAMNG_DIR / "info.json"
+            logger.debug(f"[✓] Info: {info_path.name}")
 
         # Forest.json (falls Forests aktiviert)
         if include_forests:
-            forest_result = self.forests.finalize_forest_export()
+            with optional_subtask(task, "Forest-JSON"):
+                forest_result = self.forests.finalize_forest_export()
 
-            if forest_result["status"] == "success":
-                # Detaillierte Statistiken (Gesamt-Bäume, Baumarten-Liste, Scale, Höhenbereich) loggt
-                # forests.finalize_forest_export() bereits selbst (forest_workflow.py) - hier keine
-                # zweite, redundante Zusammenfassung.
-                pass
-            elif forest_result["status"] == "no_forests":
-                logger.info("Keine Wälder generiert")
-            else:
-                logger.error(f"Forest-Export fehlgeschlagen: {forest_result.get('error')}")
+                if forest_result["status"] == "success":
+                    # Detaillierte Statistiken (Gesamt-Bäume, Baumarten-Liste, Scale, Höhenbereich) loggt
+                    # forests.finalize_forest_export() bereits selbst (forest_workflow.py) - hier keine
+                    # zweite, redundante Zusammenfassung.
+                    pass
+                elif forest_result["status"] == "no_forests":
+                    logger.info("Keine Wälder generiert")
+                else:
+                    logger.error(f"Forest-Export fehlgeschlagen: {forest_result.get('error')}")
 
         # main.level.json ist NICHT nötig - BeamNG lädt automatisch main/items.level.json
 
         # Debug-Netzwerk-Export (auskommentiert für Performance)
         if config.DEBUG_EXPORTS:
-            self.debug_exporter.export(config.CACHE_DIR)
+            with optional_subtask(task, "Debug-Export"):
+                self.debug_exporter.export(config.CACHE_DIR)

@@ -830,3 +830,79 @@ def split_roads_at_mid_junctions(road_polygons, junctions, merge_tol=0.5):
             )
 
     return new_roads, new_junctions
+
+
+
+OSM_NODE_JUNCTION_TOL = 1.0  # so nah muss eine Tunnel-Junction an einem gemeinsamen OSM-Knoten liegen, in Metern
+
+
+def _shared_osm_node_points(road_polygons):
+    """
+    Lage (x, y) aller OSM-Knoten, die mindestens zwei VERSCHIEDENE Ways gemeinsam haben - oder None, wenn nicht
+    für alle Straßen Knoten bekannt sind (dann lässt sich nichts ausschließen).
+    """
+    ways_of_node = {}
+    position = {}
+    for road in road_polygons:
+        nodes = road.get("osm_nodes")
+        if not nodes:
+            return None
+        for node_id, x, y in nodes:
+            ways_of_node.setdefault(node_id, set()).add(road.get("osm_way_id", road.get("id")))
+            position[node_id] = (x, y)
+    return np.array([position[n] for n, ways in ways_of_node.items() if len(ways) >= 2], dtype=float).reshape(-1, 2)
+
+
+def _junction_network(road_polygons, allowed_points=None):
+    """detect -> split -> mark für ein in sich geschlossenes Straßennetz. Mit `allowed_points` ((N, 2) Array)
+    bleiben nur Junctions, die höchstens OSM_NODE_JUNCTION_TOL von einem dieser Punkte entfernt liegen."""
+    junctions = detect_junctions_in_centerlines(road_polygons)
+    if allowed_points is not None:
+        if len(allowed_points) == 0:
+            junctions = []
+        else:
+            tree = cKDTree(allowed_points)
+            junctions = [j for j in junctions if tree.query(j["position"][:2])[0] <= OSM_NODE_JUNCTION_TOL]
+    road_polygons, junctions = split_roads_at_mid_junctions(road_polygons, junctions)  # ZUERST Split
+    road_polygons = mark_junction_endpoints(road_polygons, junctions)  # DANN Mark
+    return road_polygons, junctions
+
+
+def build_junction_network(road_polygons):
+    """
+    Junction-Erkennung, Split an Mid-Junctions und Endpunkt-Markierung (detect -> split -> mark) - getrennt für
+    Tunnel und alle übrigen Straßen.
+
+    Tunnel liegen auf einer anderen Ebene und bilden nie Kreuzungen mit Oberflächenstraßen: ein Weg, der in 2D
+    über einen Tunnel führt, ist keine Einmündung - sonst würden beide dort geteilt, und die Tunnel-Stücke
+    bekämen Portale mitten im Berg. Untereinander bilden Tunnel dagegen echte Junctions (Abzweigungen im Tunnel),
+    deshalb läuft für sie eine eigene Erkennung - aber nur dort, wo sich die Ways in OSM einen Knoten teilen:
+    zwei Tunnel, die sich in 2D in unterschiedlicher Tiefe kreuzen (z.B. Festungsstollen über dem Gotthard-
+    Straßentunnel), haben keinen gemeinsamen Knoten und bleiben ungeteilt. Beide Netze werden danach
+    zusammengeführt (erst die übrigen Straßen, dann die Tunnel); Straßen- und Junction-Indizes des Tunnel-Netzes
+    werden dafür verschoben.
+
+    Returns:
+        (road_polygons, junctions)
+    """
+    from .road_structures import classify_structure
+
+    is_tunnel = [classify_structure(r.get("osm_tags", {})) == "tunnel" for r in road_polygons]
+    others, junctions = _junction_network([r for r, t in zip(road_polygons, is_tunnel) if not t])
+    tunnel_roads = [r for r, t in zip(road_polygons, is_tunnel) if t]
+    tunnels, tunnel_junctions = _junction_network(tunnel_roads, allowed_points=_shared_osm_node_points(tunnel_roads))
+
+    road_offset, junction_offset = len(others), len(junctions)
+    for junction in tunnel_junctions:
+        junction["road_indices"] = [i + road_offset for i in junction["road_indices"]]
+        for key in ("connection_types", "direction_vectors"):
+            if key in junction:
+                junction[key] = {i + road_offset: v for i, v in junction[key].items()}
+    for tunnel in tunnels:
+        for field in ("start_junction_id", "end_junction_id"):
+            if tunnel.get(field) is not None:
+                tunnel[field] += junction_offset
+        tunnel["junction_indices"] = {
+            end: (None if index is None else index + junction_offset) for end, index in tunnel["junction_indices"].items()
+        }
+    return others + tunnels, junctions + tunnel_junctions

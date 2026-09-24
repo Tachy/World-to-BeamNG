@@ -2,24 +2,26 @@
 Tunnel aus OSM-Linien (highway=* mit tunnel=yes/culvert/building_passage): kreisrunde Röhre - Standard-
 Tunnelprofil, 240° Kreisbogen über einer flachen Bodensehne (Fahrbahn), die restlichen 120° liegen unterhalb der
 Sehne und werden nicht modelliert (unsichtbare Sohle) - entlang des linear interpolierten Höhenprofils (siehe
-geometry/road_structures.py + geometry/polygon.py), mit an die natürliche Hangneigung angepassten Portal-Rahmen
-an beiden Enden (siehe Design-Spec Abschnitt 5). Die Röhre selbst hat rechtwinklige (nicht geschnittene) Enden -
-die Schräge steckt im separaten, flachen Portal-Rahmen-Mesh, der die Öffnung umgibt (der Rahmen ist von außen
-sichtbar, das Rohr-Ende dahinter nicht). Die Heightmap bleibt unverändert - die Röhre liegt "im Berg".
+geometry/road_structures.py + geometry/polygon.py), mit einem Portalbauwerk an beiden Enden (siehe
+tunnels/tunnel_portal.py). Das Gelände über der Röhre und am Portal formt terrain/tunnel_terrain.py.
+
+Ein Tunnel kann in OSM aus mehreren aneinandergereihten Ways bestehen (die Junction-Erkennung teilt Tunnel
+nicht mehr, siehe geometry/junctions.py::build_junction_network()). chain_tunnel_pieces() fügt solche Stücke zu
+EINER durchgehenden Röhre zusammen - sonst bekäme jedes Stück eigene Portale mitten im Berg.
 """
 
 import math
-from typing import Callable, Dict, List, Sequence, Tuple
+from collections import defaultdict
+from typing import Dict, List, Sequence, Tuple
 
 import numpy as np
+from scipy.spatial import cKDTree
 
 from ..walls.mesh_parts import MeshBuilder, offset_points
-from .portal import portal_axial_shift, sample_slope_along_axis
-
-HeightAt = Callable[[np.ndarray, np.ndarray], np.ndarray]
 
 ARC_SPAN_DEG = 240.0  # Kreisbogen über der Fahrbahn
 ARC_START_DEG = -30.0  # Startwinkel (rechter Bodenrand), Standardkreis-Konvention (0°=+x, CCW)
+JOINT_TOLERANCE = 0.05  # so nah müssen sich zwei Stück-Enden kommen, um als Stoß zu gelten, in Metern
 
 
 def tunnel_radius(width: float) -> float:
@@ -66,6 +68,91 @@ def resample_tunnel_coords(coords: Sequence[Tuple[float, float, float]], step: f
     return list(zip(x.tolist(), y.tolist(), z.tolist()))
 
 
+def chain_tunnel_pieces(tunnels: Sequence[Dict]) -> List[Dict]:
+    """
+    Fügt Tunnel-Stücke, die sich an einem Endpunkt treffen, zu durchgehenden Ketten zusammen.
+
+    Verkettet wird nur an eindeutigen Stößen: genau zwei gleichartige Stück-Enden (gleiche Breite, gleiches
+    Bodenmaterial) am selben Punkt. Andersartige Tunnel am selben Punkt zählen nicht mit - z.B. ein Fußweg-Tunnel,
+    der am selben OSM-Knoten abzweigt. Die
+    Laufrichtung einzelner Stücke wird bei Bedarf umgedreht.
+
+    Args:
+        tunnels: [{"id", "coords", "width", "floor_material"}, ...]
+
+    Returns:
+        [{"id" (des ersten Stücks), "coords", "width", "floor_material"}, ...]
+    """
+    pieces = [t for t in tunnels if len(t["coords"]) >= 2]
+    if not pieces:
+        return []
+
+    # Stück-Enden, die näher als JOINT_TOLERANCE beieinanderliegen, bilden einen Stoß (Clipping am Kartenrand
+    # verschiebt Endpunkte um Millimeter) - Gruppen per Union-Find über alle nahen Paare.
+    end_refs = [(index, at_start) for index in range(len(pieces)) for at_start in (True, False)]
+    end_xy = np.array([pieces[i]["coords"][0 if s else -1][:2] for i, s in end_refs], dtype=float)
+    group = list(range(len(end_refs)))
+
+    def find(i: int) -> int:
+        while group[i] != i:
+            group[i] = group[group[i]]
+            i = group[i]
+        return i
+
+    for a, b in cKDTree(end_xy).query_pairs(JOINT_TOLERANCE):
+        group[find(a)] = find(b)
+    joint_of = {ref: find(i) for i, ref in enumerate(end_refs)}
+
+    def key(index: int, at_start: bool) -> Tuple:
+        return (joint_of[(index, at_start)], pieces[index]["width"], pieces[index]["floor_material"])
+
+    ends = defaultdict(list)
+    for index, at_start in end_refs:
+        ends[key(index, at_start)].append((index, at_start))
+
+    def partner(index: int, at_start: bool):
+        joined = ends[key(index, at_start)]
+        if len(joined) != 2:
+            return None
+        other = joined[0] if joined[1] == (index, at_start) else joined[1]
+        if other[0] == index:
+            return None  # Stück schließt sich selbst zum Ring
+        return other
+
+    visited = set()
+    chains = []
+    for first in range(len(pieces)):
+        if first in visited:
+            continue
+        # Rückwärts bis zum freien Anfang der Kette laufen (mit Schutz gegen Ringe).
+        head, head_at_start = first, True
+        seen = {first}
+        while True:
+            prev = partner(head, head_at_start)
+            if prev is None or prev[0] in seen:
+                break
+            head, head_at_start = prev[0], not prev[1]
+            seen.add(head)
+
+        # Vorwärts: jedes Stück so ausrichten, dass es am Stoß zum Vorgänger beginnt.
+        coords: List[Tuple[float, float, float]] = []
+        current, entry_at_start = head, head_at_start
+        while current is not None and current not in visited:
+            visited.add(current)
+            piece_coords = [tuple(map(float, p)) for p in pieces[current]["coords"]]
+            if not entry_at_start:
+                piece_coords.reverse()
+            coords.extend(piece_coords if not coords else piece_coords[1:])
+            nxt = partner(current, not entry_at_start)
+            if nxt is None:
+                break
+            current, entry_at_start = nxt[0], nxt[1]
+
+        base = pieces[head]
+        chains.append({"id": base["id"], "coords": coords, "width": base["width"], "floor_material": base["floor_material"]})
+    return chains
+
+
 def build_tunnel_mesh(
     coords: Sequence[Tuple[float, float, float]],
     width: float,
@@ -78,6 +165,9 @@ def build_tunnel_mesh(
     Röhren-Mesh (Boden + kreisrunder 240°-Bogen darüber) entlang `coords` (bereits das Tunnel-Höhenprofil).
     Radius und Kronenhöhe ergeben sich aus `width` (siehe tunnel_radius()/tunnel_crown_height()).
 
+    Die Querschnitts-Ringe sitzen an den Centerline-Punkten und stehen dort auf Gehrung (wie die Bodenkanten aus
+    offset_points()): benachbarte Segmente teilen sich exakt denselben Ring, die Röhre ist auch in Kurven dicht.
+
     Returns:
         {"vertices", "uvs", "normals", "faces": {floor_material: [...], wall_material: [...]}}
     """
@@ -88,6 +178,14 @@ def build_tunnel_mesh(
     arc = arc_cross_section(radius, arc_segments)
 
     left, right = offset_points(xy, width / 2.0, closed=False)
+    # Gehrungs-Vektor je Centerline-Punkt (inkl. Gehrungs-Verlängerung), zeigt nach rechts der Laufrichtung
+    miter_right = (right - xy) / (width / 2.0)
+    rings = np.empty((len(points), arc_segments + 1, 3))
+    for k, (across, height) in enumerate(arc):
+        rings[:, k, :2] = xy + miter_right * across
+        rings[:, k, 2] = floor_z + height
+    rings[:, 0, :2] = right  # Bodenränder exakt wie das Boden-Mesh (kein Rundungsspalt)
+    rings[:, arc_segments, :2] = left
 
     seg_len = np.linalg.norm(np.diff(xy, axis=0), axis=1)
     along = np.concatenate([[0.0], np.cumsum(seg_len)]) / tile_m
@@ -96,18 +194,6 @@ def build_tunnel_mesh(
 
     def p3(pt_xy, z):
         return [float(pt_xy[0]), float(pt_xy[1]), float(z)]
-
-    def arc_ring(i: int, k: int, perp_right: np.ndarray) -> List[float]:
-        """Weltposition des Ring-Punkts k (0=rechter Bodenrand, arc_segments=linker Bodenrand) an Centerline-Punkt
-        i. Die beiden Bodenrand-Punkte sind exakt right[i]/left[i] (nahtlos zum Boden-Mesh), die Zwischenpunkte
-        folgen dem Kreisbogen relativ zur Segment-Richtung (kleine Facette an Kurven statt Gehrung wie bei
-        offset_points() - unauffällig bei der groben Tunnel-Resampling-Schrittweite)."""
-        if k == 0:
-            return p3(right[i], floor_z[i])
-        if k == arc_segments:
-            return p3(left[i], floor_z[i])
-        ax, ay = arc[k]
-        return [float(xy[i, 0] + perp_right[0] * ax), float(xy[i, 1] + perp_right[1] * ax), float(floor_z[i] + ay)]
 
     floor_builder = MeshBuilder()
     wall_builder = MeshBuilder()
@@ -132,7 +218,7 @@ def build_tunnel_mesh(
             v0 = (k / arc_segments) * across_arc
             v1 = ((k + 1) / arc_segments) * across_arc
             wall_builder.quad(
-                [arc_ring(i, k, perp_right), arc_ring(j, k, perp_right), arc_ring(j, k + 1, perp_right), arc_ring(i, k + 1, perp_right)],
+                [rings[i, k].tolist(), rings[j, k].tolist(), rings[j, k + 1].tolist(), rings[i, k + 1].tolist()],
                 [[u0, v0], [u1, v0], [u1, v1], [u0, v1]],
                 inward,
             )
@@ -151,114 +237,21 @@ def build_tunnel_mesh(
     }
 
 
-def portal_frame_corners(
-    xy_point: Tuple[float, float],
-    axis_direction: Tuple[float, float],
-    width: float,
-    height: float,
-    margin: float,
-    floor_z: float,
-    slope_along_axis: float,
-) -> List[List[float]]:
+def build_tunnels(plans: Sequence[Dict], wall_material: str, portal_material: str, arc_segments: int = 12) -> List[Dict]:
     """
-    4 Eckpunkte (Weltkoordinaten) eines Portal-Rahmen-Rings: unten-links, unten-rechts, oben-rechts, oben-links.
-    `margin` vergrößert den Ring gegenüber der reinen Röhrenöffnung (0.0 = deckt genau die Öffnung ab). Die
-    oberen Ecken sind entlang `axis_direction` verschoben (siehe portal.portal_axial_shift()), damit der Ring der
-    natürlichen Hangneigung folgt statt rechtwinklig zur Achse zu stehen.
+    Mesh-Dicts für den DAE-Export: je Tunnel-Kette die Röhre plus ein Portalbauwerk je offenem Ende.
+
+    Args:
+        plans: Ergebnis von tunnel_portal.plan_tunnels() - Portale mit bereits gesetzter "top_z"/"bottom_z"
+            (siehe terrain/tunnel_terrain.py::shape_terrain_for_tunnels())
     """
-    p = np.array(xy_point, dtype=float)
-    axis = np.array(axis_direction, dtype=float)
-    perp = np.array([-axis[1], axis[0]])
-    half_w = width / 2.0 + margin
+    from .tunnel_portal import build_portal_block_mesh
 
-    bottom_shift = portal_axial_shift(0.0, slope_along_axis)
-    top_shift = portal_axial_shift(height + margin, slope_along_axis)
-    bottom = p + axis * bottom_shift
-    top = p + axis * top_shift
-
-    bl = [float(bottom[0] - perp[0] * half_w), float(bottom[1] - perp[1] * half_w), floor_z]
-    br = [float(bottom[0] + perp[0] * half_w), float(bottom[1] + perp[1] * half_w), floor_z]
-    tr = [float(top[0] + perp[0] * half_w), float(top[1] + perp[1] * half_w), floor_z + height + margin]
-    tl = [float(top[0] - perp[0] * half_w), float(top[1] - perp[1] * half_w), floor_z + height + margin]
-    return [bl, br, tr, tl]
-
-
-def build_portal_frame_mesh(
-    xy_point: Tuple[float, float],
-    axis_direction: Tuple[float, float],
-    width: float,
-    height: float,
-    floor_z: float,
-    slope_along_axis: float,
-    frame_margin: float,
-    material: str,
-) -> Dict:
-    """Flacher Rahmen (4 Trapez-Flächen) um die Tunnelöffnung, an die Hangneigung angepasst (siehe portal_frame_corners())."""
-    outer = portal_frame_corners(xy_point, axis_direction, width, height, frame_margin, floor_z, slope_along_axis)
-    inner = portal_frame_corners(xy_point, axis_direction, width, height, 0.0, floor_z, slope_along_axis)
-    axis = np.array(axis_direction, dtype=float)
-    normal = [float(-axis[0]), float(-axis[1]), 0.0]  # zeigt vom Tunnelinneren weg (nach außen, sichtbare Seite)
-
-    builder = MeshBuilder()
-    for i in range(4):
-        j = (i + 1) % 4
-        builder.quad([outer[i], outer[j], inner[j], inner[i]], [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]], normal)
-
-    return {
-        "vertices": np.array(builder.vertices, dtype=float),
-        "uvs": np.array(builder.uvs, dtype=float),
-        "normals": np.array(builder.normals, dtype=float),
-        "faces": {material: builder.faces},
-    }
-
-
-def build_tunnel(
-    tunnel: Dict,
-    ground_at: HeightAt,
-    wall_material: str,
-    frame_material: str,
-    width_margin: float,
-    arc_segments: int,
-    segment_step: float,
-    portal_slope_sample_dist: float,
-    frame_margin: float,
-) -> List[Dict]:
-    """Tunnelröhre (Kreisbogen-Profil) + zwei Portal-Rahmen für einen Tunnel-Way (`tunnel`: {"id","coords","width","floor_material"})."""
-    coords = resample_tunnel_coords(tunnel["coords"], segment_step)
-    if len(coords) < 2:
-        return []
-    width = tunnel["width"] + width_margin
-    crown_height = tunnel_crown_height(width)
-    points = np.array(coords, dtype=float)
-
-    tube = build_tunnel_mesh(coords, width, tunnel["floor_material"], wall_material, arc_segments=arc_segments)
-    meshes = [{"id": f"tunnel_{tunnel['id']}", **tube}]
-
-    for index, neighbour, label in ((0, 1, "start"), (len(points) - 1, len(points) - 2, "end")):
-        direction = points[neighbour, :2] - points[index, :2]
-        direction = direction / np.linalg.norm(direction)
-        axis_direction = (float(direction[0]), float(direction[1]))
-        slope = sample_slope_along_axis(ground_at, tuple(points[index, :2]), axis_direction, portal_slope_sample_dist)
-        frame = build_portal_frame_mesh(
-            tuple(points[index, :2]), axis_direction, width, crown_height, float(points[index, 2]), slope, frame_margin, frame_material
-        )
-        meshes.append({"id": f"tunnel_{tunnel['id']}_portal_{label}", **frame})
-    return meshes
-
-
-def build_tunnels(
-    tunnels: Sequence[Dict],
-    ground_at: HeightAt,
-    wall_material: str,
-    frame_material: str,
-    width_margin: float = 1.5,
-    arc_segments: int = 12,
-    segment_step: float = 10.0,
-    portal_slope_sample_dist: float = 5.0,
-    frame_margin: float = 0.6,
-) -> List[Dict]:
-    """Mesh-Dicts für den DAE-Export, drei je Tunnel (`tunnels`: [{"id","coords","width","floor_material"}, ...])."""
     meshes = []
-    for tunnel in tunnels:
-        meshes.extend(build_tunnel(tunnel, ground_at, wall_material, frame_material, width_margin, arc_segments, segment_step, portal_slope_sample_dist, frame_margin))
+    for plan in plans:
+        tube = build_tunnel_mesh(plan["coords"], plan["tube_width"], plan["floor_material"], wall_material, arc_segments=arc_segments)
+        meshes.append({"id": f"tunnel_{plan['id']}", **tube})
+        for portal in [p for p in plan["portals"] if p.get("open", True)]:
+            block = build_portal_block_mesh(portal, portal_material, arc_segments=arc_segments)
+            meshes.append({"id": f"tunnel_{plan['id']}_portal_{portal['label']}", **block})
     return meshes

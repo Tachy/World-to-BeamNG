@@ -76,6 +76,15 @@ POI_SPAWN_POINTS_ENABLED = True
 MAX_POI_SPAWN_POINTS = 20
 POI_MIN_PARKING_AREA_M2 = 500.0  # kleinere Parkplätze (Wohnstraße, Einzelgarage) sind kein sinnvoller Spawn-Ort
 POI_SPAWN_BOUNDS_MARGIN = 20.0  # Rand zur Terrainkante, in Metern (OSM-Abfrage reicht über das Terrain hinaus)
+# Der Spawn eines POI wird auf die nächste befahrbare Straße gesetzt (Heading parallel zur Centerline), sofern eine
+# höchstens so weit entfernt liegt (in Metern) - siehe ItemManager._nearest_road_pose().
+POI_SPAWN_MAX_ROAD_DISTANCE = 300.0
+# Nie Spawn-Straße: Wege ohne Autoverkehr (Tunnel sind über structure_type ebenfalls ausgeschlossen - ihre
+# Centerline läuft in 2D oft direkt unter einem Ort durch, z.B. der Gotthard-Straßentunnel unter Airolo)
+POI_SPAWN_EXCLUDED_HIGHWAYS = frozenset({"path", "footway", "steps", "cycleway", "bridleway", "pedestrian"})
+
+# Wählbare Spawn-Punkte vor Tunneleinfahrten (tunnels/entrance_spawns.py): so weit vor dem Portal auf der Zufahrt, in Metern
+TUNNEL_SPAWN_DISTANCE = 20.0
 
 # POI-Vorschaubild ("preview" in info.json spawnPoints[], siehe lua/ge/extensions/core/levels.lua): Draufsicht-
 # Ausschnitt aus dem bereits gebauten Luftbild, Ort mittig - siehe io/aerial.py::build_poi_preview_image().
@@ -195,6 +204,48 @@ ROAD_SMOOTH_WEIGHT = 0.6  # Chaikin-Filter Gewicht (0.5-0.9; höher = weniger Gl
 # 0,32 m -> ok; verifiziert an der Eichgasse). Typischer Abstand nach dem
 # Resampling ist ~0,8 m.
 DECAL_ROAD_MIN_NODE_SPACING = 0.5
+# BeamNG zeichnet pro DecalRoad nur begrenzt viel Geometrie (das Decal wird auf die Terrain-Dreiecke unter seiner Fläche
+# zugeschnitten; was über das Budget geht, fehlt ohne Fehlermeldung - im Spiel: Abbruch nach ~510 m^2 bei 6,5 m Breite).
+# Fahrbahn-Decals werden deshalb in Stücke von höchstens so viel Fläche geteilt (geometry/decal_chunks.py), in m^2;
+# kürzere Reste als ROAD_DECAL_MIN_TAIL_LENGTH (m) hängen am vorherigen Stück.
+ROAD_DECAL_MAX_AREA = 250.0
+ROAD_DECAL_MIN_TAIL_LENGTH = 5.0
+
+# === BREITENÜBERGÄNGE / FAHRBAHNMARKIERUNG ===
+# Siehe docs/superpowers/plans/2026-09-24-road-markings-width-transitions.md.
+# Breitenübergang an Geradeaus-Stößen zweier DecalRoads (geometry/road_width_transitions.py): über 10 m, je 5 m vor und
+# nach dem Stoßpunkt, kubischer Hermite-Spline; in der Zone ein Knoten je ROAD_WIDTH_TRANSITION_STEP Meter.
+ROAD_WIDTH_TRANSITION_LENGTH = 10.0
+ROAD_WIDTH_TRANSITION_STEP = 1.0
+ROAD_WIDTH_TRANSITION_MIN_DELTA = 0.05  # kleinere Breitenunterschiede bleiben unverändert, in Metern
+ROAD_CONTINUATION_ENDPOINT_TOL = 0.5  # so nah müssen zwei Straßenenden beieinander liegen, in Metern
+ROAD_CONTINUATION_MAX_ANGLE_DEG = 30.0  # größter Knick, der noch als "geradeaus weiter" gilt
+
+# Markierungen (geometry/road_markings.py): eigene schmale DecalRoads über der Fahrbahn wie in BeamNGs Vanilla-Levels.
+ROAD_MARKINGS_ENABLED = True
+ROAD_MARKING_HIGHWAYS = frozenset(
+    {
+        "motorway", "trunk", "primary", "secondary", "tertiary",
+        "motorway_link", "trunk_link", "primary_link", "secondary_link", "tertiary_link",
+    }
+)
+ROAD_MARKING_SURFACE = "asphalt_road_standard"  # nur Asphalt - kein Pflaster, Kies, Erdweg
+ROAD_MARKING_MIN_TWO_LANE_WIDTH = 5.5  # ohne lanes-Tag: schmalere Straßen sind einspurig (nur Randlinien)
+ROAD_MARKING_LINE_WIDTH = 0.15  # Linienbreite in Metern (Vanilla: 0,15-0,2 m)
+ROAD_MARKING_EDGE_INSET = 0.25  # Abstand der Randlinien-Mitte vom Fahrbahnrand, in Metern
+ROAD_MARKING_EDGE_MATERIAL = "line_edge_white"  # Einträge in data/osm_to_beamng.json -> road_markings
+ROAD_MARKING_DIVIDER_MATERIAL = "line_divider_dashed"
+# renderPriority von DecalRoads: BeamNG/Torque3D zeichnet sie in ABSTEIGENDER Reihenfolge - der kleinste Wert kommt
+# zuletzt und liegt oben (im Spiel bestätigt: Linien mit 20 lagen unter dem Asphalt mit 8; Vanilla: Linien 1-2,
+# Straßen bis 12; Road Architect gibt dem Fahrbahn-Decal den höchsten Wert). Fahrbahnen bekommen
+# ROAD_RENDER_PRIORITY_BASE - surface_types[*].priority (Asphalt 12 über Kies 16 über Erdweg 18), Markierungen den
+# kleinsten Wert ganz obenauf.
+ROAD_RENDER_PRIORITY_BASE = 20
+ROAD_MARKING_RENDER_PRIORITY = 1
+ROAD_MARKING_JUNCTION_CLEARANCE = 0.5  # die Lücke in der Randlinie reicht so weit über die einmündende Fahrbahn hinaus
+ROAD_MARKING_MIN_PIECE_LENGTH = 2.0  # kürzere Linienreste nach dem Kreuzungsschnitt entfallen, in Metern
+# Wege, deren Einmündung KEINE Lücke in die Randlinie schneidet (Feldweg, Fußweg ...)
+ROAD_MARKING_NO_GAP_HIGHWAYS = frozenset({"track", "path", "footway", "cycleway", "bridleway", "steps"})
 
 # === CLIPPING ===
 ENABLE_ROAD_CLIPPING = True  # True = Clip + Segment-Unterteilung am Grid-Rand, False = Skip (Testbetrieb)
@@ -253,8 +304,45 @@ TUNNELS_ENABLED = True  # deckt auch Galerien (tunnel=avalanche_protector) ab
 TUNNEL_WIDTH_MARGIN = 1.5  # zusätzliche Breite über die Fahrbahnbreite hinaus, in Metern
 TUNNEL_ARC_SEGMENTS = 12  # Diskretisierung des 240°-Kreisbogens (Radius/Kronenhöhe ergeben sich aus der Breite)
 TUNNEL_SEGMENT_STEP = 10.0  # Extrusions-Schrittweite entlang der Achse, in Metern (grob, da geradlinig)
-TUNNEL_PORTAL_SLOPE_SAMPLE_DIST = 5.0  # Abtastradius der Hangneigung an den Portalen, in Metern
-TUNNEL_PORTAL_FRAME_MARGIN = 0.6  # Rahmenbreite um die Portalöffnung, in Metern
+# Der OSM-Tunnelanfang liegt oft schon im Hang (DGM = Portal-Böschung statt Straßenniveau): Portalhöhe und
+# die letzten Meter der Zufahrt werden auf die stabile Steigung der Zufahrt gebracht (siehe
+# geometry.polygon.settle_tunnel_portals_to_approach_grade).
+TUNNEL_APPROACH_SLOPE_THRESHOLD = 0.10  # ab dieser Steigung gilt die Zufahrt als "noch Hangflanke"
+TUNNEL_APPROACH_STABLE_LENGTH = 6.0  # so lang muss die Steigung darunter bleiben, in Metern
+TUNNEL_APPROACH_MAX_DISTANCE = 40.0  # so weit wird höchstens vom Portal weg gesucht, in Metern
+# Portalbauwerk + Überdeckung (siehe tunnels/tunnel_portal.py und terrain/tunnel_terrain.py): über der Röhre
+# liegt das Gelände mindestens TUNNEL_COVER über der Krone (seitlich mit TUNNEL_COVER_SLOPE angeböscht), am
+# Portal steht ein Betonblock mit der Röhrenöffnung, der die Terrain-Löcher an der Portalebene verdeckt.
+TUNNEL_COVER = 1.0  # Mindest-Überdeckung über der Röhrenkrone, in Metern
+TUNNEL_COVER_SLOPE = 1.5  # seitliche Böschung der Überdeckung, horizontal:vertikal (1:1,5)
+TUNNEL_PORTAL_WING = 2.0  # Portalblock ragt so weit seitlich über den Röhrenradius hinaus, in Metern
+TUNNEL_PORTAL_FLAT_DEPTH = 1.5  # so tief hinter der Portalebene liegt das Terrain noch auf Bodenhöhe, in Metern
+TUNNEL_PORTAL_LENGTH = 3.5  # Länge des Portalblocks in den Berg hinein, in Metern (> FLAT_DEPTH + 1 Zelle Loch)
+# Übergang Tunnel -> Galerie (docs/superpowers/specs/2026-09-24-tunnel-gallery-transition-design.md): ein
+# Tunnel-Portal, das höchstens so weit von einem Galerie-Endpunkt liegt, bekommt eine Stirnwand mit Galerie-Öffnung.
+TUNNEL_TRANSITION_ENDPOINT_TOL = 0.5  # in Metern
+TUNNEL_COVER_GAP_MAX = 25.0  # so lange Lücke zwischen offenem Portal und eingegrabener Röhre wird überdeckt, in Metern
+# Höhenprofil von Tunnel/Galerie-Ketten (geometry/polygon.py::apply_structure_elevation_profiles): an einer Galerie zeigt
+# das DGM das Dach - Stützpunkte (DGM - GALLERY_HEIGHT - GALLERY_ROOF_THICKNESS) nur so weit von den Kettenenden und
+# voneinander entfernt, Median über +- GALLERY_ROOF_SAMPLE_WINDOW Meter.
+GALLERY_ROOF_SAMPLE_END_DISTANCE = 100.0
+GALLERY_ROOF_SAMPLE_SPACING = 200.0
+GALLERY_ROOF_SAMPLE_WINDOW = 10.0
+# Tunnel über die Kartengrenze: ein Ketten-Ende höchstens so weit vor der Terrain-Kante (oder dahinter) gilt als
+# "verlässt die Karte" - die Röhre liegt dann flach auf Einfahrtshöhe, vor der Einfahrt steht eine Sperre.
+MAP_EDGE_TUNNEL_MARGIN = 25.0
+ROADBLOCK_SHAPE = "/art/shapes/garage_and_dealership/Clutter/hr_plasticbarrier_red.dae"  # BeamNG-Standardasset
+ROADBLOCK_DISTANCE = 5.0  # so weit vor der Portalebene steht die Sperre, in Metern
+ROADBLOCK_SIDE_MARGIN = 0.5  # die Sperre reicht je Seite so weit über die Fahrbahn hinaus, in Metern
+ROADBLOCK_SPACING = 1.5  # Abstand der Barriere-Elemente (Vanilla-Median 1,48 m), in Metern
+# Dunkelheit in Tunnelröhren (tunnels/tunnel_zones.py): Zone-Quader entlang der Röhre wie in BeamNGs eigenen Levels
+TUNNEL_ZONE_MAX_LENGTH = 50.0  # höchstens so lang je Zone, in Metern
+TUNNEL_ZONE_MAX_DEVIATION = 0.5  # Röhrenachse höchstens so weit von der Zonenachse (Kurven), in Metern
+TUNNEL_ZONE_END_OVERLAP = 0.5  # Überlappung benachbarter Zonen je Seite, in Metern
+TUNNEL_ZONE_WIDTH_MARGIN = 2.0  # Zone so viel breiter als die Röhre, in Metern
+TUNNEL_ZONE_HEIGHT_MARGIN = 2.0  # Zone so viel höher als der Scheitel (je zur Hälfte unten/oben), in Metern
+TUNNEL_ZONE_PORTAL_INSET = 1.0  # Zonen beginnen so weit hinter der Portalebene (Portal bleibt hell), in Metern
+TUNNEL_ZONE_PORTAL_DEPTH = 3.0  # Tiefe der Portal-Objekte an den Zonenenden (Vanilla: 3,6-5,9 m), in Metern
 GALLERY_HEIGHT = 5.0  # lichte Höhe der (rechteckigen, nicht kreisrunden) Galerie, in Metern
 GALLERY_COLUMN_SPACING = 6.0  # Stützenabstand auf der offenen Talseite, in Metern
 # Boden/Dach/bergseitige Wand sind echte Quader (nicht nur dünne Flächen), damit die Galerie auch von

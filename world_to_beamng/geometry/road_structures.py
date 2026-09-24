@@ -6,12 +6,23 @@ Klassifizierung von Straßen-Ways als Brücke, Tunnel, Galerie oder normale Fahr
 from typing import Dict, List, Tuple
 
 
+def _below_ground(osm_tags: Dict) -> bool:
+    """`layer` ist eine negative Ganzzahl (unlesbare Werte wie "-1;0" zählen nicht)."""
+    try:
+        return int(str(osm_tags.get("layer", "0")).strip()) < 0
+    except ValueError:
+        return False
+
+
 def classify_structure(osm_tags: Dict) -> str:
     """
-    "bridge" | "tunnel" | "gallery" | "surface", anhand von `bridge`/`tunnel`-Tags.
+    "bridge" | "tunnel" | "gallery" | "surface", anhand von `bridge`/`tunnel`/`covered`/`layer`-Tags.
 
-    Reihenfolge: bridge=* (außer "no") -> "bridge"; tunnel=avalanche_protector -> "gallery"; jedes andere
-    tunnel=* (außer "no") -> "tunnel"; sonst "surface".
+    Reihenfolge: bridge=* (außer "no") -> "bridge"; tunnel=avalanche_protector -> "gallery"; covered=yes mit
+    negativem layer und ohne tunnel-Tag (oder tunnel=no) -> "gallery" (überdachte Straße unter Geländeniveau, z.B.
+    die Galerien der Nuova strada del San Gottardo, siehe
+    docs/superpowers/specs/2026-09-24-tunnel-gallery-transition-design.md - ein Vordach über einer Service-Straße
+    ohne negativen layer bleibt Oberfläche); jedes andere tunnel=* (außer "no") -> "tunnel"; sonst "surface".
     """
     osm_tags = osm_tags or {}
     bridge = str(osm_tags.get("bridge", "")).strip().lower()
@@ -19,6 +30,9 @@ def classify_structure(osm_tags: Dict) -> str:
         return "bridge"
     tunnel = str(osm_tags.get("tunnel", "")).strip().lower()
     if tunnel == "avalanche_protector":
+        return "gallery"
+    covered = str(osm_tags.get("covered", "")).strip().lower()
+    if covered == "yes" and tunnel in ("", "no") and _below_ground(osm_tags):
         return "gallery"
     if tunnel and tunnel != "no":
         return "tunnel"

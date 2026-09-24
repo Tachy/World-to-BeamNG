@@ -15,7 +15,7 @@ Balken/Spinner erscheinen statt sie zu zerreißen.
 from __future__ import annotations
 
 import time
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from typing import Iterator, Optional
 
 from rich.console import Console
@@ -37,12 +37,21 @@ def _status_line(style: str, symbol: str, name: str, summary: str, elapsed: floa
 class Subtask:
     """Handle für eine einzelne Unteraufgabe (Balken oder Spinner)."""
 
-    def __init__(self, progress: Progress, task_id, name: str):
+    def __init__(self, progress: Progress, task_id, name: str, on_close=None):
         self._progress = progress
         self._task_id = task_id
         self._name = name
         self._finalized = False
+        self._on_close = on_close  # meldet die Dauer an die Hauptaufgabe (Summe der erfassten Zeit)
         self._start = time.perf_counter()
+
+    def _close(self, style: str, symbol: str, summary: str) -> None:
+        self._finalized = True
+        self._progress.remove_task(self._task_id)
+        elapsed = time.perf_counter() - self._start
+        if self._on_close:
+            self._on_close(elapsed)
+        console.print(_status_line(style, symbol, self._name, summary, elapsed, indent="  "))
 
     def advance(self, n: int = 1) -> None:
         self._progress.advance(self._task_id, n)
@@ -50,34 +59,30 @@ class Subtask:
     def finish(self, summary: str = "") -> None:
         if self._finalized:
             return
-        self._finalized = True
-        self._progress.remove_task(self._task_id)
-        elapsed = time.perf_counter() - self._start
-        console.print(_status_line("green", "✓", self._name, summary, elapsed, indent="  "))
+        self._close("green", "✓", summary)
 
     def warn(self, summary: str) -> None:
         if self._finalized:
             return
-        self._finalized = True
-        self._progress.remove_task(self._task_id)
-        elapsed = time.perf_counter() - self._start
-        console.print(_status_line("yellow", "⚠", self._name, summary, elapsed, indent="  "))
+        self._close("yellow", "⚠", summary)
 
     def fail(self, summary: str) -> None:
         if self._finalized:
             return
-        self._finalized = True
-        self._progress.remove_task(self._task_id)
-        elapsed = time.perf_counter() - self._start
-        console.print(_status_line("red", "✗", self._name, summary, elapsed, indent="  "))
+        self._close("red", "✗", summary)
 
 
 class PipelineTask:
     """Handle für eine Hauptaufgabe; hält die geteilte rich-Progress-Instanz für ihre Unteraufgaben."""
 
+    # Ab dieser Lücke zwischen Gesamtzeit und Summe der Teilaufgaben wird "nicht zugeordnet" gemeldet, in Sekunden
+    UNASSIGNED_REPORT_MIN = 0.1
+
     def __init__(self, name: str):
         self.name = name
         self._finalized = False
+        self._subtask_count = 0
+        self._subtask_time = 0.0
         self._progress = Progress(
             SpinnerColumn(),
             *Progress.get_default_columns(),
@@ -104,7 +109,17 @@ class PipelineTask:
 
     def begin_subtask(self, name: str, total: Optional[int] = None) -> Subtask:
         task_id = self._progress.add_task(name, total=total)
-        return Subtask(self._progress, task_id, name)
+        self._subtask_count += 1
+        return Subtask(self._progress, task_id, name, on_close=self._add_subtask_time)
+
+    def _add_subtask_time(self, elapsed: float) -> None:
+        self._subtask_time += elapsed
+
+    def _report_unassigned(self, elapsed: float) -> None:
+        """Hat die Aufgabe Teilaufgaben, müssen deren Zeiten die Gesamtzeit ergeben - den Rest sichtbar melden."""
+        gap = elapsed - self._subtask_time
+        if self._subtask_count and gap >= self.UNASSIGNED_REPORT_MIN:
+            console.print(_status_line("yellow", "⚠", "nicht zugeordnet", "", gap, indent="  "))
 
     @contextmanager
     def subtask(self, name: str, total: Optional[int] = None) -> Iterator[Subtask]:
@@ -120,17 +135,43 @@ class PipelineTask:
     def done(self, summary: str = "") -> None:
         self._finalized = True
         elapsed = time.perf_counter() - self._start
+        self._report_unassigned(elapsed)
         console.print(_status_line("bold green", "✓", self.name, summary, elapsed))
 
     def warn(self, summary: str) -> None:
         self._finalized = True
         elapsed = time.perf_counter() - self._start
+        self._report_unassigned(elapsed)
         console.print(_status_line("bold yellow", "⚠", self.name, summary, elapsed))
 
     def fail(self, summary: str) -> None:
         self._finalized = True
         elapsed = time.perf_counter() - self._start
+        self._report_unassigned(elapsed)
         console.print(_status_line("bold red", "✗", self.name, summary, elapsed))
+
+
+def optional_subtask(task: Optional["PipelineTask"], name: str):
+    """task.subtask(name) - oder ein leerer Kontext, wenn der Aufrufer keine Hauptaufgabe mitgibt (z.B. Tests)."""
+    if task is None:
+        return nullcontext(_NullSubtask())
+    return task.subtask(name)
+
+
+class _NullSubtask:
+    """Stellvertreter ohne Anzeige für optional_subtask() ohne Hauptaufgabe."""
+
+    def advance(self, n: int = 1) -> None:
+        pass
+
+    def finish(self, summary: str = "") -> None:
+        pass
+
+    def warn(self, summary: str) -> None:
+        pass
+
+    def fail(self, summary: str) -> None:
+        pass
 
 
 class Pipeline:

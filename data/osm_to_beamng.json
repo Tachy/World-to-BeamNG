@@ -46,9 +46,50 @@
                 "ambientOcclusionMap": "levels/world_to_beamng/art/shapes/assets/materials/decalroad/concrete/decalroad_concrete/t_highway_concrete_ao.data.dds",
                 "roughnessMap": "levels/world_to_beamng/art/shapes/assets/materials/decalroad/concrete/decalroad_concrete/t_highway_concrete_r.data.dds"
             }
+        },
+        "cobblestone_road": {
+            "groundModelName": "cobblestone",
+            "priority": 6,
+            "drivability": 0.8,
+            "textures": {
+                "baseColorMap": "levels/world_to_beamng/art/shapes/assets/materials/tileable/stone/italy_cobblestone/italy_cobblestone_d.dds",
+                "normalMap": "levels/world_to_beamng/art/shapes/assets/materials/tileable/stone/italy_cobblestone/italy_cobblestone_n.dds"
+            }
         }
     },
     "highway_defaults": {
+        "motorway": {
+            "width": 8.0,
+            "internal_name": "asphalt_road_standard"
+        },
+        "trunk": {
+            "width": 7.5,
+            "internal_name": "asphalt_road_standard"
+        },
+        "primary": {
+            "width": 7.5,
+            "internal_name": "asphalt_road_standard"
+        },
+        "motorway_link": {
+            "width": 4.0,
+            "internal_name": "asphalt_road_standard"
+        },
+        "trunk_link": {
+            "width": 4.0,
+            "internal_name": "asphalt_road_standard"
+        },
+        "primary_link": {
+            "width": 4.0,
+            "internal_name": "asphalt_road_standard"
+        },
+        "secondary_link": {
+            "width": 4.0,
+            "internal_name": "asphalt_road_standard"
+        },
+        "tertiary_link": {
+            "width": 3.75,
+            "internal_name": "asphalt_road_standard"
+        },
         "secondary": {
             "width": 7.0,
             "internal_name": "asphalt_road_standard"
@@ -121,6 +162,47 @@
         },
         "asphalt": {
             "internal_name": "asphalt_road_standard"
+        },
+        "unpaved": {
+            "internal_name": "gravel_road"
+        },
+        "grass": {
+            "internal_name": "dirt_road"
+        },
+        "rock": {
+            "internal_name": "dirt_road"
+        },
+        "sett": {
+            "internal_name": "cobblestone_road"
+        },
+        "cobblestone": {
+            "internal_name": "cobblestone_road"
+        },
+        "unhewn_cobblestone": {
+            "internal_name": "cobblestone_road"
+        },
+        "paving_stones": {
+            "internal_name": "cobblestone_road"
+        }
+    },
+    "road_markings": {
+        "line_edge_white": {
+            "annotation": "SOLID_LINE",
+            "textureLength": 10.0,
+            "textures": {
+                "baseColorMap": "levels/world_to_beamng/art/shapes/assets/materials/decalroad/lines/line_white/t_line_white_b.color.dds",
+                "normalMap": "levels/world_to_beamng/art/shapes/assets/materials/decalroad/lines/line_white/t_line_white_nm.normal.dds",
+                "opacityMap": "levels/world_to_beamng/art/shapes/assets/materials/decalroad/lines/line_white/t_line_white_o.data.dds"
+            }
+        },
+        "line_divider_dashed": {
+            "annotation": "DASHED_LINE",
+            "textureLength": 24.0,
+            "textures": {
+                "baseColorMap": "levels/world_to_beamng/art/shapes/assets/materials/decalroad/lines/line_white_dashed/t_line_white_dashed_b.color.dds",
+                "normalMap": "levels/world_to_beamng/art/shapes/assets/materials/decalroad/lines/line_dashed_short/t_line_white_dashed_nm.normal.dds",
+                "opacityMap": "levels/world_to_beamng/art/shapes/assets/materials/decalroad/lines/line_white_dashed/t_line_white_dashed_o.data.dds"
+            }
         }
     },
     "forest_type_templates": {

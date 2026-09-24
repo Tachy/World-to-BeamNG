@@ -17,6 +17,7 @@ class OSMMapper:
         self.defaults = self.config.get("highway_defaults", {})
         self.overrides = self.config.get("surface_overrides", {})
         self.surface_types = self.config.get("surface_types", {})
+        self.road_markings = self.config.get("road_markings", {})
         self.forest_types = self.config.get("forest_types", {})
         self.forest_mappings = self.config.get("forest_mappings", {})
 
@@ -35,10 +36,12 @@ class OSMMapper:
             tags = {}
 
         # 1. Hole Highway-Type Default (mit internal_name + width)
+        # Exakter Typ zuerst (z.B. 'primary_link' hat einen eigenen, einspurigen Default), erst
+        # danach der Basistyp vor dem Unterstrich ('primary_foo' -> 'primary').
         hw_type = tags.get("highway", "unclassified")
-        base_type = hw_type.split("_")[0]  # 'primary_link' -> 'primary'
+        base_type = hw_type.split("_")[0]
 
-        highway_entry = self.defaults.get(base_type, self.defaults.get(hw_type, self.defaults.get("unclassified", {})))
+        highway_entry = self.defaults.get(hw_type, self.defaults.get(base_type, self.defaults.get("unclassified", {})))
 
         if not highway_entry:
             # Fallback: verwende dirt_road
@@ -206,6 +209,30 @@ class OSMMapper:
             "translucent": True,
             "translucentZWrite": True,
             "persistentId": str(uuid.uuid4()),  # ← KRITISCH: BeamNG braucht eindeutige IDs für Material-Persistierung!
+        }
+
+    def generate_marking_material_entry(self, mat_name, props):
+        """
+        materials.json-Eintrag für eine Markierungslinie (Rand-/Leitlinie). Schema wie BeamNGs eigene `line_white` /
+        `line_dashed_long` (west_coast_usa/art/road/main.materials.json): translucent mit opacityMap, ohne Schatten,
+        annotation SOLID_LINE bzw. DASHED_LINE. Anders als generate_materials_json_entry() ohne "__name".
+        """
+        tex = props.get("textures", {})
+        stage = {key: tex[key] for key in ("baseColorMap", "normalMap", "opacityMap") if tex.get(key)}
+        return {
+            "name": mat_name,
+            "mapTo": mat_name,
+            "class": "Material",
+            "version": 1.5,
+            "Stages": [stage],
+            "annotation": props.get("annotation", "SOLID_LINE"),
+            "alphaRef": 255,
+            "castShadows": False,
+            "materialTag0": "RoadAndPath",
+            "materialTag1": "beamng",
+            "translucent": True,
+            "translucentZWrite": True,
+            "persistentId": str(uuid.uuid4()),
         }
 
     def is_forest(self, tags):

@@ -142,15 +142,29 @@ interpolierten Profils (Abschnitt 2):
   bei Mauern, z.B. 10 m - die Röhre folgt keinem unebenen Gelände, das hält
   die Vertex-Zahl auch bei 16,9 km im Rahmen).
 
-**Portal (an beiden Enden):** die natürliche Hangneigung wird an der
-Endposition aus der unveränderten Heightmap abgetastet (Gradient über
-`config.TUNNEL_PORTAL_SLOPE_SAMPLE_DIST` Meter entlang und quer zur
-Tunnelachse - gleiche Technik wie das links/rechts-Sampling der Böschung).
-Die Stirnfläche der Röhre (Boden, Wände, Decke) wird entlang dieser
-Hangneigungs-Ebene abgeschnitten statt rechtwinklig zur Achse - die Röhre
-wirkt dadurch, als würde sie schräg aus dem Hang herauswachsen. Ein Portal-
-Rahmen-Mesh wird passend zur geneigten Schnittkante ausgerichtet und dort
-platziert. Keine Änderung der Terrain-Heightmap.
+**Portal (an beiden Enden) - überarbeitet 2026-09-24:** der ursprüngliche
+Entwurf (schräg an die Hangneigung angepasster Portal-Rahmen, keine Änderung
+der Heightmap) ließ den Hang die Öffnung verdecken und die Röhre auf den
+ersten Metern aus dem Gelände ragen. Ersetzt durch:
+
+- *Portalhöhe:* der OSM-Tunnelanfang liegt oft schon im Hang (DGM = Portal-
+  Böschung statt Straßenniveau). `geometry.polygon.settle_tunnel_portals_to_approach_grade`
+  tastet die Zufahrt vom Portal weg ab, bis die Steigung über
+  `TUNNEL_APPROACH_STABLE_LENGTH` stabil unter `TUNNEL_APPROACH_SLOPE_THRESHOLD`
+  bleibt, und verlängert diese Steigung bis zum Portal (Zufahrt + Portalpunkt),
+  vor dem linearen Tunnelprofil.
+- *Verkettung:* die von der Junction-Erkennung geteilten Tunnel-Stücke werden
+  wieder zu einer Röhre verbunden (`tunnel_mesh.chain_tunnel_pieces`), die
+  Querschnitts-Ringe stehen auf Gehrung (nahtlos in Kurven).
+- *Portalbauwerk:* Betonblock (`tunnels/tunnel_portal.py`) ab der Portalebene
+  `TUNNEL_PORTAL_LENGTH` in den Berg, mit der Röhrenöffnung in der Stirnseite.
+- *Gelände* (`terrain/tunnel_terrain.py`): Überdeckung mindestens
+  `TUNNEL_COVER` über der Krone (seitlich `TUNNEL_COVER_SLOPE`), wo die Röhre
+  mindestens zur Hälfte im Gelände steckt; Portal-Zone bis
+  `TUNNEL_PORTAL_FLAT_DEPTH` knapp unter dem Röhrenboden, die Rasterzellen am
+  Übergang zur Überdeckung werden Terrain-Löcher, die komplett im Portalblock
+  liegen. Tunnel-Enden ohne offenes Gelände davor (mitten im Berg) bekommen
+  weder Portal noch Geländeänderung.
 
 ## 6. Galerie-Mesh (`world_to_beamng/tunnels/gallery_mesh.py`)
 
@@ -206,7 +220,9 @@ TUNNELS_ENABLED = True        # deckt auch Galerien ab
 TUNNEL_WIDTH_MARGIN = ...     # m, zusätzlich zur Fahrbahnbreite
 TUNNEL_HEIGHT = ...           # m
 TUNNEL_SEGMENT_STEP = ...     # m
-TUNNEL_PORTAL_SLOPE_SAMPLE_DIST = ...  # m
+TUNNEL_APPROACH_SLOPE_THRESHOLD / _STABLE_LENGTH / _MAX_DISTANCE  # Portalhöhe
+TUNNEL_COVER / TUNNEL_COVER_SLOPE  # Überdeckung
+TUNNEL_PORTAL_WING / _FLAT_DEPTH / _LENGTH  # Portalblock
 
 GALLERY_COLUMN_SPACING = ...  # m
 GALLERY_ROOF_THICKNESS = ...  # m

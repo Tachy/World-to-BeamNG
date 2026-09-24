@@ -12,7 +12,8 @@ import pytest
 
 from world_to_beamng import config
 from world_to_beamng.textures import registry
-from world_to_beamng.workflow.terrain_workflow import TerrainWorkflow
+from world_to_beamng.tunnels.tunnel_portal import plan_tunnels
+from world_to_beamng.workflow.terrain_workflow import TerrainWorkflow, _structure_items
 
 
 class _Items:
@@ -131,7 +132,9 @@ def test_build_tunnels_creates_tube_plus_portals_for_a_tunnel_and_one_mesh_per_g
     tunnel_road = _road(1, "tunnel", {"highway": "trunk", "tunnel": "yes"})
     gallery_road = _road(2, "gallery", {"highway": "primary", "tunnel": "avalanche_protector"})
 
-    meshes = TerrainWorkflow._build_tunnels(SimpleNamespace(), [tunnel_road, gallery_road], heights, 0.0, 0.0)
+    plans = plan_tunnels(_structure_items([tunnel_road, gallery_road], "tunnel"), width_margin=1.5, segment_step=10.0, wing=2.0, flat_depth=1.5, length=3.5, cover=1.0)
+
+    meshes = TerrainWorkflow._build_tunnels(SimpleNamespace(), [tunnel_road, gallery_road], plans, heights, 0.0, 0.0)
 
     ids = [m["id"] for m in meshes]
     assert "tunnel_1" in ids and "tunnel_1_portal_start" in ids and "tunnel_1_portal_end" in ids and "gallery_2" in ids
@@ -141,4 +144,108 @@ def test_build_tunnels_skips_surface_and_bridge_roads():
     heights = np.full((10, 10), 495.0)
     road = _road(1, "bridge", {"bridge": "yes"})
 
-    assert TerrainWorkflow._build_tunnels(SimpleNamespace(), [road], heights, 0.0, 0.0) == []
+    assert _structure_items([road], "tunnel") == []
+    assert TerrainWorkflow._build_tunnels(SimpleNamespace(), [road], [], heights, 0.0, 0.0) == []
+
+
+from types import SimpleNamespace
+
+from world_to_beamng.workflow.terrain_workflow import TerrainWorkflow, _plan_tunnels
+
+
+def _structure(road_id, coords, **tags):
+    from world_to_beamng.geometry.road_structures import classify_structure
+
+    tags = {"highway": "primary", "lanes": "2", **tags}
+    return {"road_id": road_id, "trimmed_centerline": np.array(coords, dtype=float), "osm_tags": tags,
+            "structure_type": classify_structure(tags)}
+
+
+def _tunnel_and_gallery():
+    return [
+        _structure(1, [(0.0, 0.0, 500.0), (100.0, 0.0, 500.0)], tunnel="yes"),
+        _structure(2, [(-50.0, 0.0, 500.0), (0.0, 0.0, 500.0)], covered="yes", layer="-1"),
+    ]
+
+
+def test_plan_tunnels_marks_the_portal_at_a_covered_gallery_as_transition():
+    start, end = _plan_tunnels(_tunnel_and_gallery())[0]["portals"]
+    assert start["kind"] == "gallery" and end["kind"] == "open"
+
+
+def test_gallery_at_a_transition_gets_no_end_cap_in_the_workflow():
+    roads = _tunnel_and_gallery()
+    plans = _plan_tunnels(roads)
+    heights = np.full((300, 300), 500.0)
+
+    meshes = TerrainWorkflow._build_tunnels(SimpleNamespace(), roads, plans, heights, -150.0, -150.0)
+
+    gallery = next(m for m in meshes if m["id"] == "gallery_2")
+    v, n = gallery["vertices"], gallery["normals"]
+    faces = [f for fs in gallery["faces"].values() for f in fs]
+    at_portal = [f for f in faces if np.allclose(v[f][:, 0], 0.0) and np.allclose(n[f[0]], [1.0, 0.0, 0.0])]
+    assert at_portal == []  # die Portalwand schließt die Galerie, keine eigene Stirnfläche
+    assert any(m["id"] == "tunnel_1_portal_start" for m in meshes)
+
+
+def test_roadblocks_are_placed_on_the_ground_and_exported_as_barrier_statics():
+    from world_to_beamng import config
+    from world_to_beamng.workflow.terrain_workflow import _roadblock_items
+
+    roads = [_structure(1, [(100.0, 0.0, 500.0), (400.0, 0.0, 500.0)], tunnel="yes")]  # Ende außerhalb der Karte
+    plans = _plan_tunnels(roads)
+    heights = np.full((300, 300), 512.0)
+    bounds = (-150.0, 149.0, -150.0, 149.0)
+
+    approach = {"road_id": 9, "trimmed_centerline": np.array([(50.0, 0.0, 500.0), (100.0, 0.0, 500.0)]),
+                "osm_tags": {"highway": "primary"}, "structure_type": "surface"}
+    blocks = _roadblock_items(plans, heights, -150.0, -150.0, bounds, [approach])
+
+    assert blocks and all(b["position"][2] == pytest.approx(512.0) for b in blocks)
+    assert all(b["position"][0] == pytest.approx(95.0) for b in blocks)
+
+    added = {}
+    stub = SimpleNamespace(items=SimpleNamespace(add_item=lambda name, **kw: added.__setitem__(name, kw)))
+    TerrainWorkflow.export_roadblocks(stub, {"roadblocks": blocks})
+
+    assert set(added) == {b["name"] for b in blocks}
+    first = added[blocks[0]["name"]]
+    assert first["item_class"] == "TSStatic" and first["shape_name"] == config.ROADBLOCK_SHAPE
+    assert first["rotation_matrix"] == blocks[0]["rotation_matrix"]
+
+
+def test_tunnel_zones_are_planned_from_the_config_and_exported_as_zone_objects():
+    from world_to_beamng.workflow.terrain_workflow import _tunnel_zone_items
+
+    plans = _plan_tunnels(_tunnel_and_gallery())
+    zones = _tunnel_zone_items(plans)
+
+    assert zones and all(z["name"].startswith(("tunnel_zone_1_", "tunnel_zone_portal_1_")) for z in zones)  # nur der Tunnel
+
+    added = {}
+    stub = SimpleNamespace(items=SimpleNamespace(add_item=lambda name, **kw: added.__setitem__(name, kw)))
+    count = TerrainWorkflow.export_tunnel_zones(stub, {"tunnel_zones": zones})
+
+    assert count == len(zones) and set(added) == {z["name"] for z in zones}
+    zone = next(z for z in zones if z["class"] == "Zone")
+    first = added[zone["name"]]
+    assert first["item_class"] == "Zone"
+    assert any(kw["item_class"] == "Portal" for kw in added.values())
+    assert first["scale"] == zone["scale"] and first["rotation_matrix"] == zone["rotation_matrix"]
+    assert first["useAmbientLightColor"] is True and first["ambientLightColor"] == [0, 0, 0, 1]
+    assert first["skyLightFactor"] == pytest.approx(0.05)
+
+
+def test_untagged_gallery_embankment_uses_the_terrain_valley_side():
+    from world_to_beamng import config
+    from world_to_beamng.workflow.terrain_workflow import _gallery_embedding
+
+    road = _structure(2, [(-50.0, 0.0, 500.0), (0.0, 0.0, 500.0)], covered="yes", layer="-1")
+    ground_at = lambda x, y: 500.0 + 1.0 * np.asarray(y, float)  # Laufrichtung +x: rechts (-y) ist das Tal
+
+    override, flat_sides = _gallery_embedding(road, ground_at)
+
+    assert road["open_side"] == "right"
+    assert override == {"right": config.GALLERY_VALLEY_SLOPE_WIDTH, "left": config.GALLERY_MOUNTAIN_EMBED_MARGIN}
+    assert flat_sides == {"left"}
+    assert _structure_items([road], "gallery")[0]["open_side"] == "right"  # dieselbe Seite für das Galerie-Mesh

@@ -239,3 +239,51 @@ def test_task_and_subtask_report_elapsed_seconds(buffer):
 
     assert re.search(r"Laden.*\(\d+\.\d+s\)", output)
     assert re.search(r"Texturen.*\(\d+\.\d+s\)", output)
+
+
+class _FakeClock:
+    def __init__(self):
+        self.now = 0.0
+
+    def __call__(self):
+        return self.now
+
+
+@pytest.fixture
+def clock(monkeypatch):
+    fake = _FakeClock()
+    monkeypatch.setattr(progress_module.time, "perf_counter", fake)
+    return fake
+
+
+def test_time_outside_subtasks_is_reported_as_unassigned(buffer, clock):
+    # Die Einzelzeiten müssen sich zur Gesamtzeit summieren - ungemessene Arbeit wird sichtbar gemacht
+    pipeline = Pipeline()
+    with pipeline.task("Terrain + Straßen") as task:
+        with task.subtask("DecalRoads"):
+            clock.now += 2.0
+        clock.now += 7.0  # Arbeit ohne Teilaufgabe (z.B. früher das Minimap-Bild)
+
+    output = buffer.getvalue()
+    assert "nicht zugeordnet (7.0s)" in output
+    assert "✓ Terrain + Straßen (9.0s)" in output
+
+
+def test_seamless_subtasks_report_no_unassigned_time(buffer, clock):
+    pipeline = Pipeline()
+    with pipeline.task("Finalisierung") as task:
+        with task.subtask("Materials"):
+            clock.now += 1.0
+        with task.subtask("Items"):
+            clock.now += 2.0
+        clock.now += 0.05  # Kleinkram unter der Meldeschwelle
+
+    assert "nicht zugeordnet" not in buffer.getvalue()
+
+
+def test_task_without_subtasks_reports_no_unassigned_time(buffer, clock):
+    pipeline = Pipeline()
+    with pipeline.task("Texturen"):
+        clock.now += 3.0
+
+    assert "nicht zugeordnet" not in buffer.getvalue()

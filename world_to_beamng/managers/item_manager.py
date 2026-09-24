@@ -463,12 +463,8 @@ class ItemManager:
             return fallback_position, fallback_rotation
 
         dx, dy = float(best_tangent[0]), float(best_tangent[1])
-        # rotationMatrix (row-major 3x3, siehe test_item_manager_rotation.py): bildet die lokale
-        # Fahrzeug-Vorwärtsachse (Torque3D-Konvention: lokal +Y) auf die Fahrtrichtung (dx, dy, 0)
-        # im Level ab, lokal +X auf die dazu senkrechte "rechts"-Richtung, lokal +Z bleibt "oben".
-        # Identitätsprobe: dx=0, dy=1 (Fahrtrichtung = Welt-Y) ergibt [1,0,0, 0,1,0, 0,0,1]. Die
-        # Vorwärtsachsen-Konvention ist nicht offiziell dokumentiert - im Spiel verifizieren.
-        rotation_matrix = [dy, dx, 0.0, -dx, dy, 0.0, 0.0, 0.0, 1.0]
+        # Fahrzeug schaut entlang der Fahrtrichtung (dx, dy, 0) - siehe _heading_rotation_matrix().
+        rotation_matrix = self._heading_rotation_matrix(dx, dy)
 
         # Kleiner Sicherheitsabstand über der (bereits eingebetteten) Straßenhöhe, damit das
         # Fahrzeug nicht in der Fahrbahn feststeckt.
@@ -477,7 +473,59 @@ class ItemManager:
         logger.info(f"  [OK] Fahrzeug-Spawn auf nächster Straße zur Gebietsmitte: {position}")
         return position, rotation_matrix
 
-    IDENTITY_ROTATION_MATRIX = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]
+    @staticmethod
+    def _nearest_road_pose(road_polygons, target_xy, max_distance: float):
+        """
+        Nächster Punkt auf einer befahrbaren Straßen-Centerline zu `target_xy` (Lotfußpunkt auf das Segment, Höhe
+        linear entlang des Segments) und die Richtung dieses Segments als Einheitsvektor - oder None, wenn keine
+        Straße höchstens max_distance entfernt liegt. Tunnel (structure_type) und Wege ohne Autoverkehr
+        (config.POI_SPAWN_EXCLUDED_HIGHWAYS) zählen nicht.
+
+        Returns:
+            ((x, y, z), (dx, dy)) oder None
+        """
+        import numpy as np
+
+        target = np.asarray(target_xy, dtype=float)[:2]
+        best, best_dist = None, float(max_distance)
+        for road in road_polygons or []:
+            if road.get("structure_type", "surface") == "tunnel":
+                continue
+            if (road.get("osm_tags") or {}).get("highway") in config.POI_SPAWN_EXCLUDED_HIGHWAYS:
+                continue
+            centerline = road.get("trimmed_centerline")
+            if centerline is None or len(centerline) < 2:
+                continue
+            coords = np.asarray(centerline, dtype=float)
+            starts, ends = coords[:-1], coords[1:]
+            seg = ends[:, :2] - starts[:, :2]
+            seg_len_sq = np.einsum("ij,ij->i", seg, seg)
+            valid = seg_len_sq > 1e-12
+            if not valid.any():
+                continue
+            t = np.zeros(len(seg))
+            t[valid] = np.clip(np.einsum("ij,ij->i", target - starts[valid, :2], seg[valid]) / seg_len_sq[valid], 0.0, 1.0)
+            foot = starts + t[:, None] * (ends - starts)
+            dist = np.hypot(foot[:, 0] - target[0], foot[:, 1] - target[1])
+            dist[~valid] = np.inf
+            i = int(np.argmin(dist))
+            if dist[i] < best_dist:
+                best_dist = float(dist[i])
+                best = (tuple(float(v) for v in foot[i]), tuple(float(v) for v in seg[i] / np.sqrt(seg_len_sq[i])))
+        return best
+
+    @staticmethod
+    def _heading_rotation_matrix(dx: float, dy: float) -> list:
+        """rotationMatrix, mit der ein Fahrzeug in Richtung (dx, dy, 0) schaut.
+
+        Die Fahrzeugfront liegt auf lokal -Y (jbeam-Konvention; im Spiel bestätigt 2026-09-24: mit lokal +Y auf dem
+        Heading standen die Tunnel-Spawns parallel zur Straße, schauten aber vom Tunnel weg). Also lokal +Y -> -(dx, dy).
+
+        BeamNG speichert die Bilder der lokalen Achsen in den ZEILEN (Zeile 0 = lokal +X, Zeile 1 = lokal +Y, Zeile 2 =
+        lokal +Z) - abgeleitet aus Vanilla-Spawnpunkten auf diagonalen Straßen (20 von 24 mit Zeile 1 parallel zur
+        Straße) und bestätigt durch den Vanilla-Tunnel in jungle_rock_island (Portale exakt auf Zeile 1 der Zone). Die
+        frühere Spalten-Variante spiegelte jede Ausrichtung an der Nord-Süd-Achse (im Spiel: Autos quer zur Straße)."""
+        return [-dy, dx, 0.0, -dx, -dy, 0.0, 0.0, 0.0, 1.0]
 
     @staticmethod
     def _slugify_spawn_object_name(display_name: str) -> str:
@@ -490,6 +538,7 @@ class ItemManager:
         poi_points,
         max_points: Optional[int] = None,
         preview_builder: Optional[Callable[[str, Tuple[float, float]], Optional[str]]] = None,
+        road_polygons=None,
     ) -> List[Dict]:
         """
         Ein zusätzlicher, in der BeamNG-Fahrzeugauswahl wählbarer Spawn-Punkt je POI (Ort oder großer
@@ -503,8 +552,11 @@ class ItemManager:
         Rangfolge bei mehr Kandidaten als max_points: zuerst alle "place"-POIs (Orte), sortiert nach
         Bekanntheit (osm.poi_points.PLACE_RANK: Stadt vor Dorf vor Weiler), danach "parking"-POIs
         sortiert nach Fläche - ein Ort ist als Spawn-Landmarke aussagekräftiger als jeder Parkplatz.
-        Punkte ohne brauchbare Richtungsinformation bekommen eine neutrale (Identitäts-)Ausrichtung -
-        anders als bei einer Straßen-Centerline gibt es an einem Ort/Parkplatz keine natürliche Tangente.
+        Das Fahrzeug steht nicht auf dem OSM-Punkt des Orts (oft mitten zwischen Häusern oder auf einer Wiese),
+        sondern auf der nächsten befahrbaren Straße, mit Heading parallel zu deren Centerline (siehe
+        _nearest_road_pose()). Liegt keine Straße näher als config.POI_SPAWN_MAX_ROAD_DISTANCE (z.B. eine Alp nur
+        mit Wanderwegen), entfällt der POI - vor der Begrenzung auf max_points, der nächste Kandidat rückt nach.
+        Ohne Straßendaten entfallen alle POIs (es bleibt nur der Standard-Spawn).
 
         Args:
             poi_points: Liste von Dicts {"name", "position": [x, y, z], "kind": "place"|"parking",
@@ -513,6 +565,8 @@ class ItemManager:
             preview_builder: optional (object_name, (x, y)) -> Vorschaubild-Pfad (relativ zum Level-
                 Root) oder None - siehe io/aerial.py::build_poi_preview_image(). Ohne Vorschaubild
                 fällt BeamNG auf das Level-Vorschaubild zurück (siehe levels.lua imageExistsDefault()).
+                Zentriert auf den (auf die Straße gesetzten) Spawn.
+            road_polygons: Straßen-Dicts mit "trimmed_centerline", "osm_tags", "structure_type" (optional)
 
         Returns:
             Liste von Dicts: {"object_name", "display_name", "position", "rotationMatrix", "preview"}
@@ -521,17 +575,30 @@ class ItemManager:
             max_points = config.MAX_POI_SPAWN_POINTS
         if not poi_points:
             return []
+        if not road_polygons:
+            logger.info("  [i] Keine Straßendaten - keine Orts-/Parkplatz-Spawns")
+            return []
 
         kind_priority = {"place": 0, "parking": 1}
-        ranked = sorted(
-            poi_points, key=lambda p: (kind_priority.get(p.get("kind"), 2), -(p.get("rank") or 0.0))
-        )[:max_points]
+        ranked = sorted(poi_points, key=lambda p: (kind_priority.get(p.get("kind"), 2), -(p.get("rank") or 0.0)))
+
+        # Spawn-Pose je POI: auf der nächsten Straße, oder POI weglassen, wenn keine in Reichweite liegt
+        candidates = []  # (poi, ((x, y, z), (dx, dy)))
+        for poi in ranked:
+            if len(candidates) >= max_points:
+                break
+            x, y, _ = (float(v) for v in poi["position"])
+            pose = self._nearest_road_pose(road_polygons, (x, y), config.POI_SPAWN_MAX_ROAD_DISTANCE)
+            if pose is None:
+                logger.info(f"  [i] Spawn '{poi['name']}' entfällt: keine Straße im Umkreis von {config.POI_SPAWN_MAX_ROAD_DISTANCE:.0f} m")
+                continue
+            candidates.append((poi, pose))
 
         # Doppelte Anzeigenamen (v.a. unbenannte Parkplätze -> "Parkplatz") durchnummerieren, damit die
         # Fahrzeugauswahl sie unterscheidbar auflistet - erstes Auftreten bleibt unnummeriert.
         name_occurrence: Dict[str, int] = {}
         display_names = []
-        for poi in ranked:
+        for poi, _ in candidates:
             name = poi["name"]
             name_occurrence[name] = name_occurrence.get(name, 0) + 1
             n = name_occurrence[name]
@@ -539,8 +606,9 @@ class ItemManager:
 
         used_object_names = set()
         result = []
-        for poi, display_name in zip(ranked, display_names):
-            x, y, z = (float(v) for v in poi["position"])
+        for (poi, ((x, y, z), (dx, dy))), display_name in zip(candidates, display_names):
+            rotation = self._heading_rotation_matrix(dx, dy)
+            # Kleiner Sicherheitsabstand, damit das Fahrzeug nicht in Straße/Gelände feststeckt
             position = [x, y, z + 0.3]
 
             object_name = base_name = self._slugify_spawn_object_name(display_name)
@@ -556,10 +624,43 @@ class ItemManager:
                 "object_name": object_name,
                 "display_name": display_name,
                 "position": position,
-                "rotationMatrix": self.IDENTITY_ROTATION_MATRIX,
+                "rotationMatrix": rotation,
                 "preview": preview,
             })
 
+        return result
+
+    def _fixed_spawn_points(
+        self,
+        fixed_spawns,
+        used_object_names,
+        preview_builder: Optional[Callable[[str, Tuple[float, float]], Optional[str]]] = None,
+    ) -> List[Dict]:
+        """
+        Wählbare Spawn-Punkte mit fest vorgegebener Pose (z.B. vor Tunneleinfahrten, siehe
+        tunnels/entrance_spawns.py) - gleiches Ausgabeformat wie _compute_poi_spawn_points().
+
+        Args:
+            fixed_spawns: [{"name", "position": (x, y, z) auf der Fahrbahn, "heading": (dx, dy)}, ...]
+            used_object_names: bereits vergebene Objektnamen (wird ergänzt)
+        """
+        result = []
+        for spawn in fixed_spawns or ():
+            x, y, z = (float(v) for v in spawn["position"])
+            dx, dy = (float(v) for v in spawn["heading"])
+            object_name = base_name = self._slugify_spawn_object_name(spawn["name"])
+            suffix = 2
+            while object_name in used_object_names:
+                object_name = f"{base_name}_{suffix}"
+                suffix += 1
+            used_object_names.add(object_name)
+            result.append({
+                "object_name": object_name,
+                "display_name": spawn["name"],
+                "position": [x, y, z + 0.3],
+                "rotationMatrix": self._heading_rotation_matrix(dx, dy),
+                "preview": preview_builder(object_name, (x, y)) if preview_builder else None,
+            })
         return result
 
     def save(
@@ -568,6 +669,7 @@ class ItemManager:
         road_polygons=None,
         poi_points=None,
         preview_builder: Optional[Callable[[str, Tuple[float, float]], Optional[str]]] = None,
+        fixed_spawns=None,
     ) -> None:
         """
         Exportiere Items in die richtige BeamNG-Struktur.
@@ -585,6 +687,7 @@ class ItemManager:
                 (optional) - siehe _compute_poi_spawn_points()
             preview_builder: optional (object_name, (x, y)) -> Vorschaubild-Pfad, an
                 _compute_poi_spawn_points() durchgereicht
+            fixed_spawns: zusätzliche Spawn-Punkte mit fester Pose (optional) - siehe _fixed_spawn_points()
         """
         from .. import config
 
@@ -602,7 +705,8 @@ class ItemManager:
         playerdroppoints_items = playerdroppoints_dir / "items.level.json"
 
         spawn_position, spawn_rotation = self._compute_vehicle_spawn(road_polygons)
-        poi_spawns = self._compute_poi_spawn_points(poi_points, preview_builder=preview_builder)
+        poi_spawns = self._compute_poi_spawn_points(poi_points, preview_builder=preview_builder, road_polygons=road_polygons)
+        poi_spawns += self._fixed_spawn_points(fixed_spawns, {ps["object_name"] for ps in poi_spawns}, preview_builder)
 
         # Schreibe main/items.level.json im JSONL-Format (nur MissionGroup)
         # (json.dumps statt json.dump auf die Datei: der C-Encoder ist ~5x schneller)

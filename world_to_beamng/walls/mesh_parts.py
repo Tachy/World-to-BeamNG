@@ -65,6 +65,17 @@ class MeshBuilder:
                 tri = [tri[0], tri[2], tri[1]]
             self.faces.append([base + tri[0], base + tri[1], base + tri[2]])
 
+    def triangle(self, corners: Sequence[Sequence[float]], uvs: Sequence[Sequence[float]], normal: Sequence[float]) -> None:
+        """Dreieck mit eigenen Eckpunkten, Umlaufsinn wie bei quad() passend zur Normalen."""
+        base = len(self.vertices)
+        self.vertices.extend([list(c) for c in corners])
+        self.uvs.extend([list(u) for u in uvs])
+        self.normals.extend([list(normal)] * 3)
+        a, b, c = corners
+        cross = np.cross(np.subtract(b, a), np.subtract(c, a))
+        order = [0, 1, 2] if float(np.dot(cross, normal)) >= 0 else [0, 2, 1]
+        self.faces.append([base + order[0], base + order[1], base + order[2]])
+
 
 def unit_vector(vector: np.ndarray) -> List[float]:
     length = np.linalg.norm(vector)

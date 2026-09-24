@@ -1,5 +1,5 @@
 """Tests für world_to_beamng.tunnels.tunnel_mesh: kreisrunde Tunnelröhre (Standardprofil: 240° Bogen über der
-Fahrbahn, Boden als Sehne, Radius/Höhe aus der Breite abgeleitet) + hangneigungs-angepasste Portal-Rahmen."""
+Fahrbahn, Boden als Sehne, Radius/Höhe aus der Breite abgeleitet), Verkettung der Tunnel-Stücke."""
 
 import sys
 from pathlib import Path
@@ -12,14 +12,14 @@ import numpy as np
 import pytest
 
 from world_to_beamng.tunnels.tunnel_mesh import (
-    build_tunnel,
     build_tunnel_mesh,
     build_tunnels,
-    portal_frame_corners,
+    chain_tunnel_pieces,
     resample_tunnel_coords,
     tunnel_crown_height,
     tunnel_radius,
 )
+from world_to_beamng.tunnels.tunnel_portal import plan_tunnels
 
 WALL, FRAME, FLOOR = "tunnel_concrete", "tunnel_concrete", "asphalt_road_standard"
 
@@ -106,38 +106,110 @@ def test_resample_tunnel_coords_leaves_short_tunnels_unchanged():
     assert resample_tunnel_coords(coords, step=10.0) == coords
 
 
-def test_portal_frame_corners_are_a_flat_rectangle_on_flat_ground():
-    corners = np.array(portal_frame_corners((0.0, 0.0), (1.0, 0.0), width=8.0, height=12.0, margin=0.6, floor_z=500.0, slope_along_axis=0.0))
+def test_adjacent_segments_share_the_exact_same_ring_on_a_curve():
+    # Die Ringe stehen auf Gehrung an den Centerline-Punkten: beide Segmente an einem Knick verwenden exakt
+    # dieselben Ringpunkte - sonst klafft in Kurven ein Spalt zwischen den Röhrensegmenten.
+    coords = [(0.0, 0.0, 500.0), (20.0, 0.0, 500.0), (40.0, 8.0, 500.0)]
+    mesh = build_tunnel_mesh(coords, width=8.0, floor_material=FLOOR, wall_material=WALL, arc_segments=6)
 
-    assert corners[:, 0].max() == pytest.approx(0.0)  # keine Achsverschiebung bei Neigung 0
-    assert corners[:, 1].min() == pytest.approx(-4.6) and corners[:, 1].max() == pytest.approx(4.6)
-    assert corners[:, 2].min() == pytest.approx(500.0) and corners[:, 2].max() == pytest.approx(512.6)
-
-
-def test_portal_frame_corners_shift_the_top_edge_with_slope():
-    corners = np.array(portal_frame_corners((0.0, 0.0), (1.0, 0.0), width=8.0, height=12.0, margin=0.0, floor_z=500.0, slope_along_axis=0.2))
-
-    assert corners[0, 0] == pytest.approx(0.0) and corners[1, 0] == pytest.approx(0.0)  # untere Ecken unverschoben
-    assert corners[2, 0] == pytest.approx(2.4) and corners[3, 0] == pytest.approx(2.4)  # obere Ecken: 0.2 * 12m = 2.4m verschoben
+    wall_idx = sorted({i for tri in mesh["faces"][WALL] for i in tri})
+    wall_v = np.round(mesh["vertices"][wall_idx], 6)
+    # Vertices am Knick (Projektion auf die Achse nahe x=20) - dort gibt es nur EINEN Ring aus 7 Punkten
+    at_joint = {tuple(v) for v in wall_v if abs(v[0] - 20.0) < 2.0 and abs(v[1]) < 6.0}
+    assert len(at_joint) == 7
 
 
-def test_build_tunnel_returns_the_tube_plus_two_portal_frames_with_derived_height():
-    tunnel = {"id": 42, "coords": _straight_coords(length=200.0, z=500.0), "width": 7.0, "floor_material": FLOOR}
-    ground_at = lambda x, y: np.full_like(np.asarray(x, float), 500.0)
+def _piece(piece_id, coords, width=7.0):
+    return {"id": piece_id, "coords": coords, "width": width, "floor_material": FLOOR}
 
-    meshes = build_tunnel(tunnel, ground_at, WALL, FRAME, width_margin=1.5, arc_segments=12, segment_step=10.0, portal_slope_sample_dist=5.0, frame_margin=0.6)
+
+def test_chain_tunnel_pieces_joins_split_pieces_into_one_tube_regardless_of_direction():
+    a = _piece(1, [(0.0, 0.0, 500.0), (10.0, 0.0, 501.0)])
+    b = _piece(2, [(20.0, 0.0, 502.0), (10.0, 0.0, 501.0)])  # umgekehrt digitalisiert
+    c = _piece(3, [(20.0, 0.0, 502.0), (30.0, 0.0, 503.0)])
+
+    chains = chain_tunnel_pieces([b, c, a])
+
+    assert len(chains) == 1
+    xs = [p[0] for p in chains[0]["coords"]]
+    assert xs in ([0.0, 10.0, 20.0, 30.0], [30.0, 20.0, 10.0, 0.0])
+
+
+def test_chain_tunnel_pieces_ignores_a_different_tunnel_crossing_at_the_joint():
+    # Fußweg-Tunnel kreuzt den Straßentunnel in 2D und wurde am selben Punkt geteilt
+    a = _piece(1, [(0.0, 0.0, 500.0), (10.0, 0.0, 500.0)])
+    b = _piece(2, [(10.0, 0.0, 500.0), (20.0, 0.0, 500.0)])
+    path_a = _piece(3, [(10.0, -10.0, 900.0), (10.0, 0.0, 900.0)], width=2.0)
+    path_b = _piece(4, [(10.0, 0.0, 900.0), (10.0, 10.0, 900.0)], width=2.0)
+
+    chains = chain_tunnel_pieces([a, path_a, b, path_b])
+
+    assert sorted(len(c["coords"]) for c in chains) == [3, 3]
+
+
+def test_chain_tunnel_pieces_does_not_join_at_a_three_way_joint_or_across_widths():
+    a = _piece(1, [(0.0, 0.0, 500.0), (10.0, 0.0, 500.0)])
+    b = _piece(2, [(10.0, 0.0, 500.0), (20.0, 0.0, 500.0)])
+    c = _piece(3, [(10.0, 0.0, 500.0), (10.0, 10.0, 500.0)])
+    d = _piece(4, [(20.0, 0.0, 500.0), (30.0, 0.0, 500.0)], width=3.0)
+
+    assert len(chain_tunnel_pieces([a, b, c, d])) == 4
+
+
+def _plans(tunnels):
+    return plan_tunnels(tunnels, width_margin=1.5, segment_step=10.0, wing=2.0, flat_depth=1.5, length=3.5, cover=1.0)
+
+
+def test_build_tunnels_returns_one_tube_and_two_portal_blocks_per_chain():
+    pieces = [_piece(42, _straight_coords(length=100.0, n=6)), _piece(43, [(100.0, 0.0, 500.0), (200.0, 0.0, 500.0)])]
+
+    meshes = build_tunnels(_plans(pieces), WALL, FRAME)
 
     assert [m["id"] for m in meshes] == ["tunnel_42", "tunnel_42_portal_start", "tunnel_42_portal_end"]
     assert FLOOR in meshes[0]["faces"]
     assert FRAME in meshes[1]["faces"] and FRAME in meshes[2]["faces"]
-    expected_crown = tunnel_crown_height(7.0 + 1.5)
-    # Rahmen-Oberkante liegt bei floor_z + Kronenhöhe + frame_margin (siehe portal_frame_corners(): "top" z ist
-    # floor_z + height + margin), nicht bei floor_z + Kronenhöhe allein.
-    assert max(v[2] for v in meshes[1]["vertices"]) == pytest.approx(500.0 + expected_crown + 0.6)
+
+
+def test_portal_block_opening_matches_the_first_tube_ring():
+    plans = _plans([_piece(1, _straight_coords(length=100.0))])
+    meshes = build_tunnels(plans, WALL, FRAME, arc_segments=12)
+    tube, block = meshes[0], meshes[1]
+
+    ring = {tuple(np.round(v, 5)) for v in tube["vertices"] if abs(v[0]) < 1e-9}
+    block_front = {tuple(np.round(v, 5)) for v in block["vertices"] if abs(v[0]) < 1e-9}
+    assert len(ring) == 13  # 12 Bogen-Streifen -> 13 Ringpunkte
+    assert ring <= block_front  # jede Ringkante der Röhre ist auch Kante der Portalöffnung
+
+
+def test_portal_block_spans_the_configured_size_and_leaves_the_opening_free():
+    plans = _plans([_piece(1, _straight_coords(length=100.0))])
+    portal = plans[0]["portals"][0]
+    block = build_tunnels(plans, WALL, FRAME)[1]
+    v = block["vertices"]
+
+    assert v[:, 0].min() == pytest.approx(0.0) and v[:, 0].max() == pytest.approx(3.5)  # Portalebene bis Blockende
+    assert v[:, 1].max() == pytest.approx(portal["radius"] + 2.0)
+    assert v[:, 2].max() == pytest.approx(portal["top_z"]) and v[:, 2].min() == pytest.approx(portal["bottom_z"])
+    # Kein Stirnflächen-Dreieck überdeckt die Öffnung: der Schwerpunkt jedes Stirn-Dreiecks liegt außerhalb des
+    # Röhrenquerschnitts (oder unter dem Boden).
+    radius = portal["radius"]
+    for face in block["faces"][FRAME]:
+        pts = v[face]
+        if not np.allclose(pts[:, 0], 0.0):
+            continue
+        cy, cz = pts[:, 1].mean(), pts[:, 2].mean() - 500.0
+        inside = cz > 0.0 and math.hypot(cy, cz - radius / 2.0) < radius - 1e-6
+        assert not inside
 
 
 def test_build_tunnels_skips_too_short_tunnels():
-    ground_at = lambda x, y: np.full_like(np.asarray(x, float), 500.0)
-    tunnels = [{"id": 1, "coords": [(0.0, 0.0, 500.0)], "width": 7.0, "floor_material": FLOOR}]
+    tunnels = [_piece(1, [(0.0, 0.0, 500.0)])]
 
-    assert build_tunnels(tunnels, ground_at, WALL, FRAME) == []
+    assert build_tunnels(_plans(tunnels), WALL, FRAME) == []
+
+
+def test_chain_tunnel_pieces_joins_ends_a_few_millimetres_apart():
+    a = _piece(1, [(0.0, 0.0, 500.0), (10.0, 0.0, 500.0)])
+    b = _piece(2, [(10.004, 0.003, 500.0), (20.0, 0.0, 500.0)])
+
+    assert len(chain_tunnel_pieces([a, b])) == 1

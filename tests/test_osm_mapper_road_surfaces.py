@@ -29,8 +29,14 @@ def _surface(mapper, **tags):
     return mapper.get_road_properties(tags)["internal_name"]
 
 
-def test_four_road_surfaces_defined(mapper):
-    assert set(mapper.surface_types) == {"asphalt_road_standard", "dirt_road", "gravel_road", "concrete"}
+def test_road_surfaces_defined(mapper):
+    assert set(mapper.surface_types) == {
+        "asphalt_road_standard",
+        "dirt_road",
+        "gravel_road",
+        "concrete",
+        "cobblestone_road",
+    }
 
 
 @pytest.mark.parametrize(
@@ -65,6 +71,16 @@ def test_four_road_surfaces_defined(mapper):
         # bestehendes Verhalten: Asphalt-Surface bleibt Asphalt
         ({"highway": "track", "surface": "asphalt"}, "asphalt_road_standard"),
         ({"highway": "path", "surface": "paved"}, "asphalt_road_standard"),
+        # Pflaster (z.B. Tremola am Gotthard): eigene Kopfsteinpflaster-Oberfläche
+        ({"highway": "secondary", "surface": "sett"}, "cobblestone_road"),
+        ({"highway": "residential", "surface": "cobblestone"}, "cobblestone_road"),
+        ({"highway": "residential", "surface": "unhewn_cobblestone"}, "cobblestone_road"),
+        ({"highway": "service", "surface": "paving_stones"}, "cobblestone_road"),
+        # unbefestigt/Natur: nie Asphalt, auch wenn der Highway-Typ Asphalt wäre
+        ({"highway": "service", "surface": "unpaved"}, "gravel_road"),
+        ({"highway": "track", "surface": "unpaved"}, "gravel_road"),
+        ({"highway": "path", "surface": "grass"}, "dirt_road"),
+        ({"highway": "path", "surface": "rock"}, "dirt_road"),
     ],
 )
 def test_surface_mapping(mapper, tags, expected):
@@ -135,3 +151,17 @@ def test_material_entry_without_opacity_factor_has_none(mapper):
     entry = mapper.generate_materials_json_entry("x", {"textures": {"baseColorMap": "a.dds"}})
 
     assert "opacityFactor" not in entry["Stages"][0]
+
+
+def test_cobblestone_surface_uses_vendored_cobblestone_textures(mapper):
+    cobble = mapper.surface_types["cobblestone_road"]
+
+    assert cobble["groundModelName"] == "cobblestone"
+    assert cobble["textures"]["baseColorMap"].endswith("tileable/stone/italy_cobblestone/italy_cobblestone_d.dds")
+    assert cobble["textures"]["normalMap"].endswith("tileable/stone/italy_cobblestone/italy_cobblestone_n.dds")
+    # zwischen Kies und Asphalt gezeichnet (renderPriority)
+    assert (
+        mapper.surface_types["gravel_road"]["priority"]
+        < cobble["priority"]
+        < mapper.surface_types["asphalt_road_standard"]["priority"]
+    )

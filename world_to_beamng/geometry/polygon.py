@@ -125,6 +125,8 @@ def clip_road_polygons(road_polygons, grid_bounds_local, margin=3.0):
                     "coords": final_coords,
                     "name": road["name"],
                     "osm_tags": osm_tags,  # OSM-Tags durchreichen
+                    "osm_way_id": road.get("osm_way_id"),
+                    "osm_nodes": road.get("osm_nodes"),
                 }
             )
             segment_count += len(coords) - len(final_coords)
@@ -340,13 +342,244 @@ def extend_short_bridges_to_natural_grade(road_polygons, slope_threshold=None, m
     return road_polygons
 
 
-def apply_structure_elevation_profiles(road_polygons):
-    """Brücken/Tunnel/Galerien (siehe geometry.road_structures.classify_structure) bekommen ein lineares
-    Höhenprofil zwischen ihren Endpunkten statt der rohen DGM-Höhe an jedem Punkt - siehe Design-Spec Abschnitt 2
-    (z.B. der 16,9 km lange Gotthard-Straßentunnel bekommt sonst die Bergrücken-Höhe darüber zugewiesen)."""
+def _stable_grade_start(ordered, slope_threshold, stable_length, max_distance):
+    """Läuft `ordered` ab Index 0 (Portal) nach außen und sucht den ersten Punkt, ab dem die Steigung auf den
+    nächsten `stable_length` Metern durchgehend unter `slope_threshold` bleibt.
+
+    Returns:
+        (index, cum) - Index und Bogenlänge dieses Punkts plus die kumulierten Bogenlängen aller Punkte,
+        oder None, wenn innerhalb von `max_distance` kein stabiler Abschnitt beginnt (oder die Straße endet).
+    """
+    arr = np.asarray(ordered, dtype=float)
+    seg_len = np.hypot(np.diff(arr[:, 0]), np.diff(arr[:, 1]))
+    cum = np.concatenate([[0.0], np.cumsum(seg_len)])
+    with np.errstate(divide="ignore", invalid="ignore"):
+        slope = np.where(seg_len > 1e-9, np.abs(np.diff(arr[:, 2])) / seg_len, 0.0)
+
+    for idx in range(len(arr) - 1):
+        if cum[idx] > max_distance:
+            return None
+        window_end = cum[idx] + stable_length
+        if window_end > cum[-1]:
+            return None  # Straße zu kurz, um eine stabile Steigung zu belegen
+        in_window = (cum[:-1] >= cum[idx]) & (cum[:-1] < window_end)
+        if np.all(slope[in_window] < slope_threshold):
+            return idx, cum
+    return None
+
+
+def settle_tunnel_portals_to_approach_grade(road_polygons, slope_threshold=None, stable_length=None, max_distance=None):
+    """Bringt Tunnelportale und Galerie-Enden auf die Höhe der Zufahrtsstraße (an einer Galerie zeigt das DGM das Dach
+    samt Erdüberwurf, nicht die Fahrbahn - dasselbe Problem wie am Tunnelportal).
+
+    Der OSM-Tunnelanfang liegt oft schon im Hang: das DGM zeigt dort die Portal-Böschung bzw. den Hang über dem
+    Portal statt des Straßenniveaus, die Zufahrt steigt auf den letzten Metern steil an und der Tunnel beginnt
+    (lineares Profil ab diesem Punkt, siehe apply_structure_elevation_profiles) mehrere Meter zu hoch.
+
+    Pro Tunnel-Ende mit genau einer anschließenden Oberflächenstraße wird die Zufahrt vom Portal weg abgetastet,
+    bis die Steigung über `stable_length` Meter stabil unter `slope_threshold` bleibt. Die dort gemessene
+    Steigung wird bis zum Portal verlängert: Portalpunkt und die Zufahrtspunkte davor liegen danach auf dieser
+    Geraden. Läuft VOR apply_structure_elevation_profiles, damit das Tunnelprofil schon von der neuen
+    Portalhöhe ausgeht. Config: TUNNEL_APPROACH_SLOPE_THRESHOLD/_STABLE_LENGTH/_MAX_DISTANCE.
+    """
+    if slope_threshold is None:
+        slope_threshold = config.TUNNEL_APPROACH_SLOPE_THRESHOLD
+    if stable_length is None:
+        stable_length = config.TUNNEL_APPROACH_STABLE_LENGTH
+    if max_distance is None:
+        max_distance = config.TUNNEL_APPROACH_MAX_DISTANCE
+
+    is_surface = lambda tags: classify_structure(tags) == "surface"
+
+    for tunnel in [r for r in road_polygons if classify_structure(r.get("osm_tags", {})) in ("tunnel", "gallery")]:
+        for at_start in (True, False):
+            coords = tunnel["coords"]
+            if len(coords) < 2:
+                break
+            portal = coords[0] if at_start else coords[-1]
+            # Die Zufahrt muss eindeutig sein - an einer echten Kreuzung direkt am Portal bleibt alles, wie es ist.
+            if _find_unique_touching_road(road_polygons, portal, tunnel["id"]) is None:
+                continue
+            found = _find_unique_touching_road(road_polygons, portal, tunnel["id"], predicate=is_surface)
+            if not found:
+                continue
+            neighbor, touching_at_start = found
+            ordered = list(neighbor["coords"]) if touching_at_start else list(reversed(neighbor["coords"]))
+
+            stable = _stable_grade_start(ordered, slope_threshold, stable_length, max_distance)
+            if stable is None:
+                continue
+            idx, cum = stable
+            if idx == 0:
+                continue  # Zufahrt ist schon bis zum Portal stabil
+
+            arr = np.asarray(ordered, dtype=float)
+            z_stable = arr[idx, 2]
+            z_window_end = float(np.interp(cum[idx] + stable_length, cum, arr[:, 2]))
+            grade = (z_window_end - z_stable) / stable_length  # Steigung nach außen (vom Portal weg)
+            for j in range(idx):
+                x, y, _ = ordered[j]
+                ordered[j] = (x, y, float(z_stable - grade * (cum[idx] - cum[j])))
+
+            neighbor["coords"] = ordered if touching_at_start else list(reversed(ordered))
+            new_portal = ordered[0]
+            tunnel["coords"] = [new_portal] + list(coords[1:]) if at_start else list(coords[:-1]) + [new_portal]
+            logger.debug(
+                f"  Tunnel {tunnel['id']}: Portal {'Anfang' if at_start else 'Ende'} von {portal[2]:.2f} auf "
+                f"{new_portal[2]:.2f} m (Zufahrt {neighbor['id']} ab {cum[idx]:.1f} m stabil)"
+            )
+
+    return road_polygons
+
+
+def _xy_match(a, b, tol=1e-3) -> bool:
+    return abs(a[0] - b[0]) < tol and abs(a[1] - b[1]) < tol
+
+
+def structure_chains(road_polygons):
+    """
+    Ketten aus Tunnel-/Galerie-Ways, die Ende an Ende EINDEUTIG aneinanderstoßen (genau ein Bauwerks-Partner und
+    keine weitere Straße am Stoß). Returns: Liste von Ketten, je Kette [(road, reversed), ...] in Laufrichtung.
+    """
+    members = [
+        r for r in road_polygons
+        if classify_structure(r.get("osm_tags", {})) in ("tunnel", "gallery") and len(r["coords"]) >= 2
+    ]
+
+    def touches(road, point):
+        return _xy_match(road["coords"][0], point) or _xy_match(road["coords"][-1], point)
+
+    def partner(road, point):
+        found = [o for o in members if o is not road and touches(o, point)]
+        others = [o for o in road_polygons if o is not road and len(o["coords"]) >= 2 and touches(o, point)]
+        if len(found) != 1 or len(others) != 1:
+            return None
+        return found[0], _xy_match(found[0]["coords"][0], point)
+
+    chains, seen = [], set()
+    for road in members:
+        if id(road) in seen:
+            continue
+        # zum Kettenanfang zurücklaufen (Ring-Schutz über die Mitgliederzahl)
+        cur, rev = road, False
+        for _ in range(len(members)):
+            found = partner(cur, cur["coords"][-1] if rev else cur["coords"][0])
+            if found is None or found[0] is road:
+                break
+            cur, rev = found[0], found[1]  # Vorgänger endet am Stoß: passt sein Anfang, wird er rückwärts gelaufen
+        chain = []
+        while cur is not None and id(cur) not in seen:
+            seen.add(id(cur))
+            chain.append((cur, rev))
+            found = partner(cur, cur["coords"][0] if rev else cur["coords"][-1])
+            cur, rev = (found[0], not found[1]) if found else (None, False)
+        chains.append(chain)
+    return chains
+
+
+def outside_map(point, bounds, edge_margin) -> bool:
+    """Punkt liegt außerhalb der Karte oder höchstens edge_margin vor ihrer Kante (bounds: min_x, max_x, min_y, max_y)."""
+    min_x, max_x, min_y, max_y = bounds
+    x, y = point[0], point[1]
+    return not (min_x + edge_margin < x < max_x - edge_margin and min_y + edge_margin < y < max_y - edge_margin)
+
+
+def _chain_profile(chain, roof_offset, min_end_distance, min_spacing, window, bounds=None, edge_margin=0.0, entrances=()):
+    """Höhenprofil einer Kette, in-place: stückweise linear nach Bogenlänge durch die beiden Außenenden und die
+    Dach-Stützpunkte der Galerien (Modellhöhe - roof_offset; mindestens min_end_distance von beiden Kettenenden und
+    min_spacing voneinander, Median über +-window). Stoßpunkte zwischen zwei Bauwerken sind nie Stützpunkte.
+    Reicht die Kette mit genau einem Ende über die Kartengrenze (bounds) und ist das andere Ende eine Einfahrt (liegt
+    auf einem Endpunkt aus `entrances`, d.h. eine Oberflächenstraße schließt an), liegt sie ganz auf Einfahrtshöhe
+    (Steigung 0) - die Einfahrt ist dort gesperrt, siehe tunnels/roadblock.py."""
+    points, is_roof_sample, owners = [], [], []  # owners: (road, Index in road["coords"], Index in points)
+    for k, (road, rev) in enumerate(chain):
+        coords = road["coords"]
+        order = range(len(coords) - 1, -1, -1) if rev else range(len(coords))
+        gallery = classify_structure(road.get("osm_tags", {})) == "gallery"
+        for j, idx in enumerate(order):
+            if k > 0 and j == 0:  # Stoß: derselbe Punkt wie das Ende des Vorgängers
+                is_roof_sample[-1] = False
+                owners.append((road, idx, len(points) - 1))
+                continue
+            points.append(coords[idx])
+            is_roof_sample.append(gallery)  # Stöße werden oben beim Nachfolger ausgeschlossen, Kettenenden über min_end_distance
+            owners.append((road, idx, len(points) - 1))
+    arr = np.asarray(points, dtype=float)
+    cum = np.concatenate([[0.0], np.cumsum(np.hypot(np.diff(arr[:, 0]), np.diff(arr[:, 1])))])
+    total = cum[-1]
+    if total < 1e-9:
+        return
+    roof = np.asarray(is_roof_sample)
+
+    if bounds is not None:
+        start_out, end_out = outside_map(arr[0], bounds, edge_margin), outside_map(arr[-1], bounds, edge_margin)
+        inner = arr[-1] if start_out else arr[0]
+        if start_out != end_out and any(_xy_match(inner, e) for e in entrances):
+            flat = float(inner[2])
+            for road, idx, _ in owners:
+                x, y = road["coords"][idx][0], road["coords"][idx][1]
+                road["coords"][idx] = (float(x), float(y), flat)
+            return
+
+    stations, heights = [0.0], [float(arr[0, 2])]
+    last = -np.inf
+    for i in np.nonzero(roof)[0]:
+        station = cum[i]
+        if station < min_end_distance or station > total - min_end_distance or station - last < min_spacing:
+            continue
+        near = roof & (np.abs(cum - station) <= window)
+        stations.append(float(station))
+        heights.append(float(np.median(arr[near, 2])) - roof_offset)
+        last = station
+    stations.append(float(total))
+    heights.append(float(arr[-1, 2]))
+
+    z = np.interp(cum, stations, heights)
+    for road, idx, point_idx in owners:
+        x, y = road["coords"][idx][0], road["coords"][idx][1]
+        road["coords"][idx] = (float(x), float(y), float(z[point_idx]))
+
+
+def apply_structure_elevation_profiles(
+    road_polygons, roof_offset=None, min_end_distance=None, min_spacing=None, window=None, bounds=None, edge_margin=None
+):
+    """
+    Höhenprofile für Bauwerke statt der rohen DGM-Höhe an jedem Punkt (siehe Design-Spec Abschnitt 2; z.B. der
+    16,9 km lange Gotthard-Straßentunnel bekäme sonst die Bergrücken-Höhe darüber):
+
+    - Brücken: linear zwischen ihren Endpunkten.
+    - Tunnel und Galerien: je KETTE aneinanderstoßender Bauwerke (structure_chains) ein Profil durch die beiden
+      Außenenden (dort schließt die Straße an, siehe settle_tunnel_portals_to_approach_grade) und durch Dach-
+      Stützpunkte der Galerien: an einer Galerie zeigt das DGM das Dach, die Fahrbahn liegt roof_offset darunter.
+      Stützpunkte mindestens min_end_distance von den Kettenenden und min_spacing voneinander entfernt, Median über
+      +-window. Stöße Tunnel <-> Galerie lesen nie das Gelände (dort liegt Berg bzw. Dach).
+      Siehe docs/superpowers/specs/2026-09-24-tunnel-gallery-transition-design.md.
+    - Reicht eine Tunnel/Galerie-Kette mit genau einem Ende über die Kartengrenze (`bounds` = min_x, max_x, min_y,
+      max_y; höchstens edge_margin vor der Kante zählt schon als draußen) und schließt am anderen Ende eine
+      Oberflächenstraße an (Einfahrt), liegt sie ganz auf Einfahrtshöhe.
+    """
+    if roof_offset is None:
+        roof_offset = config.GALLERY_HEIGHT + config.GALLERY_ROOF_THICKNESS
+    if min_end_distance is None:
+        min_end_distance = config.GALLERY_ROOF_SAMPLE_END_DISTANCE
+    if min_spacing is None:
+        min_spacing = config.GALLERY_ROOF_SAMPLE_SPACING
+    if window is None:
+        window = config.GALLERY_ROOF_SAMPLE_WINDOW
+    if edge_margin is None:
+        edge_margin = config.MAP_EDGE_TUNNEL_MARGIN
+
     for road in road_polygons:
-        if classify_structure(road.get("osm_tags", {})) != "surface" and len(road["coords"]) >= 2:
+        if classify_structure(road.get("osm_tags", {})) == "bridge" and len(road["coords"]) >= 2:
             road["coords"] = _linear_elevation_profile(road["coords"])
+    entrances = [
+        point
+        for road in road_polygons
+        if classify_structure(road.get("osm_tags", {})) == "surface" and len(road["coords"]) >= 2
+        for point in (road["coords"][0], road["coords"][-1])
+    ]
+    for chain in structure_chains(road_polygons):
+        _chain_profile(chain, roof_offset, min_end_distance, min_spacing, window, bounds, edge_margin, entrances)
     return road_polygons
 
 
@@ -402,12 +635,19 @@ def get_road_polygons(roads, bbox, height_points, height_elevations, global_offs
     for start_idx, end_idx, way in road_indices:
         xy_coords = [(xs[i], ys[i]) for i in range(start_idx, end_idx)]
         osm_tags = way.get("tags", {})
+        # OSM-Knoten (ID + lokale Lage) vor dem Resampling festhalten: nur ein gemeinsamer Knoten zweier Ways ist
+        # eine echte Verbindung (siehe geometry/junctions.py::build_junction_network())
+        node_ids = way.get("nodes") or []
+        osm_nodes = (
+            [(int(n), float(x), float(y)) for n, (x, y) in zip(node_ids, xy_coords)] if len(node_ids) == len(xy_coords) else None
+        )
         temp_roads_xy.append(
             {
                 "id": way["id"],
                 "xy_coords": xy_coords,
                 "name": osm_tags.get("name", f"road_{way['id']}"),
                 "osm_tags": osm_tags,
+                "osm_nodes": osm_nodes,
             }
         )
 
@@ -463,6 +703,8 @@ def get_road_polygons(roads, bbox, height_points, height_elevations, global_offs
                 "coords": xyz_coords,
                 "name": road["name"],
                 "osm_tags": road["osm_tags"],
+                "osm_way_id": road["id"],
+                "osm_nodes": road["osm_nodes"],
             }
         )
 
@@ -471,9 +713,17 @@ def get_road_polygons(roads, bbox, height_points, height_elevations, global_offs
     # Verlauf arbeitet (siehe extend_short_bridges_to_natural_grade).
     road_polygons = extend_short_bridges_to_natural_grade(road_polygons)
 
+    # SCHRITT 3a': Tunnelportale, deren OSM-Endpunkt schon im Hang liegt, auf die stabile Steigung der
+    # Zufahrt bringen - ebenfalls VOR dem linearen Profil, das dann von der korrigierten Portalhöhe ausgeht.
+    road_polygons = settle_tunnel_portals_to_approach_grade(road_polygons)
+
     # SCHRITT 3b: Brücken/Tunnel/Galerien bekommen ein lineares Höhenprofil statt der rohen DGM-Abtastung
     # (siehe Design-Spec Abschnitt 2) - VOR dem Smoothing, damit dieses auf dem bereits korrekten Profil arbeitet.
-    road_polygons = apply_structure_elevation_profiles(road_polygons)
+    map_bounds = (
+        float(np.min(height_points[:, 0])), float(np.max(height_points[:, 0])),
+        float(np.min(height_points[:, 1])), float(np.max(height_points[:, 1])),
+    )
+    road_polygons = apply_structure_elevation_profiles(road_polygons, bounds=map_bounds)
 
     # SCHRITT 4: Optional - mildes XY-Smoothing (Z bleibt erhalten oder nur leicht geglättet)
     if config.ENABLE_ROAD_SMOOTHING:
