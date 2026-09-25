@@ -17,10 +17,9 @@ import sys
 import zipfile
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from vendor_shared_textures import get_beamng_install_dir
+from world_to_beamng.io.beamng_install import get_beamng_install_dir
 
 OUTPUT_PATH = Path(__file__).parent.parent / "data" / "environment_defaults.json"
 SOURCE_LEVEL = "italy"

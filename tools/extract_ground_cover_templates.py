@@ -18,10 +18,9 @@ import sys
 import zipfile
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from vendor_shared_textures import get_beamng_install_dir
+from world_to_beamng.io.beamng_install import get_beamng_install_dir
 
 OUTPUT_PATH = Path(__file__).parent.parent / "data" / "ground_cover_templates.json"
 
@@ -84,22 +83,22 @@ def _find_ground_cover(zip_file: zipfile.ZipFile, object_name: str) -> dict:
 
 def _find_material(levels_dir: Path, material_name: str) -> dict:
     for zip_path in sorted(levels_dir.glob("*.zip")):
-        zip_file = zipfile.ZipFile(zip_path)
-        for name in zip_file.namelist():
-            if not name.endswith("materials.json"):
-                continue
-            try:
-                data = json.loads(zip_file.read(name).decode("utf-8", "ignore"))
-            except json.JSONDecodeError:
-                continue
-            material = data.get(material_name)
-            if not isinstance(material, dict) or material.get("class") != "Material":
-                continue
-            stage_paths = [
-                v for stage in material.get("Stages", []) for k, v in stage.items() if k.endswith("Map") and isinstance(v, str)
-            ]
-            if stage_paths and all(p.startswith("/assets/") for p in stage_paths):
-                return material
+        with zipfile.ZipFile(zip_path) as zip_file:
+            for name in zip_file.namelist():
+                if not name.endswith("materials.json"):
+                    continue
+                try:
+                    data = json.loads(zip_file.read(name).decode("utf-8", "ignore"))
+                except json.JSONDecodeError:
+                    continue
+                material = data.get(material_name)
+                if not isinstance(material, dict) or material.get("class") != "Material":
+                    continue
+                stage_paths = [
+                    v for stage in material.get("Stages", []) for k, v in stage.items() if k.endswith("Map") and isinstance(v, str)
+                ]
+                if stage_paths and all(p.startswith("/assets/") for p in stage_paths):
+                    return material
     raise LookupError(f"Material '{material_name}' with shared /assets/ textures not found")
 
 

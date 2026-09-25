@@ -44,11 +44,7 @@ python -m venv .venv
 
 # 3. Put the base data into data/ (see "Base data")
 
-# 4. One time: take over assets from the BeamNG installation
-.\.venv\Scripts\python.exe tools\generate_forest_assets.py
-.\.venv\Scripts\python.exe tools\vendor_shared_textures.py
-
-# 5. Generate the level
+# 4. Generate the level
 .\.venv\Scripts\python.exe world_to_beamng.py
 ```
 
@@ -56,7 +52,8 @@ Then start BeamNG.drive and choose the level **"World to BeamNG"**. The level fo
 BeamNG user folder (`%LOCALAPPDATA%\BeamNG\BeamNG.drive\current\levels\world_to_beamng`), no path has to be set.
 
 `setup_project.py` installs `requirements.txt` into the Python that runs it (here the `.venv`) and downloads
-`texconv.exe` (Microsoft DirectXTex) to `bin/`. The program needs `texconv.exe` for all DDS textures.
+`texconv.exe` (Microsoft DirectXTex) to `bin/`. The program needs `texconv.exe` for all DDS textures; if it is
+missing, the export downloads it itself on first use.
 The tests additionally need `pytest` (`.\.venv\Scripts\pip install pytest`).
 
 ## 📦 Base data
@@ -151,8 +148,8 @@ guessed from a naming scheme. To use data from a region other than Baden-Württe
   orthophoto's CRS differs from the elevation data's CRS, it is reprojected automatically.
 - Set `LOD2_ENABLED = False` in `config.py` — buildings (LoD2/CityGML) remain specific to the Baden-Württemberg
   CityGML 1.0 schema.
-- All DGM1 GeoTIFFs must share the same CRS (mixing different elevation CRS is not supported); the horizon's DGM30/
-  satellite auto-download stays worldwide-capable as before (see "Horizon" above).
+- Elevation GeoTIFFs in different CRSs can be mixed: the area is processed in the CRS of most tiles, the others are
+  reprojected automatically. The horizon's DGM30/satellite auto-download stays worldwide-capable (see "Horizon" above).
 
 Tested end-to-end with real-world data outside Baden-Württemberg: swissALTI3D (0.5 m DEM) and SwissImage DOP10
 (0.1 m orthophoto), both EPSG:2056 (CH1903+/LV95), loose GeoTIFFs with no fixed tile size.
@@ -167,8 +164,8 @@ Tested end-to-end with real-world data outside Baden-Württemberg: swissALTI3D (
   (roof gravel, and the rubble stone wall from a photo) live in `data/textures/` in the repository, one folder per
   texture plus `manifest.json`; the export only converts them to DDS. `textures/registry.py` lists which textures the
   export needs and checks them first: missing procedural ones (gravel) are created once, a missing photo texture
-  (rubble stone wall) **aborts the export** with the command to create it. New ones: `tools\make_seamless_texture.py` (photo)
-  or `tools\generate_gravel_texture.py`.
+  (rubble stone wall) **aborts the export** with the command to create it. New photo textures:
+  `tools\make_seamless_texture.py`.
 
 ### From the BeamNG installation
 
@@ -177,11 +174,13 @@ into the repository is taken from there:
 
 | What | How | If it is missing |
 |---|---|---|
-| Tree models and `managedItemData.json` | once, `tools\generate_forest_assets.py` | no forest (warning in the log) |
-| Standard textures (roads, roof tiles) | once, `tools\vendor_shared_textures.py` | BeamNG shows "no Texture" |
+| Tree models (`east_coast_usa`) and `managedItemData.json` | automatically during the export | no forest (warning in the log) |
+| Standard textures (roads, roof tiles, terrain detail) | automatically during the export | BeamNG shows "no Texture" |
 | Grape vines from the `italy` level | automatically during the export | vineyards without vines |
 
-The scripts can be repeated. Run them again after a BeamNG update or if the level folder has been deleted.
+Everything is copied only when it is missing or the BeamNG content changed (e.g. after an update), so later exports
+skip this step. The forest type templates in `data/osm_to_beamng.json` can be regenerated from the tree models with
+`tools\generate_forest_types.py` (only needed when the tree selection should change).
 
 ## ⚙️ Configuration
 
@@ -219,10 +218,10 @@ about one minute. The first run takes longer because OSM is downloaded and the c
 | Message / symptom | Cause and solution |
 |---|---|
 | `no DGM1 tiles found` | `data/height/` is missing, empty, or contains no readable ZIPs/GeoTIFFs (a GeoTIFF without a coordinate system is skipped with a warning) |
-| `texconv.exe not found` | `setup_project.py` has not run; or put the file manually at `bin\texconv.exe` |
+| `texconv.exe not found … download failed` | no internet at the first DDS conversion; download `texconv.exe` manually into `bin\` |
 | `BeamNG.drive.ini not found` | BeamNG.drive has never been started |
-| `managedItemData.json not found` | run `tools\generate_forest_assets.py` once |
-| Roads or roofs with "no Texture" | run `tools\vendor_shared_textures.py` once |
+| `Tree assets not available …` / no forest | BeamNG installation not found (`BeamNG.drive.ini`) or `east_coast_usa.zip` missing in `content/levels` |
+| Roads or roofs with "no Texture" | check the warning `… stock texture(s) not found in the BeamNG content zips` in the log |
 | Level does not appear in BeamNG | check whether `%LOCALAPPDATA%\BeamNG\BeamNG.drive\current\levels\world_to_beamng` was created; otherwise adjust `BEAMNG_DIR` in `config.py` |
 | `The DGM30 files do not cover the horizon area …` | a tile the auto-download couldn't get (e.g. no internet for that request) — retries automatically on the next run, or place the tile for the named compass direction into `cache/dgm30/` by hand (see "Horizon" above) |
 | `No DGM30 files (*.tif) in …` | `cache/dgm30/` is empty and the auto-download hasn't run yet or failed entirely; the horizon is skipped otherwise |

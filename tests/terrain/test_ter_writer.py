@@ -84,3 +84,17 @@ if __name__ == "__main__":
         test_material_name_length_limit(tmp_path)
         print("[OK] test_material_name_length_limit")
         print("Alle Tests bestanden.")
+
+
+def test_layer_index_without_material_is_rejected_but_holes_are_fine(tmp_path):
+    heightmap = np.zeros((128, 128), dtype=np.uint16)
+    layer_map = np.zeros((128, 128), dtype=np.uint8)
+    layer_map[0, :10] = 255  # holes need no material
+    write_ter(tmp_path / "ok.ter", heightmap, layer_map, ["grass"])
+
+    layer_map[5, 5] = 2
+    try:
+        write_ter(tmp_path / "bad.ter", heightmap, layer_map, ["grass", "dirt"])
+        assert False, "should raise ValueError (index 2 with 2 materials)"
+    except ValueError as e:
+        assert "material index 2" in str(e)

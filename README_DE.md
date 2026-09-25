@@ -44,11 +44,7 @@ python -m venv .venv
 
 # 3. Basisdaten nach data/ legen (siehe "Basisdaten")
 
-# 4. Einmalig: Assets aus der BeamNG-Installation übernehmen
-.\.venv\Scripts\python.exe tools\generate_forest_assets.py
-.\.venv\Scripts\python.exe tools\vendor_shared_textures.py
-
-# 5. Level erzeugen
+# 4. Level erzeugen
 .\.venv\Scripts\python.exe world_to_beamng.py
 ```
 
@@ -57,7 +53,8 @@ BeamNG-Benutzerordner (`%LOCALAPPDATA%\BeamNG\BeamNG.drive\current\levels\world_
 eingestellt werden.
 
 `setup_project.py` installiert `requirements.txt` in den Python, mit dem es gestartet wird (hier die `.venv`) und
-lädt `texconv.exe` (Microsoft DirectXTex) nach `bin/`. Das Programm braucht `texconv.exe` für alle DDS-Texturen.
+lädt `texconv.exe` (Microsoft DirectXTex) nach `bin/`. Das Programm braucht `texconv.exe` für alle DDS-Texturen;
+fehlt es, lädt der Export es beim ersten Bedarf selbst herunter.
 Die Tests brauchen zusätzlich `pytest` (`.\.venv\Scripts\pip install pytest`).
 
 ## 📦 Basisdaten
@@ -156,8 +153,9 @@ genutzt:
   Weicht das CRS des Orthophotos vom CRS der Höhendaten ab, wird es automatisch umprojiziert.
 - `LOD2_ENABLED = False` in `config.py` setzen - Gebäude (LoD2/CityGML) bleiben spezifisch für das
   Baden-Württemberg-CityGML-1.0-Schema.
-- Alle DGM1-GeoTIFFs müssen dasselbe CRS haben (Mischung unterschiedlicher Höhendaten-CRS wird nicht unterstützt);
-  der Horizont-Auto-Download (DGM30/Satellitenbild) bleibt wie bisher weltweit nutzbar (siehe „Horizont" oben).
+- Höhendaten-GeoTIFFs in unterschiedlichen CRS lassen sich mischen: Die Fläche wird im CRS der meisten Kacheln
+  verarbeitet, die übrigen werden automatisch umprojiziert. Der Horizont-Auto-Download (DGM30/Satellitenbild) bleibt
+  weltweit nutzbar (siehe „Horizont" oben).
 
 Durchgehend getestet mit echten Daten außerhalb Baden-Württembergs: swissALTI3D (0,5 m Höhenmodell) und
 SwissImage DOP10 (0,1 m Orthophoto), beide EPSG:2056 (CH1903+/LV95), lose GeoTIFFs ohne feste Kachelgröße.
@@ -172,8 +170,7 @@ SwissImage DOP10 (0,1 m Orthophoto), beide EPSG:2056 (CH1903+/LV95), lose GeoTIF
   Bruchsteinmauer aus einem Foto) liegen in `data/textures/` im Repository, je Textur ein Ordner plus `manifest.json`;
   der Export wandelt sie nur noch in DDS um. `textures/registry.py` listet, welche Texturen der Export braucht, und
   prüft sie vorab: fehlende prozedurale (Kies) werden einmalig erzeugt, eine fehlende Foto-Textur (Bruchsteinmauer)
-  **bricht den Export ab**, samt Befehl zum Erzeugen. Neue Texturen: `tools\make_seamless_texture.py` (Foto) oder
-  `tools\generate_gravel_texture.py`.
+  **bricht den Export ab**, samt Befehl zum Erzeugen. Neue Foto-Texturen: `tools\make_seamless_texture.py`.
 
 ### Aus der BeamNG-Installation
 
@@ -182,11 +179,13 @@ Der Installationspfad wird aus `%LOCALAPPDATA%\BeamNG\BeamNG.drive.ini` gelesen.
 
 | Was | Wie | Wenn es fehlt |
 |---|---|---|
-| Baum-Modelle und `managedItemData.json` | einmalig `tools\generate_forest_assets.py` | kein Wald (Warnung im Log) |
-| Standard-Texturen (Straßen, Dachziegel) | einmalig `tools\vendor_shared_textures.py` | BeamNG zeigt „no Texture" |
+| Baum-Modelle (`east_coast_usa`) und `managedItemData.json` | automatisch beim Export | kein Wald (Warnung im Log) |
+| Standard-Texturen (Straßen, Dachziegel, Terrain-Details) | automatisch beim Export | BeamNG zeigt „no Texture" |
 | Weinreben aus dem `italy`-Level | automatisch beim Export | Weinberge ohne Reben |
 
-Die Skripte sind wiederholbar. Neu ausführen nach einem BeamNG-Update oder wenn der Level-Ordner gelöscht wurde.
+Kopiert wird nur, was fehlt oder sich in BeamNG geändert hat (z. B. nach einem Update); spätere Exporte überspringen
+den Schritt. Die Waldtyp-Vorlagen in `data/osm_to_beamng.json` lassen sich mit `tools\generate_forest_types.py` aus den
+Baum-Modellen neu erzeugen (nur nötig, wenn sich die Baumauswahl ändern soll).
 
 ## ⚙️ Konfiguration
 
@@ -226,10 +225,10 @@ Die Meldungen des Programms sind englisch; sie werden hier im Wortlaut zitiert.
 | Meldung / Symptom | Ursache und Lösung |
 |---|---|
 | `no DGM1 tiles found` | `data/height/` fehlt, ist leer, oder enthält keine lesbaren ZIPs/GeoTIFFs (ein GeoTIFF ohne Koordinatensystem wird mit Warnung übersprungen) |
-| `texconv.exe not found` | `setup_project.py` nicht gelaufen; oder Datei manuell nach `bin\texconv.exe` legen |
+| `texconv.exe not found … download failed` | kein Internet bei der ersten DDS-Umwandlung; `texconv.exe` manuell nach `bin\` laden |
 | `BeamNG.drive.ini not found` | BeamNG.drive wurde noch nie gestartet |
-| `managedItemData.json not found` | einmalig `tools\generate_forest_assets.py` ausführen |
-| Straßen oder Dächer mit „no Texture" | einmalig `tools\vendor_shared_textures.py` ausführen |
+| `Tree assets not available …` / kein Wald | BeamNG-Installation nicht gefunden (`BeamNG.drive.ini`) oder `east_coast_usa.zip` fehlt in `content/levels` |
+| Straßen oder Dächer mit „no Texture" | Warnung `… stock texture(s) not found in the BeamNG content zips` im Log prüfen |
 | Level erscheint nicht in BeamNG | prüfen, ob `%LOCALAPPDATA%\BeamNG\BeamNG.drive\current\levels\world_to_beamng` entstanden ist; sonst `BEAMNG_DIR` in `config.py` anpassen |
 | `The DGM30 files do not cover the horizon area …` | eine Kachel, die der Auto-Download nicht bekommen konnte (z. B. kein Internet für diese Anfrage) - wird beim nächsten Lauf automatisch erneut versucht, oder die Kachel für die genannte Himmelsrichtung von Hand nach `cache/dgm30/` legen (siehe „Horizont" oben) |
 | `No DGM30 files (*.tif) in …` | `cache/dgm30/` ist leer und der Auto-Download lief noch nicht oder ist komplett fehlgeschlagen; der Horizont wird sonst übersprungen |

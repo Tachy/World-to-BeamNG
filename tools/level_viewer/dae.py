@@ -104,30 +104,3 @@ def read_dae(path) -> List[DaeMesh]:
         if mesh is not None:
             meshes.append(mesh)
     return meshes
-
-
-def load_dae_tile(filepath) -> dict:
-    """
-    Compatibility view for tools/test_export_integrity.py: all meshes of a DAE merged into one vertex array.
-
-    Returns {"vertices": (n, 3), "faces": list of [i0, i1, i2], "materials": material per face,
-    "materials_per_face": {material: [face indices]}, "filepath": str}.
-    """
-    vertices, faces, materials = [], [], []
-    offset = 0
-    for mesh in read_dae(filepath):
-        vertices.append(mesh.positions)
-        for material, tris in mesh.triangles.items():
-            faces.extend((tris + offset).tolist())
-            materials.extend([material] * len(tris))
-        offset += len(mesh.positions)
-    per_material: Dict[str, List[int]] = {}
-    for i, material in enumerate(materials):
-        per_material.setdefault(material, []).append(i)
-    return {
-        "vertices": np.vstack(vertices) if vertices else np.zeros((0, 3), dtype=np.float32),
-        "faces": faces,
-        "materials": materials,
-        "materials_per_face": per_material,
-        "filepath": str(filepath),
-    }

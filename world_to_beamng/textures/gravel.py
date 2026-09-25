@@ -1,6 +1,6 @@
 """
 Procedural, tileable gravel texture for flat roofs - generated once and stored in data/textures (not on every
-export): automatically if it is missing (textures/registry.py), or explicitly via tools/generate_gravel_texture.py.
+export): automatically if it is missing (textures/registry.py).
 
 Periodic Voronoi pattern: each cell is a pebble (dome), the joints in between are dark.
 """

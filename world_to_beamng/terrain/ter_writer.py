@@ -55,6 +55,10 @@ def write_ter(
         raise ValueError(f"size must be a power of two between 128 and 8192 (spec: .ter format), is {size}")
     if len(material_names) > 254:
         raise ValueError(f"at most 254 materials allowed (255 is reserved for holes), {len(material_names)} given")
+    used = np.unique(layer_map)
+    unknown = used[(used != 255) & (used >= len(material_names))]
+    if unknown.size:
+        raise ValueError(f"layer_map references material index {int(unknown[0])}, but only {len(material_names)} materials given")
 
     heightmap_u16 = heightmap.astype("<u2", copy=False)
     layer_map_u8 = layer_map.astype("u1", copy=False)

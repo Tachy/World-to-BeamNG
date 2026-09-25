@@ -5,9 +5,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-import numpy as np
-
-from tools.level_viewer.dae import load_dae_tile, read_dae
+from tools.level_viewer.dae import read_dae
 
 DAE = """<?xml version="1.0" encoding="UTF-8"?>
 <COLLADA version="1.4.1" xmlns="http://www.collada.org/2005/11/COLLADASchema">
@@ -55,15 +53,3 @@ def test_each_position_uv_pair_becomes_one_vertex(tmp_path):
     concrete = mesh.triangles["concrete"][0]
     assert mesh.positions[concrete].tolist() == [[0, 0, 0], [1, 0, 0], [1, 1, 0]]
     assert mesh.uvs[concrete].tolist() == [[0, 0], [1, 0], [0.5, 1]]
-
-
-def test_load_dae_tile_compat_view(tmp_path):
-    path = tmp_path / "quad.dae"
-    path.write_text(DAE, encoding="utf-8")
-
-    data = load_dae_tile(path)
-
-    assert data["vertices"].shape == (6, 3)
-    assert len(data["faces"]) == 2 and data["materials"] == ["concrete", "railing"]
-    assert data["materials_per_face"] == {"concrete": [0], "railing": [1]}
-    assert np.asarray(data["faces"]).max() < 6
