@@ -21,13 +21,47 @@ from .state import CONFIG_PATH, apply_camera, camera_to_dict, load_state, save_s
 
 FLY_DISTANCE_M = 40.0  # camera distance after a double-click (as in the old dae_viewer)
 
-HELP_KEYS = [
-    ("left drag", "turn / tilt"), ("shift+left, middle", "pan"), ("wheel, right drag", "zoom"),
-    ("double-click", "inspect + fly there"), ("space", "frame selection"), ("Esc", "clear selection"),
-    ("g", "terrain"), ("x", "photo / elevation colors"), ("a", "roads"), ("m", "markings"), ("o", "water"),
-    ("b", "structures"), ("h", "horizon"), ("c", "forest"), ("z", "zones + spawns"), ("n", "labels"),
-    ("d", "debug network"), ("Up/Down", "field of view"), ("l", "reload"), ("i", "help"), ("r", "reset camera"), ("q", "quit"),
+# Help panel (lower right, toggled with "i"); the layer keys are listed in the layer panel (upper left)
+HELP_SECTIONS = [
+    ("Mouse", [
+        ("left drag", "turn around / tilt (never rolls)"),
+        ("shift+left, middle", "pan"),
+        ("wheel, right drag", "zoom"),
+        ("double-click", "inspect object + fly there (40 m)"),
+    ]),
+    ("Camera", [
+        ("space", "frame the selected object"),
+        ("f", "fly to the point under the cursor"),
+        ("r", "reset: show everything"),
+        ("v", "oblique overview"),
+        ("Up / Down", "zoom in / out"),
+    ]),
+    ("Selection", [
+        ("Esc", "clear selection and info"),
+    ]),
+    ("View", [
+        ("x", "terrain: aerial photo / elevation colors"),
+        ("layer keys", "show / hide a layer (list above)"),
+        ("+ / -", "thicker / thinner lines and points"),
+    ]),
+    ("Other", [
+        ("l", "reload the level from disk"),
+        ("i", "show / hide this help"),
+        ("q", "quit (window, camera, layers are saved)"),
+    ]),
 ]
+
+
+def help_text() -> str:
+    """The key and mouse reference as aligned plain text (rendered in a monospace font)."""
+    width = max(len(key) for _, entries in HELP_SECTIONS for key, _ in entries)
+    lines = []
+    for title, entries in HELP_SECTIONS:
+        if lines:
+            lines.append("")
+        lines.append(title)
+        lines.extend(f"  {key:<{width}}  {text}" for key, text in entries)
+    return "\n".join(lines)
 
 
 class LevelViewer:
@@ -78,6 +112,9 @@ class LevelViewer:
 
     # -- keys ---------------------------------------------------------------------------------------------------------
     def _bind_keys(self) -> None:
+        # pyvista's default "b" adds a mouse observer on every press (box picking) and would fire together with the
+        # structures layer key; its other defaults (q, v, Up/Down zoom, +/- line width) are kept and listed in the help
+        self.plotter.iren.clear_events_for_key("b")
         for layer in self.layers:
             self.plotter.add_key_event(layer.key, lambda layer=layer: self._toggle(layer))
         self.plotter.add_key_event("x", self._toggle_texture)
@@ -85,8 +122,6 @@ class LevelViewer:
         self.plotter.add_key_event("i", self._toggle_help)
         self.plotter.add_key_event("space", self._focus_selection)
         self.plotter.add_key_event("Escape", lambda: (self._clear_selection(), self.plotter.render()))
-        self.plotter.add_key_event("Up", lambda: self._change_view_angle(-5))
-        self.plotter.add_key_event("Down", lambda: self._change_view_angle(5))
 
     def _toggle(self, layer: Layer) -> None:
         layer.set_visible(self.plotter, not layer.visible)
@@ -104,24 +139,33 @@ class LevelViewer:
         self._update_panel()
         self.plotter.render()
 
-    def _change_view_angle(self, delta: float) -> None:
-        camera = self.plotter.camera
-        camera.view_angle = float(np.clip(camera.view_angle + delta, 5.0, 120.0))
-        self.plotter.render()
-
     # -- panels -------------------------------------------------------------------------------------------------------
     def _update_panel(self) -> None:
-        lines = [f"{self.ctx.level.level_dir.name}  ({len(self.ctx.level.items)} items, loaded in {self.load_seconds:.1f} s)"]
+        lines = [
+            f"{self.ctx.level.level_dir.name}  ({len(self.ctx.level.items)} items, loaded in {self.load_seconds:.1f} s)",
+            "",
+            "Layers (press the key to show / hide):",
+        ]
         for layer in self.layers:
             mark = "x" if layer.visible else " "
-            lines.append(f"[{mark}] {layer.key}  {layer.title}" + (f"  - {layer.summary}" if layer.summary and layer.built else ""))
+            lines.append(f" [{mark}] {layer.key}  {layer.title}" + (f"  - {layer.summary}" if layer.summary and layer.built else ""))
+        lines.append("")
         if self.show_help:
             lines.append("")
-            lines.extend(f"{key:>12}  {text}" for key, text in HELP_KEYS)
-        self.plotter.add_text("\n".join(lines), position="upper_left", font_size=9, name="panel", color="white")
+            lines.append(help_text())
+        else:
+            lines.append("i: show keys and mouse help")
+        self._add_panel_text("\n".join(lines), "upper_left", "panel", "white")
+
+    def _add_panel_text(self, text: str, position: str, name: str, color: str) -> None:
+        """Monospace text block with a half-transparent dark background (readable on bright terrain)."""
+        actor = self.plotter.add_text(text, position=position, font_size=9, name=name, color=color, font="courier")
+        prop = actor.GetTextProperty()
+        prop.SetBackgroundColor(0.05, 0.07, 0.1)
+        prop.SetBackgroundOpacity(0.6)
 
     def _show_info(self, lines: List[str]) -> None:
-        self.plotter.add_text("\n".join(lines), position="upper_right", font_size=10, name="info", color="yellow")
+        self._add_panel_text("\n".join(lines), "upper_right", "info", "yellow")
 
     # -- picking ------------------------------------------------------------------------------------------------------
     def _actor_layers(self) -> Dict[int, Layer]:

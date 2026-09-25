@@ -71,3 +71,18 @@ def test_terrain_photo_is_north_up_and_picking_reports_the_road(level_dir):
         assert np.array(camera.up) == pytest.approx([0, 0, 1])
     finally:
         viewer.plotter.close()
+
+
+def test_help_lists_every_key_and_the_layer_panel_every_layer(level_dir):
+    from tools.level_viewer.app import help_text
+
+    text = help_text()
+    for key in ("left drag", "double-click", "space", "Esc", "f ", "r ", "v ", "Up / Down", "x ", "+ / -", "l ", "i ", "q "):
+        assert f"  {key}" in text, key
+
+    viewer = _viewer(level_dir)
+    try:
+        for layer in viewer.layers:
+            assert len(layer.key) == 1 and layer.key not in "wsefprjtu3q"  # never a VTK/pyvista default key
+    finally:
+        viewer.plotter.close()

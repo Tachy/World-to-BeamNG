@@ -252,7 +252,8 @@ full resolution with the full aerial photo tiles (loads in a few seconds, needs 
 Mouse: left drag turns around the vertical axis and tilts the view (the terrain never rolls), shift + left drag or
 the middle button pans, the wheel or right drag zooms. **Double-click** an object to see its name, class, material,
 position and the terrain height below it; the camera flies there (40 m away). `space` frames the whole selected
-object, `Esc` clears it, `Up`/`Down` change the field of view, `r` resets the camera.
+object, `Esc` clears it, `f` flies to the point under the cursor, `Up`/`Down` zoom, `r` resets the camera, `v` shows
+an oblique overview, `+`/`-` make lines and points thicker/thinner. `i` shows or hides this reference in the window.
 
 Keys: `g` terrain, `x` photo/elevation colors, `a` roads, `m` markings, `o` water, `b` structures, `h` horizon,
 `c` forest, `z` zones + spawns, `n` labels, `d` debug network, `l` reload, `i` help, `q` quit. Window, camera and

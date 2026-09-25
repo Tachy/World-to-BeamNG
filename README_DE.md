@@ -260,8 +260,9 @@ zeigt er das Terrain in voller Auflösung mit den vollen Luftbild-Kacheln (lädt
 Maus: Linke Taste ziehen dreht um die senkrechte Achse und neigt den Blick (das Gelände kippt nie), Shift + links
 ziehen oder die mittlere Taste verschiebt, Mausrad oder rechte Taste ziehen zoomt. **Doppelklick** auf ein Objekt zeigt
 Name, Klasse, Material, Position und die Terrainhöhe darunter; die Kamera fliegt dorthin (40 m Abstand). `Leertaste`
-zeigt das ganze ausgewählte Objekt, `Esc` hebt die Auswahl auf, `Pfeil hoch/runter` ändert den Blickwinkel, `r` setzt
-die Kamera zurück.
+zeigt das ganze ausgewählte Objekt, `Esc` hebt die Auswahl auf, `f` fliegt zum Punkt unter dem Mauszeiger,
+`Pfeil hoch/runter` zoomt, `r` setzt die Kamera zurück, `v` zeigt eine Schrägansicht, `+`/`-` machen Linien und
+Punkte dicker/dünner. `i` blendet diese Übersicht im Fenster ein und aus.
 
 Tasten: `g` Terrain, `x` Luftbild/Höhenfarben, `a` Straßen, `m` Markierungen, `o` Wasser, `b` Bauwerke, `h` Horizont,
 `c` Wald, `z` Zonen + Spawns, `n` Beschriftungen, `d` Debug-Netzwerk, `l` neu laden, `i` Hilfe, `q` beenden. Fenster,
