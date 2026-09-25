@@ -119,6 +119,18 @@ def terrain_tcoords(x: np.ndarray, y: np.ndarray, x_min: float, y_max: float, si
     return np.column_stack([u.ravel(), v.ravel()])
 
 
+def tile_sample_range(coords: np.ndarray, lower: float, upper: float, spacing: float) -> np.ndarray:
+    """
+    Indices of the grid samples that make up one photo tile [lower, upper] along one axis.
+
+    Samples need not lie on the tile bounds (the terrain grid sits on half meters, the photo tiles on whole ones):
+    each tile also takes the last sample before `lower`, so two neighbouring tiles share exactly one sample and
+    their surfaces meet without a gap or an overlap.
+    """
+    coords = np.asarray(coords, dtype=float)
+    return np.flatnonzero((coords > lower - spacing) & (coords <= upper))
+
+
 def grid_surface(x: np.ndarray, y: np.ndarray, z: np.ndarray, hole: Optional[np.ndarray] = None) -> Tuple[np.ndarray, np.ndarray]:
     """
     Quad mesh of a height grid: z[row, col] at (x[col], y[row]); point index = row * nx + col.

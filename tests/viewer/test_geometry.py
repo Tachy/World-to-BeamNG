@@ -16,6 +16,7 @@ from tools.level_viewer.geometry import (
     ribbon,
     road_z_offset,
     terrain_tcoords,
+    tile_sample_range,
     to_vtk_faces,
     water_block_box,
 )
@@ -86,3 +87,14 @@ def test_merge_meshes_offsets_faces_and_keeps_item_ids():
     assert len(points) == 10 and faces.max() == 9
     assert ids.tolist() == [7, 9, 9]
     assert to_vtk_faces(faces[:1]).tolist() == [4, 0, 1, 3, 2]
+
+
+def test_neighbouring_photo_tiles_share_exactly_one_sample_even_off_grid():
+    samples = np.arange(-9.5, 10.0, 1.0)  # terrain samples on half meters, tile bounds on whole ones
+
+    west = tile_sample_range(samples, -10.0, 0.0, 1.0)
+    east = tile_sample_range(samples, 0.0, 10.0, 1.0)
+
+    assert west[-1] == east[0]  # shared seam sample -> no gap between the two surfaces
+    assert np.union1d(west, east).tolist() == list(range(len(samples)))
+    assert tile_sample_range(np.arange(0.0, 21.0, 1.0), 0.0, 10.0, 1.0).tolist() == list(range(11))  # on-grid bounds

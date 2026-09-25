@@ -64,6 +64,16 @@ def polylines(lines, item_ids) -> pv.PolyData:
     return mesh
 
 
+def _texture(image: np.ndarray) -> pv.Texture:
+    """Smoothly filtered, mipmapped texture that is clamped at its border (no wrap-around at tile seams)."""
+    texture = pv.numpy_to_texture(image)
+    texture.interpolate = True
+    texture.mipmap = True
+    texture.repeat = False
+    texture.SetEdgeClamp(True)
+    return texture
+
+
 def _offset_coincident(actor):
     """Draw on top of coplanar surfaces (roads on the embedded terrain)."""
     mapper = actor.GetMapper()
@@ -230,15 +240,16 @@ class TerrainLayer(Layer):
                 images = list(pool.map(lambda p: load_image(p.path, self.PHOTO_MAX_PX), level.photos))
             for photo, image in zip(level.photos, images):
                 x_min, x_max, y_min, y_max = photo.bounds
-                cols = np.flatnonzero((grid.x >= x_min) & (grid.x <= x_max))
-                rows = np.flatnonzero((grid.y >= y_min) & (grid.y <= y_max))
+                spacing = grid.square_size * self.ctx.terrain_step
+                cols = geo.tile_sample_range(grid.x, x_min, x_max, spacing)
+                rows = geo.tile_sample_range(grid.y, y_min, y_max, spacing)
                 if image is None or len(cols) < 2 or len(rows) < 2:
                     continue
                 mesh = self._grid(slice(rows[0], rows[-1] + 1), slice(cols[0], cols[-1] + 1))
                 if mesh is None:
                     continue
                 mesh.active_texture_coordinates = geo.terrain_tcoords(mesh.points[:, 0], mesh.points[:, 1], x_min, y_max, x_max - x_min, y_max - y_min)
-                yield mesh, pv.numpy_to_texture(image)
+                yield mesh, _texture(image)
             return
         minimap = level.minimap
         image = load_image(minimap.path, 4096) if minimap is not None else None
@@ -246,7 +257,7 @@ class TerrainLayer(Layer):
             return
         mesh = self._grid()
         mesh.active_texture_coordinates = geo.terrain_tcoords(mesh.points[:, 0], mesh.points[:, 1], minimap.x_min, minimap.y_max, minimap.size_x, minimap.size_y)
-        yield mesh, pv.numpy_to_texture(image)
+        yield mesh, _texture(image)
 
     def _ensure_elevation(self, plotter):
         if self.elevation_actors or not self.grids:
@@ -391,7 +402,7 @@ class StaticsLayer(Layer):
         if image is not None:
             mesh.active_texture_coordinates = uvs
             # Image row 0 = north and the exporter's v grows toward north, i.e. the same convention as the minimap
-            self.add(plotter, mesh, texture=pv.numpy_to_texture(image))
+            self.add(plotter, mesh, texture=_texture(image))
         else:
             self.add(plotter, mesh, scalars=world[:, 2], cmap="gist_earth", show_scalar_bar=False)
 
