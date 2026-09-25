@@ -526,8 +526,8 @@ class TerrainWorkflow:
         # in the heightmap (the mesh no longer generates embankment geometry - see spec section 4b).
         # IMPORTANT: must run on the still UNMODIFIED heights, so that
         # "natural height" is really natural (before embed_roads_into_heightmap).
-        # Bridges/tunnels are NOT embedded into the terrain and get no embankment - see
-        # design spec section 3 (the terrain below/beside them stays completely natural). Galleries,
+        # Bridges/tunnels are NOT embedded into the terrain and get no embankment
+        # (the terrain below/beside them stays completely natural). Galleries,
         # on the other hand, ARE embedded like normal roads (see below) - no separate terrain hole
         # needed anymore, since floor/wall/roof are solid boxes (tunnels/gallery_mesh.py).
         surface_road_polygons, structure_road_polygons = split_by_structure_type(road_slope_polygons_2d)

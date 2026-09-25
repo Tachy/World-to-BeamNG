@@ -1,4 +1,4 @@
-"""Transition tunnel <-> gallery (docs/superpowers/specs/2026-09-24-tunnel-gallery-transition-design.md): round portal
+"""Transition tunnel <-> gallery: round portal
 as at the tunnel entrance (end ring of the tube or collar) instead of a portal box, plus the faces between the tube arc
 and the gallery cross-section."""
 

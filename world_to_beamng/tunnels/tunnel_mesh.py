@@ -38,8 +38,8 @@ def arc_cross_section(radius: float, segments: int) -> List[Tuple[float, float]]
     """
     (across, height) points of the 240° circular arc over the road surface, `segments` strips (segments+1 points), from
     the right floor edge (θ=-30°) over the crown (θ=90°) to the left floor edge (θ=210°). The floor is y=0, "across"
-    is across the direction of travel (positive = right). The circle center is at (0, radius/2) - see design spec
-    section 5 for the derivation.
+    is across the direction of travel (positive = right). The circle center is at (0, radius/2):
+    a 240° arc whose chord at y=0 has half-width radius*cos(30°).
     """
     points = []
     for k in range(segments + 1):

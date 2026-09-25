@@ -3,7 +3,7 @@ Road markings as separate, narrow DecalRoads above the carriageway - the way Bea
 (west_coast_usa: ~3100 `line_white` and ~200 `line_dashed_short` DecalRoads with 0.15-0.2 m width). White
 edge lines on the left and right, dashed lane dividers at the lane boundaries. The lines follow the node width
 of the carriageway (including the smooth width transitions from road_width_transitions.py). For background and rules
-see docs/OSM_ROAD_ANALYSIS.md and docs/superpowers/plans/2026-09-24-road-markings-width-transitions.md.
+see docs/OSM_ROAD_ANALYSIS.md.
 """
 
 from dataclasses import dataclass

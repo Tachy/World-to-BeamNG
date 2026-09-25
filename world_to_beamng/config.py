@@ -214,7 +214,7 @@ ROAD_DECAL_MAX_AREA = 250.0
 ROAD_DECAL_MIN_TAIL_LENGTH = 5.0
 
 # === WIDTH TRANSITIONS / ROAD MARKINGS ===
-# See docs/superpowers/plans/2026-09-24-road-markings-width-transitions.md.
+# See docs/OSM_ROAD_ANALYSIS.md.
 # Width transition at straight-through joints of two DecalRoads (geometry/road_width_transitions.py): over 10 m,
 # 5 m before and after the joint point, cubic Hermite spline; in the zone one node per ROAD_WIDTH_TRANSITION_STEP meters.
 ROAD_WIDTH_TRANSITION_LENGTH = 10.0
@@ -273,9 +273,8 @@ WALL_TEXTURE_NAME = "rubble_stone_wall"  # name of the rubble stone texture in d
 WALL_MATERIAL_NAME = "rubble_stone_wall"  # "wall" in the name picks the wall template; textures: WALL_TEXTURE_NAME (textures/registry.py)
 
 # Bridges (OSM highway=* with bridge=*): generic concrete deck with the road's carriageway material on top and
-# support piers down to the natural terrain below (see design spec docs/superpowers/specs/
-# 2026-09-22-bridges-tunnels-design.md section 4). For these roads it replaces the normal terrain embedding
-# and the DecalRoad export.
+# support piers down to the natural terrain below. For these roads it replaces the normal terrain embedding and
+# the DecalRoad export.
 BRIDGES_ENABLED = True
 BRIDGE_DECK_THICKNESS = 0.6  # deck thickness in meters
 BRIDGE_PIER_SPACING = 25.0  # spacing of the support piers along the bridge, in meters
@@ -300,8 +299,8 @@ BRIDGE_APPROACH_SLOPE_THRESHOLD = 0.10  # gradient at which the extension stops 
 BRIDGE_APPROACH_MAX_EXTENSION = 40.0  # the bridge is extended into the neighboring road at most this far, in meters
 
 # Tunnels (OSM highway=* with tunnel=yes/culvert/building_passage) and galleries (tunnel=avalanche_protector):
-# tube or valley-side open gallery along the linearly interpolated height profile (see design spec
-# section 5/6). For these roads it replaces the normal terrain embedding and the DecalRoad export.
+# tube or valley-side open gallery along the linearly interpolated height profile. For these roads
+# it replaces the normal terrain embedding and the DecalRoad export.
 TUNNELS_ENABLED = True  # also covers galleries (tunnel=avalanche_protector)
 TUNNEL_WIDTH_MARGIN = 1.5  # additional width beyond the carriageway width, in meters
 TUNNEL_ARC_SEGMENTS = 32  # discretization of the 240° arc, 7.5° per segment (radius/crown height follow from the width)
@@ -336,9 +335,8 @@ TUNNEL_PORTAL_COLLAR_MIN_SIDE = 1.5  # in meters
 TUNNEL_PORTAL_TILT_DEG = 20.0
 TUNNEL_PORTAL_FLAT_DEPTH = 1.5  # the terrain still lies at ground level this far behind the portal plane, in meters
 TUNNEL_PORTAL_LENGTH = 3.5  # length of the portal collar into the mountain, in meters (> FLAT_DEPTH + 1 hole cell)
-# Transition tunnel -> gallery (docs/superpowers/specs/2026-09-24-tunnel-gallery-transition-design.md): a
-# tunnel portal that is at most this far from a gallery end point is a transition (round portal plus faces
-# between the tube arc and the gallery cross-section).
+# Transition tunnel -> gallery: a tunnel portal that is at most this far from a gallery end point is a transition
+# (round portal plus faces between the tube arc and the gallery cross-section).
 TUNNEL_TRANSITION_ENDPOINT_TOL = 0.5  # in meters
 TUNNEL_TRANSITION_COVER_THICKNESS = 0.2  # solid cover slabs between tube arc and gallery cross-section, in meters
 # Height profile of tunnel/gallery chains (geometry/polygon.py::apply_structure_elevation_profiles): at a gallery

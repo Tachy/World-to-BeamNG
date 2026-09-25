@@ -217,7 +217,7 @@ def resample_road_xy_only(xy_coords, target_spacing):
 
 def _linear_elevation_profile(coords):
     """Replaces the Z values with linear interpolation between start and end point (arc-length weighted);
-    start/end are kept exactly (the regular road connects there, see design spec section 2)."""
+    start/end are kept exactly (the regular road connects there)."""
     arr = np.array(coords, dtype=float)
     xy = arr[:, :2]
     diffs = np.diff(xy, axis=0)
@@ -543,7 +543,7 @@ def apply_structure_elevation_profiles(
     road_polygons, roof_offset=None, min_end_distance=None, min_spacing=None, window=None, bounds=None, edge_margin=None
 ):
     """
-    Elevation profiles for structures instead of the raw DGM height at every point (see design spec section 2; e.g.
+    Elevation profiles for structures instead of the raw DGM height at every point (e.g.
     the 16.9 km long Gotthard road tunnel would otherwise get the height of the mountain ridge above it):
 
     - Bridges: linear between their end points.
@@ -552,7 +552,6 @@ def apply_structure_elevation_profiles(
       sample points: at a gallery the DGM shows the roof, the carriageway lies roof_offset below it.
       Sample points at least min_end_distance from the chain ends and min_spacing from each other, median over
       +-window. Joints tunnel <-> gallery never read the terrain (there lies mountain or roof).
-      See docs/superpowers/specs/2026-09-24-tunnel-gallery-transition-design.md.
     - If a tunnel/gallery chain extends past the map boundary with exactly one end (`bounds` = min_x, max_x, min_y,
       max_y; at most edge_margin inside the edge already counts as outside) and a surface road connects at the
       other end (entrance), the whole chain lies at entrance height.
@@ -717,7 +716,7 @@ def get_road_polygons(roads, bbox, height_points, height_elevations, global_offs
     road_polygons = settle_tunnel_portals_to_approach_grade(road_polygons)
 
     # STEP 3b: bridges/tunnels/galleries get a linear elevation profile instead of the raw DGM sampling
-    # (see design spec section 2) - BEFORE smoothing, so that it works on the already correct profile.
+    # - BEFORE smoothing, so that it works on the already correct profile.
     map_bounds = (
         float(np.min(height_points[:, 0])), float(np.max(height_points[:, 0])),
         float(np.min(height_points[:, 1])), float(np.max(height_points[:, 1])),

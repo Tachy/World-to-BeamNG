@@ -38,7 +38,7 @@ def test_tunnel_radius_and_crown_height_follow_the_floor_width():
 def test_tube_floor_is_flat_and_matches_the_road_width():
     # Check only the floor vertices (not mesh["vertices"] as a whole): the circular arc is wider than the
     # floor chord (with arc_segments=12 it bulges outward to ~R*cos(10°) > width/2) - that is correct
-    # and not an error, see design spec section 5 (240° arc above a narrower floor chord).
+    # and not an error (240° arc above a narrower floor chord).
     mesh = build_tunnel_mesh(_straight_coords(z=500.0), width=8.0, floor_material=FLOOR, wall_material=WALL)
     floor_idx = sorted({i for tri in mesh["faces"][FLOOR] for i in tri})
     floor_v = mesh["vertices"][floor_idx]

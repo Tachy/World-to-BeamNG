@@ -112,7 +112,7 @@ overlap, so it should work. That still needs to be verified, though.
 | `highway=trunk` (Gotthard road tunnel, 3.5 km) | no entry in `highway_defaults`. The width is only correct thanks to `lanes=2`. |
 | `highway=primary` (105 ways)               | no entry in `highway_defaults` (see above).                                     |
 | `motorway`, `motorway_link`, `trunk_link`, `secondary_link`, `tertiary_link` | do not occur here, but are missing as well. Needed for maps with a real motorway. |
-| `covered=yes` without `tunnel` (746194686) | **Implemented 2026-09-24:** built as a gallery with negative `layer` (open toward the valley side determined by majority); tunnel ↔ gallery transitions with portal wall, see `docs/superpowers/specs/2026-09-24-tunnel-gallery-transition-design.md`. |
+| `covered=yes` without `tunnel` (746194686) | **Implemented 2026-09-24:** built as a gallery with negative `layer` (open toward the valley side determined by majority); tunnel ↔ gallery transitions with portal wall. |
 
 ### 3.2 Surfaces Missing from `surface_overrides`
 

@@ -1,6 +1,6 @@
 """
 Galleries from OSM lines (highway=* with tunnel=avalanche_protector): like a tunnel, but open on the valley side (roof +
-supports instead of a second wall) - see design spec section 6. No portal frames: galleries are not openings cut
+supports instead of a second wall). No portal frames: galleries are not openings cut
 into the rock, but open protective structures along the road - their ends stay square.
 """
 

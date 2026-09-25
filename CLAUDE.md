@@ -9,6 +9,18 @@
   Fortschrittsanzeige (`pipeline.task()`, `subtask()`, `finish()`/`done()`/`warn()`/`fail()`) und Texte von
   Exceptions. Neue Meldungen nie auf Deutsch schreiben.
 
+## Superpowers-Dokumente (Specs, Pläne) nur intern
+
+Specs, Implementierungspläne und sonstige Arbeitsdokumente der superpowers-Skills (brainstorming, writing-plans,
+subagent-driven-development, ...) gehören NICHT ins Repo, sondern in das per `.gitignore` ausgeschlossene
+Verzeichnis `.superpowers/`:
+
+- Specs: `.superpowers/specs/YYYY-MM-DD-<topic>-design.md` (statt `docs/superpowers/specs/`)
+- Pläne: `.superpowers/plans/YYYY-MM-DD-<feature>.md` (statt `docs/superpowers/plans/`)
+
+Diese Dateien nie committen und im Code (Kommentare, Docstrings) oder in öffentlichen Docs nicht auf sie verweisen -
+die nötige Begründung gehört direkt in den Kommentar.
+
 ## BeamNG-Logs zum Auswerten von Crashes/Ladefehlern
 
 Das aktuell laufende BeamNG.drive (aktive Version, nicht die versionierten

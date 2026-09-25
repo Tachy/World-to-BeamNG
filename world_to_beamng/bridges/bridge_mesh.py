@@ -1,7 +1,7 @@
 """
 Bridges from OSM lines (highway=* with bridge=*): concrete deck with a real road-bridge cross section
 (carriageway with road material, a curb on both sides, on top of it a railing made of posts + handrail) and
-rectangular support piers down to the natural terrain below (see design spec section 4).
+rectangular support piers down to the natural terrain below.
 
 The deck does NOT follow the terrain (unlike the walls) - its height comes from the linearly interpolated
 bridge height profile (geometry/road_structures.py + geometry/polygon.py), which is already contained in the

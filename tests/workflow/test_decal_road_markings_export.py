@@ -1,5 +1,5 @@
 """Tests for the DecalRoad export with smooth width transitions and marking lines
-(TerrainWorkflow.export_decal_roads(), see docs/superpowers/plans/2026-09-24-road-markings-width-transitions.md)."""
+(TerrainWorkflow.export_decal_roads())."""
 
 import sys
 from pathlib import Path

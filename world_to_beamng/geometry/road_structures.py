@@ -1,6 +1,5 @@
 """
-Classification of road ways as bridge, tunnel, gallery or regular carriageway based on their OSM tags
-(see design spec docs/superpowers/specs/2026-09-22-bridges-tunnels-design.md section 1).
+Classification of road ways as bridge, tunnel, gallery or regular carriageway based on their OSM tags.
 """
 
 from typing import Dict, List, Tuple
@@ -20,8 +19,7 @@ def classify_structure(osm_tags: Dict) -> str:
 
     Order: bridge=* (except "no") -> "bridge"; tunnel=avalanche_protector -> "gallery"; covered=yes with a
     negative layer and without a tunnel tag (or tunnel=no) -> "gallery" (covered road below terrain level, e.g.
-    the galleries of the Nuova strada del San Gottardo, see
-    docs/superpowers/specs/2026-09-24-tunnel-gallery-transition-design.md - a canopy over a service road
+    the galleries of the Nuova strada del San Gottardo - a canopy over a service road
     without a negative layer stays surface); any other tunnel=* (except "no") -> "tunnel"; otherwise "surface".
     """
     osm_tags = osm_tags or {}

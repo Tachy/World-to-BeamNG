@@ -58,8 +58,7 @@ def test_split_by_structure_type_separates_surface_from_structures():
 
 def test_covered_road_below_ground_is_a_gallery():
     # Nuova strada between Tunnel Fieud and Tunnel Banchi: way 746194686 carries only covered=yes + layer=-1, no
-    # tunnel tag - on site a gallery open on the valley side (decision 2026-09-24, see
-    # docs/superpowers/specs/2026-09-24-tunnel-gallery-transition-design.md), not a closed tube.
+    # tunnel tag - on site a gallery open on the valley side (decision 2026-09-24), not a closed tube.
     assert classify_structure({"highway": "primary", "covered": "yes", "layer": "-1"}) == "gallery"
     assert classify_structure({"highway": "primary", "covered": "yes", "layer": "-2"}) == "gallery"
 

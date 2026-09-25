@@ -1,5 +1,5 @@
 """Signature regression test: ensures that BeamNGExporter/TerrainWorkflow still pass on
-a Pipeline/PipelineTask (see docs/superpowers/plans/2026-09-23-pipeline-logging-restructure.md)."""
+a Pipeline/PipelineTask."""
 
 import inspect
 import sys
