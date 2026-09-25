@@ -1,5 +1,6 @@
 """
-PNG -> DDS via bin/texconv.exe, in the same formats as the BeamNG stock textures.
+PNG -> DDS via bin/texconv.exe (downloaded on first use, see io/texconv.py), in the same formats as the BeamNG
+stock textures.
 
 Color BC7 sRGB, normal map BC5, data (roughness) BC4.
 """
@@ -10,7 +11,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-TEXCONV = Path("bin/texconv.exe")
+from ..io.texconv import ensure_texconv
 
 COLOR = "BC7_UNORM_SRGB"
 NORMAL = "BC5_UNORM"
@@ -31,14 +32,13 @@ def write_dds(pixels: np.ndarray, output_dir: Path, name: str, dds_format: str, 
     Returns:
         Path of the DDS file
     """
-    if not TEXCONV.exists():
-        raise FileNotFoundError(f"texconv.exe not found: {TEXCONV}")
+    texconv = ensure_texconv()
 
     output_dir.mkdir(parents=True, exist_ok=True)
     png = output_dir / f"{name}.png"
     Image.fromarray(pixels, "RGB").save(png, "PNG")
     try:
-        command = [str(TEXCONV), "-f", dds_format, "-m", str(max_mip_levels), "-y", "-o", str(output_dir)]
+        command = [str(texconv), "-f", dds_format, "-m", str(max_mip_levels), "-y", "-o", str(output_dir)]
         if dds_format == COLOR:
             command.append("-srgb")
         command.append(str(png))

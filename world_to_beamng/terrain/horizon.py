@@ -727,11 +727,10 @@ def texture_horizon_mesh(vertices, horizon_image, nx, ny, bounds_utm, transform,
     img_pil.save(temp_tif, "TIFF")
 
     # Convert to DDS with texconv.exe (BC1, 8192x8192, mipmaps)
-    texconv_exe = Path("bin/texconv.exe")
-    dds_output = config.BEAMNG_DIR_TEXTURES / "horizon_sentinel2.dds"
+    from ..io.texconv import ensure_texconv
 
-    if not texconv_exe.exists():
-        raise FileNotFoundError(f"texconv.exe not found: {texconv_exe}")
+    texconv_exe = ensure_texconv()
+    dds_output = config.BEAMNG_DIR_TEXTURES / "horizon_sentinel2.dds"
 
     # texconv parameters:
     # -f BC1_UNORM: BC1 compression
