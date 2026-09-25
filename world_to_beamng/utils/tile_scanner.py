@@ -17,7 +17,7 @@ from typing import Dict, List
 
 from .. import config
 from ..core.cache_manager import CacheManager
-from ..terrain.elevation_io import read_elevation_tile_cached
+from ..terrain.elevation_io import read_elevation_tile_cached, reproject_bbox
 
 logger = logging.getLogger(__name__)
 
@@ -86,25 +86,50 @@ def scan_elevation_tiles(dgm_dir, cache_dir=None) -> List[Dict]:
 
 def resolve_source_crs_epsg(tiles: List[Dict]) -> int:
     """
-    Determines the common source CRS of all tiles.
+    Determines the CRS in which the whole area is processed.
 
-    Tiles without their own CRS (ASCII-XYZ, e.g. LGL Baden-Württemberg) say nothing about the CRS
-    - config.SOURCE_CRS_EPSG applies for them. Tiles WITH their own CRS (GeoTIFF) must all
-    agree; otherwise it is unclear in which CRS the whole area should be processed.
-
-    Raises:
-        ValueError: if tiles with different CRS are mixed (mixing different
-            DGM CRS is a deliberate scope limit, not a supported case)
+    Tiles without their own CRS (ASCII-XYZ, e.g. LGL Baden-Württemberg) say nothing about the CRS and are taken to
+    be in the resulting CRS; if no tile has one, config.SOURCE_CRS_EPSG applies. If the tiles WITH a CRS (GeoTIFF)
+    disagree, the CRS of most tiles wins (tie: config.SOURCE_CRS_EPSG if it is among them, else the lowest EPSG
+    code); the other tiles are reprojected into it (see align_tiles_to_crs()).
     """
-    detected = {t["crs_epsg"] for t in tiles if t.get("crs_epsg") is not None}
-    if len(detected) > 1:
-        raise ValueError(
-            f"Height data tiles with different CRS found (EPSG {sorted(detected)}) - "
-            "mixing different DGM CRS is not supported."
+    counts: Dict[int, int] = {}
+    for tile in tiles:
+        if tile.get("crs_epsg") is not None:
+            counts[int(tile["crs_epsg"])] = counts.get(int(tile["crs_epsg"]), 0) + 1
+    if not counts:
+        return config.SOURCE_CRS_EPSG
+    best = max(counts.values())
+    candidates = sorted(epsg for epsg, n in counts.items() if n == best)
+    return config.SOURCE_CRS_EPSG if config.SOURCE_CRS_EPSG in candidates else candidates[0]
+
+
+def align_tiles_to_crs(tiles: List[Dict], target_epsg: int) -> List[Dict]:
+    """
+    Marks tiles whose own CRS differs from target_epsg for reprojection ("reproject_from") and replaces their
+    bbox_utm (and the fields derived from it) with the reprojected bounding box. The points themselves are
+    reprojected when they are loaded (workflow/tile_processor.py); the raw cache stays in the native CRS.
+
+    Returns:
+        the tiles that will be reprojected
+    """
+    reprojected = []
+    for tile in tiles:
+        src = tile.get("crs_epsg")
+        if src is None or int(src) == int(target_epsg):
+            continue
+        x_min, x_max, y_min, y_max = reproject_bbox(tile["bbox_utm"], int(src), int(target_epsg))
+        tile.update(
+            bbox_utm=(x_min, x_max, y_min, y_max), easting=x_min, northing=y_min, tile_x=x_min, tile_y=y_min,
+            tile_size=max(x_max - x_min, y_max - y_min), reproject_from=int(src), target_epsg=int(target_epsg),
         )
-    if detected:
-        return detected.pop()
-    return config.SOURCE_CRS_EPSG
+        reprojected.append(tile)
+    if reprojected:
+        logger.info(
+            f"[INFO] {len(reprojected)} height data tile(s) reprojected to EPSG:{target_epsg}: "
+            + ", ".join(f"{t['filename']} (EPSG:{t['reproject_from']})" for t in reprojected)
+        )
+    return reprojected
 
 
 def compute_global_bbox(tiles):

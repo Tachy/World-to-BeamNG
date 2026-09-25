@@ -38,6 +38,24 @@ BBox = Tuple[float, float, float, float]  # (x_min, x_max, y_min, y_max)
 ReadResult = Tuple[Optional[np.ndarray], Optional[np.ndarray], Optional[int], Optional[BBox]]
 
 
+def reproject_points(points: np.ndarray, src_epsg: int, dst_epsg: int) -> np.ndarray:
+    """(n, 2) x/y points from src_epsg to dst_epsg (vectorized pyproj, axis order x/y = easting/northing)."""
+    from pyproj import Transformer
+
+    transformer = Transformer.from_crs(int(src_epsg), int(dst_epsg), always_xy=True)
+    x, y = transformer.transform(np.asarray(points)[:, 0], np.asarray(points)[:, 1])
+    return np.column_stack([x, y])
+
+
+def reproject_bbox(bbox: BBox, src_epsg: int, dst_epsg: int) -> BBox:
+    """(x_min, x_max, y_min, y_max) as the bounding box of the densified reprojected outline."""
+    from pyproj import Transformer
+
+    transformer = Transformer.from_crs(int(src_epsg), int(dst_epsg), always_xy=True)
+    left, bottom, right, top = transformer.transform_bounds(bbox[0], bbox[2], bbox[1], bbox[3], densify_pts=21)
+    return (left, right, bottom, top)
+
+
 def read_elevation_tile_cached(filepath, cache_manager, tile_hash: Optional[str] = None) -> ReadResult:
     """
     Like read_elevation_tile(), but with the same file-based cache (CacheManager, key

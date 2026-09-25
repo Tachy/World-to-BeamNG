@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from world_to_beamng import config
 from world_to_beamng.utils.tile_scanner import (
+    align_tiles_to_crs,
     compute_global_bbox,
     compute_global_center,
     resolve_source_crs_epsg,
@@ -109,11 +110,55 @@ def test_resolve_uses_the_detected_crs_when_consistent():
     assert resolve_source_crs_epsg(tiles) == 2056
 
 
-def test_resolve_raises_on_conflicting_crs():
-    tiles = [{"crs_epsg": 25832}, {"crs_epsg": 2056}]
+def test_resolve_picks_the_crs_of_most_tiles():
+    tiles = [{"crs_epsg": 2056}, {"crs_epsg": 32632}, {"crs_epsg": 32632}, {"crs_epsg": None}]
 
-    with pytest.raises(ValueError, match="different CRS"):
-        resolve_source_crs_epsg(tiles)
+    assert resolve_source_crs_epsg(tiles) == 32632
+
+
+def test_resolve_breaks_a_tie_with_the_configured_crs_else_the_lowest_code(monkeypatch):
+    monkeypatch.setattr(config, "SOURCE_CRS_EPSG", 25832)
+    assert resolve_source_crs_epsg([{"crs_epsg": 32632}, {"crs_epsg": 25832}]) == 25832
+    assert resolve_source_crs_epsg([{"crs_epsg": 32632}, {"crs_epsg": 2056}]) == 2056
+
+
+def test_align_reprojects_the_bbox_of_foreign_crs_tiles_only():
+    from pyproj import Transformer
+
+    native = {"filename": "a.tif", "crs_epsg": 25832, "bbox_utm": (400000.0, 401000.0, 5300000.0, 5301000.0)}
+    foreign = {"filename": "b.tif", "crs_epsg": 32632, "bbox_utm": (400000.0, 401000.0, 5300000.0, 5301000.0)}
+    xyz = {"filename": "c.zip", "crs_epsg": None, "bbox_utm": (0.0, 1.0, 0.0, 1.0)}
+
+    reprojected = align_tiles_to_crs([native, foreign, xyz], 25832)
+
+    assert reprojected == [foreign]
+    assert native["bbox_utm"] == (400000.0, 401000.0, 5300000.0, 5301000.0) and "reproject_from" not in native
+    assert "reproject_from" not in xyz
+    assert foreign["reproject_from"] == 32632 and foreign["target_epsg"] == 25832
+    x, y = Transformer.from_crs(32632, 25832, always_xy=True).transform(400000.0, 5300000.0)
+    assert foreign["bbox_utm"][0] == pytest.approx(x, abs=0.01) and foreign["bbox_utm"][2] == pytest.approx(y, abs=0.01)
+    assert foreign["easting"] == foreign["bbox_utm"][0]
+
+
+def test_reprojected_tiles_load_in_the_target_crs_and_change_the_cache_hash(tmp_path):
+    from pyproj import Transformer
+
+    from world_to_beamng.core.cache_manager import CacheManager
+    from world_to_beamng.io.cache import calculate_global_tiles_hash
+    from world_to_beamng.workflow.tile_processor import TileProcessor
+
+    _geotiff(tmp_path / "a.tif", bounds=(400000.0, 5300000.0, 400004.0, 5300004.0), crs="EPSG:25832")
+    _geotiff(tmp_path / "b.tif", bounds=(400004.0, 5300000.0, 400008.0, 5300004.0), crs="EPSG:32632")
+    tiles = scan_elevation_tiles(tmp_path, cache_dir=tmp_path / "cache")
+    hash_before = calculate_global_tiles_hash(tiles)
+
+    target = resolve_source_crs_epsg(tiles)  # tie -> config.SOURCE_CRS_EPSG (25832)
+    align_tiles_to_crs(tiles, target)
+    points, _ = TileProcessor(CacheManager(tmp_path / "cache")).load_height_data(tiles[1])
+
+    x, y = Transformer.from_crs(32632, target, always_xy=True).transform(400004.5, 5300003.5)
+    assert points[:, 0].min() == pytest.approx(x, abs=0.01) and points[:, 1].max() == pytest.approx(y, abs=0.01)
+    assert calculate_global_tiles_hash(tiles) != hash_before
 
 
 # ---------------------------------------------------------------- compute_global_bbox/_center

@@ -22,7 +22,7 @@ from world_to_beamng.export import BeamNGExporter
 from world_to_beamng.textures.registry import MissingTexturesError
 from world_to_beamng.geometry import coordinates
 from world_to_beamng.progress import Pipeline, console
-from world_to_beamng.utils.tile_scanner import scan_elevation_tiles, compute_global_center, resolve_source_crs_epsg
+from world_to_beamng.utils.tile_scanner import align_tiles_to_crs, compute_global_center, resolve_source_crs_epsg, scan_elevation_tiles
 
 
 def main():
@@ -44,6 +44,7 @@ def main():
         # MUST be set before any further coordinate transformation (OSM bbox, LoD2, horizon, ...)
         source_epsg = resolve_source_crs_epsg(tiles)
         coordinates.set_source_crs(source_epsg)
+        align_tiles_to_crs(tiles, source_epsg)  # tiles in another CRS are reprojected into source_epsg
 
         global_center = compute_global_center(tiles)
         # 3-tuple: (x, y, z) - z is the mean of the heights or 0

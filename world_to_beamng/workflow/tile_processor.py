@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Tuple, Optional, Dict, List
 
 from ..core.cache_manager import CacheManager
-from ..terrain.elevation_io import read_elevation_tile_cached
+from ..terrain.elevation_io import read_elevation_tile_cached, reproject_points
 
 logger = LoggerConfig.get_logger()
 
@@ -51,6 +51,9 @@ class TileProcessor:
 
         if points is None or elevations is None:
             return None, None
+
+        if tile.get("reproject_from") is not None:  # tile in a different CRS, see utils.tile_scanner.align_tiles_to_crs()
+            points = reproject_points(points, tile["reproject_from"], tile["target_epsg"])
 
         return points, elevations
 

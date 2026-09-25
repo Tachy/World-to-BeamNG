@@ -155,6 +155,8 @@ def calculate_global_tiles_hash(tiles):
         # Compute the hash of the individual tile
         tile_hash = calculate_file_hash(filepath) or "none"
         hash_input += f"{filename}:{tile_hash};"
+        if tile.get("reproject_from") is not None:  # same file, different target CRS -> different points
+            hash_input += f"epsg{tile['reproject_from']}->{tile['target_epsg']};"
 
     # Compute the global hash
     global_hash = hashlib.md5(hash_input.encode()).hexdigest()[:12]
