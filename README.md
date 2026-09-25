@@ -308,6 +308,15 @@ The code is under the **MIT License** (see [LICENSE](LICENSE)). For the data the
 Contributions are welcome: fork, create a branch, commit your changes (prefixes `feat:`, `fix:`, `perf:` …), open a
 pull request. Please report bugs and wishes as an [issue](https://github.com/Tachy/World-to-BeamNG/issues).
 
+### Versions and releases
+
+The commit prefixes drive the version number ([Conventional Commits](https://www.conventionalcommits.org/)): `feat:` raises
+the minor number, `fix:` and `perf:` the patch number, `feat!:` / `BREAKING CHANGE:` the major number (below 1.0 the
+minor number). A GitHub Action ([release-please](https://github.com/googleapis/release-please)) keeps a release pull
+request up to date on `main`; merging it creates the tag (`vX.Y.Z`), the GitHub release with the changelog
+([CHANGELOG.md](CHANGELOG.md)) and updates `__version__`. The version is shown when an export finishes and in the level
+viewer.
+
 ## 🙏 Acknowledgements
 
 **OpenStreetMap** and the **Overpass API**, the **LGL Baden-Württemberg** for the open geodata, **BeamNG**, and the

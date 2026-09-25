@@ -15,6 +15,8 @@ import numpy as np
 import pyvista as pv
 import vtk
 
+from world_to_beamng import __version__
+
 from .layers import LAYER_CLASSES, Layer, TerrainLayer, ViewerContext
 from .level_data import load_level
 from .state import CONFIG_PATH, apply_camera, camera_to_dict, load_state, save_state
@@ -142,7 +144,7 @@ class LevelViewer:
     # -- panels -------------------------------------------------------------------------------------------------------
     def _update_panel(self) -> None:
         lines = [
-            f"{self.ctx.level.level_dir.name}  ({len(self.ctx.level.items)} items, loaded in {self.load_seconds:.1f} s)",
+            f"World-to-BeamNG {__version__}  -  {self.ctx.level.level_dir.name}  ({len(self.ctx.level.items)} items, loaded in {self.load_seconds:.1f} s)",
             "",
             "Layers (press the key to show / hide):",
         ]

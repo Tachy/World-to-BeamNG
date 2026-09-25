@@ -318,6 +318,15 @@ Der Code steht unter der **MIT License** (siehe [LICENSE](LICENSE)). Für die Da
 Beiträge sind willkommen: Fork, Branch anlegen, Änderungen committen (Präfixe `feat:`, `fix:`, `perf:` …), Pull
 Request öffnen. Fehler und Wünsche bitte als [Issue](https://github.com/Tachy/World-to-BeamNG/issues) melden.
 
+### Versionen und Releases
+
+Die Commit-Präfixe bestimmen die Versionsnummer ([Conventional Commits](https://www.conventionalcommits.org/)): `feat:`
+erhöht die Minor-Nummer, `fix:` und `perf:` die Patch-Nummer, `feat!:` / `BREAKING CHANGE:` die Major-Nummer (unter 1.0
+die Minor-Nummer). Eine GitHub Action ([release-please](https://github.com/googleapis/release-please)) hält auf
+`main` einen Release-Pull-Request aktuell; sein Merge erzeugt den Tag (`vX.Y.Z`), das GitHub-Release mit Änderungsliste
+([CHANGELOG.md](CHANGELOG.md)) und aktualisiert `__version__`. Die Version steht am Ende eines Exports und im
+Level-Viewer.
+
 ## 🙏 Danksagungen
 
 **OpenStreetMap** und die **Overpass API**, das **LGL Baden-Württemberg** für die offenen Geodaten, **BeamNG** und die

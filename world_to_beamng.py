@@ -14,7 +14,7 @@ import time
 # UTF-8 encoding for the Windows console
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
-from world_to_beamng import config
+from world_to_beamng import __version__, config
 from world_to_beamng.logging_config import LoggerConfig
 
 logger = LoggerConfig.get_logger()
@@ -71,7 +71,7 @@ def main():
     elapsed = time.time() - start_time
     console.print()
     console.print("[bold]" + "=" * 60 + "[/bold]")
-    console.print("[bold]EXPORT FINISHED[/bold]")
+    console.print(f"[bold]EXPORT FINISHED[/bold]  (World-to-BeamNG {__version__})")
     console.print("[bold]" + "=" * 60 + "[/bold]")
     console.print(f"Tiles processed: {stats['tiles_processed']}")
     console.print(f"Tiles failed: {stats['tiles_failed']}")

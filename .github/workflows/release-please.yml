@@ -1,0 +1,23 @@
+# Keeps a release PR up to date from the Conventional Commit messages on main (feat: minor, fix:/perf: patch,
+# "!" or BREAKING CHANGE: major - while the version is below 1.0 a breaking change only bumps the minor number).
+# Merging that PR creates the tag (vX.Y.Z), the GitHub release with the changelog, and updates CHANGELOG.md and
+# __version__ in world_to_beamng/__init__.py. Needs Settings > Actions > General > "Allow GitHub Actions to create
+# and approve pull requests".
+name: release-please
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: googleapis/release-please-action@v4
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
