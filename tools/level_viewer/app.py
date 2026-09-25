@@ -128,24 +128,35 @@ class LevelViewer:
         return {id(actor): layer for layer in self.layers if layer.visible for actor in layer.actors}
 
     def pick(self, display_x: int, display_y: int) -> Optional[List[str]]:
-        """Picks the visible cell under a display position and shows its item in the info panel."""
+        """
+        Picks the visible object under a display position and shows its item in the info panel.
+
+        A hardware prop picker finds the actor and the 3D point (fast even for the full-resolution terrain); the cell
+        picker, which tests cell by cell, then runs on that one actor only - and not at all for the terrain, whose
+        info comes from the picked point.
+        """
         owners = self._actor_layers()
-        picker = vtk.vtkCellPicker()
-        picker.SetTolerance(0.0005)
-        picker.PickFromListOn()
-        for layer in self.layers:
-            if layer.visible:
-                for actor in layer.actors:
-                    if actor.GetPickable() and actor.GetVisibility():
-                        picker.AddPickList(actor)
-        if not picker.Pick(display_x, display_y, 0, self.plotter.renderer):
+        candidates = [a for layer in self.layers if layer.visible for a in layer.actors if a.GetPickable() and a.GetVisibility()]
+        prop_picker = vtk.vtkPropPicker()
+        prop_picker.PickFromListOn()
+        for actor in candidates:
+            prop_picker.AddPickList(actor)
+        if not prop_picker.Pick(display_x, display_y, 0, self.plotter.renderer):
             return None
-        actor = picker.GetActor()
+        actor = prop_picker.GetActor()
         layer = owners.get(id(actor))
         if layer is None:
             return None
-        cell_id = picker.GetCellId()
-        point = np.array(picker.GetPickPosition())
+        point = np.array(prop_picker.GetPickPosition())
+        cell_id = -1
+        if not isinstance(layer, TerrainLayer):
+            cell_picker = vtk.vtkCellPicker()
+            cell_picker.SetTolerance(0.0005)
+            cell_picker.PickFromListOn()
+            cell_picker.AddPickList(actor)
+            if cell_picker.Pick(display_x, display_y, 0, self.plotter.renderer):
+                cell_id = cell_picker.GetCellId()
+                point = np.array(cell_picker.GetPickPosition())
         lines = layer.describe(actor, cell_id, point)
         lines.append(f"picked at: {point[0]:.2f}, {point[1]:.2f}, {point[2]:.2f}")
         grid = self.ctx.terrain if not isinstance(layer, TerrainLayer) else None

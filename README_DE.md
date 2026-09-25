@@ -247,11 +247,13 @@ Die Meldungen des Programms sind englisch; sie werden hier im Wortlaut zitiert.
 ## 🔍 Level-Viewer
 
 Ein Entwickler-Viewer zeigt den exportierten Level außerhalb von BeamNG (Terrain mit Luftbild, Straßen und
-Markierungen, Brücken, Tunnel, Wasser, Wald, Tunnel-Zonen, Spawn-Punkte, Horizont, Debug-Netzwerk):
+Markierungen, Brücken, Tunnel, Wasser, Wald, Tunnel-Zonen, Spawn-Punkte, Horizont, Debug-Netzwerk). Standardmäßig
+zeigt er das Terrain in voller Auflösung mit den vollen Luftbild-Kacheln (lädt in wenigen Sekunden, braucht etwa
+4 GB Arbeitsspeicher):
 
 ```powershell
 .\.venv\Scripts\python.exe -m tools.level_viewer                # Level aus config.BEAMNG_DIR
-.\.venv\Scripts\python.exe -m tools.level_viewer --full-photo   # Luftbild-Kacheln in voller Auflösung
+.\.venv\Scripts\python.exe -m tools.level_viewer --terrain-step 4 --minimap-photo   # schneller, weniger Speicher
 .\.venv\Scripts\python.exe -m tools.level_viewer --help         # alle Optionen (Ebenen, Terrain-Schritt, Screenshot)
 ```
 

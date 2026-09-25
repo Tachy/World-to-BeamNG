@@ -24,8 +24,8 @@ class ViewerContext:
     """Shared state of all layers: the loaded level plus lazily loaded terrain."""
 
     level: LevelData
-    terrain_step: int = 4
-    full_photo: bool = False
+    terrain_step: int = 1
+    full_photo: bool = True
     debug_network_path: Optional[object] = None
     _terrain: Optional[TerrainGrid] = field(default=None, repr=False)
     _terrain_loaded: bool = field(default=False, repr=False)
@@ -161,70 +161,122 @@ def describe_item(item: LevelItem) -> List[str]:
 
 
 class TerrainLayer(Layer):
+    """
+    Terrain as structured grids (implicit connectivity, so even the full-resolution 4000x4000 samples fit in memory):
+    one grid per aerial photo tile with that photo as texture, or one grid with the minimap. The elevation-colored
+    variant ([x]) reuses the same grids (a second actor coloring the heights), built when it is first shown.
+    """
+
     key, title = "g", "Terrain"
+    PHOTO_MAX_PX = 8192  # the exported photo tiles are 8192 px; GPUs handle that texture size
 
     def __init__(self, ctx):
         super().__init__(ctx)
         self.textured = True
         self.photo_actors: List = []
-        self.elevation_actor = None
+        self.elevation_actors: List = []
+        self.grids: List[pv.PolyData] = []
+
+    def _grid(self, row_slice=slice(None), col_slice=slice(None)) -> Optional[pv.PolyData]:
+        grid = self.ctx.terrain
+        x, y = grid.x[col_slice], grid.y[row_slice]
+        if len(x) < 2 or len(y) < 2:
+            return None
+        # float32 is plenty for level-local coordinates (+-4 km, mm precision) and halves the memory
+        xx, yy = np.meshgrid(x.astype(np.float32), y.astype(np.float32))
+        mesh = pv.StructuredGrid(xx, yy, grid.z[row_slice, col_slice].astype(np.float32))
+        hole = grid.hole[row_slice, col_slice]
+        if hole.any():
+            # Point order of the structured grid is VTK's; map every point back to its sample via its coordinates
+            # (exact lookups: the grid points are the same float32 values as x/y)
+            cols = np.searchsorted(x.astype(np.float32), mesh.points[:, 0])
+            rows = np.searchsorted(y.astype(np.float32), mesh.points[:, 1])
+            mesh.point_data["hole"] = hole[rows.clip(0, len(y) - 1), cols.clip(0, len(x) - 1)].astype(np.float32)
+            cell_hole = mesh.point_data_to_cell_data(pass_point_data=True).cell_data["hole"] > 0
+            mesh.hide_cells(np.flatnonzero(cell_hole), inplace=True)
+        # Surface once as PolyData: the photo and the elevation actor then share it (a structured grid would be
+        # turned into its own surface copy by every actor's mapper); hidden (hole) cells are dropped here
+        surface = mesh.extract_surface(pass_pointid=False, pass_cellid=False)
+        for name in ("hole", "vtkGhostType"):
+            if name in surface.point_data:
+                del surface.point_data[name]
+            if name in surface.cell_data:
+                del surface.cell_data[name]
+        return surface
 
     def build(self, plotter):
         grid = self.ctx.terrain
         if grid is None:
             self.summary = "no terrain"
             return
-        blocks = self.ctx.level.of("TerrainBlock")
-        block_id = blocks[0].index if blocks else -1
-        points, faces = geo.grid_surface(grid.x, grid.y, grid.z, grid.hole)
-        mesh = polydata(points, faces, np.full(len(faces), block_id))
+        for mesh, texture in self._textured_parts():
+            self.grids.append(mesh)
+            actor = self.add(plotter, mesh, texture=texture)
+            if actor is not None:
+                self.photo_actors.append(actor)
+        if not self.grids:
+            mesh = self._grid()
+            if mesh is not None:
+                self.grids.append(mesh)
+        if not self.photo_actors:
+            self.textured = False
+        source = "photo tiles" if self.ctx.full_photo and self.ctx.level.photos else "minimap"
+        self.summary = f"{len(grid.x)}x{len(grid.y)} samples (step {self.ctx.terrain_step}), {source}"
 
-        self.elevation_actor = self.add(plotter, mesh, scalars=points[:, 2], cmap="gist_earth", show_scalar_bar=False)
-        for sub, texture in self._textured_parts(mesh):
-            self.photo_actors.append(self.add(plotter, sub, texture=texture))
-        self.photo_actors = [a for a in self.photo_actors if a is not None]
-        self.summary = f"{len(grid.x)}x{len(grid.y)} samples (step {self.ctx.terrain_step})"
-
-    def _textured_parts(self, mesh: pv.PolyData):
-        level = self.ctx.level
+    def _textured_parts(self):
+        level, grid = self.ctx.level, self.ctx.terrain
         if self.ctx.full_photo and level.photos:
             with ThreadPoolExecutor(max_workers=4) as pool:
-                images = list(pool.map(lambda p: load_image(p.path, 4096), level.photos))
-            centers = mesh.cell_centers().points
+                images = list(pool.map(lambda p: load_image(p.path, self.PHOTO_MAX_PX), level.photos))
             for photo, image in zip(level.photos, images):
                 x_min, x_max, y_min, y_max = photo.bounds
-                inside = np.flatnonzero((centers[:, 0] >= x_min) & (centers[:, 0] < x_max) & (centers[:, 1] >= y_min) & (centers[:, 1] < y_max))
-                if image is None or not len(inside):
+                cols = np.flatnonzero((grid.x >= x_min) & (grid.x <= x_max))
+                rows = np.flatnonzero((grid.y >= y_min) & (grid.y <= y_max))
+                if image is None or len(cols) < 2 or len(rows) < 2:
                     continue
-                sub = mesh.extract_cells(inside).extract_surface()
-                sub.active_texture_coordinates = geo.terrain_tcoords(sub.points[:, 0], sub.points[:, 1], x_min, y_max, x_max - x_min, y_max - y_min)
-                yield sub, pv.numpy_to_texture(image)
+                mesh = self._grid(slice(rows[0], rows[-1] + 1), slice(cols[0], cols[-1] + 1))
+                if mesh is None:
+                    continue
+                mesh.active_texture_coordinates = geo.terrain_tcoords(mesh.points[:, 0], mesh.points[:, 1], x_min, y_max, x_max - x_min, y_max - y_min)
+                yield mesh, pv.numpy_to_texture(image)
             return
         minimap = level.minimap
-        if minimap is None:
-            return
-        image = load_image(minimap.path, 4096)
+        image = load_image(minimap.path, 4096) if minimap is not None else None
         if image is None:
             return
-        textured = mesh.copy()
-        textured.active_texture_coordinates = geo.terrain_tcoords(mesh.points[:, 0], mesh.points[:, 1], minimap.x_min, minimap.y_max, minimap.size_x, minimap.size_y)
-        yield textured, pv.numpy_to_texture(image)
+        mesh = self._grid()
+        mesh.active_texture_coordinates = geo.terrain_tcoords(mesh.points[:, 0], mesh.points[:, 1], minimap.x_min, minimap.y_max, minimap.size_x, minimap.size_y)
+        yield mesh, pv.numpy_to_texture(image)
+
+    def _ensure_elevation(self, plotter):
+        if self.elevation_actors or not self.grids:
+            return
+        grid = self.ctx.terrain
+        clim = (float(np.nanmin(grid.z)), float(np.nanmax(grid.z)))  # one color scale across all photo tiles
+        for mesh in self.grids:
+            mesh.point_data["elevation"] = mesh.points[:, 2]
+            actor = self.add(plotter, mesh, scalars="elevation", cmap="gist_earth", clim=clim, show_scalar_bar=False)
+            if actor is not None:
+                self.elevation_actors.append(actor)
 
     def ensure(self, plotter):
         super().ensure(plotter)
-        has_photo = bool(self.photo_actors)
+        if self.visible and self.built and not self.textured:
+            self._ensure_elevation(plotter)
         for actor in self.photo_actors:
             actor.SetVisibility(self.visible and self.textured)
-        if self.elevation_actor is not None:
-            self.elevation_actor.SetVisibility(self.visible and (not self.textured or not has_photo))
+        for actor in self.elevation_actors:
+            actor.SetVisibility(self.visible and not self.textured)
 
     def toggle_texture(self, plotter):
-        self.textured = not self.textured
+        if self.photo_actors or not self.textured:
+            self.textured = not self.textured if self.photo_actors else False
         self.ensure(plotter)
 
     def clear(self, plotter):
         super().clear(plotter)
-        self.photo_actors, self.elevation_actor = [], None
+        self.photo_actors, self.elevation_actors, self.grids = [], [], []
+        self.textured = True
 
     def describe(self, actor, cell_id, point):
         grid = self.ctx.terrain

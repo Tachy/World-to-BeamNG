@@ -240,11 +240,12 @@ about one minute. The first run takes longer because OSM is downloaded and the c
 ## 🔍 Level viewer
 
 A developer viewer shows the exported level outside BeamNG (terrain with aerial photo, roads and markings, bridges,
-tunnels, water, forest, tunnel zones, spawn points, horizon, debug network):
+tunnels, water, forest, tunnel zones, spawn points, horizon, debug network). By default it shows the terrain at
+full resolution with the full aerial photo tiles (loads in a few seconds, needs about 4 GB of RAM):
 
 ```powershell
 .\.venv\Scripts\python.exe -m tools.level_viewer                # level from config.BEAMNG_DIR
-.\.venv\Scripts\python.exe -m tools.level_viewer --full-photo   # full-resolution aerial photo tiles
+.\.venv\Scripts\python.exe -m tools.level_viewer --terrain-step 4 --minimap-photo   # faster, less memory
 .\.venv\Scripts\python.exe -m tools.level_viewer --help         # all options (layers, terrain step, screenshot)
 ```
 

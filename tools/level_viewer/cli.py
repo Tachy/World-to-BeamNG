@@ -14,8 +14,8 @@ LAYER_KEYS = {"terrain": "g", "roads": "a", "markings": "m", "water": "o", "stru
 @dataclass
 class ViewerOptions:
     level_dir: Path
-    terrain_step: int = 4
-    full_photo: bool = False
+    terrain_step: int = 1
+    full_photo: bool = True
     debug_network: Optional[Path] = None
     layer_overrides: Dict[str, bool] = field(default_factory=dict)  # layer key -> visible
 
@@ -23,8 +23,8 @@ class ViewerOptions:
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(prog="python -m tools.level_viewer", description="Developer viewer for an exported World-to-BeamNG level.")
     parser.add_argument("--level-dir", type=Path, help="level folder (default: config.BEAMNG_DIR)")
-    parser.add_argument("--terrain-step", type=int, default=4, help="use every n-th terrain sample (default 4; 1 = full resolution)")
-    parser.add_argument("--full-photo", action="store_true", help="texture the terrain with the full aerial photo tiles instead of the minimap")
+    parser.add_argument("--terrain-step", type=int, default=1, help="use every n-th terrain sample (default 1 = full resolution; 2-4 load faster)")
+    parser.add_argument("--minimap-photo", action="store_true", help="texture the terrain with the small minimap instead of the full aerial photo tiles (faster, less memory)")
     parser.add_argument("--show", default="", help=f"comma-separated layers to show ({', '.join(LAYER_KEYS)})")
     parser.add_argument("--hide", default="", help="comma-separated layers to hide")
     parser.add_argument("--debug-network", type=Path, default=REPO_ROOT / "cache" / "debug_network.json", help="debug network JSON")
@@ -55,7 +55,7 @@ def main(argv=None) -> int:
     options = ViewerOptions(
         level_dir=level_dir,
         terrain_step=max(1, args.terrain_step),
-        full_photo=args.full_photo,
+        full_photo=not args.minimap_photo,
         debug_network=args.debug_network,
         layer_overrides=_layer_overrides(args.show, args.hide),
     )
