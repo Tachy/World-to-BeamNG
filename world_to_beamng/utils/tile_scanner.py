@@ -44,7 +44,7 @@ def scan_elevation_tiles(dgm_dir, cache_dir=None) -> List[Dict]:
         resolve_source_crs_epsg().
     """
     if not Path(dgm_dir).exists():
-        logger.warning(f"[WARNUNG] Höhendaten-Verzeichnis nicht gefunden: {dgm_dir}")
+        logger.warning(f"[WARNING] Height data directory not found: {dgm_dir}")
         return []
 
     cache = CacheManager(cache_dir or config.CACHE_DIR)
@@ -54,7 +54,7 @@ def scan_elevation_tiles(dgm_dir, cache_dir=None) -> List[Dict]:
     for filepath in candidates:
         points, _elevations, crs_epsg, bbox_utm = read_elevation_tile_cached(filepath, cache)
         if points is None or len(points) == 0 or bbox_utm is None:
-            logger.warning(f"[WARNUNG] Keine Höhendaten in {filepath.name} - übersprungen")
+            logger.warning(f"[WARNING] No height data in {filepath.name} - skipped")
             continue
 
         x_min, x_max, y_min, y_max = bbox_utm
@@ -74,9 +74,9 @@ def scan_elevation_tiles(dgm_dir, cache_dir=None) -> List[Dict]:
         )
 
     if not tiles:
-        logger.warning(f"[WARNUNG] Keine Höhendaten-Dateien gefunden in: {dgm_dir}")
+        logger.warning(f"[WARNING] No height data files found in: {dgm_dir}")
     else:
-        logger.info(f"[INFO] {len(tiles)} Höhendaten-Kacheln gefunden")
+        logger.info(f"[INFO] {len(tiles)} height data tiles found")
         for tile in tiles:
             x0, x1, y0, y1 = tile["bbox_utm"]
             logger.debug(f"  - {tile['filename']} → X={x0:.0f}..{x1:.0f}, Y={y0:.0f}..{y1:.0f}")
@@ -99,8 +99,8 @@ def resolve_source_crs_epsg(tiles: List[Dict]) -> int:
     detected = {t["crs_epsg"] for t in tiles if t.get("crs_epsg") is not None}
     if len(detected) > 1:
         raise ValueError(
-            f"Höhendaten-Kacheln mit unterschiedlichem CRS gefunden (EPSG {sorted(detected)}) - "
-            "Mischung verschiedener DGM-CRS wird nicht unterstützt."
+            f"Height data tiles with different CRS found (EPSG {sorted(detected)}) - "
+            "mixing different DGM CRS is not supported."
         )
     if detected:
         return detected.pop()

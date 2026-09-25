@@ -62,7 +62,7 @@ class LoggerConfig:
         try:
             return LEVEL_NAMES[level.upper()]
         except KeyError:
-            raise ValueError(f"Unbekanntes Log-Level {level!r} - erlaubt: {', '.join(LEVEL_NAMES)}") from None
+            raise ValueError(f"Unknown log level {level!r} - allowed: {', '.join(LEVEL_NAMES)}") from None
 
     @classmethod
     def get_instance(cls, log_file: Optional[Path] = None, level: Union[int, str] = logging.INFO) -> "LoggerConfig":
@@ -126,7 +126,7 @@ class LoggerConfig:
             file_handler.setFormatter(file_formatter)
             logger_instance.addHandler(file_handler)
             logger_instance.info(
-                f"Logger initialisiert: Datei={self.log_file}, Level={logging.getLevelName(self.level)}"
+                f"Logger initialized: file={self.log_file}, level={logging.getLevelName(self.level)}"
             )
 
         # Geschwätzige Third-Party-Logger dämpfen: sie nutzen ebenfalls logging.getLogger(__name__)

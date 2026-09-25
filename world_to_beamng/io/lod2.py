@@ -40,7 +40,7 @@ def load_citygml_from_zip(zip_path: Path) -> List[etree.Element]:
                         tree = etree.parse(gml_file)
                         buildings.append(tree.getroot())
     except Exception as e:
-        logger.error(f"[!] Fehler beim Laden von {zip_path}: {e}")
+        logger.error(f"[!] Error loading {zip_path}: {e}")
 
     return buildings
 
@@ -290,23 +290,23 @@ def cache_lod2_buildings(
     cache_file = Path(cache_dir) / f"lod2_{height_hash}.pkl"
 
     if cache_file.exists():
-        logger.debug(f"  [i] LoD2-Cache gefunden: {cache_file.name}")
+        logger.debug(f"  [i] LoD2 cache found: {cache_file.name}")
         return str(cache_file)
 
-    logger.info(f"[9] Lade LoD2-Gebäudedaten aus {lod2_dir}...")
+    logger.info(f"[9] Loading LoD2 building data from {lod2_dir}...")
 
     lod2_path = Path(lod2_dir)
     if not lod2_path.exists():
-        logger.error(f"  [!] LoD2-Verzeichnis nicht gefunden: {lod2_dir}")
+        logger.error(f"  [!] LoD2 directory not found: {lod2_dir}")
         return None
 
     # Sammle alle ZIP-Dateien
     zip_files = list(lod2_path.glob("*.zip"))
     if not zip_files:
-        logger.error(f"  [!] Keine ZIP-Dateien in {lod2_dir} gefunden")
+        logger.error(f"  [!] No ZIP files found in {lod2_dir}")
         return None
 
-    logger.debug(f"  [i] {len(zip_files)} ZIP-Archive gefunden")
+    logger.debug(f"  [i] {len(zip_files)} ZIP archives found")
 
     # ZENTRALE PIPELINE: Parse → BBOX-Filter (UTM) → Normalisierung (EINMAL!)
     all_buildings_raw_utm = []  # RAW UTM-Gebäude vor Filterung
@@ -320,7 +320,7 @@ def cache_lod2_buildings(
             all_buildings_raw_utm.extend(buildings_raw)
             total_parsed += len(buildings_raw)
 
-    logger.debug(f"  [i] {total_parsed} Gebäude aus ZIPs geparst")
+    logger.debug(f"  [i] {total_parsed} buildings parsed from ZIPs")
 
     # PHASE 2: BBOX-Filterung in UTM-Koordinaten (VOR Normalisierung!)
     buildings_in_bbox_utm = []
@@ -335,18 +335,18 @@ def cache_lod2_buildings(
         if bbox_utm[0] <= center_x <= bbox_utm[2] and bbox_utm[1] <= center_y <= bbox_utm[3]:
             buildings_in_bbox_utm.append(building)
 
-    logger.debug(f"  [i] {len(buildings_in_bbox_utm)} Gebäude in UTM-BBOX gefunden")
+    logger.debug(f"  [i] {len(buildings_in_bbox_utm)} buildings found in the UTM bbox")
 
     # PHASE 3: ZENTRALE Normalisierung EINMAL (danach NIE WIEDER!)
     all_buildings = normalize_buildings_full(buildings_in_bbox_utm, local_offset)
-    logger.info(f"  [✓] {len(all_buildings)} Gebäude normalisiert")
+    logger.info(f"  [✓] {len(all_buildings)} buildings normalized")
 
     # Pickle-Cache schreiben
     cache_file.parent.mkdir(parents=True, exist_ok=True)
     with open(cache_file, "wb") as f:
         pickle.dump(all_buildings, f)
 
-    logger.info(f"  [✓] {len(all_buildings)} Gebäude gecached")
+    logger.info(f"  [✓] {len(all_buildings)} buildings cached")
 
     return str(cache_file)
 

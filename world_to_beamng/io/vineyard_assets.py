@@ -81,7 +81,7 @@ def ensure_vineyard_assets(level_dir: Path, install_dir: Path, level_name: str =
     levels_dir = Path(install_dir) / "content" / "levels"
     italy_zip = levels_dir / "italy.zip"
     if not italy_zip.is_file():
-        raise FileNotFoundError(f"BeamNG-Level 'italy' (Quelle der Reben-Shapes) nicht gefunden: {italy_zip}")
+        raise FileNotFoundError(f"BeamNG level 'italy' (source of the vine shapes) not found: {italy_zip}")
 
     shape_dir = Path(level_dir) / "art" / "shapes" / "vineyard"
     shape_dir.mkdir(parents=True, exist_ok=True)
@@ -95,7 +95,7 @@ def ensure_vineyard_assets(level_dir: Path, install_dir: Path, level_name: str =
                 target = shape_dir / f"{stem}{suffix}"
                 if member not in members:
                     if suffix == ".dae":
-                        raise FileNotFoundError(f"{member} fehlt in {italy_zip}")
+                        raise FileNotFoundError(f"{member} missing in {italy_zip}")
                     continue
                 if not target.exists():
                     target.write_bytes(z.read(member))
@@ -143,5 +143,5 @@ def ensure_vineyard_assets(level_dir: Path, install_dir: Path, level_name: str =
     if new_text != existing_text:
         item_path.write_text(new_text, encoding="utf-8")
 
-    logger.info(f"  [OK] Reben-Assets: {copied} Datei(en) kopiert, Materialien: {sorted(materials) or 'bereits vorhanden'}")
+    logger.info(f"  [OK] Vine assets: {copied} file(s) copied, materials: {sorted(materials) or 'already present'}")
     return {"items": list(ITEM_NAMES), "materials": sorted(materials), "copied": copied}

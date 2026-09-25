@@ -195,9 +195,9 @@ def paint_landuse_materials(
             if internal_name not in names:
                 if len(names) >= 254:
                     raise ValueError(
-                        f"Mehr als 254 Materialien ({len(names)} bereits vorhanden, "
-                        f"weitere Landnutzungs-Kategorie '{internal_name}' würde das Limit "
-                        f"überschreiten) - Landnutzungs-Kategorien reduzieren"
+                        f"More than 254 materials ({len(names)} already present, "
+                        f"another land use category '{internal_name}' would exceed the "
+                        f"limit) - reduce the land use categories"
                     )
                 names.append(internal_name)
             material_index = names.index(internal_name)

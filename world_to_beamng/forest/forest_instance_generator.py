@@ -56,7 +56,7 @@ class ForestInstanceGenerator:
         # Tree Distribution (prozentuale Anteile) - aus preferred_trees
         tree_distribution = forest_properties.get("preferred_trees", {})
         if not tree_distribution:
-            logger.warning(f"Keine preferred_trees für {forest_type}, überspringe")
+            logger.warning(f"No preferred_trees for {forest_type}, skipping")
             return []
 
         # Average Height Range
@@ -86,7 +86,7 @@ class ForestInstanceGenerator:
 
             instances.append(instance)
 
-        logger.debug(f"  Generiert: {len(instances)} Instanzen für {forest_type}")
+        logger.debug(f"  Generated: {len(instances)} instances for {forest_type}")
 
         return instances
 
@@ -123,7 +123,7 @@ class ForestInstanceGenerator:
                     available_probs.append(prob)
 
             if not available_trees:
-                logger.warning(f"Keine der Tree-Types verfügbar: {tree_names}")
+                logger.warning(f"None of the tree types available: {tree_names}")
                 # Fallback: Nutze ersten verfügbaren Baum
                 if self.registered_trees:
                     fallback = list(self.registered_trees.keys())[0]
@@ -209,14 +209,14 @@ class ForestInstanceGenerator:
 
         for forest_idx, points_3d in forest_points_3d.items():
             if forest_idx >= len(forests):
-                logger.warning(f"Forest-Index {forest_idx} außerhalb Bereich, überspringe")
+                logger.warning(f"Forest index {forest_idx} out of range, skipping")
                 continue
 
             forest = forests[forest_idx]
             forest_type = forest.get("type")
 
             if not forest_type:
-                logger.warning(f"Waldpolygon {forest_idx} ohne type, überspringe")
+                logger.warning(f"Forest polygon {forest_idx} without type, skipping")
                 continue
 
             # Hole Properties
@@ -235,8 +235,8 @@ class ForestInstanceGenerator:
 
             all_instances.extend(instances)
 
-        logger.info(f"✓ {len(all_instances)} Baum-Instanzen generiert")
+        logger.info(f"✓ {len(all_instances)} tree instances generated")
         if dropped:
-            logger.info(f"  [Trunk] {dropped} Instanzen entfallen (kein Typ passt: Stamm auf Weg oder frei in der Luft)")
+            logger.info(f"  [Trunk] {dropped} instances dropped (no type fits: trunk on a path or floating in the air)")
 
         return all_instances

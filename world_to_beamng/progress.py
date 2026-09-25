@@ -77,7 +77,7 @@ class Subtask:
 class PipelineTask:
     """Handle für eine Hauptaufgabe; hält die geteilte rich-Progress-Instanz für ihre Unteraufgaben."""
 
-    # Ab dieser Lücke zwischen Gesamtzeit und Summe der Teilaufgaben wird "nicht zugeordnet" gemeldet, in Sekunden
+    # Ab dieser Lücke zwischen Gesamtzeit und Summe der Teilaufgaben wird "unassigned" gemeldet, in Sekunden
     UNASSIGNED_REPORT_MIN = 0.1
 
     def __init__(self, name: str):
@@ -123,7 +123,7 @@ class PipelineTask:
         """Hat die Aufgabe Teilaufgaben, müssen deren Zeiten die Gesamtzeit ergeben - den Rest sichtbar melden."""
         gap = elapsed - self._subtask_time
         if self._subtask_count and gap >= self.UNASSIGNED_REPORT_MIN:
-            console.print(_status_line("yellow", "⚠", "nicht zugeordnet", "", gap, indent="  "))
+            console.print(_status_line("yellow", "⚠", "unassigned", "", gap, indent="  "))
 
     @contextmanager
     def subtask(self, name: str, total: Optional[int] = None) -> Iterator[Subtask]:
@@ -192,4 +192,4 @@ class Pipeline:
         console.print(f"[bold]{text}[/bold]")
 
     def skip(self, name: str, reason: str) -> None:
-        console.print(f"[dim]⏭ {name} - übersprungen ({reason})[/dim]")
+        console.print(f"[dim]⏭ {name} - skipped ({reason})[/dim]")

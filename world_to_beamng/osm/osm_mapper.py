@@ -11,7 +11,7 @@ class OSMMapper:
             with open(config_path, "r", encoding="utf-8") as f:
                 self.config = json.load(f)
         except FileNotFoundError:
-            logger.error(f"Warnung: {config_path} nicht gefunden. Nutze leere Defaults.")
+            logger.error(f"Warning: {config_path} not found. Using empty defaults.")
             self.config = {"highway_defaults": {}, "surface_overrides": {}, "surface_types": {}}
 
         self.defaults = self.config.get("highway_defaults", {})

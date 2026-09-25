@@ -155,7 +155,7 @@ class BuildingWorkflow:
 
         self.dae.export_multi_mesh(output_path=output_path, meshes=meshes, with_uv=True)
 
-        logger.info(f"  [✓] Buildings DAE: {output_path.name} ({len(meshes)} Gebäude)")
+        logger.info(f"  [✓] Buildings DAE: {output_path.name} ({len(meshes)} buildings)")
 
         return output_path
 

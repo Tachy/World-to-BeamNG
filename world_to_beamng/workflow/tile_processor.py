@@ -43,10 +43,10 @@ class TileProcessor:
         """
         filepath = tile.get("filepath")
         if not filepath or not Path(filepath).exists():
-            logger.error(f"  [!] DGM1-Datei fehlt: {filepath}")
+            logger.error(f"  [!] DGM1 file missing: {filepath}")
             return None, None
 
-        logger.info(f"  [→] Lade DGM1: {Path(filepath).name}")
+        logger.info(f"  [→] Loading DGM1: {Path(filepath).name}")
         points, elevations, _crs_epsg, _bbox_utm = read_elevation_tile_cached(filepath, self.cache, tile_hash)
 
         if points is None or elevations is None:
@@ -76,7 +76,7 @@ class TileProcessor:
         for tile in tiles:
             points, elevations = self.load_height_data(tile)
             if points is None:
-                logger.error(f"  [!] Höhendaten für {tile.get('filename')} fehlen - Gesamtfläche unvollständig")
+                logger.error(f"  [!] Height data for {tile.get('filename')} missing - total area incomplete")
                 return None, None
             all_points.append(points)
             all_elevations.append(elevations)

@@ -39,7 +39,7 @@ class MaterialManager:
             beamng_dir: Pfad zum BeamNG Level-Verzeichnis
         """
         if MaterialManager._instance is not None:
-            raise RuntimeError("MaterialManager ist ein Singleton - verwende get_instance()")
+            raise RuntimeError("MaterialManager is a singleton - use get_instance()")
 
         self.beamng_dir = Path(beamng_dir) # Convert to Path object
         self.materials: Dict[str, Dict[str, Any]] = {}
@@ -98,9 +98,9 @@ class MaterialManager:
 
         if not config_path.exists():
             raise FileNotFoundError(
-                f"Material-Templates nicht gefunden: {config_path}\n"
-                "Die Datei data/material_templates.json ist erforderlich.\n"
-                "Stelle sicher, dass sie im Repository enthalten ist."
+                f"Material templates not found: {config_path}\n"
+                "The file data/material_templates.json is required.\n"
+                "Make sure it is part of the repository."
             )
 
         try:
@@ -116,14 +116,14 @@ class MaterialManager:
                     cleaned_templates[name] = cleaned
 
                 num_templates = len(cleaned_templates)
-                logger.info(f"  [✓] Material-Templates geladen: {num_templates} aus JSON")
+                logger.info(f"  [✓] Material templates loaded: {num_templates} from JSON")
 
                 return cleaned_templates
 
         except json.JSONDecodeError as e:
-            raise ValueError(f"Fehler beim Parsen von {config_path}: {e}\n" "Die JSON-Datei ist ungültig.")
+            raise ValueError(f"Error parsing {config_path}: {e}\n" "The JSON file is invalid.")
         except Exception as e:
-            raise RuntimeError(f"Fehler beim Laden von {config_path}: {e}")
+            raise RuntimeError(f"Error loading {config_path}: {e}")
 
     def _load_config(self) -> Dict[str, Any]:
         """
@@ -143,13 +143,13 @@ class MaterialManager:
             "templates": {},
             "buildings": {
                 "wall": {
-                    "description": "Gebäude-Wand (fallback)",
+                    "description": "Building wall (fallback)",
                     "template": "building_wall",
                     "tiling_scale": 4.0,
                     "material_hints": {"groundType": "concrete", "materialTag0": "beamng", "materialTag1": "Building"},
                 },
                 "roof": {
-                    "description": "Gebäude-Dach (fallback)",
+                    "description": "Building roof (fallback)",
                     "template": "building_roof",
                     "tiling_scale": 2.0,
                     "material_hints": {"groundType": "concrete", "materialTag0": "beamng", "materialTag1": "Building"},
@@ -162,7 +162,7 @@ class MaterialManager:
                 with open(config_path, "r", encoding="utf-8") as f:
                     return json.load(f)
             except Exception as e:
-                logger.error(f"  [!] Fehler beim Laden der Config: {e}")
+                logger.error(f"  [!] Error loading the config: {e}")
                 return default_config
 
         return default_config

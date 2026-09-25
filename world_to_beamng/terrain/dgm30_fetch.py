@@ -112,7 +112,7 @@ def _load_not_found_cache(dgm30_dir: Path) -> dict:
     try:
         return json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as e:
-        logger.warning(f"  [!] Not-Found-Cache {path} ist beschädigt ({e}) - wird ignoriert")
+        logger.warning(f"  [!] Not-found cache {path} is corrupt ({e}) - ignored")
         return {}
 
 
@@ -138,7 +138,7 @@ def _write_with_progress(response, part_path: Path, log_every_bytes: int = 2 * 1
             f.write(chunk)
             downloaded += len(chunk)
             if downloaded >= next_log_at:
-                logger.info(f"    ... {downloaded / (1024 * 1024):.1f} MB empfangen")
+                logger.info(f"    ... {downloaded / (1024 * 1024):.1f} MB received")
                 next_log_at += log_every_bytes
 
 
@@ -155,28 +155,28 @@ def _download_one_tile(tile_id: str, url: str, dgm30_dir: Path) -> str:
             if response.status_code == 404:
                 # Erwartetes Verhalten für Meereskacheln (keine Landfläche = keine DEM-Kachel) -
                 # kein Retry, kein error-Log.
-                logger.info(f"  [i] {tile_id}: keine Daten auf S3 (404, vermutlich Meereskachel)")
+                logger.info(f"  [i] {tile_id}: no data on S3 (404, probably a sea tile)")
                 return "not_found"
 
             response.raise_for_status()
             _write_with_progress(response, part_path)
             os.replace(part_path, final_path)  # atomar: ein Absturz mittendrin hinterlässt nie eine .tif
-            logger.info(f"  [OK] {tile_id} heruntergeladen")
+            logger.info(f"  [OK] {tile_id} downloaded")
             return "downloaded"
 
         except requests.exceptions.Timeout:
-            logger.info(f"  [x] {tile_id}: Timeout (Versuch {attempt + 1}/{config.DGM30_FETCH_MAX_RETRIES})")
+            logger.info(f"  [x] {tile_id}: timeout (attempt {attempt + 1}/{config.DGM30_FETCH_MAX_RETRIES})")
         except requests.exceptions.HTTPError as e:
-            logger.info(f"  [x] {tile_id}: HTTP-Fehler {e} (Versuch {attempt + 1}/{config.DGM30_FETCH_MAX_RETRIES})")
+            logger.info(f"  [x] {tile_id}: HTTP error {e} (attempt {attempt + 1}/{config.DGM30_FETCH_MAX_RETRIES})")
         except Exception as e:
-            logger.info(f"  [x] {tile_id}: Fehler {e} (Versuch {attempt + 1}/{config.DGM30_FETCH_MAX_RETRIES})")
+            logger.info(f"  [x] {tile_id}: error {e} (attempt {attempt + 1}/{config.DGM30_FETCH_MAX_RETRIES})")
 
         if attempt < config.DGM30_FETCH_MAX_RETRIES - 1:
             wait_time = 2**attempt  # Exponentielles Backoff: 1s, 2s, 4s, ...
-            logger.info(f"  Warte {wait_time}s vor erneutem Versuch...")
+            logger.info(f"  Waiting {wait_time}s before retrying...")
             time.sleep(wait_time)
 
-    logger.error(f"  [x] {tile_id}: alle {config.DGM30_FETCH_MAX_RETRIES} Versuche fehlgeschlagen")
+    logger.error(f"  [x] {tile_id}: all {config.DGM30_FETCH_MAX_RETRIES} attempts failed")
     # Ein abgebrochener Stream kann eine .tif.part hinterlassen haben - aufräumen (analog zum
     # totalen Fehlschlag in sentinel2_fetch.fetch_eox_mosaic()).
     part_path.unlink(missing_ok=True)
@@ -201,10 +201,10 @@ def download_dgm30_tiles(bbox_wgs84, dgm30_dir) -> dict:
     not_found_cache = _load_not_found_cache(dgm30_dir)
     missing = missing_tile_ids(bbox_wgs84, dgm30_dir, not_found_cache)
     if not missing:
-        logger.debug("  DGM30: alle benötigten Kacheln bereits vorhanden oder kürzlich als fehlend bestätigt")
+        logger.debug("  DGM30: all required tiles already present or recently confirmed missing")
         return {"downloaded": [], "not_found": [], "failed": []}
 
-    logger.info(f"  DGM30: {len(missing)} fehlende Kachel(n) werden von S3 geladen: {', '.join(missing)}")
+    logger.info(f"  DGM30: {len(missing)} missing tile(s) will be loaded from S3: {', '.join(missing)}")
 
     result = {"downloaded": [], "not_found": [], "failed": []}
     for tile_id in missing:
@@ -219,7 +219,7 @@ def download_dgm30_tiles(bbox_wgs84, dgm30_dir) -> dict:
                 # Ein einzelner fehlgeschlagener Cache-Schreibversuch (voll, keine Rechte, ...) soll
                 # nicht den Rest des Batches abbrechen - nur diese Kachel wird beim nächsten Lauf
                 # erneut als 404 erkannt statt gecacht zu bleiben.
-                logger.warning(f"  [!] Not-Found-Cache konnte nicht gespeichert werden ({e}) - {tile_id} bleibt ungecacht")
+                logger.warning(f"  [!] Not-found cache could not be saved ({e}) - {tile_id} stays uncached")
 
         result[outcome].append(tile_id)
 
@@ -246,5 +246,5 @@ def ensure_dgm30_coverage(bbox_wgs84, dgm30_dir=config.DGM30_CACHE_DIR) -> dict:
     try:
         return download_dgm30_tiles(bbox_wgs84, Path(dgm30_dir))
     except Exception as e:
-        logger.error(f"  [x] DGM30-Auto-Download fehlgeschlagen: {e}")
+        logger.error(f"  [x] DGM30 auto-download failed: {e}")
         return {"downloaded": [], "not_found": [], "failed": []}

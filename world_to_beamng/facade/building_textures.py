@@ -84,7 +84,7 @@ def ensure_building_textures(output_dir: Path = None) -> Dict[str, str]:
 
 
 def _generate(output_dir: Path, entries: List[_Entry]) -> None:
-    logger.debug("  [i] Erzeuge Putz- und Fenstertexturen ...")
+    logger.debug("  [i] Generating plaster and window textures ...")
     generated = {
         "plaster": PlasterTextureGenerator().generate(),
         "windows": WindowAtlasGenerator().generate(),
@@ -95,4 +95,4 @@ def _generate(output_dir: Path, entries: List[_Entry]) -> None:
         dds_export.write_dds(image(generated), output_dir, name, dds_format, mip_levels)
     for obsolete in _OBSOLETE_FILES:
         (output_dir / obsolete).unlink(missing_ok=True)
-    logger.info(f"  [✓] Gebäude-Texturen in {output_dir}")
+    logger.info(f"  [✓] Building textures in {output_dir}")

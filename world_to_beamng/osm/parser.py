@@ -33,7 +33,7 @@ def calculate_bbox_from_height_data(points, margin=0.0):
     max_lon, max_lat = transformer_to_wgs84.transform(max_x, max_y)
 
     bbox = [min_lat, min_lon, max_lat, max_lon]
-    logger.info(f"  BBOX ermittelt: {bbox}")
+    logger.info(f"  BBOX determined: {bbox}")
 
     return bbox
 
@@ -54,5 +54,5 @@ def extract_roads_from_osm(osm_elements):
         and element["tags"]["highway"] not in NON_EXISTING_HIGHWAY_VALUES
         and element["tags"].get("area") != "yes"  # Filtere Flächen-Features (area=yes)
     ]
-    logger.info(f"  [->] {len(roads)} Strassensegmente aus {len(osm_elements)} OSM-Elementen extrahiert")
+    logger.info(f"  [->] {len(roads)} road segments extracted from {len(osm_elements)} OSM elements")
     return roads

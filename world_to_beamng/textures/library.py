@@ -108,7 +108,7 @@ def ensure_library_textures(output_dir: Optional[Path] = None, library_dir: Opti
         folder = library_dir / name
         missing = missing_files(name, library_dir)
         if missing:
-            logger.warning(f"  [!] Textur '{name}' übersprungen: {', '.join(missing)} fehlt in {folder}")
+            logger.warning(f"  [!] Texture '{name}' skipped: {', '.join(missing)} missing in {folder}")
             continue
 
         source = _source_hash(folder)

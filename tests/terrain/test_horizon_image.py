@@ -101,13 +101,13 @@ def test_a_source_that_covers_only_part_of_the_area_warns_and_leaves_black(tmp_p
         coverage = build_horizon_image(partial, out, AREA, size_px=64)
 
     assert 0.4 < coverage < 0.7
-    assert "deckt nur" in caplog.text
+    assert "covers only" in caplog.text
     with rasterio.open(out) as result:
         assert result.read(1)[:, -3:].max() == 0  # rechter Rand liegt außerhalb der Quelle
 
 
 def test_source_without_coordinate_system_is_rejected(tmp_path):
-    with pytest.raises(ValueError, match="Koordinatensystem"):
+    with pytest.raises(ValueError, match="coordinate system"):
         build_horizon_image(_write(tmp_path / "src.tif", crs=None), tmp_path / "out.tif", AREA, size_px=32)
 
 
@@ -119,5 +119,5 @@ def test_source_with_fewer_than_three_bands_is_rejected(tmp_path):
 def test_source_far_away_is_rejected(tmp_path):
     far = _write(tmp_path / "src.tif", bounds=(100.0, 10.0, 101.0, 11.0))
 
-    with pytest.raises(ValueError, match="überdeckt"):
+    with pytest.raises(ValueError, match="does not cover"):
         build_horizon_image(far, tmp_path / "out.tif", AREA, size_px=32)

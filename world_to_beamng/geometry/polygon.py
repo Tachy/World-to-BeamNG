@@ -133,9 +133,9 @@ def clip_road_polygons(road_polygons, grid_bounds_local, margin=3.0):
 
     if removed_count > 0 or segment_count > 0 or split_count > 0:
         logger.info(
-            f"  Clipping: {removed_count} Strassen(-Abschnitte) entfernt, "
-            f"{segment_count} Punkte ausserhalb des Grids entfernt, "
-            f"{split_count} Strassen am Rand in getrennte Abschnitte gesplittet"
+            f"  Clipping: {removed_count} road (sections) removed, "
+            f"{segment_count} points outside the grid removed, "
+            f"{split_count} roads split into separate sections at the edge"
         )
 
     return clipped_roads
@@ -425,8 +425,8 @@ def settle_tunnel_portals_to_approach_grade(road_polygons, slope_threshold=None,
             new_portal = ordered[0]
             tunnel["coords"] = [new_portal] + list(coords[1:]) if at_start else list(coords[:-1]) + [new_portal]
             logger.debug(
-                f"  Tunnel {tunnel['id']}: Portal {'Anfang' if at_start else 'Ende'} von {portal[2]:.2f} auf "
-                f"{new_portal[2]:.2f} m (Zufahrt {neighbor['id']} ab {cum[idx]:.1f} m stabil)"
+                f"  Tunnel {tunnel['id']}: portal at the {'start' if at_start else 'end'} from {portal[2]:.2f} to "
+                f"{new_portal[2]:.2f} m (approach {neighbor['id']} stable from {cum[idx]:.1f} m)"
             )
 
     return road_polygons
@@ -652,7 +652,7 @@ def get_road_polygons(roads, bbox, height_points, height_elevations, global_offs
         )
 
     # SCHRITT 2: XY-Resampling (verdichte Centerlines VOR Höhen-Sampling)
-    logger.info(f"  Resample Centerlines auf XY-Ebene...")
+    logger.info(f"  Resampling centerlines in the XY plane...")
     points_before_resampling = sum(len(r["xy_coords"]) for r in temp_roads_xy)
 
     for road in temp_roads_xy:
@@ -665,11 +665,11 @@ def get_road_polygons(roads, bbox, height_points, height_elevations, global_offs
 
     points_after_resampling = sum(len(r["xy_coords"]) for r in temp_roads_xy)
     logger.info(
-        f"    -> {points_before_resampling} Punkte → {points_after_resampling} Punkte ({points_after_resampling - points_before_resampling:+d})"
+        f"    -> {points_before_resampling} points → {points_after_resampling} points ({points_after_resampling - points_before_resampling:+d})"
     )
 
     # SCHRITT 3: Batch-Elevation-Lookup auf den resampleten XY-Punkten
-    logger.info(f"  Lade Elevations für {points_after_resampling} resampelte Punkte...")
+    logger.info(f"  Loading elevations for {points_after_resampling} resampled points...")
 
     # Sammle alle XY-Punkte für Batch-Lookup
     all_xy_flat = []
@@ -727,14 +727,14 @@ def get_road_polygons(roads, bbox, height_points, height_elevations, global_offs
 
     # SCHRITT 4: Optional - mildes XY-Smoothing (Z bleibt erhalten oder nur leicht geglättet)
     if config.ENABLE_ROAD_SMOOTHING:
-        logger.info(f"  Mildes XY-Smoothing...")
+        logger.info(f"  Mild XY smoothing...")
         road_polygons = smooth_roads_xy_only(road_polygons)
 
         # SCHRITT 4b: an eindeutigen Brücken/Tunnel/Galerie-Übergängen wird der Knick, den das unabhängige
         # Smoothing pro Straße hinterlässt, zusätzlich weggeglättet (siehe smooth_structure_transitions).
         road_polygons = smooth_structure_transitions(road_polygons)
     else:
-        logger.info(f"  Smoothing SKIP (config.ENABLE_ROAD_SMOOTHING=False)")
+        logger.info(f"  Smoothing skipped (config.ENABLE_ROAD_SMOOTHING=False)")
 
     return road_polygons
 
@@ -793,7 +793,7 @@ def smooth_roads_xy_only(road_polygons):
 
         road["coords"] = [(p[0], p[1], p[2]) for p in smoothed_arr]
 
-    logger.info(f"    -> {total_points} Punkte geglättet (XY+Z, {iterations} Iter., Weight={weight_center:.2f})")
+    logger.info(f"    -> {total_points} points smoothed (XY+Z, {iterations} iter., weight={weight_center:.2f})")
     return road_polygons
 
 

@@ -42,25 +42,25 @@ class MissingTexturesError(RuntimeError):
 REGISTRY: Sequence[TextureSpec] = (
     TextureSpec(
         config.FLAT_ROOF_GRAVEL_TEXTURE,
-        "Flachdächer (Kies)",
+        "flat roofs (gravel)",
         required=lambda: True,
         generate=generate_gravel_texture,
     ),
     TextureSpec(
         config.WALL_TEXTURE_NAME,
-        "Bruchsteinmauern (Mauerkörper und Abdeckplatten)",
+        "rubble walls (wall body and cap slabs)",
         required=lambda: config.WALLS_ENABLED,
-        hint=f"python tools/make_seamless_texture.py <Foto> --name {config.WALL_TEXTURE_NAME} --width-m <reale Breite des Fotos in Metern>",
+        hint=f"python tools/make_seamless_texture.py <photo> --name {config.WALL_TEXTURE_NAME} --width-m <real width of the photo in meters>",
     ),
     TextureSpec(
         config.CONCRETE_TEXTURE_NAME,
-        "Brücken (Pfeiler/Bordsteine), Tunnel (Wände/Decke/Portale), Galerien (Dach/Stützen)",
+        "bridges (piers/curbs), tunnels (walls/ceiling/portals), galleries (roof/pillars)",
         required=lambda: config.BRIDGES_ENABLED or config.TUNNELS_ENABLED,
         generate=generate_concrete_texture,
     ),
     TextureSpec(
         config.RAILING_TEXTURE_NAME,
-        "Brücken (Geländer)",
+        "bridges (railings)",
         required=lambda: config.BRIDGES_ENABLED,
         generate=generate_railing_texture,
     ),
@@ -70,12 +70,12 @@ _prepared: Optional[Dict[str, Dict[str, str]]] = None
 
 
 def _missing_message(specs: Sequence[TextureSpec], library_dir: Path) -> str:
-    lines = ["Für den Export fehlen Texturen in data/textures (Foto-Texturen kann die Pipeline nicht selbst erzeugen):"]
+    lines = ["Textures required for the export are missing in data/textures (the pipeline cannot generate photo textures itself):"]
     for spec in specs:
         missing = library.missing_files(spec.name, library_dir)
-        detail = ", ".join(missing) if library.load_manifest(library_dir).get(spec.name) else "kein Manifest-Eintrag"
-        lines.append(f"  - '{spec.name}' für {spec.used_by}: fehlt in {library_dir / spec.name} ({detail})")
-        lines.append(f"    Erzeugen mit: {spec.hint}")
+        detail = ", ".join(missing) if library.load_manifest(library_dir).get(spec.name) else "no manifest entry"
+        lines.append(f"  - '{spec.name}' for {spec.used_by}: missing in {library_dir / spec.name} ({detail})")
+        lines.append(f"    Create with: {spec.hint}")
     return "\n".join(lines)
 
 
@@ -104,7 +104,7 @@ def prepare_textures(
         if spec.generate is None:
             missing_photos.append(spec)
             continue
-        logger.info(f"  [i] Textur '{spec.name}' fehlt, erzeuge sie einmalig in {library_dir / spec.name} (bitte einchecken)")
+        logger.info(f"  [i] Texture '{spec.name}' missing, generating it once in {library_dir / spec.name} (please check it in)")
         spec.generate(library_dir)
     if missing_photos:
         raise MissingTexturesError(_missing_message(missing_photos, library_dir))
@@ -113,7 +113,7 @@ def prepare_textures(
     result = {spec.name: paths[spec.name] for spec in specs}
     for spec in specs:
         kind = "prozedural" if spec.generate else "Foto"
-        logger.debug(f"  [OK] Textur {spec.name:<22} {library.texture_tile_m(spec.name, 0.0, library_dir):5.2f} m  ({kind})  -> {spec.used_by}")
+        logger.debug(f"  [OK] Texture {spec.name:<22} {library.texture_tile_m(spec.name, 0.0, library_dir):5.2f} m  ({kind})  -> {spec.used_by}")
     _prepared = result
     return result
 

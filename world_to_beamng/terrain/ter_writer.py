@@ -48,13 +48,13 @@ def write_ter(
         raise ValueError(f"heightmap shape {heightmap.shape} != layer_map shape {layer_map.shape}")
 
     if heightmap.ndim != 2 or heightmap.shape[0] != heightmap.shape[1]:
-        raise ValueError(f"heightmap muss quadratisch sein, ist aber {heightmap.shape}")
+        raise ValueError(f"heightmap must be square, but is {heightmap.shape}")
 
     size = heightmap.shape[0]
     if size not in VALID_SIZES:
-        raise ValueError(f"size muss eine Zweierpotenz zwischen 128 und 8192 sein (Spec: .ter-Format), ist {size}")
+        raise ValueError(f"size must be a power of two between 128 and 8192 (spec: .ter format), is {size}")
     if len(material_names) > 254:
-        raise ValueError(f"maximal 254 Materialien erlaubt (255 ist für Holes reserviert), {len(material_names)} übergeben")
+        raise ValueError(f"at most 254 materials allowed (255 is reserved for holes), {len(material_names)} given")
 
     heightmap_u16 = heightmap.astype("<u2", copy=False)
     layer_map_u8 = layer_map.astype("u1", copy=False)
@@ -69,7 +69,7 @@ def write_ter(
         for name in material_names:
             name_bytes = name.encode("ascii")
             if len(name_bytes) > 255:
-                raise ValueError(f"Materialname zu lang (>255 Bytes): {name}")
+                raise ValueError(f"Material name too long (>255 bytes): {name}")
             f.write(struct.pack("<B", len(name_bytes)))
             f.write(name_bytes)
 
@@ -86,7 +86,7 @@ def read_ter(path: Path) -> Tuple[np.ndarray, np.ndarray, List[str]]:
 
     version = data[0]
     if version != TER_VERSION:
-        raise ValueError(f"Unerwartete .ter-Version: {version} (erwartet {TER_VERSION})")
+        raise ValueError(f"Unexpected .ter version: {version} (expected {TER_VERSION})")
 
     size = struct.unpack_from("<I", data, 1)[0]
     offset = 5

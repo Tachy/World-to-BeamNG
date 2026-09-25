@@ -5,6 +5,9 @@
 - Antworten im Chat: auf Deutsch.
 - Code-Kommentare: auf Deutsch.
 - Code selbst (Bezeichner, Funktionsnamen, Variablen, Strings im Code, Commit-Titel-Präfixe wie `fix:`/`feat:` etc.): auf Englisch.
+- Log-Meldungen und alle anderen Laufzeit-Ausgaben: auf Englisch - `logger.*`-Aufrufe, Namen und Statustexte der
+  Fortschrittsanzeige (`pipeline.task()`, `subtask()`, `finish()`/`done()`/`warn()`/`fail()`) und Texte von
+  Exceptions. Neue Meldungen nie auf Deutsch schreiben.
 
 ## BeamNG-Logs zum Auswerten von Crashes/Ladefehlern
 

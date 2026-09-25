@@ -20,7 +20,7 @@ def create_terrain_grid(height_points, height_elevations, grid_spacing=10.0, til
         grid_spacing: Gitter-Abstand in Metern
         tile_hash: Optional - tile_hash für Cache-Konsistenz (Multi-Tile-Mode)
     """
-    logger.info(f"  Erstelle Terrain-Grid (Abstand: {grid_spacing}m)...")
+    logger.info(f"  Creating terrain grid (spacing: {grid_spacing}m)...")
 
     # Grid-Bounds wurden bereits in world_to_beamng.py gesetzt (aus height_points)
     # Hier nur für interne Berechnungen ermitteln
@@ -34,13 +34,13 @@ def create_terrain_grid(height_points, height_elevations, grid_spacing=10.0, til
         cache_file = config.CACHE_DIR / f"grid_v3_{effective_hash}_spacing{grid_spacing:.1f}m.npz"
 
         if cache_file.exists():
-            logger.info(f"  [OK] Grid-Cache gefunden: {cache_file.name}")
+            logger.info(f"  [OK] Grid cache found: {cache_file.name}")
             data = np.load(cache_file)
             grid_points = data["grid_points"]
             grid_elevations = data["grid_elevations"]
             nx = int(data["nx"])
             ny = int(data["ny"])
-            logger.info(f"  [OK] Grid aus Cache geladen: {nx} x {ny} = {len(grid_points)} Vertices")
+            logger.info(f"  [OK] Grid loaded from cache: {nx} x {ny} = {len(grid_points)} vertices")
             # WICHTIG: Grid wurde in UTM gecacht, transformiere zu lokal!
             # (height_points wurden bereits transformiert, min_x/min_y sind lokal)
             # Wir muessen hier nichts tun - grid_points sind schon im gleichen System wie height_points
@@ -55,10 +55,10 @@ def create_terrain_grid(height_points, height_elevations, grid_spacing=10.0, til
     grid_points = np.column_stack([grid_x.ravel(), grid_y.ravel()])
 
     # Interpoliere Hoehen fuer Grid-Punkte (CHUNKED fuer bessere Performance)
-    logger.info(f"  Erstelle Interpolator...")
+    logger.info(f"  Creating interpolator...")
     interpolator = NearestNDInterpolator(height_points, height_elevations)
 
-    logger.info(f"  Interpoliere {len(grid_points)} Grid-Punkte (in Chunks)...")
+    logger.info(f"  Interpolating {len(grid_points)} grid points (in chunks)...")
     chunk_size = 500000  # 500k Punkte pro Chunk
     grid_elevations = np.empty(len(grid_points), dtype=np.float64)
 
@@ -74,12 +74,12 @@ def create_terrain_grid(height_points, height_elevations, grid_spacing=10.0, til
 
     nx = len(x_coords)
     ny = len(y_coords)
-    logger.info(f"  Grid: {nx} x {ny} = {len(grid_points)} Vertices")
+    logger.info(f"  Grid: {nx} x {ny} = {len(grid_points)} vertices")
 
     # Cache das Grid fuer zukuenftige Verwendung (Version 3 mit korrekten Bounds!)
     if effective_hash:
         cache_file = config.CACHE_DIR / f"grid_v3_{effective_hash}_spacing{grid_spacing:.1f}m.npz"
-        logger.info(f"  Speichere Grid-Cache: {cache_file.name}")
+        logger.info(f"  Saving grid cache: {cache_file.name}")
         config.CACHE_DIR.mkdir(parents=True, exist_ok=True)
         np.savez_compressed(
             cache_file,
@@ -88,6 +88,6 @@ def create_terrain_grid(height_points, height_elevations, grid_spacing=10.0, til
             nx=nx,
             ny=ny,
         )
-        logger.info(f"  [OK] Grid-Cache erstellt")
+        logger.info(f"  [OK] Grid cache created")
 
     return grid_points, grid_elevations, nx, ny

@@ -24,7 +24,7 @@ def _log_waiting_heartbeat(stop_event, endpoint_label, interval=10):
     waited = 0
     while not stop_event.wait(interval):
         waited += interval
-        logger.info(f"    ... warte noch auf Antwort von {endpoint_label} ({waited}s)")
+        logger.info(f"    ... still waiting for a response from {endpoint_label} ({waited}s)")
 
 
 def _download_with_progress(response, log_every_bytes=2 * 1024 * 1024):
@@ -51,9 +51,9 @@ def _download_with_progress(response, log_every_bytes=2 * 1024 * 1024):
             if total_bytes:
                 pct = downloaded / total_bytes * 100
                 total_mb = total_bytes / (1024 * 1024)
-                logger.info(f"    ... {downloaded_mb:.1f} MB / {total_mb:.1f} MB ({pct:.0f}%) empfangen")
+                logger.info(f"    ... {downloaded_mb:.1f} MB / {total_mb:.1f} MB ({pct:.0f}%) received")
             else:
-                logger.info(f"    ... {downloaded_mb:.1f} MB empfangen")
+                logger.info(f"    ... {downloaded_mb:.1f} MB received")
             next_log_at += log_every_bytes
 
     return b"".join(chunks)
@@ -71,7 +71,7 @@ def get_osm_data(bbox, height_hash=None):
     if cached_data is not None:
         return cached_data
 
-    logger.info(f"Abfrage aller OSM-Daten fuer BBox {bbox}...")
+    logger.info(f"Querying all OSM data for bbox {bbox}...")
     query = f"""
     [out:json][timeout:90];
     (
@@ -95,7 +95,7 @@ def get_osm_data(bbox, height_hash=None):
         for attempt in range(max_retries):
             try:
                 endpoint_label = f"Server {endpoint_idx + 1}/{len(config.OVERPASS_ENDPOINTS)}"
-                logger.info(f"  Versuch {attempt + 1}/{max_retries} mit {endpoint_label}...")
+                logger.info(f"  Attempt {attempt + 1}/{max_retries} with {endpoint_label}...")
 
                 # Heartbeat, solange auf die Antwort-Header gewartet wird (die
                 # eigentliche Overpass-Abfrageausführung liefert selbst keinen
@@ -116,7 +116,7 @@ def get_osm_data(bbox, height_hash=None):
 
                 raw_body = _download_with_progress(response)
                 elements = json.loads(raw_body).get("elements", [])
-                logger.info(f"  [OK] Erfolgreich! {len(elements)} OSM-Elemente gefunden.")
+                logger.info(f"  [OK] Success! {len(elements)} OSM elements found.")
 
                 if not elements:
                     # Ein "erfolgreiches" 0-Elemente-Ergebnis ist für ein besiedeltes
@@ -124,9 +124,9 @@ def get_osm_data(bbox, height_hash=None):
                     # wirklich leeres Gebiet) - NICHT cachen, sonst bleibt der Fehler
                     # dauerhaft im Cache hängen und wird bei jedem Lauf wiederholt.
                     logger.warning(
-                        f"  [!] Server lieferte 0 Elemente für BBox {bbox} - wird NICHT "
-                        f"gecacht (vermutlich ein transientes Server-Problem statt eines "
-                        f"wirklich leeren Gebiets)"
+                        f"  [!] Server returned 0 elements for bbox {bbox} - NOT "
+                        f"cached (probably a transient server problem rather than "
+                        f"a truly empty area)"
                     )
                     return elements
 
@@ -135,20 +135,20 @@ def get_osm_data(bbox, height_hash=None):
                 return elements
 
             except requests.exceptions.Timeout:
-                logger.info(f"  [x] Timeout bei Server {endpoint_idx + 1}")
+                logger.info(f"  [x] Timeout at server {endpoint_idx + 1}")
                 if attempt < max_retries - 1:
                     wait_time = 2**attempt  # Exponentielles Backoff: 1s, 2s, 4s
-                    logger.info(f"  Warte {wait_time}s vor erneutem Versuch...")
+                    logger.info(f"  Waiting {wait_time}s before retrying...")
                     time.sleep(wait_time)
 
             except requests.exceptions.HTTPError as e:
-                logger.error(f"  [x] HTTP-Fehler: {e}")
+                logger.error(f"  [x] HTTP error: {e}")
                 break  # Bei HTTP-Fehler zum nächsten Server wechseln
 
             except Exception as e:
-                logger.error(f"  [x] Fehler: {e}")
+                logger.error(f"  [x] Error: {e}")
                 if attempt < max_retries - 1:
                     time.sleep(2)
 
-    logger.error("Alle Versuche fehlgeschlagen.")
+    logger.error("All attempts failed.")
     return []

@@ -33,7 +33,7 @@ def crop_square(photo: np.ndarray, x: Optional[int] = None, y: Optional[int] = N
     x = (width - side) // 2 if x is None else x
     y = (height - side) // 2 if y is None else y
     if side <= 0 or x < 0 or y < 0 or x + side > width or y + side > height:
-        raise ValueError(f"Ausschnitt x={x}, y={y}, Kante={side} liegt nicht im Foto ({width} x {height})")
+        raise ValueError(f"Crop x={x}, y={y}, edge={side} is not inside the photo ({width} x {height})")
     return photo[y : y + side, x : x + side], side
 
 

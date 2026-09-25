@@ -71,12 +71,12 @@ class ForestJSONWriter:
                     # Zeilentrennung nach jedem Objekt
                     f.write("\n".join(lines) + "\n")
 
-            logger.info(f"✓ forest.forest4.json (JSONL-Format) geschrieben: {filepath} ({len(tree_instances)} Bäume)")
+            logger.info(f"✓ forest.forest4.json (JSONL format) written: {filepath} ({len(tree_instances)} trees)")
 
             return {"status": "success", "filepath": str(filepath), "tree_count": len(tree_instances), "error": None}
 
         except Exception as e:
-            logger.error(f"Fehler beim Schreiben von forest.forest4.json: {e}", exc_info=True)
+            logger.error(f"Error writing forest.forest4.json: {e}", exc_info=True)
             return {"status": "error", "filepath": "", "tree_count": 0, "error": str(e)}
 
     def get_statistics(self, tree_instances: List[Dict]) -> Dict:

@@ -112,7 +112,7 @@ def test_resolve_uses_the_detected_crs_when_consistent():
 def test_resolve_raises_on_conflicting_crs():
     tiles = [{"crs_epsg": 25832}, {"crs_epsg": 2056}]
 
-    with pytest.raises(ValueError, match="unterschiedlichem CRS"):
+    with pytest.raises(ValueError, match="different CRS"):
         resolve_source_crs_epsg(tiles)
 
 

@@ -51,10 +51,10 @@ def _normalize_coordinate(coord: Union[Tuple, List, np.ndarray]) -> List[float]:
     if hasattr(coord, "tolist"):
         coord = coord.tolist()
     elif not isinstance(coord, (list, tuple)):
-        raise TypeError(f"Koordinate muss Tuple/List/Array sein, nicht {type(coord)}")
+        raise TypeError(f"Coordinate must be a tuple/list/array, not {type(coord)}")
 
     if len(coord) != 3:
-        raise ValueError(f"Koordinate muss 3 Komponenten haben, nicht {len(coord)}")
+        raise ValueError(f"Coordinate must have 3 components, not {len(coord)}")
 
     return [float(c) for c in coord]
 
@@ -74,7 +74,7 @@ def _normalize_coordinates(coords: Union[List, np.ndarray]) -> List[List[float]]
         coords = coords.tolist()
 
     if not isinstance(coords, (list, tuple)):
-        raise TypeError(f"Koordinaten müssen Liste sein, nicht {type(coords)}")
+        raise TypeError(f"Coordinates must be a list, not {type(coords)}")
 
     result = []
     for coord in coords:
@@ -113,7 +113,7 @@ class DebugNetworkExporter:
     def __init__(self):
         """Private Constructor - verwende get_instance() stattdessen."""
         if DebugNetworkExporter._instance is not None:
-            raise RuntimeError("DebugNetworkExporter ist ein Singleton - verwende get_instance()")
+            raise RuntimeError("DebugNetworkExporter is a singleton - use get_instance()")
 
         self.primitives: List[Dict[str, Any]] = []  # Labels, Circles, Polygons, Lines, etc.
 
@@ -246,8 +246,8 @@ class DebugNetworkExporter:
         with open(output_path, "w", encoding="utf-8") as f:
             f.write(json.dumps(data))
 
-        logger.debug(f"  [Debug] Exportiert: {len(self.primitives)} Primitive")
-        logger.debug(f"  [Debug] Datei: {output_path}")
+        logger.debug(f"  [Debug] Exported: {len(self.primitives)} primitives")
+        logger.debug(f"  [Debug] File: {output_path}")
 
     def clear(self) -> None:
         """Lösche alle gesammelten Daten."""

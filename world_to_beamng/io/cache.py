@@ -67,10 +67,10 @@ def load_from_cache(bbox, data_type, height_hash=None):
         try:
             with open(cache_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
-                logger.info(f"  [OK] {data_type.upper()}-Daten aus Cache geladen ({cache_path})")
+                logger.info(f"  [OK] {data_type.upper()} data loaded from cache ({cache_path})")
                 return data
         except Exception as e:
-            logger.error(f"  [!] Fehler beim Laden des Caches: {e}")
+            logger.error(f"  [!] Error loading the cache: {e}")
     return None
 
 
@@ -97,9 +97,9 @@ def save_to_cache(bbox, data_type, data, height_hash=None):
     try:
         with open(cache_path, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2)
-        logger.info(f"  [OK] {data_type.upper()}-Daten im Cache gespeichert ({cache_path})")
+        logger.info(f"  [OK] {data_type.upper()} data saved to cache ({cache_path})")
     except Exception as e:
-        logger.error(f"  [!] Fehler beim Speichern des Caches: {e}")
+        logger.error(f"  [!] Error saving the cache: {e}")
 
 
 def calculate_file_hash(filepath: Path, chunk_size=8192):
@@ -124,7 +124,7 @@ def calculate_file_hash(filepath: Path, chunk_size=8192):
                 hash_obj.update(chunk)
         return hash_obj.hexdigest()[:12]
     except Exception as e:
-        logger.error(f"  [!] Fehler beim Berechnen des File-Hash: {e}")
+        logger.error(f"  [!] Error computing the file hash: {e}")
         return None
 
 

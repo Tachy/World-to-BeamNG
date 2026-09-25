@@ -89,10 +89,10 @@ def test_console_handler_does_not_choke_on_literal_square_brackets(capsys):
     LoggerConfig.get_instance(log_file=None, level=logging.INFO)
     logger = logging.getLogger("world_to_beamng.textures.registry")
 
-    logger.info("  [OK] Textur foo (prozedural)")  # darf NICHT als rich-Markup interpretiert werden
+    logger.info("  [OK] Texture foo (procedural)")  # darf NICHT als rich-Markup interpretiert werden
 
     captured = capsys.readouterr()
-    assert "[OK] Textur foo" in captured.out
+    assert "[OK] Texture foo" in captured.out
 
 
 def test_config_LOG_LEVEL_env_var_survives_the_real_import_order():

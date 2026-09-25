@@ -15,8 +15,8 @@ def next_power_of_two_size(min_size: int) -> int:
         if size >= min_size:
             return size
     raise ValueError(
-        f"Benötigte Terrain-Größe ({min_size}px) übersteigt das .ter-Maximum von 8192px. "
-        f"TERRAIN_SQUARE_SIZE erhöhen oder Gebiet verkleinern."
+        f"Required terrain size ({min_size}px) exceeds the .ter maximum of 8192px. "
+        f"Increase TERRAIN_SQUARE_SIZE or reduce the area."
     )
 
 
@@ -50,7 +50,7 @@ def build_heightmap(
         }
     """
     if len(grid_elevations) != nx * ny:
-        raise ValueError(f"grid_elevations hat {len(grid_elevations)} Werte, erwartet nx*ny={nx * ny}")
+        raise ValueError(f"grid_elevations has {len(grid_elevations)} values, expected nx*ny={nx * ny}")
 
     # square_size muss dem tatsächlichen Grid-Abstand entsprechen (siehe Spec:
     # TERRAIN_SQUARE_SIZE muss gleich GRID_SPACING sein) - build_heightmap()
@@ -60,10 +60,10 @@ def build_heightmap(
         actual_spacing = float(grid_points[1, 0] - grid_points[0, 0])
         if not np.isclose(actual_spacing, square_size, rtol=0.01):
             raise ValueError(
-                f"square_size ({square_size}) passt nicht zum tatsächlichen Grid-Abstand "
-                f"({actual_spacing:.3f}) - build_heightmap() nimmt an, dass beide identisch sind "
-                f"(siehe Spec: TERRAIN_SQUARE_SIZE muss gleich GRID_SPACING sein). Falls "
-                f"absichtlich unterschiedlich, muss build_heightmap() um echtes Resampling erweitert werden."
+                f"square_size ({square_size}) does not match the actual grid spacing "
+                f"({actual_spacing:.3f}) - build_heightmap() assumes both are identical "
+                f"(see spec: TERRAIN_SQUARE_SIZE must equal GRID_SPACING). If they "
+                f"differ on purpose, build_heightmap() must be extended with real resampling."
             )
 
     source_heights = grid_elevations.reshape(ny, nx)

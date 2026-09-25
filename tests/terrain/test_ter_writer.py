@@ -43,7 +43,7 @@ def test_invalid_size_rejected(tmp_path):
         write_ter(tmp_path / "bad.ter", heightmap, layer_map, [])
         assert False, "sollte ValueError werfen (100 ist keine Zweierpotenz)"
     except ValueError as e:
-        assert "Zweierpotenz" in str(e)
+        assert "power of two" in str(e)
 
 
 def test_height_encode_decode_round_trip():

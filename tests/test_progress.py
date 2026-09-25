@@ -97,11 +97,11 @@ def test_subtask_failure_marks_red_cross_and_reraises(buffer):
 
 def test_pipeline_skip_prints_marker_without_opening_a_task(buffer):
     pipeline = Pipeline()
-    pipeline.skip("Horizont exportieren", "PHASE5_ENABLED=False")
+    pipeline.skip("Export horizon", "PHASE5_ENABLED=False")
 
     output = buffer.getvalue()
-    assert "Horizont exportieren" in output
-    assert "übersprungen" in output
+    assert "Export horizon" in output
+    assert "skipped" in output
     assert "PHASE5_ENABLED=False" in output
 
 
@@ -265,7 +265,7 @@ def test_time_outside_subtasks_is_reported_as_unassigned(buffer, clock):
         clock.now += 7.0  # Arbeit ohne Teilaufgabe (z.B. früher das Minimap-Bild)
 
     output = buffer.getvalue()
-    assert "nicht zugeordnet (7.0s)" in output
+    assert "unassigned (7.0s)" in output
     assert "✓ Terrain + Straßen (9.0s)" in output
 
 
@@ -278,7 +278,7 @@ def test_seamless_subtasks_report_no_unassigned_time(buffer, clock):
             clock.now += 2.0
         clock.now += 0.05  # Kleinkram unter der Meldeschwelle
 
-    assert "nicht zugeordnet" not in buffer.getvalue()
+    assert "unassigned" not in buffer.getvalue()
 
 
 def test_task_without_subtasks_reports_no_unassigned_time(buffer, clock):
@@ -286,7 +286,7 @@ def test_task_without_subtasks_reports_no_unassigned_time(buffer, clock):
     with pipeline.task("Texturen"):
         clock.now += 3.0
 
-    assert "nicht zugeordnet" not in buffer.getvalue()
+    assert "unassigned" not in buffer.getvalue()
 
 
 def test_subtasks_are_contiguous_so_preparation_time_counts_to_the_next_subtask(buffer, clock):
@@ -304,4 +304,4 @@ def test_subtasks_are_contiguous_so_preparation_time_counts_to_the_next_subtask(
     assert "OSM-Daten laden (2.5s)" in output
     assert "DecalRoads (1.5s)" in output
     assert "✓ Terrain + Straßen (4.0s)" in output
-    assert "nicht zugeordnet" not in output
+    assert "unassigned" not in output

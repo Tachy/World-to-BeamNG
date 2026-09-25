@@ -30,7 +30,7 @@ PLASTER_COLORS: Tuple[PlasterColor, ...] = (
 )
 
 if sum(color.weight for color in PLASTER_COLORS) != _WEIGHT_TOTAL:
-    raise ValueError("Die Gewichte der Putzfarben müssen sich zu 1000 Promille ergänzen")
+    raise ValueError("The plaster color weights must add up to 1000 per mille")
 
 
 def stable_hash(key: str) -> int:
@@ -58,7 +58,7 @@ def plaster_index(key: str) -> int:
         upper += color.weight
         if point < upper:
             return index
-    raise AssertionError("unerreichbar: Gewichte ergeben 1000")
+    raise AssertionError("unreachable: weights add up to 1000")
 
 
 def choice(key: str, salt: str, count: int) -> int:

@@ -47,10 +47,10 @@ def clock_to_time_of_day(clock: str) -> float:
     """
     match = re.fullmatch(r"\s*(\d{1,2}):(\d{2})\s*", clock or "")
     if not match:
-        raise ValueError(f"Uhrzeit muss HH:MM sein, war: {clock!r}")
+        raise ValueError(f"Time of day must be HH:MM, was: {clock!r}")
     hours, minutes = int(match.group(1)), int(match.group(2))
     if hours > 24 or minutes > 59 or (hours == 24 and minutes):
-        raise ValueError(f"Ungültige Uhrzeit: {clock!r}")
+        raise ValueError(f"Invalid time of day: {clock!r}")
     return ((hours * 60 + minutes) / 1440.0 - 0.5) % 1.0
 
 

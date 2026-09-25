@@ -80,7 +80,7 @@ class ForestWorkflow:
             ValueError: Wenn registered_trees leer ist
         """
         if not registered_trees:
-            raise ValueError("registered_trees darf nicht leer sein!")
+            raise ValueError("registered_trees must not be empty!")
 
         self.forest_config = forest_config
         self.normalizer = ForestNormalizer(forest_config, osm_mapper)
@@ -272,7 +272,7 @@ class ForestWorkflow:
         roads = extract_roads_from_osm(osm_data)
 
         if not roads:
-            logger.debug(f"  [Forest] Keine Straßen gefunden für Road Buffer")
+            logger.debug(f"  [Forest] No roads found for the road buffer")
             return None
 
         # Konvertiere Straßen-Ways zu LineStrings (Koordinaten MÜSSEN lokal sein!)
@@ -289,7 +289,7 @@ class ForestWorkflow:
                 road_lines.append(LineString(coords_local))
 
         if not road_lines:
-            logger.debug(f"  [Forest] Keine validen Road Lines erstellt")
+            logger.debug(f"  [Forest] No valid road lines created")
             return None
 
         # Vereinige alle Straßen und erstelle Puffer
@@ -302,7 +302,7 @@ class ForestWorkflow:
         road_buffer = road_union.buffer(road_margin)
 
         logger.debug(
-            f"  [Forest] Road Buffer erstellt: {len(roads)} Straßen, {len(road_lines)} Lines, Margin={road_margin}m, Buffer-Area={road_buffer.area:.0f}m²"
+            f"  [Forest] Road buffer created: {len(roads)} roads, {len(road_lines)} lines, margin={road_margin}m, buffer area={road_buffer.area:.0f}m²"
         )
 
         return road_buffer
@@ -471,14 +471,14 @@ class ForestWorkflow:
             }
         """
         try:
-            logger.debug(f"\n[Forest Phase 1b] Starte für {tile_name} (bounds: {tile_bounds})")
+            logger.debug(f"\n[Forest Phase 1b] Starting for {tile_name} (bounds: {tile_bounds})")
 
             # Initialisiere osm_data
             osm_data = None
 
             # Prüfe ob set_forest_config() aufgerufen wurde
             if not self.normalizer or not self.instance_generator:
-                logger.error(f"[Forest ERROR] set_forest_config() nicht aufgerufen!")
+                logger.error(f"[Forest ERROR] set_forest_config() not called!")
                 return {
                     "status": "error",
                     "tile_name": tile_name,
@@ -497,7 +497,7 @@ class ForestWorkflow:
             if cached is not None:
                 tree_instances, forests_count = cached
                 self.all_tree_instances.extend(tree_instances)
-                logger.info(f"  [OK] Forest-Cache gefunden: {len(tree_instances)} Baum-Instanzen (bereits berechnet)")
+                logger.info(f"  [OK] Forest cache found: {len(tree_instances)} tree instances (already computed)")
                 return {
                     "status": "success",
                     "tile_name": tile_name,
@@ -510,7 +510,7 @@ class ForestWorkflow:
 
             # Phase 1b: Normalisierung (mit bereits geladenen OSM-Daten)
             if not osm_data:
-                logger.debug(f"  [→] Lade OSM-Daten aus Cache...")
+                logger.debug(f"  [→] Loading OSM data from cache...")
                 from ..osm.downloader import get_osm_data
                 from ..geometry.coordinates import transformer_to_wgs84
 
@@ -534,10 +534,10 @@ class ForestWorkflow:
 
                 # Nutze height_hash für Cache-Konsistenz (wie Terrain-Workflow)
                 osm_data = get_osm_data(bbox_tuple, height_hash=height_hash)
-                logger.debug(f"  [→] {len(osm_data) if osm_data else 0} OSM-Elemente geladen")
+                logger.debug(f"  [→] {len(osm_data) if osm_data else 0} OSM elements loaded")
 
             if not osm_data:
-                logger.warning(f"  [→] Keine OSM-Daten verfügbar")
+                logger.warning(f"  [→] No OSM data available")
                 return {
                     "status": "no_forests",
                     "tile_name": tile_name,
@@ -548,7 +548,7 @@ class ForestWorkflow:
                     "error": None,
                 }
 
-            logger.debug(f"  [→] Normalisiere OSM-Waldpolygone...")
+            logger.debug(f"  [→] Normalizing OSM forest polygons...")
 
             # Berechne local_offset für Koordinaten-Transformation
             # global_offset kann (x, y) oder (x, y, z) sein - wir brauchen nur (x, y)
@@ -558,7 +558,7 @@ class ForestWorkflow:
                 ox, oy = 0, 0
 
             # ZENTRALE TRANSFORMATION: Konvertiere ALLE OSM-Geometrien einmalig zu lokalen Koordinaten
-            logger.debug(f"  [→] Transformiere OSM-Daten zu lokalen Koordinaten...")
+            logger.debug(f"  [→] Transforming OSM data to local coordinates...")
             osm_data = self._transform_osm_to_local(osm_data, (ox, oy))
 
             # Ab jetzt: ALLE Geometrien in osm_data sind in lokalen Koordinaten!
@@ -571,7 +571,7 @@ class ForestWorkflow:
                 tile_bounds, tile_name, osm_data=osm_data, local_offset=forest_local_offset
             )
             logger.debug(
-                f"  [Forest] Normalisierung: {normalized.get('status')} - {normalized.get('forest_count')} Wälder"
+                f"  [Forest] Normalization: {normalized.get('status')} - {normalized.get('forest_count')} forests"
             )
 
             # DEBUG: Speichere Dump wenn forest_count = 0
@@ -592,10 +592,10 @@ class ForestWorkflow:
                 }
                 with open(dump_file, "w") as f:
                     json.dump(dump_data, f, indent=2)
-                logger.debug(f"  [DEBUG] Dump geschrieben: {dump_file}")
+                logger.debug(f"  [DEBUG] Dump written: {dump_file}")
 
             if normalized["status"] != "success" or normalized["forest_count"] == 0:
-                logger.error(f"  [Forest] Keine Wälder gefunden: {normalized.get('error', 'unbekannter Fehler')}")
+                logger.error(f"  [Forest] No forests found: {normalized.get('error', 'unknown error')}")
                 return {
                     "status": "no_forests" if normalized["status"] == "success" else "error",
                     "tile_name": tile_name,
@@ -607,23 +607,23 @@ class ForestWorkflow:
                 }
 
             forests = normalized["forests"]
-            logger.debug(f"  [→] {len(forests)} Waldpolygone zu bearbeiten")
+            logger.debug(f"  [→] {len(forests)} forest polygons to process")
 
             # Phase 2: Point Generation (Poisson-Disk-Sampling)
-            logger.debug(f"  [→] Generiere Tree-Positionen (Poisson-Disk)...")
+            logger.debug(f"  [→] Generating tree positions (Poisson disk)...")
 
             # Erstelle Road Buffer (OSM-Daten bereits in lokalen Koordinaten!)
             road_buffer = self._create_road_buffer(osm_data)
             if road_buffer:
                 logger.debug(
-                    f"  [Forest] Road Buffer erstellt - Bounds: {road_buffer.bounds}, Area: {road_buffer.area:.0f}m²"
+                    f"  [Forest] Road buffer created - bounds: {road_buffer.bounds}, area: {road_buffer.area:.0f}m²"
                 )
             else:
-                logger.debug(f"  [Forest] Road Buffer ist None!")
+                logger.debug(f"  [Forest] Road buffer is None!")
             # Bäume/Büsche dürfen weder auf Straßen noch in/an Gebäuden stehen (Gärten, Wohngebiete)
             building_buffer = self._create_building_buffer(osm_data)
             if building_buffer is not None:
-                logger.debug(f"  [Forest] Gebäude-Puffer erstellt - Fläche: {building_buffer.area:.0f}m²")
+                logger.debug(f"  [Forest] Building buffer created - area: {building_buffer.area:.0f}m²")
                 from shapely.ops import unary_union
 
                 exclusion = unary_union([road_buffer, building_buffer]) if road_buffer else building_buffer
@@ -656,13 +656,13 @@ class ForestWorkflow:
                 if singles:
                     forests.append({"type": single_type, "geometry": None, "osm_tags": {"natural": "tree"}})
                     forest_points[len(forests) - 1] = singles
-                    logger.debug(f"  [Forest] {len(singles)} Einzelbäume (natural=tree)")
+                    logger.debug(f"  [Forest] {len(singles)} single trees (natural=tree)")
 
             total_points = sum(len(pts) for pts in forest_points.values())
-            logger.debug(f"  [→] {total_points} Baumpositionen generiert")
+            logger.debug(f"  [→] {total_points} tree positions generated")
 
             # Phase 3: Height Interpolation (Bilineare Interpolation)
-            logger.debug(f"  [→] Interpoliere Höhen...")
+            logger.debug(f"  [→] Interpolating heights...")
             forest_points_3d = self.height_calculator.calculate_heights_for_forest_points(
                 forest_points=forest_points,
                 height_points=elevation_data,
@@ -671,10 +671,10 @@ class ForestWorkflow:
                 height_at=height_at,
             )
 
-            logger.debug(f"  [→] Höhen für {total_points} Punkte interpoliert")
+            logger.debug(f"  [→] Heights interpolated for {total_points} points")
 
             # Phase 4: Instance Generation (Type, Rotation, Scale)
-            logger.debug(f"  [→] Generiere Baum-Instanzen...")
+            logger.debug(f"  [→] Generating tree instances...")
             # Die Ursprünge halten die Abstände ein; die Stämme von Gruppen-Assets (bis ~9 m daneben) müssen es auch,
             # und sie dürfen nicht in der Luft hängen. Dieselben Zonen und Abstände wie oben, nur pro Stamm geprüft.
             fitter = TrunkFitter(
@@ -699,7 +699,7 @@ class ForestWorkflow:
             self.all_tree_instances.extend(tree_instances)
             self._save_cached_tree_instances(cache_key, tree_instances, len(forests))
 
-            logger.debug(f"  [✓] {len(tree_instances)} Baum-Instanzen generiert für {tile_name}")
+            logger.debug(f"  [✓] {len(tree_instances)} tree instances generated for {tile_name}")
 
             result = {
                 "status": "success",
@@ -718,7 +718,7 @@ class ForestWorkflow:
             import traceback
 
             traceback.print_exc()
-            logger.error(f"Fehler beim Forest-Processing für {tile_name}: {e}", exc_info=True)
+            logger.error(f"Error in forest processing for {tile_name}: {e}", exc_info=True)
             return {
                 "status": "error",
                 "tile_name": tile_name,
@@ -762,11 +762,11 @@ class ForestWorkflow:
             }
         """
         try:
-            logger.debug(f"[Forest] Finalisiere Export ({len(self.all_tree_instances)} Instanzen)...")
+            logger.debug(f"[Forest] Finalizing export ({len(self.all_tree_instances)} instances)...")
 
             # Prüfe ob Instanzen vorhanden
             if not self.all_tree_instances:
-                logger.warning("[Forest] Keine Baum-Instanzen generiert, überspringe forest.forest4.json")
+                logger.warning("[Forest] No tree instances generated, skipping forest.forest4.json")
                 return {
                     "status": "no_forests",
                     "total_trees": 0,
@@ -777,7 +777,7 @@ class ForestWorkflow:
 
             # Prüfe ob JSON Writer initialisiert
             if not self.json_writer:
-                logger.info("[Forest ERROR] ForestJSONWriter nicht initialisiert!")
+                logger.info("[Forest ERROR] ForestJSONWriter not initialized!")
                 return {
                     "status": "error",
                     "total_trees": 0,
@@ -803,13 +803,13 @@ class ForestWorkflow:
             # Statistiken
             statistics = self.json_writer.get_statistics(self.all_tree_instances)
 
-            logger.info(f"[✓] Forest-Export abgeschlossen:")
-            logger.info(f"  - Gesamt Bäume: {statistics['total_trees']}")
-            logger.info(f"  - Baumarten: {len(statistics['types'])}")
+            logger.info(f"[✓] Forest export finished:")
+            logger.info(f"  - Total trees: {statistics['total_trees']}")
+            logger.info(f"  - Tree species: {len(statistics['types'])}")
             for tree_type, count in sorted(statistics["types"].items()):
                 logger.info(f"    • {tree_type}: {count}")
-            logger.info(f"  - Durchschn. Scale: {statistics['avg_scale']:.2f}")
-            logger.info(f"  - Höhenbereich: {statistics['min_height']:.1f}m - {statistics['max_height']:.1f}m")
+            logger.info(f"  - Avg. scale: {statistics['avg_scale']:.2f}")
+            logger.info(f"  - Height range: {statistics['min_height']:.1f}m - {statistics['max_height']:.1f}m")
 
             return {
                 "status": "success",
@@ -820,7 +820,7 @@ class ForestWorkflow:
             }
 
         except Exception as e:
-            logger.info(f"[Forest ERROR] Forest-Finalisierung: {e}")
+            logger.info(f"[Forest ERROR] Forest finalization: {e}")
             import traceback
 
             traceback.print_exc()

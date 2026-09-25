@@ -135,16 +135,16 @@ class ForestPointGenerator:
         height = maxy - miny
 
         if width <= 0 or height <= 0:
-            logger.warning(f"Polygon mit ungültiger Bounding Box: {polygon.bounds}")
+            logger.warning(f"Polygon with invalid bounding box: {polygon.bounds}")
             return []
 
         # DEBUG: Prüfe Polygon-Validität
         if polygon.is_empty:
-            logger.warning(f"Polygon ist leer (area={polygon.area:.2f}m²)")
+            logger.warning(f"Polygon is empty (area={polygon.area:.2f}m²)")
             return []
 
         if polygon.area < 1.0:
-            logger.debug(f"Polygon zu klein für Bäume (area={polygon.area:.2f}m²)")
+            logger.debug(f"Polygon too small for trees (area={polygon.area:.2f}m²)")
             return []
 
         # Poisson-Disk-Sampling
@@ -158,17 +158,17 @@ class ForestPointGenerator:
             points = self._filter_points_on_roads(points)
             points_after = len(points)
             logger.debug(
-                f"      [Road Filter] {points_before} → {points_after} Punkte ({points_before - points_after} gefiltert)"
+                f"      [Road Filter] {points_before} → {points_after} points ({points_before - points_after} filtered)"
             )
             if points_before > points_after:
                 logger.debug(
-                    f"  Gefiltert: {points_before - points_after} Bäume auf Straßen entfernt "
-                    f"({points_after}/{points_before} übrig)"
+                    f"  Filtered: {points_before - points_after} trees on roads removed "
+                    f"({points_after}/{points_before} left)"
                 )
 
         logger.debug(
-            f"  Generiert: {len(points)} Punkte "
-            f"(Dichte={tree_density:.2f}, Abstand={adjusted_distance:.1f}m, Fläche={polygon.area:.0f}m²)"
+            f"  Generated: {len(points)} points "
+            f"(density={tree_density:.2f}, spacing={adjusted_distance:.1f}m, area={polygon.area:.0f}m²)"
         )
 
         return points
@@ -189,7 +189,7 @@ class ForestPointGenerator:
         xy = np.asarray(points, dtype=float)
         on_roads = shapely.intersects_xy(self.road_buffer, xy[:, 0], xy[:, 1])
         if on_roads.any():
-            logger.debug(f"        [Road Filter] {int(on_roads.sum())} Punkte auf Straßen gefunden")
+            logger.debug(f"        [Road Filter] {int(on_roads.sum())} points found on roads")
         return [pt for pt, blocked in zip(points, on_roads.tolist()) if not blocked]
 
     def _poisson_disk_sampling(
@@ -244,7 +244,7 @@ class ForestPointGenerator:
 
         if len(accepted) == 0:
             logger.warning(
-                f"Konnte keinen Punkt im Polygon finden "
+                f"Could not find a point inside the polygon "
                 f"(bounds={bounds}, area={area:.2f}m², is_valid={polygon.is_valid})"
             )
             return []
@@ -307,7 +307,7 @@ class ForestPointGenerator:
             tile_box = forest.get("tile_box")  # Für Filterung
 
             if not forest_type or not geometry:
-                logger.warning(f"Waldpolygon {idx} ohne type/geometry, überspringe")
+                logger.warning(f"Forest polygon {idx} without type/geometry, skipping")
                 continue
 
             # OPTIMIERUNG: Schneide Wald mit tile_box BEVOR Punkte generiert werden
@@ -318,7 +318,7 @@ class ForestPointGenerator:
                 if clipped_geometry.is_empty:
                     # Wald ist außerhalb der Tile
                     result[idx] = []
-                    logger.debug(f"  Wald {idx}: Vollständig außerhalb Tile-Box, keine Punkte")
+                    logger.debug(f"  Forest {idx}: completely outside the tile box, no points")
                     continue
 
                 geometry_to_use = clipped_geometry
@@ -337,7 +337,7 @@ class ForestPointGenerator:
             # Baumreihe: Bäume entlang der Linie statt Poisson-Verteilung in einer Fläche
             if props.get("row_spacing") and geometry_to_use.geom_type in ("LineString", "MultiLineString"):
                 points = self.generate_points_along_line(geometry_to_use, float(props["row_spacing"]))
-                logger.debug(f"  Baumreihe {idx}: {len(points)} Punkte")
+                logger.debug(f"  Tree row {idx}: {len(points)} points")
                 result[idx] = points
                 continue
 
@@ -352,7 +352,7 @@ class ForestPointGenerator:
             else:
                 # Kann passieren wenn intersection ein Point/LineString zurückgibt
                 logger.debug(
-                    f"  Wald {idx}: Nach Tile-Schnitt kein Polygon ({type(geometry_to_use).__name__}), keine Punkte"
+                    f"  Forest {idx}: no polygon after tile clipping ({type(geometry_to_use).__name__}), no points"
                 )
                 points = []
 
@@ -360,15 +360,15 @@ class ForestPointGenerator:
             if tile_box:
                 clipped_pct = (clipped_area / original_area * 100) if original_area > 0 else 0
                 logger.debug(
-                    f"  Wald {idx}: {len(points)} Punkte "
-                    f"({clipped_pct:.0f}% im Tile, Fläche {clipped_area:.0f}m² von {original_area:.0f}m²)"
+                    f"  Forest {idx}: {len(points)} points "
+                    f"({clipped_pct:.0f}% inside the tile, area {clipped_area:.0f}m² of {original_area:.0f}m²)"
                 )
             else:
-                logger.debug(f"  Wald {idx} ({forest_type}): {len(points)} Punkte (keine Tile-Box)")
+                logger.debug(f"  Forest {idx} ({forest_type}): {len(points)} points (no tile box)")
 
             result[idx] = points
 
         total_points = sum(len(pts) for pts in result.values())
-        logger.info(f"✓ {total_points} Baumpositionen für {len(forests)} Wälder generiert")
+        logger.info(f"✓ {total_points} tree positions generated for {len(forests)} forests")
 
         return result

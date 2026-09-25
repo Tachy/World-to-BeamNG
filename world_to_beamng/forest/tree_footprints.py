@@ -156,7 +156,7 @@ class TrunkFitter:
             types[pending] = self.rng.choice(names, size=len(pending), p=weights)
 
         if len(pending):
-            logger.debug(f"  [Trunk] {len(pending)} Instanzen ohne passenden Typ verworfen")
+            logger.debug(f"  [Trunk] {len(pending)} instances without a fitting type discarded")
 
         result = []
         for i in np.flatnonzero(keep):

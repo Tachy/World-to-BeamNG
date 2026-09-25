@@ -41,7 +41,7 @@ def build_processing_tile_grid(bbox_utm: Tuple[float, float, float, float], tile
         Kachelgröße voraussetzt.
     """
     if tile_size_m <= 0:
-        raise ValueError(f"tile_size_m muss positiv sein, ist {tile_size_m}")
+        raise ValueError(f"tile_size_m must be positive, is {tile_size_m}")
 
     x_min, x_max, y_min, y_max = bbox_utm
     x_starts = np.arange(x_min, x_max, tile_size_m) if x_max > x_min else np.array([x_min])
@@ -114,8 +114,8 @@ def expand_layers_per_tile(
         if name not in index_of:
             if len(names) >= MAX_MATERIALS:
                 raise ValueError(
-                    f"Mehr als {MAX_MATERIALS} Materialien nach der Aufteilung pro Kachel ({len(names)} bereits) - "
-                    f"weniger Landnutzungs-Kategorien oder Kacheln verwenden"
+                    f"More than {MAX_MATERIALS} materials after the split per tile ({len(names)} already) - "
+                    f"use fewer land use categories or tiles"
                 )
             index_of[name] = len(names)
             names.append(name)

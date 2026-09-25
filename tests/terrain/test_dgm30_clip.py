@@ -76,10 +76,10 @@ def test_utm_points_are_clipped_when_no_offset_is_given():
 @pytest.mark.parametrize(
     "keep, expected",
     [
-        (lambda p: p[:, 0] < 0, ["Osten"]),
-        (lambda p: p[:, 0] > 0, ["Westen"]),
-        (lambda p: p[:, 1] < 0, ["Norden"]),
-        (lambda p: p[:, 1] > 0, ["Süden"]),
+        (lambda p: p[:, 0] < 0, ["east"]),
+        (lambda p: p[:, 0] > 0, ["west"]),
+        (lambda p: p[:, 1] < 0, ["north"]),
+        (lambda p: p[:, 1] > 0, ["south"]),
         (lambda p: p[:, 0] >= -10000, []),
     ],
 )
@@ -127,7 +127,7 @@ def test_one_file_alone_leaves_the_other_half_uncovered(tmp_path):
     points, _ = load_dgm30_tiles(tmp_path, AREA, local_offset=OFFSET)
 
     assert points[:, 0].max() < 500  # Osten fehlt: der Horizont endet dort früher
-    assert clip_dgm30_to_area(points, np.zeros(len(points)), AREA, OFFSET)[2] == ["Osten"]
+    assert clip_dgm30_to_area(points, np.zeros(len(points)), AREA, OFFSET)[2] == ["east"]
 
 
 def test_files_far_from_the_area_give_nothing(tmp_path):

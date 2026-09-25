@@ -47,9 +47,9 @@ def get_height_data_hash():
     # Wenn Hash sich geändert hat oder Datei fehlt: Cleanup
     if old_hash != new_hash:
         if old_hash is None:
-            logger.debug(f"  [i] height_data_hash.txt fehlt - loesche alte Cache-Dateien...")
+            logger.debug(f"  [i] height_data_hash.txt missing - deleting old cache files...")
         else:
-            logger.debug(f"  [i] Hoehendaten geaendert ({old_hash} -> {new_hash}) - loesche alte Cache-Dateien...")
+            logger.debug(f"  [i] Height data changed ({old_hash} -> {new_hash}) - deleting old cache files...")
 
         # Lösche alle alten Cache-Dateien (wenn old_hash bekannt ist)
         if old_hash:
@@ -62,50 +62,50 @@ def get_height_data_hash():
                 for old_file in config.CACHE_DIR.glob(pattern):
                     try:
                         old_file.unlink() # old_file is already a Path object from glob
-                        logger.info(f"    • Geloescht: {old_file.name}")
+                        logger.info(f"    • Deleted: {old_file.name}")
                     except Exception as e:
-                        logger.error(f"    [!] Fehler beim Loeschen von {old_file.name}: {e}")
+                        logger.error(f"    [!] Error deleting {old_file.name}: {e}")
         else:
             # Wenn old_hash leer/None: Lösche ALLE potentiellen alten Caches (Sicherheitsmaßnahme)
-            logger.info(f"    Loeschen aller _*.npz und _*.json Cache-Dateien...")
+            logger.info(f"    Deleting all _*.npz and _*.json cache files...")
             for pattern in ["height_raw_*.npz", "grid_v3_*.npz", "osm_all_*.json", "elevations_*.json"]:
                 for old_file in config.CACHE_DIR.glob(pattern):
                     try:
                         old_file.unlink()
-                        logger.info(f"    • Geloescht: {old_file.name}")
+                        logger.info(f"    • Deleted: {old_file.name}")
                     except Exception as e:
-                        logger.error(f"    [!] Fehler beim Loeschen von {old_file.name}: {e}")
+                        logger.error(f"    [!] Error deleting {old_file.name}: {e}")
 
         # Lösche auch die generierten DAE-Tiles im BeamNG-Verzeichnis
-        logger.info(f"    Loeschen von Terrain-Tiles im BeamNG-Verzeichnis...")
+        logger.info(f"    Deleting terrain tiles in the BeamNG directory...")
         beamng_shapes = config.BEAMNG_DIR_SHAPES
         if beamng_shapes.exists():
             for file_path in beamng_shapes.glob("*.dae"):
                 try:
                     file_path.unlink()
-                    logger.info(f"    • Geloescht: {file_path.name}")
+                    logger.info(f"    • Deleted: {file_path.name}")
                 except Exception as e:
-                    logger.error(f"    [!] Fehler beim Loeschen von {file_path.name}: {e}")
+                    logger.error(f"    [!] Error deleting {file_path.name}: {e}")
             # Lösche auch DAE-Index-Datei falls vorhanden
             for meta_file_name in ["index.json", "manifest.json"]:
                 meta_path = beamng_shapes / meta_file_name
                 if meta_path.exists():
                     try:
                         meta_path.unlink()
-                        logger.info(f"    • Geloescht: {meta_path.name}")
+                        logger.info(f"    • Deleted: {meta_path.name}")
                     except Exception as e:
-                        logger.error(f"    [!] Fehler beim Loeschen von {meta_path.name}: {e}")
+                        logger.error(f"    [!] Error deleting {meta_path.name}: {e}")
 
         # Lösche auch Texture-Tiles
-        logger.info(f"    Loeschen von Texture-Tiles im BeamNG-Verzeichnis...")
+        logger.info(f"    Deleting texture tiles in the BeamNG directory...")
         beamng_textures = config.BEAMNG_DIR_TEXTURES
         if beamng_textures.exists():
             for file_path in beamng_textures.glob("tile*"):
                 try:
                     file_path.unlink()
-                    logger.info(f"    • Geloescht: {file_path.name}")
+                    logger.info(f"    • Deleted: {file_path.name}")
                 except Exception as e:
-                    logger.error(f"    [!] Fehler beim Loeschen von {file_path.name}: {e}")
+                    logger.error(f"    [!] Error deleting {file_path.name}: {e}")
 
         # Speichere neuen Hash
         try:
@@ -141,10 +141,10 @@ def get_elevation_cache(bbox, height_hash=None):
                 cache_data = json.load(f)
                 # Cache-Version prüfen (v2 = normalisierte Z-Werte)
                 if cache_data.get("_cache_version") == 2:
-                    logger.info(f"  [OK] Elevation-Cache geladen: {len(cache_data)-1} Koordinaten")
+                    logger.info(f"  [OK] Elevation cache loaded: {len(cache_data)-1} coordinates")
                     return cache_data
                 else:
-                    logger.debug(f"  [i] Alter Cache-Format erkannt, wird ignoriert")
+                    logger.debug(f"  [i] Old cache format detected, ignored")
         except:
             pass
     return {"_cache_version": 2}
@@ -173,9 +173,9 @@ def save_elevation_cache(bbox, cache_data, height_hash=None):
         with open(cache_path, "w", encoding="utf-8") as f:
             json.dump(cache_data, f, indent=2)
         coord_count = len(cache_data) - 1  # -1 für _cache_version
-        logger.info(f"  [OK] Elevation-Cache gespeichert: {coord_count} Koordinaten")
+        logger.info(f"  [OK] Elevation cache saved: {coord_count} coordinates")
     except Exception as e:
-        logger.error(f"  [!] Fehler beim Speichern des Elevation-Cache: {e}")
+        logger.error(f"  [!] Error saving the elevation cache: {e}")
 
 
 def get_elevations_for_points(pts, bbox, height_points, height_elevations, global_offset, height_hash=None):
@@ -208,7 +208,7 @@ def get_elevations_for_points(pts, bbox, height_points, height_elevations, globa
 
     # Berechne fehlende Hoehen durch Interpolation
     if missing_pts:
-        logger.info(f"  Interpoliere {len(missing_pts)} Hoehenwerte...")
+        logger.info(f"  Interpolating {len(missing_pts)} height values...")
 
         # Konvertiere WGS84 zu UTM und dann zu lokal mit global_offset
         ox, oy = global_offset

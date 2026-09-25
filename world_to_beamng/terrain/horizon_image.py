@@ -90,15 +90,15 @@ def build_horizon_image(
     x_min, x_max, y_min, y_max = area
     with rasterio.open(source) as src:
         if src.crs is None:
-            raise ValueError(f"{source} hat kein Koordinatensystem (nicht georeferenziert)")
+            raise ValueError(f"{source} has no coordinate system (not georeferenced)")
         if src.count < 3:
-            raise ValueError(f"{source} hat {src.count} Band/Bänder, gebraucht werden 3 (RGB)")
+            raise ValueError(f"{source} has {src.count} band(s), 3 are required (RGB)")
 
         coverage = _coverage(src, area, transform_bounds)
         if coverage <= 0:
-            raise ValueError(f"{source} überdeckt die Horizont-Fläche nicht (X {x_min:.0f}..{x_max:.0f}, Y {y_min:.0f}..{y_max:.0f})")
+            raise ValueError(f"{source} does not cover the horizon area (X {x_min:.0f}..{x_max:.0f}, Y {y_min:.0f}..{y_max:.0f})")
         if coverage < _FULL_COVERAGE:
-            logger.warning(f"  [!] Das Quellbild deckt nur {coverage:.0%} der Horizont-Fläche ab - der Rest bleibt schwarz")
+            logger.warning(f"  [!] The source image covers only {coverage:.0%} of the horizon area - the rest stays black")
 
         dst_crs = _dst_crs()
         transform = from_bounds(x_min, y_min, x_max, y_max, size_px, size_px)

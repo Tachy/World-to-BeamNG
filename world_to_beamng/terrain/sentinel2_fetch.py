@@ -138,29 +138,29 @@ def _fetch_one_tile(tile: TileRequest) -> Optional[np.ndarray]:
                 return np.array(image, dtype=np.uint8)
 
             logger.info(
-                f"  [x] Kachel ({tile.col_off},{tile.row_off}): Status {response.status_code}, "
-                f"Content-Type {content_type!r} (Versuch {attempt + 1}/{config.EOX_FETCH_MAX_RETRIES})"
+                f"  [x] Tile ({tile.col_off},{tile.row_off}): status {response.status_code}, "
+                f"content type {content_type!r} (attempt {attempt + 1}/{config.EOX_FETCH_MAX_RETRIES})"
             )
 
         except requests.exceptions.Timeout:
             logger.info(
-                f"  [x] Kachel ({tile.col_off},{tile.row_off}): Timeout "
-                f"(Versuch {attempt + 1}/{config.EOX_FETCH_MAX_RETRIES})"
+                f"  [x] Tile ({tile.col_off},{tile.row_off}): timeout "
+                f"(attempt {attempt + 1}/{config.EOX_FETCH_MAX_RETRIES})"
             )
         except Exception as e:
             logger.info(
-                f"  [x] Kachel ({tile.col_off},{tile.row_off}): Fehler {e} "
-                f"(Versuch {attempt + 1}/{config.EOX_FETCH_MAX_RETRIES})"
+                f"  [x] Tile ({tile.col_off},{tile.row_off}): error {e} "
+                f"(attempt {attempt + 1}/{config.EOX_FETCH_MAX_RETRIES})"
             )
 
         if attempt < config.EOX_FETCH_MAX_RETRIES - 1:
             wait_time = 2**attempt  # Exponentielles Backoff: 1s, 2s, 4s, ...
-            logger.info(f"  Warte {wait_time}s vor erneutem Versuch...")
+            logger.info(f"  Waiting {wait_time}s before retrying...")
             time.sleep(wait_time)
 
     logger.warning(
-        f"  [x] Kachel ({tile.col_off},{tile.row_off}): alle {config.EOX_FETCH_MAX_RETRIES} "
-        f"Versuche fehlgeschlagen - bleibt schwarz"
+        f"  [x] Tile ({tile.col_off},{tile.row_off}): all {config.EOX_FETCH_MAX_RETRIES} "
+        f"attempts failed - stays black"
     )
     return None
 
@@ -215,7 +215,7 @@ def fetch_eox_mosaic(area_utm: tuple, dest_path) -> Tuple[bool, int]:
 
     any_success = False
     failed_count = 0
-    logger.info(f"  EOX-Mosaik: {w}x{h} px in {len(tiles)} Kachel(n) laden...")
+    logger.info(f"  EOX mosaic: loading {w}x{h} px in {len(tiles)} tile(s)...")
     with rasterio.open(temp_path, "w", **profile) as dst:
         for tile in tiles:
             arr = _fetch_one_tile(tile)
@@ -229,8 +229,8 @@ def fetch_eox_mosaic(area_utm: tuple, dest_path) -> Tuple[bool, int]:
                 # werfen und den GANZEN Mosaik-Lauf abbrechen. Stattdessen: wie ein Dekodier-
                 # Fehlschlag behandeln, Kachel bleibt schwarz, weiter mit der nächsten Kachel.
                 logger.warning(
-                    f"  [x] Kachel ({tile.col_off},{tile.row_off}): Bildgröße {arr.shape[1]}x{arr.shape[0]} "
-                    f"passt nicht zur angefragten Größe {tile.width}x{tile.height} - bleibt schwarz"
+                    f"  [x] Tile ({tile.col_off},{tile.row_off}): image size {arr.shape[1]}x{arr.shape[0]} "
+                    f"does not match the requested size {tile.width}x{tile.height} - stays black"
                 )
                 failed_count += 1
                 continue
@@ -240,13 +240,13 @@ def fetch_eox_mosaic(area_utm: tuple, dest_path) -> Tuple[bool, int]:
     if any_success:
         os.replace(temp_path, dest_path)  # atomar: ein Absturz mittendrin hinterlässt nie ein Mosaik
         if failed_count:
-            logger.warning(f"  [!] EOX-Mosaik: {failed_count}/{len(tiles)} Kachel(n) schwarz geblieben")
+            logger.warning(f"  [!] EOX mosaic: {failed_count}/{len(tiles)} tile(s) stayed black")
         else:
-            logger.info(f"  [OK] EOX-Mosaik geschrieben: {dest_path}")
+            logger.info(f"  [OK] EOX mosaic written: {dest_path}")
         return True, failed_count
 
     temp_path.unlink(missing_ok=True)
-    logger.error("  [x] EOX-Mosaik: alle Kacheln fehlgeschlagen - kein Mosaik erzeugt")
+    logger.error("  [x] EOX mosaic: all tiles failed - no mosaic created")
     return False, failed_count
 
 
@@ -319,9 +319,9 @@ def ensure_horizon_texture(area_utm: tuple, size_px=None, resampling: str = "bil
                 # dgm30_fetch.download_dgm30_tiles()). Der nächste Lauf sieht dann keinen
                 # Mosaik-UND keinen Textur-Cache-Hit und versucht die fehlenden Kacheln erneut.
                 logger.warning(
-                    f"  [!] EOX-Mosaik unvollständig ({failed_count} Kachel(n) schwarz) - wird NICHT "
-                    f"dauerhaft gecacht ({mosaic_path}). Naechster Lauf versucht die fehlenden "
-                    f"Kacheln automatisch erneut."
+                    f"  [!] EOX mosaic incomplete ({failed_count} tile(s) black) - NOT "
+                    f"cached permanently ({mosaic_path}). The next run retries the missing "
+                    f"tiles automatically."
                 )
 
         # Die Imagery-Lizenz (CC BY-NC-SA) knüpft die Attributionspflicht an die NUTZUNG des
@@ -350,5 +350,5 @@ def ensure_horizon_texture(area_utm: tuple, size_px=None, resampling: str = "bil
         return texture_path if texture_path.exists() else None
 
     except Exception as e:
-        logger.error(f"  [x] Horizont-Textur-Auto-Download fehlgeschlagen: {e}")
+        logger.error(f"  [x] Horizon texture auto-download failed: {e}")
         return None

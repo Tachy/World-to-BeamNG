@@ -101,10 +101,10 @@ def read_elevation_tile(filepath) -> ReadResult:
             return _read_zip(filepath)
         if suffix in RASTER_EXTENSIONS:
             return _read_raster(str(filepath))
-        logger.error(f"  [!] Unbekanntes Höhendaten-Format: {filepath.name}")
+        logger.error(f"  [!] Unknown height data format: {filepath.name}")
         return None, None, None, None
     except Exception as e:
-        logger.error(f"  [!] Fehler beim Laden von {filepath}: {e}")
+        logger.error(f"  [!] Error loading {filepath}: {e}")
         return None, None, None, None
 
 
@@ -142,7 +142,7 @@ def _read_zip(zip_path: Path) -> ReadResult:
             )
             return np.vstack(all_points), np.hstack(all_elevations), crs_epsg, combined_bbox
 
-        logger.error(f"  [!] Weder XYZ- noch GeoTIFF-Daten in {zip_path.name} gefunden")
+        logger.error(f"  [!] Neither XYZ nor GeoTIFF data found in {zip_path.name}")
         return None, None, None, None
 
 

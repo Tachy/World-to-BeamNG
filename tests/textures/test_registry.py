@@ -81,7 +81,7 @@ def test_a_missing_procedural_texture_is_generated_once_and_then_used(dirs, dds,
 
     assert calls == [lib]  # genau einmal erzeugt
     assert "procedural_tex" in paths and (lib / "procedural_tex" / "color.png").exists()
-    assert "procedural_tex" in caplog.text and "einchecken" in caplog.text  # Hinweis: gehört ins Repository
+    assert "procedural_tex" in caplog.text and "check it in" in caplog.text  # Hinweis: gehört ins Repository
 
 
 def test_a_missing_photo_texture_aborts_and_says_what_to_do(dirs, dds):

@@ -435,7 +435,7 @@ class DAEExporter:
                     if "uvs" in mesh_data and mesh_data["uvs"] is not None:
                         uv_coords = mesh_data["uvs"]
                     else:
-                        raise ValueError(f"Tile {mesh_id} hat with_uv=True aber keine UVs in mesh_data!")
+                        raise ValueError(f"Tile {mesh_id} has with_uv=True but no UVs in mesh_data!")
                     self._write_uv_source(f, uv_src_id, uv_coords)
                 else:
                     uv_src_id = None

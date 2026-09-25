@@ -32,7 +32,7 @@ def write_dds(pixels: np.ndarray, output_dir: Path, name: str, dds_format: str, 
         Pfad der DDS-Datei
     """
     if not TEXCONV.exists():
-        raise FileNotFoundError(f"texconv.exe nicht gefunden: {TEXCONV}")
+        raise FileNotFoundError(f"texconv.exe not found: {TEXCONV}")
 
     output_dir.mkdir(parents=True, exist_ok=True)
     png = output_dir / f"{name}.png"
@@ -48,5 +48,5 @@ def write_dds(pixels: np.ndarray, output_dir: Path, name: str, dds_format: str, 
 
     dds = output_dir / f"{name}.dds"
     if not dds.exists():
-        raise FileNotFoundError(f"texconv hat {dds} nicht erzeugt")
+        raise FileNotFoundError(f"texconv did not create {dds}")
     return dds

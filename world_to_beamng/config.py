@@ -549,11 +549,11 @@ EOX_TEXTURE_CACHE_DIR = CACHE_DIR / "horizon_texture"  # fertige, zugeschnittene
                                                         # bleibt der manuelle Override-Slot (siehe
                                                         # sentinel2_fetch.ensure_horizon_texture())
 EOX_ATTRIBUTION_NOTICE = (
-    "Horizont-Hintergrundbild: EOxCloudless https://cloudless.eox.at by EOX IT Services GmbH "
-    "(Contains modified Copernicus Sentinel data 2025). Lizenz: CC BY-NC-SA 4.0 "
-    "(nicht-kommerzielle Nutzung, Attribution + ShareAlike Pflicht) - siehe "
-    "https://cloudless.eox.at/documentation/license. Kommerzielle Nutzung erfordert eine separate "
-    "EOX Commercial Attribution-RestrictedUse Lizenz."
+    "Horizon background image: EOxCloudless https://cloudless.eox.at by EOX IT Services GmbH "
+    "(Contains modified Copernicus Sentinel data 2025). License: CC BY-NC-SA 4.0 "
+    "(non-commercial use, attribution + ShareAlike required) - see "
+    "https://cloudless.eox.at/documentation/license. Commercial use requires a separate "
+    "EOX Commercial Attribution-RestrictedUse license."
 )
 
 

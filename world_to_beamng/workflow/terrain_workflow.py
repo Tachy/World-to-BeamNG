@@ -326,12 +326,12 @@ class TerrainWorkflow:
         from ..geometry.junctions import build_junction_network
         from ..io.cache import calculate_global_tiles_hash
 
-        sub = task.begin_subtask("OSM-Daten laden")
+        sub = task.begin_subtask("Load OSM data")
 
         # 1. Höhendaten aller Kacheln zu einer Punktwolke kombinieren
         height_points, height_elevations = self.tile_processor.load_height_data_multi(tiles)
         if height_points is None:
-            sub.fail("keine Höhendaten")
+            sub.fail("no height data")
             return {"status": "failed", "reason": "no_height_data"}
 
         # Kombinierter Hash über alle Kacheln - Cache-Identität für OSM/
@@ -351,8 +351,8 @@ class TerrainWorkflow:
         osm_data = get_osm_data(osm_bbox, height_hash=tile_hash)
 
         if not osm_data:
-            logger.warning("  [!] Keine OSM-Daten")
-            sub.fail("keine OSM-Daten")
+            logger.warning("  [!] No OSM data")
+            sub.fail("no OSM data")
             return {"status": "failed", "reason": "no_osm_data"}
 
         # 5. Straßen extrahieren
@@ -372,7 +372,7 @@ class TerrainWorkflow:
         # bevor die Tile-Schleife beginnt.
 
         # 6b. LoD2-Gebäude laden (wenn aktiviert und noch nicht übergeben)
-        sub = task.begin_subtask("Gebäude normalisieren")
+        sub = task.begin_subtask("Normalize buildings")
         if buildings_data is None and config.LOD2_ENABLED:
             from ..io.lod2 import cache_lod2_buildings, load_buildings_from_cache
 
@@ -397,10 +397,10 @@ class TerrainWorkflow:
             if buildings_cache_path:
                 buildings_data = load_buildings_from_cache(buildings_cache_path)
                 if buildings_data:
-                    logger.info(f"  [OK] {len(buildings_data)} normalisierte Gebäude aus Cache geladen")
+                    logger.info(f"  [OK] {len(buildings_data)} normalized buildings loaded from cache")
 
             if not buildings_data:
-                logger.info("  [i] Keine LoD2-Gebäude gefunden")
+                logger.info("  [i] No LoD2 buildings found")
 
         # Kirchtürme: keine Fenster, dafür eine Turmuhr (Kirche aus OSM, Turmwände aus der Geometrie)
         if buildings_data:
@@ -408,11 +408,11 @@ class TerrainWorkflow:
             from ..osm.landuse_polygons import make_local_transform
 
             towers = ChurchTowerFinder.from_osm(osm_data, make_local_transform(global_offset)).mark(buildings_data)
-            logger.info(f"  [OK] {towers} Kirchen mit Turm erkannt (Turmuhr statt Fenster)")
+            logger.info(f"  [OK] {towers} churches with a tower detected (tower clock instead of windows)")
 
-        sub.finish(f"{len(buildings_data)} Gebäude" if buildings_data else "keine LoD2-Gebäude")
+        sub.finish(f"{len(buildings_data)} buildings" if buildings_data else "no LoD2 buildings")
 
-        sub = task.begin_subtask("Straßennetz + Infrastruktur")
+        sub = task.begin_subtask("Road network + infrastructure")
 
         # Berechne Grid-Bounds aus lokalen Punkten für Clipping
         grid_bounds_local = (
@@ -647,8 +647,8 @@ class TerrainWorkflow:
                     slope_deg=config.WATER_POND_BANK_SLOPE_DEG,
                 )
                 logger.info(
-                    f"  [OK] Teichmulden: {len(pond_areas)} Wasserfläche(n), Terrain {config.WATER_POND_BANK_DEPTH * 100:.0f} cm tiefer "
-                    f"(Böschung {config.WATER_POND_BANK_SLOPE_DEG:.0f} Grad)"
+                    f"  [OK] Pond basins: {len(pond_areas)} water area(s), terrain {config.WATER_POND_BANK_DEPTH * 100:.0f} cm lower "
+                    f"(bank {config.WATER_POND_BANK_SLOPE_DEG:.0f} degrees)"
                 )
 
         # background_category: Flächen ganz ohne Landnutzungs-Polygon (kein OSM-Element deckt sie ab)
@@ -746,7 +746,7 @@ class TerrainWorkflow:
             terrain_material_names = photo_tiles["material_names"]
             photo_tile_names = photo_tiles["photo_tile_names"]
             logger.info(
-                f"  [OK] Vier-Bilder-Modus: {len(photo_tile_names)} Luftbilder, {len(terrain_material_names)} Terrain-Materialien"
+                f"  [OK] Four-photo mode: {len(photo_tile_names)} aerial photos, {len(terrain_material_names)} terrain materials"
             )
 
         # Weinberg-Reben (Forest-Items) entlang der Falllinie, auf der fertigen Heightmap
@@ -769,7 +769,7 @@ class TerrainWorkflow:
                     grid_bounds_local[3] - config.VINEYARD_EXCLUSION_MARGIN,
                 ),
             )
-            logger.debug(f"  [OK] {len(vineyard_instances)} Rebzeilen-Segmente generiert")
+            logger.debug(f"  [OK] {len(vineyard_instances)} vine row segments generated")
 
         # Echtes Wasser: Bäche als River-Splines, Wasserflächen als WaterBlocks (auf der fertigen Heightmap)
         water = {"rivers": [], "ponds": []}
@@ -824,7 +824,7 @@ class TerrainWorkflow:
         z_max = float(heights.max())
         max_height = (z_max - z_min) + config.TERRAIN_MAX_HEIGHT_BUFFER
 
-        sub.finish(f"{len(road_slope_polygons_2d)} Straßensegmente")
+        sub.finish(f"{len(road_slope_polygons_2d)} road segments")
 
         return {
             "status": "success",
@@ -922,8 +922,8 @@ class TerrainWorkflow:
 
         length = sum(sum(((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2) ** 0.5 for a, b in zip(r["nodes"], r["nodes"][1:])) for r in rivers)
         logger.debug(
-            f"  [OK] Wasser: {len(rivers)} River-Objekt(e) ({length:.0f} m Bachlauf), "
-            f"{len(ponds)} Wasserfläche(n) mit {sum(len(p['blocks']) for p in ponds)} WaterBlocks"
+            f"  [OK] Water: {len(rivers)} river object(s) ({length:.0f} m of stream), "
+            f"{len(ponds)} water area(s) with {sum(len(p['blocks']) for p in ponds)} WaterBlocks"
         )
         return {"rivers": rivers, "ponds": ponds}
 
@@ -959,8 +959,8 @@ class TerrainWorkflow:
             cap_joint=config.WALL_CAP_JOINT,
         )
         logger.debug(
-            f"  [OK] Mauern: {stats['built']} Bruchsteinmauer(n) mit Höhenangabe ({stats['length']:.0f} m), "
-            f"{stats['without_height']} ohne Höhenangabe übersprungen"
+            f"  [OK] Walls: {stats['built']} rubble wall(s) with height ({stats['length']:.0f} m), "
+            f"{stats['without_height']} without height skipped"
         )
         return meshes, stats
 
@@ -1059,7 +1059,7 @@ class TerrainWorkflow:
             overwrite=True,
             collisionType="Visible Mesh Final",
         )
-        logger.debug(f"  [OK] {len(meshes)} Brücken exportiert (bridges.dae)")
+        logger.debug(f"  [OK] {len(meshes)} bridges exported (bridges.dae)")
         return len(meshes)
 
     def _build_tunnels(
@@ -1231,7 +1231,7 @@ class TerrainWorkflow:
             overwrite=True,
             collisionType="Visible Mesh Final",
         )
-        logger.debug(f"  [OK] {len(meshes)} Tunnel-/Galerie-Mesh(e) exportiert (tunnels.dae)")
+        logger.debug(f"  [OK] {len(meshes)} tunnel/gallery mesh(es) exported (tunnels.dae)")
         return len(meshes)
 
     def _set_fog_height(self, heights: np.ndarray) -> None:
@@ -1292,7 +1292,7 @@ class TerrainWorkflow:
                 )
                 count += 1
 
-        logger.debug(f"  [OK] {count} Wasser-Objekt(e) exportiert")
+        logger.debug(f"  [OK] {count} water object(s) exported")
         return count
 
     def export_walls(self, mesh_data: Dict) -> int:
@@ -1330,7 +1330,7 @@ class TerrainWorkflow:
             overwrite=True,
             collisionType="Visible Mesh Final",
         )
-        logger.debug(f"  [OK] {len(meshes)} Mauer(n) exportiert (walls.dae)")
+        logger.debug(f"  [OK] {len(meshes)} wall(s) exported (walls.dae)")
         return len(meshes)
 
     def export_decal_roads(self, mesh_data: Dict) -> int:
@@ -1477,8 +1477,8 @@ class TerrainWorkflow:
                 )
 
         logger.debug(
-            f"  [OK] {count} DecalRoad-Item(s) exportiert ({len(unique_materials)} Materialien), "
-            f"{marking_count} Markierungslinie(n)"
+            f"  [OK] {count} DecalRoad item(s) exported ({len(unique_materials)} materials), "
+            f"{marking_count} marking line(s)"
         )
         return count
 
@@ -1525,7 +1525,7 @@ class TerrainWorkflow:
             self.items.add_ground_cover(fields.pop("name"), fields.pop("material"), fields.pop("Types"), **fields)
 
         self.materials.materials.update(build_billboard_material_entries(items, templates_data))
-        logger.info(f"  [OK] {len(items)} GroundCover-Objekt(e) für {len(used_layers) - 1} Landnutzungs-Layer")
+        logger.info(f"  [OK] {len(items)} GroundCover object(s) for {len(used_layers) - 1} land use layers")
         return len(items)
 
     def export_merged_terrain(
@@ -1571,7 +1571,7 @@ class TerrainWorkflow:
         ter_filename = f"{config.LEVEL_NAME}.ter"
         ter_path = config.BEAMNG_DIR / ter_filename
         write_ter(ter_path, heightmap_u16, layer_map.astype("uint8"), terrain_material_names)
-        logger.debug(f"  [OK] Terrain exportiert: {ter_filename} ({terrain_size}x{terrain_size})")
+        logger.debug(f"  [OK] Terrain exported: {ter_filename} ({terrain_size}x{terrain_size})")
 
         placeholders = ensure_flat_pbr_placeholders(
             config.BEAMNG_DIR_TEXTURES, config.LEVEL_NAME, config.TERRAIN_BASE_TEX_PIXEL_SIZE
@@ -1654,31 +1654,31 @@ class TerrainWorkflow:
         """
         with task.subtask("DecalRoads") as sub:
             road_count = self.export_decal_roads(mesh_data)
-            sub.finish(f"{road_count} Straßen" if road_count else "keine Straßen")
+            sub.finish(f"{road_count} roads" if road_count else "no roads")
 
-        with task.subtask("Wasser") as sub:
+        with task.subtask("Water") as sub:
             count = self.export_water(mesh_data)
-            sub.finish(f"{count} Objekte" if count else "keine Wasserflächen")
+            sub.finish(f"{count} objects" if count else "no water areas")
 
-        with task.subtask("Mauern") as sub:
+        with task.subtask("Walls") as sub:
             count = self.export_walls(mesh_data)
-            sub.finish(f"{count} Mauern" if count else "keine Mauern")
+            sub.finish(f"{count} walls" if count else "no walls")
 
-        with task.subtask("Brücken") as sub:
+        with task.subtask("Bridges") as sub:
             count = self.export_bridges(mesh_data)
-            sub.finish(f"{count} Brücken" if count else "keine Brücken")
+            sub.finish(f"{count} bridges" if count else "no bridges")
 
-        with task.subtask("Tunnel/Galerien") as sub:
+        with task.subtask("Tunnels/galleries") as sub:
             count = self.export_tunnels(mesh_data)
             blocked = self.export_roadblocks(mesh_data)
             zones = self.export_tunnel_zones(mesh_data)
             sub.finish(
-                (f"{count} Mesh(e)" if count else "keine Tunnel/Galerien")
-                + (f", {zones} Dunkel-Zonen" if zones else "")
-                + (f", {blocked} Sperr-Elemente" if blocked else "")
+                (f"{count} mesh(es)" if count else "no tunnels/galleries")
+                + (f", {zones} darkness zones" if zones else "")
+                + (f", {blocked} barrier elements" if blocked else "")
             )
 
-        with task.subtask("Terrain-Export") as sub:
+        with task.subtask("Terrain export") as sub:
             self.export_merged_terrain(
                 heights=mesh_data["heightmap"],
                 layer_map=mesh_data["layer_map"],

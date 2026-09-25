@@ -124,7 +124,7 @@ def build_landuse_polygons(
             else:
                 geometry = None
         except Exception as exc:  # defekte Einzelgeometrie darf den Export nicht stoppen
-            logger.debug(f"  [Landuse] Element {element.get('id')} übersprungen: {exc}")
+            logger.debug(f"  [Landuse] Element {element.get('id')} skipped: {exc}")
             continue
         if geometry is not None:
             result.append({"osm_tags": tags, "geometry": geometry})

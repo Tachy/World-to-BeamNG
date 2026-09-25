@@ -41,7 +41,7 @@ class ForestNormalizer:
             self.forest_mappings = osm_mapper.forest_mappings
 
         logger.info(
-            f"✓ ForestNormalizer initialisiert ({len(self.forest_types)} Waldtypen, {len(self.forest_mappings)} Mappings)"
+            f"✓ ForestNormalizer initialized ({len(self.forest_types)} forest types, {len(self.forest_mappings)} mappings)"
         )
 
     def normalize_tile(
@@ -99,10 +99,10 @@ class ForestNormalizer:
             # Extrahiere Waldpolygone aus OSM-Rohdaten (WGS84)
             osm_forests = self._extract_forests_from_osm(osm_data) if osm_data else []
             if not osm_forests:
-                logger.info(f"  [→] Keine Wälder in {tile_name}")
+                logger.info(f"  [→] No forests in {tile_name}")
                 return result
 
-            logger.info(f"  [→] Prüfe {len(osm_forests)} OSM-Waldpolygone...")
+            logger.info(f"  [→] Checking {len(osm_forests)} OSM forest polygons...")
 
             # Jetzt: Alle Geometrien sind in lokalen Koordinaten (bereits transformiert in workflow!)
             # Iteriere über alle OSM-Waldpolygone
@@ -131,7 +131,7 @@ class ForestNormalizer:
                         continue  # Loch in einem Wohngebiet o.ä. ist keine Waldlichtung: nicht bepflanzen
                     forest_type = clearings.get("forest_type", forest_type)
                 if not forest_type:
-                    logger.debug(f"    [i] Waldpolygon gemappt zu keinem forest_type: {tags}")
+                    logger.debug(f"    [i] Forest polygon mapped to no forest_type: {tags}")
                     continue
 
                 # Erstelle Forest-Eintrag mit UNGECLIPPTEM Polygon
@@ -150,19 +150,19 @@ class ForestNormalizer:
 
                 result["forests"].append(forest_entry)
                 logger.debug(
-                    f"    ✓ Waldpolygon (ungeclippt): {forest_type} " f"({geom.area:.0f} m², " f"{geom.geom_type})"
+                    f"    ✓ Forest polygon (unclipped): {forest_type} " f"({geom.area:.0f} m², " f"{geom.geom_type})"
                 )
 
             result["forest_count"] = len(result["forests"])
             if result["forest_count"] > 0:
-                logger.info(f"  [✓] Tile {tile_name}: {result['forest_count']} Waldpolygone normalisiert")
+                logger.info(f"  [✓] Tile {tile_name}: {result['forest_count']} forest polygons normalized")
             else:
-                logger.debug(f"  [i] Tile {tile_name}: Keine Wälder nach Normalisierung")
+                logger.debug(f"  [i] Tile {tile_name}: no forests after normalization")
 
             return result
 
         except Exception as e:
-            logger.error(f"Fehler bei Normalisierung von Tile {tile_name}: {e}", exc_info=True)
+            logger.error(f"Error normalizing tile {tile_name}: {e}", exc_info=True)
             return {
                 "status": "error",
                 "tile_bounds": tile_bounds,
@@ -209,12 +209,12 @@ class ForestNormalizer:
         for element in osm_data:
             # Sicherheitscheck: element muss ein Dict sein
             if not isinstance(element, dict):
-                logger.error(f"  [!] Element ist kein Dict: {type(element)}")
+                logger.error(f"  [!] Element is not a dict: {type(element)}")
                 continue
 
             tags = element.get("tags", {})
             if not isinstance(tags, dict):
-                logger.error(f"  [!] Tags sind kein Dict: {type(tags)}")
+                logger.error(f"  [!] Tags are not a dict: {type(tags)}")
                 continue
 
             # Prüfe mit OSMMapper ob es ein Wald ist
@@ -243,7 +243,7 @@ class ForestNormalizer:
                             }
                         )
                 except Exception as e:
-                    logger.debug(f"  [!] Fehler beim Multipolygon-Assembly: {e}")
+                    logger.debug(f"  [!] Error in multipolygon assembly: {e}")
                     continue
 
             # === CASE 2: Way (einfaches Polygon) ===
@@ -281,7 +281,7 @@ class ForestNormalizer:
                                         {"geometry": geom, "tags": tags, "osm_id": element.get("id"), "type": "way"}
                                     )
                 except Exception as e:
-                    logger.debug(f"  [!] Fehler beim Parsing von Waldgeometrie: {e}")
+                    logger.debug(f"  [!] Error parsing forest geometry: {e}")
                     continue
 
         return forests
@@ -334,7 +334,7 @@ class ForestNormalizer:
             forest = forest if forest.is_valid else forest.buffer(0)
             return (None if forest.is_empty else forest), (None if clearings.is_empty else clearings)
         except Exception as e:
-            logger.debug(f"Fehler beim Multipolygon-Assembly: {e}")
+            logger.debug(f"Error in multipolygon assembly: {e}")
             return None, None
 
     def _is_row_type(self, osm_tags: Dict) -> bool:

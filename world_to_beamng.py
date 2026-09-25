@@ -33,11 +33,11 @@ def main():
     pipeline = Pipeline()
     exporter = BeamNGExporter(pipeline)
 
-    with pipeline.task("Vorbereitung") as task:
+    with pipeline.task("Preparation") as task:
         tiles = scan_elevation_tiles(dgm_dir=config.HEIGHT_DATA_DIR)
 
         if not tiles:
-            task.fail("keine DGM1-Kacheln gefunden")
+            task.fail("no DGM1 tiles found")
             return
 
         # Quell-CRS auflösen (aus GeoTIFF-Kacheln automatisch erkannt, sonst config.SOURCE_CRS_EPSG) -
@@ -62,7 +62,7 @@ def main():
     except MissingTexturesError:
         # Die volle Fehlermeldung steht bereits in der "✗ Texturen - ..."-Zeile der Hauptaufgabe
         # (siehe PipelineTask.__exit__ in progress.py) - hier nicht nochmal ausgeben.
-        logger.error("Export abgebrochen - siehe Fehlermeldung oben.")
+        logger.error("Export aborted - see the error message above.")
         sys.exit(1)
 
     # Statistiken - über console.print() statt logger, damit die Box nicht durch RichHandlers
@@ -70,13 +70,13 @@ def main():
     elapsed = time.time() - start_time
     console.print()
     console.print("[bold]" + "=" * 60 + "[/bold]")
-    console.print("[bold]EXPORT ABGESCHLOSSEN[/bold]")
+    console.print("[bold]EXPORT FINISHED[/bold]")
     console.print("[bold]" + "=" * 60 + "[/bold]")
-    console.print(f"Tiles verarbeitet: {stats['tiles_processed']}")
-    console.print(f"Tiles fehlgeschlagen: {stats['tiles_failed']}")
-    console.print(f"Gebäude exportiert: {stats['buildings_exported']}")
-    console.print(f"Horizon exportiert: {'Ja' if stats['horizon_exported'] else 'Nein'}")
-    console.print(f"Gesamtzeit: {elapsed:.1f}s")
+    console.print(f"Tiles processed: {stats['tiles_processed']}")
+    console.print(f"Tiles failed: {stats['tiles_failed']}")
+    console.print(f"Buildings exported: {stats['buildings_exported']}")
+    console.print(f"Horizon exported: {'yes' if stats['horizon_exported'] else 'no'}")
+    console.print(f"Total time: {elapsed:.1f}s")
     console.print("[bold]" + "=" * 60 + "[/bold]")
 
 

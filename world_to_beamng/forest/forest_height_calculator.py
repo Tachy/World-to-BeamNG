@@ -39,7 +39,7 @@ class ForestHeightCalculator:
         cache_key = id(height_points)
 
         if cache_key not in self._kdtree_cache:
-            logger.debug(f"Baue KD-Tree für {len(height_points)} Punkte...")
+            logger.debug(f"Building KD-tree for {len(height_points)} points...")
             self._kdtree_cache[cache_key] = cKDTree(height_points)
 
         return self._kdtree_cache[cache_key]
@@ -69,7 +69,7 @@ class ForestHeightCalculator:
             return []
 
         if height_points is None or height_elevations is None:
-            logger.warning("Keine Höhendaten verfügbar, nutze z=0")
+            logger.warning("No height data available, using z=0")
             return [(x, y, 0.0) for x, y in points]
 
         # Konvertiere zu numpy
@@ -87,7 +87,7 @@ class ForestHeightCalculator:
         # Kombiniere zu (x, y, z)
         result = [(float(points[i][0]), float(points[i][1]), float(heights[i])) for i in range(len(points))]
 
-        logger.info(f"✓ Höhen für {len(result)} Punkte (min={np.min(heights):.1f}m, max={np.max(heights):.1f}m)")
+        logger.info(f"✓ Heights for {len(result)} points (min={np.min(heights):.1f}m, max={np.max(heights):.1f}m)")
 
         return result
 
@@ -150,6 +150,6 @@ class ForestHeightCalculator:
             result[forest_idx] = points_3d
 
         total_points = sum(len(pts) for pts in result.values())
-        logger.info(f"✓ Höhen für {total_points} Baumpositionen interpoliert (mit Cache)")
+        logger.info(f"✓ Heights interpolated for {total_points} tree positions (with cache)")
 
         return result

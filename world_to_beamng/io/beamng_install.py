@@ -9,7 +9,7 @@ def get_beamng_install_dir() -> Path:
     """Liest den BeamNG-Installationspfad aus BeamNG.drive.ini (userPathWithouVersion-Nachbar)."""
     ini_path = Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local") / "BeamNG" / "BeamNG.drive.ini"
     if not ini_path.is_file():
-        raise FileNotFoundError(f"BeamNG.drive.ini nicht gefunden: {ini_path}")
+        raise FileNotFoundError(f"BeamNG.drive.ini not found: {ini_path}")
 
     # Datei ist eine simple "key = value" Liste ohne Section-Header -> ConfigParser braucht Dummy-Section
     raw = ini_path.read_text(encoding="utf-8-sig")
