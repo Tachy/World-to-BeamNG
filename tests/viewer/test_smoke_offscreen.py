@@ -61,5 +61,13 @@ def test_terrain_photo_is_north_up_and_picking_reports_the_road(level_dir):
         info = viewer.pick(width // 2, height // 2)
         assert info is not None and info[0].startswith("road_a") and "[DecalRoad]" in info[0]
         assert any(line.startswith("terrain below:") for line in info)
+
+        # Double-click behavior: fly to the picked point at 40 m, terrain stays level (Z up)
+        picked = viewer.selected[3]
+        viewer.fly_to(picked)
+        camera = viewer.plotter.camera
+        assert np.linalg.norm(np.array(camera.position) - picked) == pytest.approx(40.0)
+        assert np.array(camera.focal_point) == pytest.approx(picked)
+        assert np.array(camera.up) == pytest.approx([0, 0, 1])
     finally:
         viewer.plotter.close()

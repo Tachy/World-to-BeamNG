@@ -248,10 +248,14 @@ tunnels, water, forest, tunnel zones, spawn points, horizon, debug network):
 .\.venv\Scripts\python.exe -m tools.level_viewer --help         # all options (layers, terrain step, screenshot)
 ```
 
+Mouse: left drag turns around the vertical axis and tilts the view (the terrain never rolls), shift + left drag or
+the middle button pans, the wheel or right drag zooms. **Double-click** an object to see its name, class, material,
+position and the terrain height below it; the camera flies there (40 m away). `space` frames the whole selected
+object, `Esc` clears it, `Up`/`Down` change the field of view, `r` resets the camera.
+
 Keys: `g` terrain, `x` photo/elevation colors, `a` roads, `m` markings, `o` water, `b` structures, `h` horizon,
-`c` forest, `z` zones + spawns, `n` labels, `d` debug network, `l` reload, `i` help. **Double-click** an object to
-see its name, class, material, position and the terrain height below it; `space` focuses the selection. Window,
-camera and layers are stored in `tools/level_viewer.cfg`.
+`c` forest, `z` zones + spawns, `n` labels, `d` debug network, `l` reload, `i` help, `q` quit. Window, camera and
+layers are stored in `tools/level_viewer.cfg`.
 
 ## 🏗️ Project structure
 

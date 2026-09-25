@@ -1,6 +1,9 @@
 """
 Viewer shell: plotter, key bindings, layer registry, picking with an info panel, reload and state persistence.
 
+Navigation uses VTK's terrain style: left drag turns around the vertical axis and tilts the view, but never rolls,
+so the terrain stays level; a double-click inspects the object under the cursor and flies the camera to it.
+
 Keys avoid VTK's built-in single-letter shortcuts (w/s wireframe/surface, e/q exit, f fly-to, p pick, r reset,
 j/t joystick/trackball, u, 3), which would otherwise fire as well.
 """
@@ -16,11 +19,14 @@ from .layers import LAYER_CLASSES, Layer, TerrainLayer, ViewerContext
 from .level_data import load_level
 from .state import CONFIG_PATH, apply_camera, camera_to_dict, load_state, save_state
 
+FLY_DISTANCE_M = 40.0  # camera distance after a double-click (as in the old dae_viewer)
+
 HELP_KEYS = [
+    ("left drag", "turn / tilt"), ("shift+left, middle", "pan"), ("wheel, right drag", "zoom"),
+    ("double-click", "inspect + fly there"), ("space", "frame selection"), ("Esc", "clear selection"),
     ("g", "terrain"), ("x", "photo / elevation colors"), ("a", "roads"), ("m", "markings"), ("o", "water"),
     ("b", "structures"), ("h", "horizon"), ("c", "forest"), ("z", "zones + spawns"), ("n", "labels"),
-    ("d", "debug network"), ("double-click", "inspect"), ("space", "focus selection"), ("Esc", "clear selection"),
-    ("Up/Down", "field of view"), ("l", "reload"), ("i", "help"), ("r", "reset camera"), ("q", "quit"),
+    ("d", "debug network"), ("Up/Down", "field of view"), ("l", "reload"), ("i", "help"), ("r", "reset camera"), ("q", "quit"),
 ]
 
 
@@ -31,7 +37,7 @@ class LevelViewer:
         window = self.state.get("window", {}).get("size", [1600, 1000])
         self.plotter = pv.Plotter(off_screen=off_screen, window_size=window, title="World-to-BeamNG level viewer")
         self.plotter.set_background("#1d2330", top="#44516b")
-        self.plotter.enable_trackball_style()
+        self.plotter.enable_terrain_style(mouse_wheel_zooms=True, shift_pans=True)
         self.plotter.add_axes()
         self.show_help = True
         self.selection_actor = None
@@ -176,12 +182,26 @@ class LevelViewer:
         direction /= max(np.linalg.norm(direction), 1e-9)
         camera.focal_point = center
         camera.position = center + direction * radius * 1.5
+        camera.up = (0.0, 0.0, 1.0)
         self.plotter.renderer.ResetCameraClippingRange()
         self.plotter.render()
 
+    def fly_to(self, point, distance: float = FLY_DISTANCE_M) -> None:
+        """Puts the focal point on `point` and the camera `distance` meters away along the current viewing direction."""
+        camera = self.plotter.camera
+        direction = np.array(camera.focal_point, dtype=float) - np.array(camera.position, dtype=float)
+        norm = np.linalg.norm(direction)
+        direction = direction / norm if norm > 1e-9 else np.array([0.0, 1.0, -1.0]) / np.sqrt(2.0)
+        point = np.asarray(point, dtype=float)
+        camera.focal_point = point
+        camera.position = point - direction * distance
+        camera.up = (0.0, 0.0, 1.0)
+        self.plotter.renderer.ResetCameraClippingRange()
+
     def _on_double_click(self, *_args) -> None:
         x, y = self.plotter.iren.get_event_position()
-        self.pick(x, y)
+        if self.pick(x, y) is not None:
+            self.fly_to(self.selected[3])
         self.plotter.render()
 
     # -- run ----------------------------------------------------------------------------------------------------------

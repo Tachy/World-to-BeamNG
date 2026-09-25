@@ -34,7 +34,8 @@ def apply_camera(plotter, data: Optional[dict]) -> bool:
     """Restores a saved camera; False if there is none."""
     if not data or "position" not in data:
         return False
-    plotter.camera_position = [data["position"], data["focal_point"], data.get("view_up", [0, 0, 1])]
+    # Always Z up: the terrain navigation never rolls, older saved cameras may still be tilted
+    plotter.camera_position = [data["position"], data["focal_point"], [0, 0, 1]]
     plotter.camera.view_angle = float(data.get("view_angle", 30.0))
     plotter.renderer.ResetCameraClippingRange()
     return True

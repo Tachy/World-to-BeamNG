@@ -255,10 +255,15 @@ Markierungen, Brücken, Tunnel, Wasser, Wald, Tunnel-Zonen, Spawn-Punkte, Horizo
 .\.venv\Scripts\python.exe -m tools.level_viewer --help         # alle Optionen (Ebenen, Terrain-Schritt, Screenshot)
 ```
 
+Maus: Linke Taste ziehen dreht um die senkrechte Achse und neigt den Blick (das Gelände kippt nie), Shift + links
+ziehen oder die mittlere Taste verschiebt, Mausrad oder rechte Taste ziehen zoomt. **Doppelklick** auf ein Objekt zeigt
+Name, Klasse, Material, Position und die Terrainhöhe darunter; die Kamera fliegt dorthin (40 m Abstand). `Leertaste`
+zeigt das ganze ausgewählte Objekt, `Esc` hebt die Auswahl auf, `Pfeil hoch/runter` ändert den Blickwinkel, `r` setzt
+die Kamera zurück.
+
 Tasten: `g` Terrain, `x` Luftbild/Höhenfarben, `a` Straßen, `m` Markierungen, `o` Wasser, `b` Bauwerke, `h` Horizont,
-`c` Wald, `z` Zonen + Spawns, `n` Beschriftungen, `d` Debug-Netzwerk, `l` neu laden, `i` Hilfe. **Doppelklick** auf ein
-Objekt zeigt Name, Klasse, Material, Position und die Terrainhöhe darunter; `Leertaste` fokussiert die Auswahl.
-Fenster, Kamera und Ebenen werden in `tools/level_viewer.cfg` gespeichert.
+`c` Wald, `z` Zonen + Spawns, `n` Beschriftungen, `d` Debug-Netzwerk, `l` neu laden, `i` Hilfe, `q` beenden. Fenster,
+Kamera und Ebenen werden in `tools/level_viewer.cfg` gespeichert.
 
 ## 🏗️ Projektstruktur
 
