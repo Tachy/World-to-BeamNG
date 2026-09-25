@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 import numpy as np
 import pytest
 
-from world_to_beamng.geometry.junctions import split_roads_at_mid_junctions
+from world_to_beamng.geometry.junctions import _same_xy, split_roads_at_mid_junctions
 
 
 def _road(road_id, points, z=0.0, **tags):
@@ -74,3 +74,17 @@ def test_road_without_mid_junctions_is_returned_unchanged():
 
     assert len(new_roads) == 1
     assert np.array_equal(np.asarray(new_roads[0]["coords"]), np.asarray(road["coords"]))
+
+
+def test_same_xy_matches_np_allclose_including_the_relative_tolerance():
+    """_same_xy ersetzt np.allclose(a[:2], b[:2], atol=1e-6) - gleiche Entscheidung auch knapp an der Toleranzgrenze
+    (rtol=1e-5 macht sie bei Koordinaten um 1000 m ca. 1 cm groß)."""
+    rng = np.random.default_rng(3)
+    base = rng.uniform(-3000.0, 3000.0, size=(4000, 3))
+    offsets = rng.choice([0.0, 1e-7, 1e-6, 5e-3, 1e-2, 2e-2, 1.0], size=(4000, 2)) * rng.choice([-1.0, 1.0], size=(4000, 2))
+    other = base.copy()
+    other[:, :2] += offsets
+    other[::7, :2] = base[::7, :2] * (1 + 1e-5)  # genau auf der relativen Grenze
+    for a, b in zip(base, other):
+        assert _same_xy(a, b) == bool(np.allclose(a[:2], b[:2], atol=1e-6))
+        assert _same_xy(b, a) == bool(np.allclose(b[:2], a[:2], atol=1e-6))

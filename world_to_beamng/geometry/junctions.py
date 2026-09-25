@@ -606,6 +606,16 @@ def mark_junction_endpoints(road_polygons, junctions):
     return road_polygons
 
 
+def _same_xy(a, b) -> bool:
+    """
+    np.allclose(a[:2], b[:2], atol=1e-6) für genau zwei Koordinaten - bitgleiche Formel (inkl. der relativen
+    Standardtoleranz rtol=1e-5, bei Koordinaten um 1000 m also ca. 1 cm), aber ohne den numpy-Overhead:
+    allclose kostet je Aufruf ~50 µs und wurde beim Split zehntausendfach aufgerufen.
+    """
+    ax, ay, bx, by = float(a[0]), float(a[1]), float(b[0]), float(b[1])
+    return abs(ax - bx) <= 1e-6 + 1e-5 * abs(bx) and abs(ay - by) <= 1e-6 + 1e-5 * abs(by)
+
+
 def split_roads_at_mid_junctions(road_polygons, junctions, merge_tol=0.5):
     """
     Splittet Strassen an Junction-Punkten, die als "mid" erkannt wurden.
@@ -639,6 +649,13 @@ def split_roads_at_mid_junctions(road_polygons, junctions, merge_tol=0.5):
             return base_id * 1000 + part_idx
         return f"{base_id}_p{part_idx}"
 
+    # Straße -> [(Junction-Index, Verbindungsarten)] in Junction-Reihenfolge - einmal aufgebaut statt je Straße alle
+    # Junctions zu durchlaufen (Straßen x Junctions)
+    connections_by_road = {}
+    for j_idx, j in enumerate(junctions):
+        for r_idx, conn in j.get("connection_types", {}).items():
+            connections_by_road.setdefault(r_idx, []).append((j_idx, conn))
+
     new_roads = []
     old_to_new_map = {}  # old road idx -> list of new road indices
 
@@ -663,8 +680,8 @@ def split_roads_at_mid_junctions(road_polygons, junctions, merge_tol=0.5):
         # Sammle bekannte Start/End-Junctions aus originalen connection_types
         start_junc_id = None
         end_junc_id = None
-        for j_idx, j in enumerate(junctions):
-            conn = j.get("connection_types", {}).get(road_idx, [])
+        road_connections = connections_by_road.get(road_idx, [])
+        for j_idx, conn in road_connections:
             if "start" in conn:
                 start_junc_id = j_idx
             if "end" in conn:
@@ -672,8 +689,7 @@ def split_roads_at_mid_junctions(road_polygons, junctions, merge_tol=0.5):
 
         # Sammle alle mid-Junctions fuer diese Strasse
         cut_marks = []
-        for j_idx, j in enumerate(junctions):
-            conn = j.get("connection_types", {}).get(road_idx, [])
+        for j_idx, conn in road_connections:
             if "mid" not in conn:
                 continue
             pos = junction_positions[j_idx]
@@ -746,7 +762,7 @@ def split_roads_at_mid_junctions(road_polygons, junctions, merge_tol=0.5):
                     # floor()-Segmentzuordnung in split_roads_at_mid_junctions exakt auf den Vorgänger-Endpunkt
                     # fallen) - sonst entstünde ein 0-Länge-Segment (siehe test_junction_split.py). Der Split
                     # (neues Teilstück) passiert trotzdem, nur ohne doppelten Punkt.
-                    if not np.allclose(current_coords[-1][:2], cut_pt[:2], atol=1e-6):
+                    if not _same_xy(current_coords[-1], cut_pt):
                         current_coords.append(cut_pt)
                     parts.append((current_coords, current_start_j, j_idx))
                     current_coords = [cut_pt]
@@ -754,7 +770,7 @@ def split_roads_at_mid_junctions(road_polygons, junctions, merge_tol=0.5):
             # füge Ende des Segments hinzu, falls kein Cut dort endet (derselbe 0-Länge-Schutz wie oben: ein
             # Cut, dessen Projektion auf den Segment-Endpunkt fällt, hat current_coords bereits dorthin gesetzt)
             next_pt = coords[seg_idx + 1]
-            if not np.allclose(current_coords[-1][:2], next_pt[:2], atol=1e-6):
+            if not _same_xy(current_coords[-1], next_pt):
                 current_coords.append(next_pt)
 
         # letztes Teilstück

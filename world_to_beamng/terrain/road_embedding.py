@@ -459,7 +459,8 @@ def apply_embankment_blend(heights: np.ndarray, origin_x: float, origin_y: float
     return result
 
 
-BLEND_BLOCK = 32  # Kantenlänge der Zellblöcke, die _blend_one_side auf Nähe zur Straße vorprüft
+BLEND_BLOCK = 8  # Kantenlänge der Zellblöcke, die _blend_one_side auf Nähe zur Straße vorprüft (Böschungen sind
+# nur 2-8,5 m breit: 32er Blöcke fragten 7 Mio. Zellen ab, 8er nur 3 Mio. - kleinere bringen nichts mehr)
 
 
 def _blend_one_side(heights, origin_x, origin_y, square_size, size_x, size_y, edge_xyz, slope_width, natural_z):
@@ -508,13 +509,14 @@ def _blend_one_side(heights, origin_x, origin_y, square_size, size_x, size_y, ed
     if not keep.any():
         return
 
-    row_parts, col_parts = [], []
-    for br0, br1, bc0, bc1 in zip(r0[keep], r1[keep], c0[keep], c1[keep]):
-        rr, cc = np.meshgrid(np.arange(br0, br1 + 1), np.arange(bc0, bc1 + 1), indexing="ij")
-        row_parts.append(rr.ravel())
-        col_parts.append(cc.ravel())
-    rows = np.concatenate(row_parts) + row_start
-    cols = np.concatenate(col_parts) + col_start
+    # Zellen aller behaltenen Blöcke auf einmal: volle Blöcke per Broadcasting, Randblöcke (am Ende der Bounding
+    # Box kürzer) über die Maske auf n_rows/n_cols gekürzt - dieselben Zellen wie Block für Block
+    offset_r, offset_c = np.meshgrid(np.arange(BLEND_BLOCK), np.arange(BLEND_BLOCK), indexing="ij")
+    rows = (r0[keep][:, None] + offset_r.ravel()[None, :]).ravel()
+    cols = (c0[keep][:, None] + offset_c.ravel()[None, :]).ravel()
+    inside = (rows < n_rows) & (cols < n_cols)
+    rows = rows[inside] + row_start
+    cols = cols[inside] + col_start
     query_points = np.column_stack([origin_x + cols * square_size, origin_y + rows * square_size])
 
     dist, idx = tree.query(query_points, distance_upper_bound=limit)
