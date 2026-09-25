@@ -245,6 +245,22 @@ Die Meldungen des Programms sind englisch; sie werden hier im Wortlaut zitiert.
 .\.venv\Scripts\python.exe -m pytest tests
 ```
 
+## 🔍 Level-Viewer
+
+Ein Entwickler-Viewer zeigt den exportierten Level außerhalb von BeamNG (Terrain mit Luftbild, Straßen und
+Markierungen, Brücken, Tunnel, Wasser, Wald, Tunnel-Zonen, Spawn-Punkte, Horizont, Debug-Netzwerk):
+
+```powershell
+.\.venv\Scripts\python.exe -m tools.level_viewer                # Level aus config.BEAMNG_DIR
+.\.venv\Scripts\python.exe -m tools.level_viewer --full-photo   # Luftbild-Kacheln in voller Auflösung
+.\.venv\Scripts\python.exe -m tools.level_viewer --help         # alle Optionen (Ebenen, Terrain-Schritt, Screenshot)
+```
+
+Tasten: `g` Terrain, `x` Luftbild/Höhenfarben, `a` Straßen, `m` Markierungen, `o` Wasser, `b` Bauwerke, `h` Horizont,
+`c` Wald, `z` Zonen + Spawns, `n` Beschriftungen, `d` Debug-Netzwerk, `l` neu laden, `i` Hilfe. **Doppelklick** auf ein
+Objekt zeigt Name, Klasse, Material, Position und die Terrainhöhe darunter; `Leertaste` fokussiert die Auswahl.
+Fenster, Kamera und Ebenen werden in `tools/level_viewer.cfg` gespeichert.
+
 ## 🏗️ Projektstruktur
 
 ```
@@ -265,7 +281,7 @@ world_to_beamng/
 ├── builders/, core/      Mesh-Builder, Cache-Verwaltung
 └── geometry/, mesh/, analysis/, utils/
 data/                     Konfigurations-JSONs (im Repository) und Basisdaten (nicht im Repository)
-tools/                    Hilfsskripte (Assets übernehmen, Horizont-Bild erzeugen, Prüfungen, Viewer)
+tools/                    Hilfsskripte (Assets übernehmen, Horizont-Bild erzeugen, Prüfungen, level_viewer/)
 tests/                    pytest
 docs/                     technische Dokumentation (z. B. MATERIAL_TEMPLATES.md)
 ```

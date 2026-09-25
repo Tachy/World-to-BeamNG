@@ -242,7 +242,7 @@ class DebugNetworkExporter:
         }
 
         # Without indent: json.dump with indent uses the slow Python encoder (several seconds for a ~10 MB debug
-        # network), the file is only read by machine (tools/dae_viewer.py).
+        # network), the file is only read by machine (tools/level_viewer, debug network layer).
         with open(output_path, "w", encoding="utf-8") as f:
             f.write(json.dumps(data))
 

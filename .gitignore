@@ -47,7 +47,7 @@ venv/
 # Documentation (internal only)
 REFACTORING.md
 report.html
-tools/dae_viewer.cfg
+tools/level_viewer.cfg
 
 # Subagent-driven-development scratch workspace (ledgers, briefs, reports)
 .superpowers/

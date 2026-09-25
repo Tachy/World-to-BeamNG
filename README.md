@@ -238,6 +238,22 @@ about one minute. The first run takes longer because OSM is downloaded and the c
 .\.venv\Scripts\python.exe -m pytest tests
 ```
 
+## 🔍 Level viewer
+
+A developer viewer shows the exported level outside BeamNG (terrain with aerial photo, roads and markings, bridges,
+tunnels, water, forest, tunnel zones, spawn points, horizon, debug network):
+
+```powershell
+.\.venv\Scripts\python.exe -m tools.level_viewer                # level from config.BEAMNG_DIR
+.\.venv\Scripts\python.exe -m tools.level_viewer --full-photo   # full-resolution aerial photo tiles
+.\.venv\Scripts\python.exe -m tools.level_viewer --help         # all options (layers, terrain step, screenshot)
+```
+
+Keys: `g` terrain, `x` photo/elevation colors, `a` roads, `m` markings, `o` water, `b` structures, `h` horizon,
+`c` forest, `z` zones + spawns, `n` labels, `d` debug network, `l` reload, `i` help. **Double-click** an object to
+see its name, class, material, position and the terrain height below it; `space` focuses the selection. Window,
+camera and layers are stored in `tools/level_viewer.cfg`.
+
 ## 🏗️ Project structure
 
 ```
@@ -258,7 +274,7 @@ world_to_beamng/
 ├── builders/, core/      mesh builders, cache management
 └── geometry/, mesh/, analysis/, utils/
 data/                     configuration JSONs (in the repository) and base data (not in the repository)
-tools/                    helper scripts (take over assets, create the horizon image, checks, viewer)
+tools/                    helper scripts (take over assets, create the horizon image, checks, level_viewer/)
 tests/                    pytest
 docs/                     technical documentation (e.g. MATERIAL_TEMPLATES.md)
 ```

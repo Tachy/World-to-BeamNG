@@ -1497,7 +1497,7 @@ class ExportIntegrityTest:
         logger.info("\n[7] Testing XYZ coordinate normalization...")
 
         import numpy as np
-        from tools.dae_loader import load_dae_tile
+        from tools.level_viewer.dae import load_dae_tile
 
         # === LOAD TERRAIN DAE ===
         terrain_dae = self.shapes_dir / TERRAIN_HORIZON_DAE.replace("_horizon", "")
