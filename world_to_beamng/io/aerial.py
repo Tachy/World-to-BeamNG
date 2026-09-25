@@ -3,8 +3,10 @@ Aerial image processing - Extrahiert und kachelt Luftbildaufnahmen.
 """
 
 import json
+import os
 import zipfile
 import math
+from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 from typing import Dict, Optional
 from PIL import Image, ImageEnhance
@@ -73,7 +75,7 @@ def extract_images_from_zips(aerial_dir=config.AERIAL_DATA_DIR):
     images = []
 
     if not aerial_path.exists():
-        logger.error(f"[!] Verzeichnis {aerial_dir} existiert nicht")
+        logger.error(f"[!] Directory {aerial_dir} does not exist")
         return images
 
     zip_files = list(aerial_path.glob("*.zip"))
@@ -116,7 +118,7 @@ def extract_images_from_zips(aerial_dir=config.AERIAL_DATA_DIR):
                     images.append((img_file, img_data, world_info))
 
         except Exception as e:
-            logger.error(f"[!] Fehler beim Lesen von {zip_path.name}: {e}")
+            logger.error(f"[!] Error reading {zip_path.name}: {e}")
 
     return images
 
@@ -335,15 +337,15 @@ def process_aerial_images(aerial_dir, output_dir, grid_bounds, global_offset, ta
 
     images = extract_georeferenced_images(aerial_dir)
     if not images:
-        logger.debug("  [i] Keine Luftbilder gefunden")
+        logger.debug("  [i] No aerial photos found")
         return 0
 
     images_with_geo = [(name, data, info) for name, data, info in images if info is not None]
     if not images_with_geo:
-        logger.error(f"  [!] Keine Georeferenzierung gefunden (fehlen .tfw-Dateien oder eingebettete GeoTIFF-Tags?)")
+        logger.error(f"  [!] No georeferencing found (missing .tfw files or embedded GeoTIFF tags?)")
         return 0
 
-    logger.debug(f"  [i] {len(images_with_geo)} Luftbilder mit Georeferenzierung gefunden")
+    logger.debug(f"  [i] {len(images_with_geo)} aerial photos with georeferencing found")
 
     grid_min_x, grid_max_x, grid_min_y, grid_max_y = grid_bounds
     grid_width = grid_max_x - grid_min_x
@@ -356,8 +358,8 @@ def process_aerial_images(aerial_dir, output_dir, grid_bounds, global_offset, ta
     canvas_w = max(1, round(grid_width / native_pixel_size))
     canvas_h = max(1, round(grid_height / native_pixel_size))
     logger.info(
-        f"  [i] Baue Gesamt-Luftbild: {grid_width:.0f}m x {grid_height:.0f}m "
-        f"@ {native_pixel_size}m/px = {canvas_w}x{canvas_h}px nativ -> {target_pixel_size}x{target_pixel_size}px"
+        f"  [i] Building combined aerial photo: {grid_width:.0f}m x {grid_height:.0f}m "
+        f"@ {native_pixel_size}m/px = {canvas_w}x{canvas_h}px native -> {target_pixel_size}x{target_pixel_size}px"
     )
 
     # Füllfarbe für evtl. Lücken (keine Luftbild-Deckung) - gedecktes Grün statt
@@ -391,11 +393,11 @@ def process_aerial_images(aerial_dir, output_dir, grid_bounds, global_offset, ta
             canvas.paste(image, (px, py))
             pasted += 1
         except Exception as e:
-            logger.error(f"  [!] Fehler beim Verarbeiten von {img_name}: {e}")
+            logger.error(f"  [!] Error processing {img_name}: {e}")
             continue
 
     if pasted == 0:
-        logger.error("  [!] Keine Luftbilder konnten platziert werden")
+        logger.error("  [!] No aerial photos could be placed")
         return 0
 
     canvas = canvas.resize((target_pixel_size, target_pixel_size), Image.Resampling.LANCZOS)
@@ -405,7 +407,7 @@ def process_aerial_images(aerial_dir, output_dir, grid_bounds, global_offset, ta
     filepath = output_path / AERIAL_PHOTO_FILENAME
     canvas.save(filepath, "PNG")
 
-    logger.info(f"  [OK] Gesamt-Luftbild aus {pasted} Quellbildern gespeichert: {filepath}")
+    logger.info(f"  [OK] Combined aerial photo from {pasted} source images saved: {filepath}")
     return 1
 
 
@@ -438,7 +440,7 @@ def process_aerial_tiles(aerial_dir, output_dir, photos, global_offset, target_p
 
     images = [(n, d, i) for n, d, i in extract_georeferenced_images(aerial_dir) if i is not None]
     if not images:
-        logger.error("  [!] Keine georeferenzierten Luftbilder gefunden")
+        logger.error("  [!] No georeferenced aerial photos found")
         return 0
 
     offset_x, offset_y = global_offset[:2]
@@ -449,7 +451,7 @@ def process_aerial_tiles(aerial_dir, output_dir, photos, global_offset, target_p
         x_min, x_max, y_min, y_max = photo["bounds"]
         size = (max(1, round((x_max - x_min) / native)), max(1, round((y_max - y_min) / native)))
         canvases.append(Image.new("RGB", size, (70, 95, 55)))  # gedecktes Grün für Lücken
-        logger.info(f"  [i] Baue {photo['name']}: {x_max - x_min:.0f}m x {y_max - y_min:.0f}m @ {native}m/px = {size[0]}x{size[1]}px -> {target_pixel_size}px")
+        logger.info(f"  [i] Building {photo['name']}: {x_max - x_min:.0f}m x {y_max - y_min:.0f}m @ {native}m/px = {size[0]}x{size[1]}px -> {target_pixel_size}px")
 
     for img_name, img_data, world_info in images:
         try:
@@ -471,7 +473,7 @@ def process_aerial_tiles(aerial_dir, output_dir, photos, global_offset, target_p
                     continue  # Quellbild liegt außerhalb dieser Kachel
                 canvas.paste(image, (px, py))  # PIL schneidet an den Rändern ab
         except Exception as e:
-            logger.error(f"  [!] Fehler beim Verarbeiten von {img_name}: {e}")
+            logger.error(f"  [!] Error processing {img_name}: {e}")
 
     Path(output_dir).mkdir(parents=True, exist_ok=True)
     saved = 0
@@ -480,7 +482,7 @@ def process_aerial_tiles(aerial_dir, output_dir, photos, global_offset, target_p
             Path(output_dir) / f"{photo['name']}.png", "PNG"
         )
         saved += 1
-    logger.info(f"  [OK] {saved} Kachel-Luftbilder gespeichert")
+    logger.info(f"  [OK] {saved} tile aerial photos saved")
     return saved
 
 
@@ -534,7 +536,7 @@ def _remove_stale_photos(output_dir, keep_names):
     for path in Path(output_dir).glob("aerial_photo*.png"):
         if re.fullmatch(r"aerial_photo(_\d+)?\.png", path.name) and path.stem not in keep_names:
             path.unlink()
-            logger.info(f"  [i] Veraltetes Luftbild entfernt: {path.name}")
+            logger.info(f"  [i] Removed outdated aerial photo: {path.name}")
 
 
 def ensure_aerial_photos(aerial_dir, output_dir, photos, global_offset, target_pixel_size=None):
@@ -604,26 +606,81 @@ def build_minimap_image(textures_dir, output_path, photos, terrain_bounds_local,
     px_per_m_y = target_pixel_size / height_m
     canvas = Image.new("RGB", (target_pixel_size, target_pixel_size), (70, 95, 55))  # gedecktes Grün für Lücken
 
-    for photo in photos:
-        source_path = Path(textures_dir) / f"{photo['name']}.png"
-        if not source_path.exists():
-            return False
+    source_paths = [Path(textures_dir) / f"{photo['name']}.png" for photo in photos]
+    if not all(path.exists() for path in source_paths):
+        return False
 
+    def load_tile(photo, source_path):
         bx_min, bx_max, by_min, by_max = photo["bounds"]
         tile_w = max(1, round((bx_max - bx_min) * px_per_m_x))
         tile_h = max(1, round((by_max - by_min) * px_per_m_y))
-
+        # reducing_gap: erst ganzzahlig per Box-Filter verkleinern, dann LANCZOS auf die Zielgröße -
+        # ca. 8x schneller als LANCZOS über das volle 8192er Foto, in Minimap-Auflösung gleich scharf
         with Image.open(source_path) as source:
-            tile = source.convert("RGB").resize((tile_w, tile_h), Image.Resampling.LANCZOS)
-
+            tile = source.convert("RGB").resize((tile_w, tile_h), Image.Resampling.LANCZOS, reducing_gap=3.0)
         px = round((bx_min - x_min) * px_per_m_x)
         py = round((y_max - by_max) * px_per_m_y)
-        canvas.paste(tile, (px, py))
+        return tile, (px, py)
+
+    # Das PNG-Dekodieren (ca. 1,4 s je 8192er Foto) gibt den GIL frei - Threads laufen echt parallel.
+    # Höchstens 4 gleichzeitig: jedes dekodierte Foto belegt ca. 200 MB.
+    workers = max(1, min(4, len(photos), os.cpu_count() or 1))
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        for tile, position in executor.map(load_tile, photos, source_paths):
+            canvas.paste(tile, position)
 
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     canvas.save(output_path, "PNG")
     return True
+
+
+MINIMAP_SIGNATURE_FILENAME = "aerial_minimap.json"
+MINIMAP_SIGNATURE_VERSION = 1
+
+
+def minimap_signature(textures_dir, photos, terrain_bounds_local, target_pixel_size=None):
+    """
+    Beschreibt, WORAUS die Minimap gebaut wurde: Fotos (Name + Fläche), Terrain-Fläche, Auflösung und
+    Größe + Änderungszeit jedes Quellfotos - ein neu gebautes Luftbild macht die Minimap damit automatisch veraltet.
+    """
+    if target_pixel_size is None:
+        target_pixel_size = config.MINIMAP_PIXEL_SIZE
+    sources = []
+    for photo in photos:
+        path = Path(textures_dir) / f"{photo['name']}.png"
+        stat = path.stat() if path.exists() else None
+        sources.append([path.name, stat.st_size if stat else None, stat.st_mtime_ns if stat else None])
+    return {
+        "version": MINIMAP_SIGNATURE_VERSION,
+        "photos": [{"name": p["name"], "bounds": [round(float(v), 3) for v in p["bounds"]]} for p in photos],
+        "terrain_bounds": [round(float(v), 3) for v in terrain_bounds_local],
+        "target_pixel_size": int(target_pixel_size),
+        "sources": sources,
+    }
+
+
+def ensure_minimap_image(textures_dir, output_path, photos, terrain_bounds_local, target_pixel_size=None):
+    """
+    Baut die Minimap nur, wenn sie fehlt oder nicht mehr zu Luftbildern/Fläche passt (siehe minimap_signature()).
+    Die Signatur liegt neben aerial_photo.json in textures_dir, nicht im minimap-Ordner des Levels.
+
+    Returns:
+        "current" (passt, nichts zu tun), "built" (neu gebaut) oder "missing" (Quellfoto fehlt)
+    """
+    signature = minimap_signature(textures_dir, photos, terrain_bounds_local, target_pixel_size)
+    signature_file = Path(textures_dir) / MINIMAP_SIGNATURE_FILENAME
+    if Path(output_path).exists() and signature_file.exists():
+        try:
+            if json.loads(signature_file.read_text(encoding="utf-8")) == signature:
+                return "current"
+        except (OSError, ValueError):
+            pass
+
+    if not build_minimap_image(textures_dir, output_path, photos, terrain_bounds_local, target_pixel_size):
+        return "missing"
+    signature_file.write_text(json.dumps(signature, indent=2), encoding="utf-8")
+    return "built"
 
 
 def minimap_info_json_fields(x_min, y_max, size_m, relative_file=None):
@@ -673,12 +730,18 @@ def _load_rgb_photo(source_path: Path, image_cache: Optional[Dict[Path, "Image.I
     config.MAX_POI_SPAWN_POINTS mal für denselben Foto-Kachel) diese Dekodierkosten erneut.
     """
     if image_cache is not None and source_path in image_cache:
-        return image_cache[source_path]
-    with Image.open(source_path) as img:
-        rgb = img.convert("RGB")  # eigenständige, vom Dateihandle unabhängige Kopie
+        cached = image_cache[source_path]
+        # Future: von PoiPreviewBuilder im Hintergrund vorab dekodiert - Fehler kommen hier als OSError an
+        return cached.result() if isinstance(cached, Future) else cached
+    rgb = _decode_rgb_photo(source_path)
     if image_cache is not None:
         image_cache[source_path] = rgb
     return rgb
+
+
+def _decode_rgb_photo(source_path: Path) -> "Image.Image":
+    with Image.open(source_path) as img:
+        return img.convert("RGB")  # eigenständige, vom Dateihandle unabhängige Kopie
 
 
 def build_poi_preview_image(
@@ -699,7 +762,7 @@ def build_poi_preview_image(
         crop_size_m: Kantenlänge (Meter) des Ausschnitts (Default: config.POI_PREVIEW_CROP_SIZE_M)
         target_pixel_size: Kantenlänge (Pixel) des gespeicherten Bilds (Default: config.POI_PREVIEW_PIXEL_SIZE)
         image_cache: optionales Dict {Pfad: bereits dekodiertes RGB-Image}, über mehrere Aufrufe hinweg
-            vom Aufrufer offengehalten (siehe BeamNGExporter._build_poi_preview) - erspart bei mehreren
+            vom Aufrufer offengehalten (siehe PoiPreviewBuilder) - erspart bei mehreren
             POIs auf derselben Foto-Kachel das wiederholte Dekodieren desselben Bildes.
 
     Returns:
@@ -749,6 +812,95 @@ def build_poi_preview_image(
         output_path.parent.mkdir(parents=True, exist_ok=True)
         crop.save(output_path, "JPEG", quality=85)
     except OSError as exc:
-        logger.debug(f"  [POI-Preview] {source_path} übersprungen: {exc}")
+        logger.debug(f"  [POI-Preview] {source_path} skipped: {exc}")
         return False
     return True
+
+
+POI_PREVIEW_SIGNATURE_FILENAME = "aerial_poi_previews.json"
+
+
+class PoiPreviewBuilder:
+    """
+    preview_builder für ItemManager.save(): (object_name, (x, y)) -> Vorschaubild-Pfad relativ zum Level-Root
+    oder None - siehe build_poi_preview_image().
+
+    Ein Vorschaubild wird nur neu geschnitten, wenn es fehlt oder sich Position, Ausschnitt oder das
+    Quellfoto (Größe + Änderungszeit) geändert haben; die Signaturen liegen neben aerial_photo.json in
+    textures_dir. Muss doch geschnitten werden, dekodiert es beim ersten Fehltreffer ALLE Foto-Kacheln
+    parallel im Hintergrund (ca. 1,4 s je 8192er PNG, seriell sonst der Hauptzeitfresser des Schritts).
+
+    Nach dem letzten Aufruf close() aufrufen: gibt die dekodierten Fotos (je ca. 200 MB) frei und
+    schreibt die Signaturen.
+    """
+
+    def __init__(self, textures_dir, level_dir, photos):
+        self.textures_dir = Path(textures_dir)
+        self.level_dir = Path(level_dir)
+        self.photos = photos
+        self.reused = 0
+        self.built = 0
+        self._image_cache: Dict[Path, object] = {}
+        self._executor: Optional[ThreadPoolExecutor] = None
+        self._signature_file = self.textures_dir / POI_PREVIEW_SIGNATURE_FILENAME
+        try:
+            self._previous = json.loads(self._signature_file.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            self._previous = {}
+        self._current: Dict[str, dict] = {}
+
+    def _signature(self, position_xy):
+        photo = _photo_containing(self.photos, position_xy)
+        if photo is None:
+            return None
+        path = self.textures_dir / f"{photo['name']}.png"
+        if not path.exists():
+            return None
+        stat = path.stat()
+        return {
+            "photo": photo["name"],
+            "bounds": [round(float(v), 3) for v in photo["bounds"]],
+            "size": stat.st_size,
+            "mtime_ns": stat.st_mtime_ns,
+            "position": [round(float(v), 2) for v in position_xy[:2]],
+            "crop_size_m": float(config.POI_PREVIEW_CROP_SIZE_M),
+            "pixel_size": int(config.POI_PREVIEW_PIXEL_SIZE),
+        }
+
+    def _prefetch_photos(self):
+        """Alle Foto-Kacheln parallel dekodieren (höchstens 4 gleichzeitig, das Dekodieren gibt den GIL frei)."""
+        if self._executor is not None:
+            return
+        paths = [self.textures_dir / f"{p['name']}.png" for p in self.photos]
+        paths = [p for p in paths if p.exists() and p not in self._image_cache]
+        self._executor = ThreadPoolExecutor(max_workers=max(1, min(4, len(paths), os.cpu_count() or 1)))
+        for path in paths:
+            self._image_cache[path] = self._executor.submit(_decode_rgb_photo, path)
+
+    def __call__(self, object_name: str, position_xy) -> Optional[str]:
+        relative_path = f"{POI_PREVIEW_SUBDIR}/{object_name}.jpg"
+        output_path = self.level_dir / relative_path
+        signature = self._signature(position_xy)
+        if signature is None:
+            return None
+        if output_path.exists() and self._previous.get(object_name) == signature:
+            self._current[object_name] = signature
+            self.reused += 1
+            return relative_path
+
+        self._prefetch_photos()
+        if not build_poi_preview_image(
+            self.textures_dir, output_path, self.photos, position_xy, image_cache=self._image_cache
+        ):
+            return None
+        self._current[object_name] = signature
+        self.built += 1
+        return relative_path
+
+    def close(self):
+        if self._executor is not None:
+            self._executor.shutdown(wait=True, cancel_futures=True)
+            self._executor = None
+        self._image_cache.clear()
+        if self._current != self._previous:
+            self._signature_file.write_text(json.dumps(self._current, indent=2), encoding="utf-8")

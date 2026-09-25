@@ -284,3 +284,67 @@ def test_save_snaps_poi_spawn_spheres_onto_roads(manager, tmp_path):
     sphere = next(json.loads(l) for l in lines.splitlines() if '"spawn_airolo"' in l)
     assert sphere["position"] == pytest.approx([30.0, 0.0, 100.3])
     assert sphere["rotationMatrix"] == pytest.approx(_heading_matrix(1.0, 0.0))
+
+
+def _nearest_road_pose_reference(road_polygons, target_xy, max_distance):
+    """Frühere Version (Schleife je Straße) - Referenz für den vektorisierten _nearest_road_pose()."""
+    import numpy as np
+    from world_to_beamng import config
+
+    target = np.asarray(target_xy, dtype=float)[:2]
+    best, best_dist = None, float(max_distance)
+    for road in road_polygons or []:
+        if road.get("structure_type", "surface") == "tunnel":
+            continue
+        if (road.get("osm_tags") or {}).get("highway") in config.POI_SPAWN_EXCLUDED_HIGHWAYS:
+            continue
+        centerline = road.get("trimmed_centerline")
+        if centerline is None or len(centerline) < 2:
+            continue
+        coords = np.asarray(centerline, dtype=float)
+        starts, ends = coords[:-1], coords[1:]
+        seg = ends[:, :2] - starts[:, :2]
+        seg_len_sq = np.einsum("ij,ij->i", seg, seg)
+        valid = seg_len_sq > 1e-12
+        if not valid.any():
+            continue
+        t = np.zeros(len(seg))
+        t[valid] = np.clip(np.einsum("ij,ij->i", target - starts[valid, :2], seg[valid]) / seg_len_sq[valid], 0.0, 1.0)
+        foot = starts + t[:, None] * (ends - starts)
+        dist = np.hypot(foot[:, 0] - target[0], foot[:, 1] - target[1])
+        dist[~valid] = np.inf
+        i = int(np.argmin(dist))
+        if dist[i] < best_dist:
+            best_dist = float(dist[i])
+            best = (tuple(float(v) for v in foot[i]), tuple(float(v) for v in seg[i] / np.sqrt(seg_len_sq[i])))
+    return best
+
+
+def test_nearest_road_pose_matches_the_per_road_reference_loop():
+    import numpy as np
+
+    rng = np.random.default_rng(7)
+    highways = ["primary", "residential", "footway", "track", "service"]
+    roads = []
+    for k in range(200):
+        n = int(rng.integers(1, 12))
+        points = np.cumsum(rng.normal(0.0, 30.0, size=(n, 3)), axis=0) + rng.uniform(-1500, 1500, size=3)
+        if k % 17 == 0 and n > 2:
+            points[1] = points[0]  # Segment der Länge 0
+        roads.append({
+            "trimmed_centerline": points,
+            "osm_tags": {"highway": highways[k % len(highways)]},
+            "structure_type": "tunnel" if k % 13 == 0 else "surface",
+        })
+    segments = ItemManager._spawn_road_segments(roads)
+
+    for target in rng.uniform(-1800, 1800, size=(300, 2)):
+        expected = _nearest_road_pose_reference(roads, target, 150.0)
+        assert ItemManager._nearest_road_pose(roads, target, 150.0, segments) == expected
+        assert ItemManager._nearest_road_pose(roads, target, 150.0) == expected
+
+
+def test_nearest_road_pose_without_usable_roads_is_none():
+    assert ItemManager._nearest_road_pose([], (0.0, 0.0), 100.0) is None
+    tunnel = {"trimmed_centerline": [[0, 0, 0], [10, 0, 0]], "structure_type": "tunnel"}
+    assert ItemManager._nearest_road_pose([tunnel], (0.0, 0.0), 100.0) is None

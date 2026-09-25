@@ -12,7 +12,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import numpy as np
 from PIL import Image
 
-from world_to_beamng.io.aerial import build_minimap_image, minimap_info_json_fields
+import os
+
+from world_to_beamng.io.aerial import build_minimap_image, ensure_minimap_image, minimap_info_json_fields
 
 RED, BLUE, GREEN = (250, 20, 20), (20, 20, 250), (20, 250, 20)
 
@@ -100,3 +102,55 @@ def test_minimap_info_json_fields_accepts_a_custom_file_path():
     fields = minimap_info_json_fields(x_min=0.0, y_max=0.0, size_m=100.0, relative_file="mini/custom.png")
 
     assert fields["minimap"][0]["file"] == "mini/custom.png"
+
+
+def _ensure(textures, out):
+    photos = [{"name": "aerial_photo", "bounds": (0.0, 40.0, 0.0, 40.0)}]
+    return ensure_minimap_image(textures, out, photos, (0.0, 40.0, 0.0, 40.0), target_pixel_size=16)
+
+
+def test_ensure_minimap_reuses_a_current_minimap(tmp_path):
+    textures = tmp_path / "textures"
+    textures.mkdir()
+    _photo(textures, "aerial_photo", RED)
+    out = tmp_path / "minimap.png"
+
+    assert _ensure(textures, out) == "built"
+    stamp = out.stat().st_mtime_ns
+    assert _ensure(textures, out) == "current"
+    assert out.stat().st_mtime_ns == stamp
+
+
+def test_ensure_minimap_rebuilds_after_the_aerial_photo_changed(tmp_path):
+    textures = tmp_path / "textures"
+    textures.mkdir()
+    _photo(textures, "aerial_photo", RED)
+    out = tmp_path / "minimap.png"
+    assert _ensure(textures, out) == "built"
+
+    _photo(textures, "aerial_photo", BLUE)
+    source = textures / "aerial_photo.png"
+    os.utime(source, ns=(source.stat().st_atime_ns, source.stat().st_mtime_ns + 10**9))  # sicher neuere mtime
+
+    assert _ensure(textures, out) == "built"
+    assert _dominant(out)[0] == "blue"
+
+
+def test_ensure_minimap_rebuilds_when_the_minimap_file_is_gone(tmp_path):
+    textures = tmp_path / "textures"
+    textures.mkdir()
+    _photo(textures, "aerial_photo", RED)
+    out = tmp_path / "minimap.png"
+    assert _ensure(textures, out) == "built"
+
+    out.unlink()
+
+    assert _ensure(textures, out) == "built"
+    assert out.exists()
+
+
+def test_ensure_minimap_reports_a_missing_source_photo(tmp_path):
+    textures = tmp_path / "textures"
+    textures.mkdir()
+
+    assert _ensure(textures, tmp_path / "minimap.png") == "missing"

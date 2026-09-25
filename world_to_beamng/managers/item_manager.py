@@ -89,7 +89,7 @@ class ItemManager:
     # Ausdehnung über set_info_json_fields(), siehe export/beamng_exporter.py und io/aerial.py).
     LEVEL_INFO = {
         "title": "World to BeamNG",
-        "description": "Automatischer Export von OpenStreetmap-Elementen in das BeamNG.drive-Format.",
+        "description": "Automatic export of OpenStreetMap elements into the BeamNG.drive format.",
         "levelName": "world_to_beamng",
         "previews": ["preview.jpg"],
         "size": [2000, 2000],
@@ -112,7 +112,7 @@ class ItemManager:
             beamng_dir: Pfad zum BeamNG Level-Verzeichnis
         """
         if ItemManager._instance is not None:
-            raise RuntimeError("ItemManager ist ein Singleton - verwende get_instance()")
+            raise RuntimeError("ItemManager is a singleton - use get_instance()")
 
         self.beamng_dir = beamng_dir
         self.items: Dict[str, Dict[str, Any]] = {}
@@ -159,7 +159,7 @@ class ItemManager:
             if line.get("name") == name:
                 line.update(fields)
                 return
-        raise KeyError(f"Kein Basis-Objekt '{name}'")
+        raise KeyError(f"No base object '{name}'")
 
     def add_item(
         self,
@@ -192,7 +192,7 @@ class ItemManager:
             True wenn Item hinzugefügt wurde, False wenn bereits vorhanden und overwrite=False
         """
         if "rotation" in kwargs:
-            raise TypeError('Feld "rotation" nicht verwenden: BeamNG kippt damit das Objekt, Ausrichtung nur über rotation_matrix')
+            raise TypeError('Do not use the field "rotation": BeamNG tilts the object with it, orientation only via rotation_matrix')
         if name in self.items and not overwrite:
             return False
 
@@ -470,24 +470,20 @@ class ItemManager:
         # Fahrzeug nicht in der Fahrbahn feststeckt.
         position = [float(best_point[0]), float(best_point[1]), float(best_point[2]) + 0.3]
 
-        logger.info(f"  [OK] Fahrzeug-Spawn auf nächster Straße zur Gebietsmitte: {position}")
+        logger.info(f"  [OK] Vehicle spawn on the road nearest to the area center: {position}")
         return position, rotation_matrix
 
     @staticmethod
-    def _nearest_road_pose(road_polygons, target_xy, max_distance: float):
+    def _spawn_road_segments(road_polygons):
         """
-        Nächster Punkt auf einer befahrbaren Straßen-Centerline zu `target_xy` (Lotfußpunkt auf das Segment, Höhe
-        linear entlang des Segments) und die Richtung dieses Segments als Einheitsvektor - oder None, wenn keine
-        Straße höchstens max_distance entfernt liegt. Tunnel (structure_type) und Wege ohne Autoverkehr
-        (config.POI_SPAWN_EXCLUDED_HIGHWAYS) zählen nicht.
-
-        Returns:
-            ((x, y, z), (dx, dy)) oder None
+        Alle Centerline-Segmente befahrbarer Straßen als Arrays (starts, ends) mit je (M, 3) - einmal gebaut, damit
+        _nearest_road_pose() je POI nur noch eine vektorisierte Abfrage statt einer Schleife über alle Straßen braucht.
+        Tunnel (structure_type) und Wege ohne Autoverkehr (config.POI_SPAWN_EXCLUDED_HIGHWAYS) zählen nicht,
+        Segmente der Länge 0 entfallen. Reihenfolge = Straßen-Reihenfolge (bei gleichem Abstand gewinnt die erste).
         """
         import numpy as np
 
-        target = np.asarray(target_xy, dtype=float)[:2]
-        best, best_dist = None, float(max_distance)
+        starts, ends = [], []
         for road in road_polygons or []:
             if road.get("structure_type", "surface") == "tunnel":
                 continue
@@ -497,22 +493,45 @@ class ItemManager:
             if centerline is None or len(centerline) < 2:
                 continue
             coords = np.asarray(centerline, dtype=float)
-            starts, ends = coords[:-1], coords[1:]
-            seg = ends[:, :2] - starts[:, :2]
-            seg_len_sq = np.einsum("ij,ij->i", seg, seg)
-            valid = seg_len_sq > 1e-12
-            if not valid.any():
-                continue
-            t = np.zeros(len(seg))
-            t[valid] = np.clip(np.einsum("ij,ij->i", target - starts[valid, :2], seg[valid]) / seg_len_sq[valid], 0.0, 1.0)
-            foot = starts + t[:, None] * (ends - starts)
-            dist = np.hypot(foot[:, 0] - target[0], foot[:, 1] - target[1])
-            dist[~valid] = np.inf
-            i = int(np.argmin(dist))
-            if dist[i] < best_dist:
-                best_dist = float(dist[i])
-                best = (tuple(float(v) for v in foot[i]), tuple(float(v) for v in seg[i] / np.sqrt(seg_len_sq[i])))
-        return best
+            starts.append(coords[:-1])
+            ends.append(coords[1:])
+        if not starts:
+            return np.empty((0, 3)), np.empty((0, 3))
+        starts, ends = np.concatenate(starts), np.concatenate(ends)
+        seg = ends[:, :2] - starts[:, :2]
+        valid = np.einsum("ij,ij->i", seg, seg) > 1e-12
+        return starts[valid], ends[valid]
+
+    @staticmethod
+    def _nearest_road_pose(road_polygons, target_xy, max_distance: float, segments=None):
+        """
+        Nächster Punkt auf einer befahrbaren Straßen-Centerline zu `target_xy` (Lotfußpunkt auf das Segment, Höhe
+        linear entlang des Segments) und die Richtung dieses Segments als Einheitsvektor - oder None, wenn keine
+        Straße höchstens max_distance entfernt liegt. Tunnel (structure_type) und Wege ohne Autoverkehr
+        (config.POI_SPAWN_EXCLUDED_HIGHWAYS) zählen nicht.
+
+        Args:
+            segments: optional vorab gebautes (starts, ends) aus _spawn_road_segments(road_polygons) - bei
+                vielen Abfragen auf dasselbe Straßennetz; sonst wird es hier gebaut
+
+        Returns:
+            ((x, y, z), (dx, dy)) oder None
+        """
+        import numpy as np
+
+        starts, ends = segments if segments is not None else ItemManager._spawn_road_segments(road_polygons)
+        if len(starts) == 0:
+            return None
+        target = np.asarray(target_xy, dtype=float)[:2]
+        seg = ends[:, :2] - starts[:, :2]
+        seg_len_sq = np.einsum("ij,ij->i", seg, seg)
+        t = np.clip(np.einsum("ij,ij->i", target - starts[:, :2], seg) / seg_len_sq, 0.0, 1.0)
+        foot = starts + t[:, None] * (ends - starts)
+        dist = np.hypot(foot[:, 0] - target[0], foot[:, 1] - target[1])
+        i = int(np.argmin(dist))
+        if not dist[i] < float(max_distance):
+            return None
+        return tuple(float(v) for v in foot[i]), tuple(float(v) for v in seg[i] / np.sqrt(seg_len_sq[i]))
 
     @staticmethod
     def _heading_rotation_matrix(dx: float, dy: float) -> list:
@@ -576,7 +595,7 @@ class ItemManager:
         if not poi_points:
             return []
         if not road_polygons:
-            logger.info("  [i] Keine Straßendaten - keine Orts-/Parkplatz-Spawns")
+            logger.info("  [i] No road data - no place/parking spawns")
             return []
 
         kind_priority = {"place": 0, "parking": 1}
@@ -584,13 +603,14 @@ class ItemManager:
 
         # Spawn-Pose je POI: auf der nächsten Straße, oder POI weglassen, wenn keine in Reichweite liegt
         candidates = []  # (poi, ((x, y, z), (dx, dy)))
+        segments = self._spawn_road_segments(road_polygons)
         for poi in ranked:
             if len(candidates) >= max_points:
                 break
             x, y, _ = (float(v) for v in poi["position"])
-            pose = self._nearest_road_pose(road_polygons, (x, y), config.POI_SPAWN_MAX_ROAD_DISTANCE)
+            pose = self._nearest_road_pose(road_polygons, (x, y), config.POI_SPAWN_MAX_ROAD_DISTANCE, segments)
             if pose is None:
-                logger.info(f"  [i] Spawn '{poi['name']}' entfällt: keine Straße im Umkreis von {config.POI_SPAWN_MAX_ROAD_DISTANCE:.0f} m")
+                logger.info(f"  [i] Spawn '{poi['name']}' dropped: no road within {config.POI_SPAWN_MAX_ROAD_DISTANCE:.0f} m")
                 continue
             candidates.append((poi, pose))
 
@@ -804,11 +824,11 @@ class ItemManager:
         if preview_src.exists():
             try:
                 shutil.copy2(preview_src, preview_dst)
-                logger.info(f"  [OK] Preview-Bild kopiert: {preview_dst}")
+                logger.info(f"  [OK] Preview image copied: {preview_dst}")
             except Exception as e:
-                logger.info(f"  [WARNUNG] Preview-Bild konnte nicht kopiert werden: {e}")
+                logger.info(f"  [WARNING] Preview image could not be copied: {e}")
         else:
-            logger.info(f"  [INFO] Keine Preview-Datei gefunden: {preview_src}")
+            logger.info(f"  [INFO] No preview file found: {preview_src}")
 
     def load(self, filepath: Optional[Path] = None) -> None:
         """

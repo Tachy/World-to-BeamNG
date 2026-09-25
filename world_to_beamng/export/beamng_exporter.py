@@ -4,7 +4,7 @@ Zentrale BeamNG-Exporter-Fassade.
 Bietet eine einheitliche API für den gesamten Export-Workflow.
 """
 
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Tuple
 from pathlib import Path
 import json
 
@@ -60,7 +60,7 @@ class BeamNGExporter:
             lodScale=1.0,
             overwrite=True,
         )
-        logger.debug("✓ Forest-Objekt registriert in ItemManager")
+        logger.debug("✓ Forest object registered in ItemManager")
 
         self.dae = DAEExporter(material_manager=self.materials)  # Übergebe MaterialManager-Referenz
 
@@ -103,10 +103,6 @@ class BeamNGExporter:
         self.aerial_photos = None
         self.aerial_photo_status = "none"
 
-        # Dekodierte Luftbilder für _build_poi_preview() - siehe io/aerial.py::build_poi_preview_image()
-        # Docstring: erspart bei mehreren POIs auf derselben Foto-Kachel das wiederholte Dekodieren.
-        self._poi_preview_photo_cache: dict = {}
-
     def export_complete_level(
         self,
         tiles: List[Dict],
@@ -140,7 +136,7 @@ class BeamNGExporter:
 
         forests_enabled = include_forests and config.FORESTS_ENABLED
         if include_forests and not config.FORESTS_ENABLED:
-            logger.info("Forest-Export in Config deaktiviert (config.FORESTS_ENABLED=False)")
+            logger.info("Forest export disabled in config (config.FORESTS_ENABLED=False)")
 
         # Kombinierter Hash über alle Kacheln - dieselbe Cache-Identität wie in
         # terrain_workflow.py::process_tile() (OSM/Elevation/Grid), hier zusätzlich für den
@@ -164,7 +160,7 @@ class BeamNGExporter:
         # bricht der Export hier ab (MissingTexturesError) - vor dem rechenintensiven Teil
         from ..textures import registry
 
-        with self.pipeline.task("Texturen") as task:
+        with self.pipeline.task("Textures") as task:
             registry.prepare_textures()
             task.done()
 
@@ -172,7 +168,7 @@ class BeamNGExporter:
         registered_trees = {}
         vineyard_assets_ready = False
         if forests_enabled:
-            with self.pipeline.task("Forest-Assets") as task:
+            with self.pipeline.task("Forest assets") as task:
                 # Reben-Assets für Weinberge sicherstellen (idempotent) - VOR dem Laden von
                 # managedItemData.json, damit die Reben als Forest-Items registriert sind.
                 if config.VINEYARDS_ENABLED:
@@ -180,7 +176,7 @@ class BeamNGExporter:
                         ensure_vineyard_assets(config.BEAMNG_DIR, get_beamng_install_dir(), config.LEVEL_NAME)
                         vineyard_assets_ready = True
                     except Exception as e:
-                        logger.warning(f"Reben-Assets nicht verfügbar - Weinberge bleiben ohne Reben: {e}")
+                        logger.warning(f"Vine assets not available - vineyards stay without vines: {e}")
 
                 # Lade managedItemData.json (wird von generate_forest_assets.py erzeugt)
                 forest_item_data_path = config.BEAMNG_DIR / "art" / "forest" / "managedItemData.json"
@@ -205,11 +201,11 @@ class BeamNGExporter:
                             }
 
                     except Exception as e:
-                        logger.error(f"Fehler beim Laden von managedItemData.json: {e}")
+                        logger.error(f"Error loading managedItemData.json: {e}")
                         registered_trees = {}
                 else:
-                    logger.warning(f"managedItemData.json nicht gefunden: {forest_item_data_path}")
-                    logger.warning("  Bitte führen Sie zuerst aus: python tools/generate_forest_assets.py")
+                    logger.warning(f"managedItemData.json not found: {forest_item_data_path}")
+                    logger.warning("  Please run first: python tools/generate_forest_assets.py")
 
                 stats["forests_registered"] = len(registered_trees)
 
@@ -220,7 +216,7 @@ class BeamNGExporter:
                         osm_mapper=config.OSM_MAPPER,
                         registered_trees=registered_trees,
                     )
-                task.done(f"{len(registered_trees)} Tree-Items")
+                task.done(f"{len(registered_trees)} tree items")
         else:
             self.pipeline.skip("Forest-Assets", "FORESTS_ENABLED=False")
 
@@ -277,17 +273,17 @@ class BeamNGExporter:
         # Die Fotos werden neu gebaut, sobald Fläche, Ursprung, Auflösung, Kachelaufteilung oder Quellbilder nicht
         # mehr zu den vorhandenen passen (z.B. Umstellung von einer auf vier DGM1-Kacheln) - nicht nur, wenn sie fehlen.
         status = "none"  # Fallback, falls ensure_aerial_photos() unten eine Ausnahme wirft (siehe Minimap-Schritt weiter unten)
-        with self.pipeline.task("Luftbild") as task:
+        with self.pipeline.task("Aerial photo") as task:
             try:
                 status = ensure_aerial_photos(
                     aerial_dir=aerial_dir, output_dir=textures_dir, photos=photos, global_offset=global_offset
                 )
                 if status == "current":
-                    task.done(f"{len(photos)} Luftbild(er) passen zur Fläche - übernommen")
+                    task.done(f"{len(photos)} aerial photo(s) match the area - reused")
                 elif status == "built":
-                    task.done(f"{len(photos)} Luftbild(er) neu gebaut")
+                    task.done(f"{len(photos)} aerial photo(s) rebuilt")
                 elif status == "failed":
-                    task.fail("Luftbild konnte nicht gebaut werden")
+                    task.fail("Aerial photo could not be built")
             except Exception as e:
                 task.fail(str(e))
 
@@ -300,12 +296,12 @@ class BeamNGExporter:
         # Fläche verarbeiten (ein Grid, ein Straßennetz, ein Junction-Pass).
         # Clipping findet nur noch am Außenrand der Gesamtfläche statt, nicht
         # mehr an den früheren DGM1-Kachelgrenzen (siehe process_tile()-Docstring).
-        with self.pipeline.task("Terrain + Straßen") as task:
+        with self.pipeline.task("Terrain + roads") as task:
             result = self.terrain.process_tile(tiles=tiles, global_offset=global_offset[:2], bbox_margin=50.0, task=task)
 
             if result["status"] != "success":
                 stats["tiles_failed"] = len(tiles)
-                task.fail(f"Terrain-Verarbeitung fehlgeschlagen: {result.get('reason')}")
+                task.fail(f"Terrain processing failed: {result.get('reason')}")
             else:
                 stats["tiles_processed"] = len(tiles)
 
@@ -320,18 +316,23 @@ class BeamNGExporter:
                 # BigMap-Vorschaubild aus den bereits gebauten Luftbild-PNGs (nur wenn welche gebaut/aktuell sind -
                 # ohne Luftbild macht ein Minimap-Bild keinen Sinn, siehe io/aerial.py::build_minimap_image()).
                 if config.MINIMAP_ENABLED and status in ("current", "built"):
-                    from ..io.aerial import MINIMAP_FILENAME, MINIMAP_SUBDIR, build_minimap_image, minimap_info_json_fields
+                    from ..io.aerial import MINIMAP_FILENAME, MINIMAP_SUBDIR, ensure_minimap_image, minimap_info_json_fields
 
                     with task.subtask("Minimap") as sub:
                         x_min, x_max, y_min, y_max = combined_grid_bounds_local
                         minimap_path = config.BEAMNG_DIR / MINIMAP_SUBDIR / MINIMAP_FILENAME
-                        if build_minimap_image(textures_dir, minimap_path, photos, combined_grid_bounds_local):
+                        minimap_status = ensure_minimap_image(textures_dir, minimap_path, photos, combined_grid_bounds_local)
+                        if minimap_status != "missing":
                             self.items.set_info_json_fields(**minimap_info_json_fields(x_min, y_max, x_max - x_min))
-                            logger.info(f"[OK] Minimap gespeichert: {minimap_path}")
-                            sub.finish(minimap_path.name)
+                            if minimap_status == "current":
+                                logger.info(f"[OK] Minimap matches the aerial photo - reused: {minimap_path}")
+                                sub.finish(f"{minimap_path.name} reused")
+                            else:
+                                logger.info(f"[OK] Minimap saved: {minimap_path}")
+                                sub.finish(minimap_path.name)
                         else:
-                            logger.info("[i] Minimap übersprungen (Quellfoto fehlt)")
-                            sub.warn("Quellfoto fehlt")
+                            logger.info("[i] Minimap skipped (source photo missing)")
+                            sub.warn("source photo missing")
 
                 # Höhenabfrage der fertigen Heightmap: der Horizont bekommt daraus sein Terrain-Loch
                 # samt Randhöhen (kein Terrain-Mesh mehr, das vernäht werden könnte)
@@ -354,7 +355,7 @@ class BeamNGExporter:
 
                 # Phase 1b: Forest Processing (für die Gesamtfläche, nicht mehr pro Kachel)
                 if forests_enabled:
-                    with task.subtask("Forest-Platzierung") as sub:
+                    with task.subtask("Forest placement") as sub:
                         forest_result = self.forests.process_tile(
                             tile_bounds=(x_min, y_min, x_max, y_max),
                             tile_name="combined_area",
@@ -380,7 +381,7 @@ class BeamNGExporter:
                             vine_segments = self.forests.add_instances(result["vineyard_instances"])
                             stats["vine_segments"] += vine_segments
 
-                        sub.finish(f"{forest_result.get('tree_count', 0)} Bäume, {vine_segments} Rebzeilen-Segmente")
+                        sub.finish(f"{forest_result.get('tree_count', 0)} trees, {vine_segments} vine row segments")
 
                 # Sammle Gebäude-Daten (werden später gruppiert nach Tiles exportiert)
                 if include_buildings and result.get("buildings_data"):
@@ -388,7 +389,7 @@ class BeamNGExporter:
 
         # Phase 2: Buildings (nach Terrain-Export, wie im alten multitile.py)
         if include_buildings and all_buildings:
-            with self.pipeline.task("Gebäude exportieren") as task:
+            with self.pipeline.task("Export buildings") as task:
                 # Gebäude: EIN Objekt auf der Gesamtfläche (wie die Straßen) oder - wenn abgeschaltet - je 500-m-Kachel
                 from ..workflow.building_workflow import plan_building_shapes, remove_stale_building_daes
 
@@ -413,15 +414,15 @@ class BeamNGExporter:
                 # Materials exportieren
                 # Füge LoD2-Materialien zu gemeinsamen Materials hinzu (NICHT separat exportieren!)
                 self._add_lod2_materials()
-                task.done(f"{stats['buildings_exported']} Gebäude")
+                task.done(f"{stats['buildings_exported']} buildings")
         elif not include_buildings:
-            self.pipeline.skip("Gebäude exportieren", "LOD2_ENABLED=False")
+            self.pipeline.skip("Export buildings", "LOD2_ENABLED=False")
         else:
-            self.pipeline.skip("Gebäude exportieren", "keine Gebäudedaten gefunden")
+            self.pipeline.skip("Export buildings", "no building data found")
 
         # Phase 3: Horizon-Layer (optional)
         if include_horizon:
-            with self.pipeline.task("Horizont exportieren") as task:
+            with self.pipeline.task("Export horizon") as task:
                 horizon_dae = self.horizon.generate_horizon(
                     global_offset=global_offset,
                     tile_hash=tile_hash,
@@ -434,12 +435,12 @@ class BeamNGExporter:
                     task.done(Path(horizon_dae).name)
                 else:
                     # deckungsgleich mit der Warnung in horizon_workflow.py::generate_horizon()
-                    task.warn("DGM30-Daten nicht gefunden - kein Horizont erzeugt")
+                    task.warn("DGM30 data not found - no horizon created")
         else:
             self.pipeline.skip("Horizont exportieren", "PHASE5_ENABLED=False")
 
         # Phase 4: Finalisierung
-        with self.pipeline.task("Finalisierung") as task:
+        with self.pipeline.task("Finalization") as task:
             self._finalize_export(forests_enabled, task=task)
             task.done()
 
@@ -519,24 +520,6 @@ class BeamNGExporter:
             ROOF_TRIM_MATERIAL, **untextured(OSM_MAPPER.get_building_properties("roof_trim")), **hints("roof")
         )
 
-    def _build_poi_preview(self, object_name: str, position_xy: Tuple[float, float]) -> Optional[str]:
-        """
-        preview_builder für ItemManager._compute_poi_spawn_points(): Draufsicht-Ausschnitt aus dem
-        bereits gebauten Luftbild, POI mittig - siehe io/aerial.py::build_poi_preview_image().
-
-        Returns:
-            Pfad relativ zum Level-Root (info.json spawnPoints[].preview) oder None bei Fehlschlag
-        """
-        from ..io.aerial import POI_PREVIEW_SUBDIR, build_poi_preview_image
-
-        relative_path = f"{POI_PREVIEW_SUBDIR}/{object_name}.jpg"
-        output_path = config.BEAMNG_DIR / relative_path
-        ok = build_poi_preview_image(
-            config.BEAMNG_DIR_TEXTURES, output_path, self.aerial_photos, position_xy,
-            image_cache=self._poi_preview_photo_cache,
-        )
-        return relative_path if ok else None
-
     def _finalize_export(self, include_forests: bool = False, task=None):
         """Finalisiere Export: Speichere Materials/Items/Forest JSON und Debug-Daten (je Schritt eine Teilaufgabe)."""
         # Materials (nutze config.MATERIALS_JSON)
@@ -547,13 +530,26 @@ class BeamNGExporter:
 
         # Items inkl. automatischer Fahrzeug-Spawn-Position (nächste Straße zur Gebietsmitte) und POI-
         # Spawn-Punkten (Orte, große Parkplätze) samt Vorschaubild aus dem bereits gebauten Luftbild.
-        with optional_subtask(task, "Items + Spawn-Punkte"):
-            self.items.save(
-                road_polygons=self.road_polygons,
-                poi_points=self.poi_points,
-                preview_builder=self._build_poi_preview if self.aerial_photo_status in ("current", "built") else None,
-                fixed_spawns=self.tunnel_spawns,
-            )
+        with optional_subtask(task, "Items + spawn points"):
+            # Vorschaubilder: Draufsicht-Ausschnitt aus dem bereits gebauten Luftbild, POI mittig - unveränderte
+            # werden übernommen (siehe io/aerial.py::PoiPreviewBuilder)
+            preview_builder = None
+            if self.aerial_photo_status in ("current", "built"):
+                from ..io.aerial import PoiPreviewBuilder
+
+                preview_builder = PoiPreviewBuilder(config.BEAMNG_DIR_TEXTURES, config.BEAMNG_DIR, self.aerial_photos)
+            try:
+                self.items.save(
+                    road_polygons=self.road_polygons,
+                    poi_points=self.poi_points,
+                    preview_builder=preview_builder,
+                    fixed_spawns=self.tunnel_spawns,
+                )
+            finally:
+                if preview_builder is not None:
+                    preview_builder.close()
+            if preview_builder is not None:
+                logger.info(f"[✓] Spawn previews: {preview_builder.built} new, {preview_builder.reused} reused")
             items_path = config.BEAMNG_DIR / config.ITEMS_JSON
             logger.info(f"[✓] Items: {items_path.name}")
 
@@ -573,9 +569,9 @@ class BeamNGExporter:
                     # zweite, redundante Zusammenfassung.
                     pass
                 elif forest_result["status"] == "no_forests":
-                    logger.info("Keine Wälder generiert")
+                    logger.info("No forests generated")
                 else:
-                    logger.error(f"Forest-Export fehlgeschlagen: {forest_result.get('error')}")
+                    logger.error(f"Forest export failed: {forest_result.get('error')}")
 
         # main.level.json ist NICHT nötig - BeamNG lädt automatisch main/items.level.json
 
