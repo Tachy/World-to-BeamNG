@@ -131,6 +131,19 @@ def tile_sample_range(coords: np.ndarray, lower: float, upper: float, spacing: f
     return np.flatnonzero((coords > lower - spacing) & (coords <= upper))
 
 
+def height_grid_normals(x: np.ndarray, y: np.ndarray, z: np.ndarray) -> np.ndarray:
+    """
+    Unit vertex normals (ny, nx, 3) of a height grid z[row, col] at (x[col], y[row]) from its slopes.
+
+    Much cheaper than letting VTK average the face normals of millions of triangles; the result is the same
+    smooth shading for a regular grid.
+    """
+    dz_dy, dz_dx = np.gradient(np.asarray(z, dtype=np.float32), np.asarray(y, dtype=np.float32), np.asarray(x, dtype=np.float32))
+    normals = np.stack([-dz_dx, -dz_dy, np.ones_like(dz_dx)], axis=-1)
+    normals /= np.linalg.norm(normals, axis=-1, keepdims=True)
+    return normals
+
+
 def grid_surface(x: np.ndarray, y: np.ndarray, z: np.ndarray, hole: Optional[np.ndarray] = None) -> Tuple[np.ndarray, np.ndarray]:
     """
     Quad mesh of a height grid: z[row, col] at (x[col], y[row]); point index = row * nx + col.

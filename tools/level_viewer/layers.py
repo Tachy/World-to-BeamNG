@@ -193,15 +193,19 @@ class TerrainLayer(Layer):
         if len(x) < 2 or len(y) < 2:
             return None
         # float32 is plenty for level-local coordinates (+-4 km, mm precision) and halves the memory
+        z = grid.z[row_slice, col_slice]
         xx, yy = np.meshgrid(x.astype(np.float32), y.astype(np.float32))
-        mesh = pv.StructuredGrid(xx, yy, grid.z[row_slice, col_slice].astype(np.float32))
+        mesh = pv.StructuredGrid(xx, yy, z.astype(np.float32))
+        # Point order of the structured grid is VTK's; map every point back to its sample via its coordinates
+        # (exact lookups: the grid points are the same float32 values as x/y)
+        cols = np.searchsorted(x.astype(np.float32), mesh.points[:, 0]).clip(0, len(x) - 1)
+        rows = np.searchsorted(y.astype(np.float32), mesh.points[:, 1]).clip(0, len(y) - 1)
+        # Vertex normals from the slopes -> smooth (Gouraud) shading instead of one flat shade per terrain quad
+        mesh.point_data["Normals"] = geo.height_grid_normals(x, y, z)[rows, cols]
+        mesh.point_data.active_normals_name = "Normals"
         hole = grid.hole[row_slice, col_slice]
         if hole.any():
-            # Point order of the structured grid is VTK's; map every point back to its sample via its coordinates
-            # (exact lookups: the grid points are the same float32 values as x/y)
-            cols = np.searchsorted(x.astype(np.float32), mesh.points[:, 0])
-            rows = np.searchsorted(y.astype(np.float32), mesh.points[:, 1])
-            mesh.point_data["hole"] = hole[rows.clip(0, len(y) - 1), cols.clip(0, len(x) - 1)].astype(np.float32)
+            mesh.point_data["hole"] = hole[rows, cols].astype(np.float32)
             cell_hole = mesh.point_data_to_cell_data(pass_point_data=True).cell_data["hole"] > 0
             mesh.hide_cells(np.flatnonzero(cell_hole), inplace=True)
         # Surface once as PolyData: the photo and the elevation actor then share it (a structured grid would be
@@ -223,6 +227,7 @@ class TerrainLayer(Layer):
             self.grids.append(mesh)
             actor = self.add(plotter, mesh, texture=texture)
             if actor is not None:
+                actor.prop.interpolation = "gouraud"  # use the vertex normals (smooth shading)
                 self.photo_actors.append(actor)
         if not self.grids:
             mesh = self._grid()
@@ -268,6 +273,7 @@ class TerrainLayer(Layer):
             mesh.point_data["elevation"] = mesh.points[:, 2]
             actor = self.add(plotter, mesh, scalars="elevation", cmap="gist_earth", clim=clim, show_scalar_bar=False)
             if actor is not None:
+                actor.prop.interpolation = "gouraud"
                 self.elevation_actors.append(actor)
 
     def ensure(self, plotter):

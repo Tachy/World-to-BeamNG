@@ -11,6 +11,7 @@ import pytest
 from tools.level_viewer.geometry import (
     forward_direction,
     heading_deg,
+    height_grid_normals,
     merge_meshes,
     oriented_box,
     ribbon,
@@ -98,3 +99,15 @@ def test_neighbouring_photo_tiles_share_exactly_one_sample_even_off_grid():
     assert west[-1] == east[0]  # shared seam sample -> no gap between the two surfaces
     assert np.union1d(west, east).tolist() == list(range(len(samples)))
     assert tile_sample_range(np.arange(0.0, 21.0, 1.0), 0.0, 10.0, 1.0).tolist() == list(range(11))  # on-grid bounds
+
+
+def test_height_grid_normals_of_a_tilted_plane():
+    x = np.arange(0.0, 5.0)
+    y = np.arange(0.0, 4.0)
+    z = 0.5 * x[None, :] + 0.0 * y[:, None]  # rises toward +x
+
+    normals = height_grid_normals(x, y, z)
+
+    expected = np.array([-0.5, 0.0, 1.0]) / np.sqrt(1.25)
+    assert normals.shape == (4, 5, 3)
+    assert np.allclose(normals.reshape(-1, 3), expected, atol=1e-6)
