@@ -86,7 +86,7 @@ ZIP) works too, under any file name, and is always resampled to `GRID_SPACING` r
 the same applies to any georeferenced orthophoto (embedded GeoTIFF tags or a `.tfw` world file) under `data/satellite/`.
 See "Using data from other regions" below.
 
-Without DGM1 the export aborts ("Keine DGM1-Kacheln gefunden" – no DGM1/GeoTIFF tiles found). If the aerial photo is
+Without DGM1 the export aborts ("no DGM1 tiles found"). If the aerial photo is
 missing, the export reports an error in the log.
 
 ### Optional
@@ -216,19 +216,17 @@ about one minute. The first run takes longer because OSM is downloaded and the c
 
 ## 🐛 Troubleshooting
 
-The program's messages are in German; they are quoted as they appear, followed by a translation.
-
 | Message / symptom | Cause and solution |
 |---|---|
-| `Keine DGM1-Kacheln gefunden` (no DGM1 tiles found) | `data/height/` is missing, empty, or contains no readable ZIPs/GeoTIFFs (a GeoTIFF without a coordinate system is skipped with a warning) |
-| `texconv.exe nicht gefunden` (texconv.exe not found) | `setup_project.py` has not run; or put the file manually at `bin\texconv.exe` |
-| `BeamNG.drive.ini nicht gefunden` (BeamNG.drive.ini not found) | BeamNG.drive has never been started |
-| `managedItemData.json nicht gefunden` (not found) | run `tools\generate_forest_assets.py` once |
+| `no DGM1 tiles found` | `data/height/` is missing, empty, or contains no readable ZIPs/GeoTIFFs (a GeoTIFF without a coordinate system is skipped with a warning) |
+| `texconv.exe not found` | `setup_project.py` has not run; or put the file manually at `bin\texconv.exe` |
+| `BeamNG.drive.ini not found` | BeamNG.drive has never been started |
+| `managedItemData.json not found` | run `tools\generate_forest_assets.py` once |
 | Roads or roofs with "no Texture" | run `tools\vendor_shared_textures.py` once |
 | Level does not appear in BeamNG | check whether `%LOCALAPPDATA%\BeamNG\BeamNG.drive\current\levels\world_to_beamng` was created; otherwise adjust `BEAMNG_DIR` in `config.py` |
-| `DGM30-Dateien decken die Horizont-Fläche … nicht ab` (DGM30 files do not cover the horizon area) | a tile the auto-download couldn't get (e.g. no internet for that request) — retries automatically on the next run, or place the tile for the named compass direction into `cache/dgm30/` by hand (see "Horizon" above) |
-| `Keine DGM30-Dateien` (no DGM30 files) | `cache/dgm30/` is empty and the auto-download hasn't run yet or failed entirely; the horizon is skipped otherwise |
-| `DGM30-Auto-Download fehlgeschlagen` (DGM30 auto-download failed) / Sentinel-2 auto-download not working, no internet | the auto-download logs a warning and falls back to the existing skip behaviour (horizon skipped / horizon without texture) — it never aborts the whole export; it retries on the next run once the network is back |
+| `The DGM30 files do not cover the horizon area …` | a tile the auto-download couldn't get (e.g. no internet for that request) — retries automatically on the next run, or place the tile for the named compass direction into `cache/dgm30/` by hand (see "Horizon" above) |
+| `No DGM30 files (*.tif) in …` | `cache/dgm30/` is empty and the auto-download hasn't run yet or failed entirely; the horizon is skipped otherwise |
+| `DGM30 auto-download failed` / Sentinel-2 auto-download not working, no internet | the auto-download logs a warning and falls back to the existing skip behaviour (horizon skipped / horizon without texture) — it never aborts the whole export; it retries on the next run once the network is back |
 | Horizon without texture or shifted | delete `cache/horizon_texture/` (and `cache/horizon_source/` if the raw mosaic itself looks wrong) to force a rebuild on the next run |
 | Crash or error while loading the level | check `C:\Users\<NAME>\AppData\Local\BeamNG\BeamNG.drive\current\beamng.log` for `\|E\|` lines |
 | OSM timeout | the program tries fallback servers; start again, successful responses are cached |

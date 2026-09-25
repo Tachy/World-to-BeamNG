@@ -1,11 +1,10 @@
 # data/satellite
 
-Luftbilder/Satellitenbilder (RGB-Orthofotos) für die Terrain-Textur. **Erforderlich** – ohne Daten
-hier bekommt das Terrain nur eine grüne Füllfarbe statt einer Foto-Textur, kein brauchbares
-Ergebnis.
+Aerial/satellite images (RGB orthophotos) for the terrain texture. **Required** - without data here the
+terrain only gets a green fill color instead of a photo texture, which is not a usable result.
 
-- LGL Baden-Württemberg: ZIP-Dateien mit TIF + TFW, Name `dop20rgb_32_<x>_<y>_2_bw.zip`.
-- Andere Region: ein oder mehrere georeferenzierte Orthofotos (eingebettetes GeoTIFF-Tag oder
-  begleitende `.tfw`-Datei), beliebiger Dateiname, lose oder im ZIP.
+- LGL Baden-Württemberg: ZIP files with TIF + TFW, named `dop20rgb_32_<x>_<y>_2_bw.zip`.
+- Other regions: one or more georeferenced orthophotos (embedded GeoTIFF tag or accompanying `.tfw`
+  file), any file name, loose or inside a ZIP.
 
-Muss dieselbe Fläche wie `data/height` abdecken.
+Must cover the same area as `data/height`.

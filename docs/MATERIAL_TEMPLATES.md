@@ -1,16 +1,16 @@
-# Material Templates Konfiguration
+# Material Templates Configuration
 
-## Übersicht
+## Overview
 
-Die Material-Templates werden in `data/material_templates.json` definiert und steuern die **Struktur und Eigenschaften** aller Materialien im BeamNG-Level.
+The material templates are defined in `data/material_templates.json` and control the **structure and properties** of all materials in the BeamNG level.
 
-Der `MaterialManager` lädt diese Templates beim Initialisieren automatisch und nutzt sie als **Basisschablone** für neue Materialien.
+The `MaterialManager` loads these templates automatically on initialization and uses them as a **base template** for new materials.
 
 ---
 
-## Struktur
+## Structure
 
-### JSON-Format
+### JSON Format
 
 ```json
 {
@@ -28,30 +28,30 @@ Der `MaterialManager` lädt diese Templates beim Initialisieren automatisch und 
 }
 ```
 
-### Standard-Felder
+### Standard Fields
 
-| Feld | Typ | Beschreibung |
+| Field | Type | Description |
 |------|-----|---|
-| `class` | string | BeamNG Material-Klasse (immer `"Material"`) |
-| `version` | float | Collada/Material-Format-Version (1.5 oder 2) |
-| `Stages` | array | Liste von Rendering-Stages mit Texturen/Farben |
-| `groundModelName` | string | Optional: Terrain-Physik (grass, water, concrete, etc.) |
-| `groundType` | string | Optional: Oberflächentyp für Fahrzeugphysik |
-| `materialTag0` | string | Optional: Kategorie-Tag |
-| `materialTag1` | string | Optional: Unter-Kategorie-Tag |
-| `friction` | float | Optional: Reibungskoeffizient (0.1 = rutschig, 1.0+ = normal) |
-| `alpha` | float | Optional: Transparenz (0 = unsichtbar, 1 = opak) |
-| `materialFactors` | string | Optional: UV-Tiling-Faktor (z.B. "1 1 4.0 1" für 4m Wiederholung) |
+| `class` | string | BeamNG material class (always `"Material"`) |
+| `version` | float | Collada/material format version (1.5 or 2) |
+| `Stages` | array | List of rendering stages with textures/colors |
+| `groundModelName` | string | Optional: terrain physics (grass, water, concrete, etc.) |
+| `groundType` | string | Optional: surface type for vehicle physics |
+| `materialTag0` | string | Optional: category tag |
+| `materialTag1` | string | Optional: subcategory tag |
+| `friction` | float | Optional: friction coefficient (0.1 = slippery, 1.0+ = normal) |
+| `alpha` | float | Optional: transparency (0 = invisible, 1 = opaque) |
+| `materialFactors` | string | Optional: UV tiling factor (e.g. "1 1 4.0 1" for a 4 m repeat) |
 
 ---
 
-## Eingebaute Templates
+## Built-in Templates
 
-Terrain-Materialien entstehen in `terrain/terrain_materials.py`, Straßen-Materialien in
-`OSMMapper.generate_materials_json_entry()`; beide brauchen kein Template.
+Terrain materials are created in `terrain/terrain_materials.py` and road materials in
+`OSMMapper.generate_materials_json_entry()`; neither needs a template.
 
 ### 1. **building_wall**
-Für Gebäude-Wände (LoD2).
+For building walls (LoD2).
 
 ```json
 {
@@ -64,7 +64,7 @@ Für Gebäude-Wände (LoD2).
 }
 ```
 
-**Nutzung:**
+**Usage:**
 ```python
 materials.add_building_material(
     "lod2_wall_plaster_white",
@@ -72,28 +72,28 @@ materials.add_building_material(
 )
 ```
 
-Die UVs der Gebäude sind metrisch: Wände tragen eine fugenlos gekachelte Putztextur (`facade/facade_mapper.py`), Dächer
-wiederholen alle `config.ROOF_REPEAT_M` Meter in der Dachebene (`facade/roof_uv.py`). Es gibt deshalb keine
-`tiling_scale` mehr; `tiling_scale != 1.0` würde nur ein `materialFactors` schreiben und wird für Gebäude nicht genutzt.
-Zusätzliche Stage-Eigenschaften (z. B. `roughnessFactor`, `metallicFactor`) gehen über `stage_properties`.
+Building UVs are metric: walls carry a seamlessly tiled plaster texture (`facade/facade_mapper.py`), roofs
+repeat every `config.ROOF_REPEAT_M` meters in the roof plane (`facade/roof_uv.py`). There is therefore no
+`tiling_scale` anymore; `tiling_scale != 1.0` would only write a `materialFactors` and is not used for buildings.
+Additional stage properties (e.g. `roughnessFactor`, `metallicFactor`) go through `stage_properties`.
 
 ---
 
 ### 2. **building_roof**
-Für Gebäude-Dächer (LoD2).
+For building roofs (LoD2).
 
-Identisch mit `building_wall`, aber typischerweise mit:
-- Andere Textur
-- Andere Farbe
+Identical to `building_wall`, but typically with:
+- A different texture
+- A different color
 
-Genutzt für `lod2_roof_red` (Biberschwanz), `lod2_roof_flat` (Kies auf Flachdächern) und `lod2_roof_edge`
-(untexturierter Blechrand um Flachdächer). Texturen der prozeduralen Materialien (Putz, Fenster-Atlas, Kies)
-entstehen in `facade/building_textures.py` (`ensure_building_textures()`), nicht in `osm_to_beamng.json`.
+Used for `lod2_roof_red` (beaver-tail tiles), `lod2_roof_flat` (gravel on flat roofs) and `lod2_roof_edge`
+(untextured sheet-metal edge around flat roofs). Textures of the procedural materials (plaster, window atlas, gravel)
+are created in `facade/building_textures.py` (`ensure_building_textures()`), not in `osm_to_beamng.json`.
 
 ---
 
 ### 3. **horizon**
-Für Horizont-Layer (distant terrain).
+For the horizon layer (distant terrain).
 
 ```json
 {
@@ -103,27 +103,27 @@ Für Horizont-Layer (distant terrain).
 }
 ```
 
-Höhere Specularity (glänzender) weil aus der Ferne.
+Higher specularity (glossier) because it is seen from far away.
 
-**Nutzung:**
+**Usage:**
 ```python
 materials.add_horizon_material(texture_path)
 ```
 
 ---
 
-## Benutzerdefinierte Templates
+## Custom Templates
 
-### Template hinzufügen
+### Adding a Template
 
-Bearbeite `data/material_templates.json` und füge ein neues Template hinzu:
+Edit `data/material_templates.json` and add a new template:
 
 ```json
 {
   "templates": {
     "existing_templates": {...},
     "water": {
-      "description": "Wasser-Material für Seen und Flüsse",
+      "description": "Water material for lakes and rivers",
       "class": "Material",
       "version": 2,
       "Stages": [{"specularPower": 4, "pixelSpecular": true}],
@@ -135,7 +135,7 @@ Bearbeite `data/material_templates.json` und füge ein neues Template hinzu:
 }
 ```
 
-Dann nutzen:
+Then use it:
 
 ```python
 materials.add_material(
@@ -147,21 +147,21 @@ materials.add_material(
 
 ---
 
-## Stage-Felder (Rendering)
+## Stage Fields (Rendering)
 
-Das `Stages` Array steuert das Rendering:
+The `Stages` array controls rendering:
 
 ```json
 {
   "Stages": [
     {
-      "specularPower": 1,        // Wie "glänzend" - höher = glänzender
-      "pixelSpecular": true,     // Pixel-basiertes Specular Mapping
-      "baseColorMap": "...",     // Haupttextur (Farbe)
-      "normalMap": "...",        // Normal Map (Höhen-Details)
-      "roughnessMap": "...",     // Rauheits-Map
-      "ambientOcclusionMap": "...", // Schatten in Falten
-      "diffuseColor": [r, g, b, a]  // Fallback-Farbe wenn keine Textur
+      "specularPower": 1,        // How "glossy" - higher = glossier
+      "pixelSpecular": true,     // Pixel-based specular mapping
+      "baseColorMap": "...",     // Main texture (color)
+      "normalMap": "...",        // Normal map (height details)
+      "roughnessMap": "...",     // Roughness map
+      "ambientOcclusionMap": "...", // Shadows in creases
+      "diffuseColor": [r, g, b, a]  // Fallback color if there is no texture
     }
   ]
 }
@@ -169,14 +169,14 @@ Das `Stages` Array steuert das Rendering:
 
 ---
 
-## Beispiele
+## Examples
 
-### Neue Vegetations-Materialien
+### New Vegetation Materials
 
 ```json
 {
   "vegetation": {
-    "description": "Gras und Sträucher",
+    "description": "Grass and shrubs",
     "class": "Material",
     "version": 1.5,
     "Stages": [{"specularPower": 0.1, "pixelSpecular": true}],
@@ -184,7 +184,7 @@ Das `Stages` Array steuert das Rendering:
     "groundType": "dirt"
   },
   "vegetation_dense": {
-    "description": "Dichte Vegetation (Wald)",
+    "description": "Dense vegetation (forest)",
     "class": "Material",
     "version": 1.5,
     "Stages": [{"specularPower": 0.05, "pixelSpecular": true}],
@@ -195,63 +195,63 @@ Das `Stages` Array steuert das Rendering:
 }
 ```
 
-### Benutzerdefinierte Straßen-Typen
+### Custom Road Types
 
 ```json
 {
   "unpaved_road": {
-    "description": "Feldweg, unbefestigt",
+    "description": "Field track, unpaved",
     "class": "Material",
     "version": 2,
     "Stages": [{"specularPower": 0.5, "pixelSpecular": true}],
     "groundType": "dirt",
     "friction": 0.4,
-    "note": "Nutze mit Benutzerdefinierte OSM-Tags oder manuell"
+    "note": "Use with custom OSM tags or manually"
   }
 }
 ```
 
 ---
 
-## Fehlerbehandlung
+## Error Handling
 
-Falls `data/material_templates.json` nicht existiert oder fehlerhaft ist:
+`data/material_templates.json` is required. If it does not exist or is malformed, **MaterialManager** aborts the
+export with an error instead of falling back to defaults:
 
-1. **MaterialManager** lädt die eingebauten Defaults
-2. Keine Material-Funkion wird unterbrochen
-3. Ein Warnung wird in die Konsole gedruckt:
-   ```
-   [i] data/material_templates.json nicht gefunden. Nutze eingebaute Template-Defaults
-   ```
+- missing file: `FileNotFoundError` ("Material templates not found: <path> ...")
+- invalid JSON: `ValueError` ("Error parsing <path>: ...")
+- any other read error: `RuntimeError` ("Error loading <path>: ...")
+
+Make sure the file is part of your checkout.
 
 ---
 
 ## Best Practices
 
-1. **Template-Namen** sollten prägnant sein: `water`, `vegetation_dense`, `road_unpaved`
-2. **Beschreibungen** sind wichtig für Dokumentation
-3. **Spekularity-Werte**:
-   - `0-0.5`: Stumpf (Erde, Gras, Beton)
-   - `1-2`: Normal (Asphalt, Wände)
-   - `4-8`: Glänzend (Wasser, Eis)
-   - `16+`: Sehr glänzend (Horizont, Glas)
-4. **Frictions** für Physics:
-   - `0.05-0.1`: Rutschig (Eis, Wasser)
-   - `0.3-0.5`: Unbefestigt (Erde, Gras)
-   - `0.7-1.0`: Normal (Asphalt)
-   - `1.0+`: Griffig (Beton, Bergung)
+1. **Template names** should be concise: `water`, `vegetation_dense`, `road_unpaved`
+2. **Descriptions** are important for documentation
+3. **Specularity values**:
+   - `0-0.5`: Matte (soil, grass, concrete)
+   - `1-2`: Normal (asphalt, walls)
+   - `4-8`: Glossy (water, ice)
+   - `16+`: Very glossy (horizon, glass)
+4. **Friction values** for physics:
+   - `0.05-0.1`: Slippery (ice, water)
+   - `0.3-0.5`: Unpaved (soil, grass)
+   - `0.7-1.0`: Normal (asphalt)
+   - `1.0+`: Grippy (concrete, salvage)
 
 ---
 
-## Buildings Sektion
+## Buildings Section
 
-Die `buildings` Sektion (Top-Level in JSON) enthält Konfigurationen für LoD2-Gebäude:
+The `buildings` section (top level in the JSON) contains configurations for LoD2 buildings:
 
 ```json
 {
   "buildings": {
     "wall": {
-      "description": "Gebäude-Wand Konfiguration",
+      "description": "Building wall configuration",
       "template": "building_wall",
       "material_hints": {
         "groundType": "concrete",
@@ -260,7 +260,7 @@ Die `buildings` Sektion (Top-Level in JSON) enthält Konfigurationen für LoD2-G
       }
     },
     "roof": {
-      "description": "Gebäude-Dach Konfiguration",
+      "description": "Building roof configuration",
       "template": "building_roof",
       "material_hints": {
         "groundType": "concrete",
@@ -272,44 +272,44 @@ Die `buildings` Sektion (Top-Level in JSON) enthält Konfigurationen für LoD2-G
 }
 ```
 
-### Buildings-Felder
+### Buildings Fields
 
-| Feld | Beschreibung |
+| Field | Description |
 |------|---|
-| `template` | Verweis auf Basis-Template (`building_wall`, `building_roof`) |
-| `material_hints.groundType` | Physik-Oberflächentyp (concrete, brick, etc.) |
-| `material_hints.materialTag0/1` | Kategorie-Tags für Fahrzeugverhalten |
+| `template` | Reference to the base template (`building_wall`, `building_roof`) |
+| `material_hints.groundType` | Physics surface type (concrete, brick, etc.) |
+| `material_hints.materialTag0/1` | Category tags for vehicle behavior |
 
-### Integration im Exporter
+### Integration in the Exporter
 
-`BeamNGExporter._add_lod2_materials()` (`export/beamng_exporter.py`) legt die Gebäude-Materialien an
-(Namen in `facade/material_names.py`):
+`BeamNGExporter._add_lod2_materials()` (`export/beamng_exporter.py`) creates the building materials
+(names in `facade/material_names.py`):
 
-| Material | Inhalt |
+| Material | Content |
 |---|---|
-| `lod2_wall_plaster_<Farbe>` (6x) | fugenloser Putz, je Farbe eine Albedo-Textur; Normal- und Roughness-Textur gemeinsam |
-| `lod2_windows` | Sprite-Atlas: Fenster (mit/ohne Kämpfer, mit Fensterläden), Türen, Kellerfenster |
-| `lod2_roof_red` | Biberschwanz-Stocktextur aus `osm_to_beamng.json` (`buildings.roof`) |
-| `lod2_roof_flat` | prozedural erzeugte, kachelbare Kiestextur (Flachdächer) |
-| `lod2_roof_edge` | Blechrand um Flachdächer, untexturiert (`buildings.roof_edge`) |
-| `lod2_roof_trim` | Stirnbrett und Untersicht der Dachüberstände, untexturiert (`buildings.roof_trim`) |
+| `lod2_wall_plaster_<color>` (6x) | seamless plaster, one albedo texture per color; normal and roughness textures shared |
+| `lod2_windows` | Sprite atlas: windows (with/without transom, with shutters), doors, basement windows |
+| `lod2_roof_red` | Beaver-tail tile texture from `osm_to_beamng.json` (`buildings.roof`) |
+| `lod2_roof_flat` | Procedurally generated, tileable gravel texture (flat roofs) |
+| `lod2_roof_edge` | Sheet-metal edge around flat roofs, untextured (`buildings.roof_edge`) |
+| `lod2_roof_trim` | Fascia board and underside of the roof overhangs, untextured (`buildings.roof_trim`) |
 
-Putzfarben und ihre Häufigkeit stehen in `facade/facade_styles.py` (`PLASTER_COLORS`, Promille): vorwiegend weiß,
-vereinzelt Beigetöne, ganz vereinzelt Rottöne. Die Farbe je Gebäude ist fest (crc32 der gml:id).
+Plaster colors and their frequency are defined in `facade/facade_styles.py` (`PLASTER_COLORS`, per mille): mostly white,
+occasional beige tones, very rare red tones. The color per building is fixed (crc32 of the gml:id).
 
-Wände sind EIN Polygon je Wand (keine Zellen im Putz); Fenster sind eigene Flächen 3 cm vor der Wand
-(`facade/facade_mapper.py`). Die Geschosse werden von der Traufe nach unten gezählt; ein Rest darunter ist ein
-erhöhter Keller mit Kellerfenstern. Schrägdächer bekommen 60 cm Traufüberstand (waagerecht) und 30 cm am Giebel,
-10 cm dick (`facade/roof_overhang.py`, Werte in `config.ROOF_*`).
+Walls are ONE polygon per wall (no cells in the plaster); windows are separate areas 3 cm in front of the wall
+(`facade/facade_mapper.py`). Storeys are counted downward from the eave; any remainder below is a
+raised basement with basement windows. Pitched roofs get a 60 cm eave overhang (horizontal) and 30 cm at the gable,
+10 cm thick (`facade/roof_overhang.py`, values in `config.ROOF_*`).
 
-Kirchtürme (`facade/church_towers.py`): Die Kirche kommt aus OSM (`building=church/cathedral/chapel`,
-`amenity=place_of_worship`, sonst kennen die LOD2-Daten keine Funktion), die Turmwände aus der Geometrie (Wände, die weit
-über dem Median der Wandoberkanten enden, dazu Wände in OSM-Glockenturm-Polygonen). Turmwände bekommen keine Fenster; die
-Turmwand, die vom Kirchenschiff wegzeigt, trägt eine Turmuhr (Sprite `tower_clock` im Fenster-Atlas). Schwellen in
+Church towers (`facade/church_towers.py`): The church comes from OSM (`building=church/cathedral/chapel`,
+`amenity=place_of_worship`; otherwise the LOD2 data has no function information), the tower walls from the geometry (walls that end far
+above the median of the wall top edges, plus walls in OSM bell-tower polygons). Tower walls get no windows; the
+tower wall facing away from the nave carries a tower clock (sprite `tower_clock` in the window atlas). Thresholds in
 `config.CHURCH_*`.
 
-Die Texturen liegen als DDS in `art/shapes/textures/` und werden nur neu geschrieben, wenn sich Farben, Layout oder
-Generator ändern (Hash in `building_textures.hash`).
+The textures are stored as DDS in `art/shapes/textures/` and are only rewritten when colors, layout, or
+generator change (hash in `building_textures.hash`).
 
 ```python
 generated = ensure_building_textures()
@@ -320,31 +320,31 @@ materials.add_building_material(WALL_MATERIALS[0], textures={"baseColorMap": gen
 
 ## Integration
 
-Der `MaterialManager` wird als Singleton initialisiert:
+The `MaterialManager` is initialized as a singleton:
 
 ```python
 from world_to_beamng.managers.material_manager import MaterialManager
 
-# Erste Instanz lädt Templates + buildings Config
+# First instance loads templates + buildings config
 materials = MaterialManager.get_instance(beamng_dir=config.BEAMNG_DIR)
 
-# Hole alle Konfigurationen
+# Get all configurations
 config = materials.get_templates()
-buildings_config = config["buildings"]  # wall, roof Konfigurationen
+buildings_config = config["buildings"]  # wall, roof configurations
 material_templates = config["templates"]  # building_wall, building_roof, etc.
 
-# Nachfolgende Aufrufe geben die gleiche Instanz
-materials = MaterialManager.get_instance()  # Kein beamng_dir nötig!
+# Subsequent calls return the same instance
+materials = MaterialManager.get_instance()  # No beamng_dir needed!
 
-# Für neuen Export: Reset
+# For a new export: reset
 MaterialManager.reset_instance()
 materials = MaterialManager.get_instance(beamng_dir=new_dir)
 ```
 
 ---
 
-## Siehe auch
+## See Also
 
 - [MATERIAL_MANAGER.md](MATERIAL_MANAGER.md) - MaterialManager API
-- [data/osm_to_beamng.json](../data/osm_to_beamng.json) - OSM Road Properties
-- [OSMMapper-Dokumentation](OSM_MAPPER.md)
+- [data/osm_to_beamng.json](../data/osm_to_beamng.json) - OSM road properties
+- [OSMMapper documentation](OSM_MAPPER.md)

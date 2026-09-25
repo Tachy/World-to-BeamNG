@@ -88,7 +88,7 @@ Der Dateiname spielt nur für das LGL-BW-Format oben eine Rolle. Jedes andere ge
 Orthophoto (eingebettete GeoTIFF-Tags oder eine `.tfw`-Weltdatei) unter `data/satellite/`. Siehe „Daten aus anderen
 Regionen verwenden" unten.
 
-Ohne DGM1 bricht der Export ab („Keine DGM1-Kacheln gefunden" - keine DGM1-/GeoTIFF-Kacheln gefunden). Fehlt das
+Ohne DGM1 bricht der Export ab („no DGM1 tiles found" - keine DGM1-/GeoTIFF-Kacheln gefunden). Fehlt das
 Luftbild, meldet der Export einen Fehler im Log.
 
 ### Optional
@@ -221,17 +221,19 @@ Caches etwa eine Minute. Der erste Lauf ist länger, weil OSM geladen und die Ca
 
 ## 🐛 Fehlersuche
 
+Die Meldungen des Programms sind englisch; sie werden hier im Wortlaut zitiert.
+
 | Meldung / Symptom | Ursache und Lösung |
 |---|---|
-| `Keine DGM1-Kacheln gefunden` | `data/height/` fehlt, ist leer, oder enthält keine lesbaren ZIPs/GeoTIFFs (ein GeoTIFF ohne Koordinatensystem wird mit Warnung übersprungen) |
-| `texconv.exe nicht gefunden` | `setup_project.py` nicht gelaufen; oder Datei manuell nach `bin\texconv.exe` legen |
-| `BeamNG.drive.ini nicht gefunden` | BeamNG.drive wurde noch nie gestartet |
-| `managedItemData.json nicht gefunden` | einmalig `tools\generate_forest_assets.py` ausführen |
+| `no DGM1 tiles found` | `data/height/` fehlt, ist leer, oder enthält keine lesbaren ZIPs/GeoTIFFs (ein GeoTIFF ohne Koordinatensystem wird mit Warnung übersprungen) |
+| `texconv.exe not found` | `setup_project.py` nicht gelaufen; oder Datei manuell nach `bin\texconv.exe` legen |
+| `BeamNG.drive.ini not found` | BeamNG.drive wurde noch nie gestartet |
+| `managedItemData.json not found` | einmalig `tools\generate_forest_assets.py` ausführen |
 | Straßen oder Dächer mit „no Texture" | einmalig `tools\vendor_shared_textures.py` ausführen |
 | Level erscheint nicht in BeamNG | prüfen, ob `%LOCALAPPDATA%\BeamNG\BeamNG.drive\current\levels\world_to_beamng` entstanden ist; sonst `BEAMNG_DIR` in `config.py` anpassen |
-| `DGM30-Dateien decken die Horizont-Fläche … nicht ab` | eine Kachel, die der Auto-Download nicht bekommen konnte (z. B. kein Internet für diese Anfrage) - wird beim nächsten Lauf automatisch erneut versucht, oder die Kachel für die genannte Himmelsrichtung von Hand nach `cache/dgm30/` legen (siehe „Horizont" oben) |
-| `Keine DGM30-Dateien` | `cache/dgm30/` ist leer und der Auto-Download lief noch nicht oder ist komplett fehlgeschlagen; der Horizont wird sonst übersprungen |
-| `DGM30-Auto-Download fehlgeschlagen` / Sentinel-2-Auto-Download funktioniert nicht, kein Internet | der Auto-Download protokolliert eine Warnung und fällt auf das bisherige Überspringen-Verhalten zurück (Horizont übersprungen / Horizont ohne Textur) - er bricht den Export nie ganz ab; er versucht es beim nächsten Lauf erneut, sobald das Netzwerk wieder da ist |
+| `The DGM30 files do not cover the horizon area …` | eine Kachel, die der Auto-Download nicht bekommen konnte (z. B. kein Internet für diese Anfrage) - wird beim nächsten Lauf automatisch erneut versucht, oder die Kachel für die genannte Himmelsrichtung von Hand nach `cache/dgm30/` legen (siehe „Horizont" oben) |
+| `No DGM30 files (*.tif) in …` | `cache/dgm30/` ist leer und der Auto-Download lief noch nicht oder ist komplett fehlgeschlagen; der Horizont wird sonst übersprungen |
+| `DGM30 auto-download failed` / Sentinel-2-Auto-Download funktioniert nicht, kein Internet | der Auto-Download protokolliert eine Warnung und fällt auf das bisherige Überspringen-Verhalten zurück (Horizont übersprungen / Horizont ohne Textur) - er bricht den Export nie ganz ab; er versucht es beim nächsten Lauf erneut, sobald das Netzwerk wieder da ist |
 | Horizont ohne Textur oder verschoben | `cache/horizon_texture/` löschen (und `cache/horizon_source/`, falls schon das Rohmosaik falsch aussieht), um beim nächsten Lauf einen Neuaufbau zu erzwingen |
 | Absturz oder Fehler beim Laden des Levels | `C:\Users\<NAME>\AppData\Local\BeamNG\BeamNG.drive\current\beamng.log` auf `\|E\|`-Zeilen prüfen |
 | OSM-Zeitüberschreitung | das Programm probiert Ersatz-Server; erneut starten, erfolgreiche Antworten sind gecacht |
