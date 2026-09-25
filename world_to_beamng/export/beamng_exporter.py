@@ -13,7 +13,7 @@ import numpy as np
 from .. import config
 from ..core.cache_manager import CacheManager
 from ..managers import MaterialManager, ItemManager, DAEExporter
-from ..io.beamng_install import get_beamng_install_dir
+from ..io.beamng_assets import ensure_shared_textures, ensure_tree_assets, install_dir_or_none
 from ..io.vineyard_assets import ITEM_NAMES as VINEYARD_ITEM_NAMES, ensure_vineyard_assets
 from ..workflow import TileProcessor, TerrainWorkflow, BuildingWorkflow, HorizonWorkflow, ForestWorkflow
 from world_to_beamng.logging_config import LoggerConfig
@@ -160,8 +160,22 @@ class BeamNGExporter:
         # the export aborts here (MissingTexturesError) - before the compute-intensive part
         from ..textures import registry
 
+        install_dir = install_dir_or_none()
         with self.pipeline.task("Textures") as task:
-            registry.prepare_textures()
+            with task.subtask("Texture library"):
+                registry.prepare_textures()
+            if install_dir is not None:
+                # Stock road/roof/terrain-detail textures the OSM mapping references as level files (copied once)
+                with task.subtask("BeamNG stock textures") as sub:
+                    result = ensure_shared_textures(config.BEAMNG_DIR, install_dir, config.LEVEL_NAME, config.OSM_MAPPING_JSON)
+                    if result["missing"]:
+                        logger.warning(
+                            f"{len(result['missing'])} stock texture(s) not found in the BeamNG content zips: "
+                            + ", ".join(Path(m).name for m in result["missing"][:8])
+                        )
+                        sub.warn(f"{len(result['missing'])} missing")
+                    else:
+                        sub.finish(f"{result['copied']} copied" if result["copied"] else "up to date")
             task.done()
 
         # NEW: Phase 0 - forest asset initialization (DIRECTLY BEFORE the tile loop)
@@ -169,16 +183,23 @@ class BeamNGExporter:
         vineyard_assets_ready = False
         if forests_enabled:
             with self.pipeline.task("Forest assets") as task:
-                # Ensure vine assets for vineyards (idempotent) - BEFORE loading
-                # managedItemData.json, so that the vines are registered as forest items.
-                if config.VINEYARDS_ENABLED:
+                # Tree shapes + managedItemData.json from the BeamNG installation (idempotent), then the vine assets,
+                # which add their items to the same file - both BEFORE loading managedItemData.json below.
+                if install_dir is not None:
                     try:
-                        ensure_vineyard_assets(config.BEAMNG_DIR, get_beamng_install_dir(), config.LEVEL_NAME)
-                        vineyard_assets_ready = True
+                        trees = ensure_tree_assets(config.BEAMNG_DIR, install_dir, config.LEVEL_NAME)
+                        if trees["extracted"]:
+                            logger.info(f"  [OK] Tree assets: {trees['extracted']} file(s) extracted, {trees['items']} tree items")
                     except Exception as e:
-                        logger.warning(f"Vine assets not available - vineyards stay without vines: {e}")
+                        logger.warning(f"Tree assets not available - the level gets no forest: {e}")
+                    if config.VINEYARDS_ENABLED:
+                        try:
+                            ensure_vineyard_assets(config.BEAMNG_DIR, install_dir, config.LEVEL_NAME)
+                            vineyard_assets_ready = True
+                        except Exception as e:
+                            logger.warning(f"Vine assets not available - vineyards stay without vines: {e}")
 
-                # Load managedItemData.json (created by generate_forest_assets.py)
+                # Load managedItemData.json (trees + vines, see above)
                 forest_item_data_path = config.BEAMNG_DIR / "art" / "forest" / "managedItemData.json"
 
                 if forest_item_data_path.exists():
@@ -204,8 +225,7 @@ class BeamNGExporter:
                         logger.error(f"Error loading managedItemData.json: {e}")
                         registered_trees = {}
                 else:
-                    logger.warning(f"managedItemData.json not found: {forest_item_data_path}")
-                    logger.warning("  Please run first: python tools/generate_forest_assets.py")
+                    logger.warning(f"managedItemData.json not found: {forest_item_data_path} - the level gets no forest")
 
                 stats["forests_registered"] = len(registered_trees)
 

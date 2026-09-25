@@ -324,7 +324,7 @@ def ensure_landuse_detail_textures_sized(
     the scaling only takes effect for deviating sizes.
 
     Only level-local textures (path starts with "levels/{level_name}/",
-    i.e. already copied here by tools/vendor_shared_textures.py) are
+    i.e. copied here by io/beamng_assets.py::ensure_shared_textures()) are
     touched; other paths remain unchanged.
     """
     target_size = (detail_tex_size, detail_tex_size)

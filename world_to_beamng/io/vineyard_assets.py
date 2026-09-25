@@ -3,9 +3,8 @@ Vine assets for vineyards: copies the shapes (grape_vine, grape_vine_group) toge
 their materials from BeamNG's italy level into our own level and registers them as
 forest items in art/forest/managedItemData.json.
 
-Runs on every export (idempotent), so that regenerating the forest assets
-(tools/generate_forest_assets.py overwrites managedItemData.json) does not lose the
-vines.
+Runs on every export (idempotent), right after io/beamng_assets.py::ensure_tree_assets(), which writes
+the tree items of the same managedItemData.json and keeps the vine entries.
 """
 
 import json

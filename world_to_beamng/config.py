@@ -30,7 +30,8 @@ from .osm.osm_mapper import OSMMapper
 LEVEL_NAME = "world_to_beamng"  # Name of the BeamNG level (must match BEAMNG_DIR)
 
 # OSM mapper singleton (loads data/osm_to_beamng.json)
-OSM_MAPPER = OSMMapper(config_path=Path("data/osm_to_beamng.json"))
+OSM_MAPPING_JSON = Path("data/osm_to_beamng.json")
+OSM_MAPPER = OSMMapper(config_path=OSM_MAPPING_JSON)
 
 # Approximate reference point ONLY for the sun position calculation (managers/environment.py, see
 # ENV_DATE/ENV_CLOCK_TIME below) - NOT the vehicle spawn point. That one is computed automatically
@@ -419,7 +420,7 @@ ROOF_OVERHANG_THICKNESS_M = 0.10
 # Flat roofs (slope up to FLAT_ROOF_MAX_SLOPE_DEG): gravel surface (tileable texture, FLAT_ROOF_GRAVEL_REPEAT_M meters
 # per repeat) with a surrounding sheet-metal rim as real geometry.
 FLAT_ROOF_MAX_SLOPE_DEG = 5.0
-FLAT_ROOF_GRAVEL_REPEAT_M = 2.0  # tile size of the gravel texture; generate_gravel_texture.py writes it into the manifest
+FLAT_ROOF_GRAVEL_REPEAT_M = 2.0  # tile size of the gravel texture; textures/gravel.py writes it into the manifest
 FLAT_ROOF_GRAVEL_TEXTURE = "roof_gravel"  # name in data/textures
 FLAT_ROOF_GRAVEL_TEXTURE_PX = 1024
 FLAT_ROOF_EDGE_HEIGHT_M = 0.25

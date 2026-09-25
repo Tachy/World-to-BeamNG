@@ -139,7 +139,7 @@ def test_priorities_are_unique_among_material_categories():
 
 
 def test_detail_textures_are_vendored_level_paths():
-    # tools/vendor_shared_textures.py only copies paths under this prefix into the level
+    # io/beamng_assets.py::ensure_shared_textures() only copies paths under this prefix into the level
     for name, data in _material_categories().items():
         for key in ("detailColorMap", "detailNormalMap"):
             assert data[key].startswith(LEVEL_TEXTURE_PREFIX), f"{name}.{key}: {data[key]}"
