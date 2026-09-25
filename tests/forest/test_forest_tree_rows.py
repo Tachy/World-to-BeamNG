@@ -1,8 +1,8 @@
 """
-Tests für Baumreihen (OSM natural=tree_row): eine LINIE, entlang der Bäume in gleichmäßigem Abstand stehen.
+Tests for tree rows (OSM natural=tree_row): a LINE along which trees stand at even spacing.
 
-Früher wurden die Linien wie Waldflächen behandelt (Polygon aus den Linienpunkten, die Sehne schließt den
-Ring) - die Bäume standen dann in einem Zufallsstreifen statt in einer Reihe.
+Previously the lines were treated like forest areas (polygon from the line points, the chord closes the
+ring) - the trees then stood in a random strip instead of in a row.
 """
 
 import json
@@ -48,7 +48,7 @@ def _normalize(forest_config, osm_data):
     return result["forests"]
 
 
-# --- Konfiguration und Normalizer -----------------------------------------------------------------
+# --- Configuration and normalizer ------------------------------------------------------------------
 
 
 def test_tree_row_template_is_low_deciduous_trees_with_a_row_spacing(forest_config):
@@ -86,7 +86,7 @@ def test_tree_row_overrides_do_not_turn_it_into_a_tall_forest(forest_config):
     assert forests[0]["type"] == ROW
 
 
-# --- Punkte entlang der Linie ---------------------------------------------------------------------
+# --- Points along the line ------------------------------------------------------------------------
 
 
 def _points(line, spacing=8.0, tile=(-500, -500, 500, 500), **generator_args):
@@ -100,9 +100,9 @@ def test_trees_stand_in_a_row_along_the_line_with_the_configured_spacing():
 
     xs = sorted(x for x, _ in points)
     assert 11 <= len(points) <= 13  # 100 m / 8 m
-    assert all(y == pytest.approx(0.0) for _, y in points)  # genau auf der Linie
+    assert all(y == pytest.approx(0.0) for _, y in points)  # exactly on the line
     gaps = [b - a for a, b in zip(xs, xs[1:])]
-    assert all(5.5 <= g <= 10.5 for g in gaps)  # gleichmäßig, mit leichtem Versatz
+    assert all(5.5 <= g <= 10.5 for g in gaps)  # evenly spaced, with a slight offset
 
 
 def test_row_follows_the_bends_of_the_line():
@@ -112,7 +112,7 @@ def test_row_follows_the_bends_of_the_line():
 
     assert len(points) >= 9
     assert all(line.distance(__import__("shapely").geometry.Point(p)) < 1e-6 for p in points)
-    assert any(x == pytest.approx(40.0) and y > 5 for x, y in points)  # auch hinter der Kurve geht es weiter
+    assert any(x == pytest.approx(40.0) and y > 5 for x, y in points)  # continues beyond the bend as well
 
 
 def test_row_is_clipped_to_the_tile():
@@ -140,7 +140,7 @@ def test_row_trees_respect_the_row_exclusion_e_g_buildings():
 
 
 def test_tree_rows_along_a_road_are_not_removed_by_the_wide_forest_road_buffer():
-    # Alleen stehen wenige Meter neben der Straße: der 5-m-Waldpuffer würde sie sonst komplett löschen
+    # Avenues stand a few meters beside the road: the 5 m forest buffer would otherwise delete them completely
     generator = ForestPointGenerator()
     generator.set_road_buffer(box(-10, -5, 110, 5))
     forests = [{"type": ROW, "geometry": LineString([(0, 0), (100, 0)]), "tile_box": box(-500, -500, 500, 500)}]
@@ -156,11 +156,11 @@ def test_a_line_shorter_than_the_spacing_still_gets_a_tree():
     assert len(points) == 1
 
 
-# --- Workflow: Ausschluss für Reihen ------------------------------------------------------------
+# --- Workflow: exclusion for rows ---------------------------------------------------------------
 
 
 def test_rows_use_a_smaller_road_margin_than_forests():
-    # maßgeblich ist der Abstand zur Fahrbahnkante; die Mittellinien-Puffer sind nur die Rückfallebene
+    # the distance to the carriageway edge is what matters; the centerline buffers are only the fallback
     assert 0 < config.FOREST_ROW_SURFACE_MARGIN < config.FOREST_ROAD_SURFACE_MARGIN
 
 

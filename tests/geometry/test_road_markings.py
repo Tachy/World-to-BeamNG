@@ -1,4 +1,4 @@
-"""Tests für die Fahrbahnmarkierungs-Geometrie (geometry/road_markings.py)."""
+"""Tests for the road marking geometry (geometry/road_markings.py)."""
 
 import sys
 from pathlib import Path
@@ -78,7 +78,7 @@ def test_offset_polyline_survives_duplicate_nodes():
 
 
 def _hairpin():
-    # 10 m geradeaus nach Osten, Rechtskehre mit 2 m Radius, 10 m zurück nach Westen
+    # 10 m straight east, right-hand U-turn with 2 m radius, 10 m back west
     straight_in = [(x, 2.0) for x in np.arange(-10.0, 0.0, 1.0)]
     arc = [(2.0 * np.cos(a), 2.0 * np.sin(a)) for a in np.linspace(np.pi / 2, -np.pi / 2, 13)]
     straight_out = [(x, -2.0) for x in np.arange(-1.0, -11.0, -1.0)]
@@ -86,7 +86,7 @@ def _hairpin():
 
 
 def _backward_steps(line, center, indices):
-    """Anzahl Liniensegmente, die entgegen der Fahrtrichtung (Tangente der Mittellinie) laufen."""
+    """Number of line segments that run against the direction of travel (tangent of the centerline)."""
     count = 0
     for a, b in zip(indices, indices[1:]):
         tangent = center[min(b + 1, len(center) - 1)] - center[max(b - 1, 0)]
@@ -96,9 +96,9 @@ def _backward_steps(line, center, indices):
 
 def test_forward_indices_remove_backward_running_inner_line_in_tight_hairpin():
     center = _hairpin()
-    inner = offset_polyline(center, np.full(len(center), -3.0))  # rechts = innen, Versatz > Radius
+    inner = offset_polyline(center, np.full(len(center), -3.0))  # right = inside, offset > radius
     everything = np.arange(len(center))
-    assert _backward_steps(inner, center, everything) > 0  # Ausgangslage: läuft in der Kehre rückwärts
+    assert _backward_steps(inner, center, everything) > 0  # baseline: runs backward in the U-turn
     kept = forward_indices(inner, center)
     assert _backward_steps(inner, center, kept) == 0
     assert LineString(inner[kept]).is_simple
@@ -149,20 +149,20 @@ def test_junction_obstacles_skip_self_and_excluded_and_far_roads():
     tree = STRtree(polygons)
 
     obstacles = junction_obstacles(0, polygons, tree, excluded={1})
-    assert obstacles.symmetric_difference(polygons[2]).area < 1.0  # bis auf den 1-cm-Rand (Umfang 52 m)
+    assert obstacles.symmetric_difference(polygons[2]).area < 1.0  # except for the 1 cm border (perimeter 52 m)
     assert junction_obstacles(3, polygons, tree, excluded=set()) is None
     assert polygons[2].bounds == pytest.approx((-3.0, 0.0, 3.0, 20.0))
 
 
 def test_side_road_cuts_gap_into_main_road_edge_line_only_on_its_side():
     main = [[-20.0, 0.0, 0.0, 6.5], [0.0, 0.0, 0.0, 6.5], [20.0, 0.0, 0.0, 6.5]]
-    side = [[0.0, 0.0, 0.0, 5.0], [0.0, 20.0, 0.0, 5.0]]  # beginnt am gemeinsamen Knoten auf der Mittellinie
+    side = [[0.0, 0.0, 0.0, 5.0], [0.0, 20.0, 0.0, 5.0]]  # starts at the shared node on the centerline
     polygons = [road_surface_polygon(n, 0.5) for n in (main, side)]
     obstacles = junction_obstacles(0, polygons, STRtree(polygons), excluded=set())
     left, right, divider = [line for _, line in build_marking_lines(main, MarkingLayout(lanes=2), 0.25)]
-    assert len(clip_line(left, obstacles, 1.0)) == 2  # Lücke in der Randlinie auf der Einmündungsseite
-    assert len(clip_line(right, obstacles, 1.0)) == 1  # gegenüber durchgehend
-    assert len(clip_line(divider, obstacles, 1.0)) == 1  # Leitlinie läuft an der T-Einmündung durch
+    assert len(clip_line(left, obstacles, 1.0)) == 2  # gap in the edge line on the T-junction side
+    assert len(clip_line(right, obstacles, 1.0)) == 1  # continuous on the opposite side
+    assert len(clip_line(divider, obstacles, 1.0)) == 1  # divider line runs through at the T-junction
 
 
 def test_crossing_road_interrupts_divider():
@@ -182,8 +182,8 @@ def _polyline(points, width):
 
 @pytest.mark.parametrize("angle_deg", [45.0, 30.0])
 def test_oblique_side_road_keeps_divider_and_far_edge_continuous(angle_deg):
-    # Nebenstraße (6,5 m) mündet schräg in die Hauptstraße: ihr flaches Ende steht nicht senkrecht zur Hauptstraße und
-    # reicht sonst über deren Mittellinie hinaus - Leitlinie und gegenüberliegende Randlinie dürfen nicht leiden.
+    # Side road (6.5 m) joins the main road at an angle: its flat end is not perpendicular to the main road and
+    # otherwise extends past its centerline - divider line and opposite edge line must not suffer.
     main = _polyline([(-40, 0), (0, 0), (40, 0)], 6.5)
     a = np.radians(angle_deg)
     side = _polyline([(0, 0), (40 * np.cos(a), 40 * np.sin(a))], 6.5)
@@ -191,7 +191,7 @@ def test_oblique_side_road_keeps_divider_and_far_edge_continuous(angle_deg):
     polygons = [road_surface_polygon(n, 0.5) for n in nodes]
     obstacles = junction_obstacles(0, polygons, STRtree(polygons), excluded=set(), centerlines=[np.array(n)[:, :2] for n in nodes])
     left, right, divider = [line for _, line in build_marking_lines(main, MarkingLayout(lanes=2), 0.25)]
-    assert len(clip_line(left, obstacles, 1.0)) == 2  # Einmündungsseite: Lücke
+    assert len(clip_line(left, obstacles, 1.0)) == 2  # T-junction side: gap
     assert len(clip_line(right, obstacles, 1.0)) == 1
     assert clip_line(right, obstacles, 1.0)[0][:, 0] == pytest.approx([-40.0, 0.0, 40.0])
     assert len(clip_line(divider, obstacles, 1.0)) == 1

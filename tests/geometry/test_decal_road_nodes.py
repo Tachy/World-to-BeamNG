@@ -1,11 +1,11 @@
-"""Tests für drop_close_nodes() und den DecalRoad-Export mit zu nah beieinander
-liegenden Knoten.
+"""Tests for drop_close_nodes() and the DecalRoad export with nodes that lie too close
+together.
 
-Hintergrund (Eichgasse, OSM-Way 33870636): Ein DecalRoad, dessen erstes Segment
-nur 0,10 m lang war (Rest vom Junction-Schnitt neben einem Resample-Punkt),
-wurde von BeamNG überhaupt nicht gezeichnet. Nach dem Entfernen dieses einen
-Knotens erschien das Decal - verifiziert im Spiel. Ein Segment von 0,32 m
-Länge (Nachbarstück) funktionierte dagegen.
+Background (Eichgasse, OSM way 33870636): A DecalRoad whose first segment
+was only 0.10 m long (remainder of the junction cut next to a resample point)
+was not drawn by BeamNG at all. After removing this one
+node the decal appeared - verified in game. A segment of 0.32 m
+length (neighboring piece) worked, however.
 """
 
 import sys
@@ -37,12 +37,12 @@ def test_drop_close_nodes_keeps_well_spaced_nodes_unchanged():
 
 
 def test_drop_close_nodes_removes_second_node_when_start_segment_is_too_short():
-    # Eichgasse-Fall: Startsegment 0,10 m
+    # Eichgasse case: start segment 0.10 m
     nodes = _nodes([0.0, 0.10, 0.9, 1.7])
 
     result = drop_close_nodes(nodes, 0.5)
 
-    assert result[0] == nodes[0]  # Startpunkt exakt erhalten (Junction-Anschluss)
+    assert result[0] == nodes[0]  # start point preserved exactly (junction connection)
     assert [n[0] for n in result] == [0.0, 0.9, 1.7]
     assert _min_gap(result) >= 0.5
 
@@ -60,7 +60,7 @@ def test_drop_close_nodes_keeps_exact_end_point_when_last_segment_is_too_short()
 
     result = drop_close_nodes(nodes, 0.5)
 
-    assert result[-1] == nodes[-1]  # Endpunkt exakt erhalten
+    assert result[-1] == nodes[-1]  # end point preserved exactly
     assert [n[0] for n in result] == [0.0, 0.8, 1.7]
 
 
@@ -80,7 +80,7 @@ def test_drop_close_nodes_returns_empty_for_unusably_short_road():
 
 
 def test_min_node_spacing_config_is_above_failing_and_below_typical_spacing():
-    # 0,10 m fiel in BeamNG aus; typischer Abstand nach dem Resampling ~0,8 m.
+    # 0.10 m failed in BeamNG; typical spacing after resampling ~0.8 m.
     assert 0.10 < config.DECAL_ROAD_MIN_NODE_SPACING < 0.8
 
 

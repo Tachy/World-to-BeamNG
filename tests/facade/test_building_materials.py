@@ -1,5 +1,5 @@
 """
-Material-Export der LOD2-Gebäude: Putz je Farbe, Fenster, Biberschwanz (unverändert), Kies, Blechrand, Trim.
+Material export of the LOD2 buildings: plaster per color, windows, beaver-tail tiles (unchanged), gravel, sheet metal rim, trim.
 """
 
 import sys
@@ -61,7 +61,7 @@ def test_one_wall_material_per_plaster_colour_sharing_normal_and_roughness(tmp_p
         assert stage["normalMap"] == GENERATED["plaster_normal"]
         assert stage["roughnessMap"] == GENERATED["plaster_roughness"]
         assert stage["useAnisotropic"] is True
-        assert "materialFactors" not in stage  # UVs sind metrisch, keine Tiling-Skala
+        assert "materialFactors" not in stage  # UVs are metric, no tiling scale
     MaterialManager.reset_instance()
 
 
@@ -99,7 +99,7 @@ def test_flat_roof_uses_gravel_and_rim_and_trim_are_untextured(tmp_path, monkeyp
         stage = materials[name]["Stages"][0]
         assert "baseColorMap" not in stage and len(stage["baseColorFactor"]) == 4
         assert "roughnessFactor" in stage and "metallicFactor" in stage
-    assert materials[ROOF_EDGE_MATERIAL]["Stages"][0]["metallicFactor"] > 0.5  # Blech
-    assert materials[ROOF_TRIM_MATERIAL]["Stages"][0]["metallicFactor"] < 0.2  # Holz
+    assert materials[ROOF_EDGE_MATERIAL]["Stages"][0]["metallicFactor"] > 0.5  # sheet metal
+    assert materials[ROOF_TRIM_MATERIAL]["Stages"][0]["metallicFactor"] < 0.2  # wood
     MaterialManager.reset_instance()
 

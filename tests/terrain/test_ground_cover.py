@@ -1,8 +1,8 @@
-"""Tests für world_to_beamng.terrain.ground_cover und die Foto-Maskierung des Layers.
+"""Tests for world_to_beamng.terrain.ground_cover and the photo masking of the layer.
 
-Grashalme etc. sind in BeamNG separate GroundCover-Objekte (Billboards aus einem
-Textur-Atlas), die über den Namen eines Terrain-Materials (`layer`) an eine
-Schicht gebunden sind - sie wachsen NICHT von selbst aus der Terrain-Textur.
+Grass blades etc. are separate GroundCover objects in BeamNG (billboards from a
+texture atlas), bound to a layer via the name of a terrain material (`layer`) -
+they do NOT grow on their own from the terrain texture.
 """
 
 import sys
@@ -57,14 +57,14 @@ def test_one_ground_cover_object_per_used_layer_and_template():
 
 
 def test_layers_not_painted_in_the_terrain_get_no_ground_cover():
-    # Ein Layer, der in keiner Zelle der Layer-Map vorkommt, braucht keine Objekte
+    # A layer that does not occur in any cell of the layer map needs no objects
     items = _items(["aerial_photo"])
 
     assert items == []
 
 
 def test_every_type_is_bound_to_the_terrain_layer():
-    # Ohne layer würde der Bewuchs auf ALLEN Terrain-Materialien wachsen
+    # Without layer, the vegetation would grow on ALL terrain materials
     items = _items(["aerial_photo", "mat_grass", "mat_forest"])
 
     for item in items:
@@ -86,7 +86,7 @@ def test_item_uses_template_material_types_and_object_fields():
 def test_radius_is_capped_and_dependent_radii_stay_inside():
     item = next(i for i in _items(["aerial_photo", "mat_grass"]) if i["name"].endswith("grass_short"))
 
-    assert item["radius"] == 100  # Vorlage 120 -> Deckel 100
+    assert item["radius"] == 100  # template 120 -> cap 100
     assert item["dissolveRadius"] <= item["radius"]
     assert item["shapeCullRadius"] <= item["radius"]
 
@@ -112,13 +112,13 @@ def test_item_names_are_unique():
 
 
 def test_billboard_materials_only_for_used_templates_with_persistent_ids():
-    items = _items(["aerial_photo", "mat_forest"])  # nur grass_short
+    items = _items(["aerial_photo", "mat_forest"])  # only grass_short
 
     materials = build_billboard_material_entries(items, TEMPLATES_DATA)
 
     assert set(materials) == {"m_grass"}
     assert materials["m_grass"]["class"] == "Material"
-    assert materials["m_grass"]["persistentId"]  # BeamNG braucht eindeutige IDs
+    assert materials["m_grass"]["persistentId"]  # BeamNG needs unique IDs
     assert materials["m_grass"]["Stages"][0]["baseColorMap"] == "/assets/x.png"
 
 
@@ -137,9 +137,9 @@ def test_mask_layer_map_with_photo_resets_cells_under_geometry():
 
     result = mask_layer_map_with_photo(layer_map, 20, 0.0, 0.0, 1.0, [road])
 
-    assert result[10, 10] == 0  # unter der Straße: Luftbild, dort wächst nichts
-    assert result[2, 2] == 2  # daneben bleibt die Landnutzung
-    assert (layer_map == 2).all()  # Eingabe bleibt unverändert
+    assert result[10, 10] == 0  # under the road: aerial photo, nothing grows there
+    assert result[2, 2] == 2  # next to it, the land use stays
+    assert (layer_map == 2).all()  # input stays unchanged
 
 
 def test_mask_layer_map_with_photo_buffer_widens_the_mask():
@@ -161,10 +161,10 @@ def test_mask_layer_map_with_photo_without_geometries_is_a_copy():
     assert result is not layer_map
 
 
-# --- Dichtes hohes Gras: die echten Vorlagen und die Wiesen-Zuordnung --------------------------
-# In BeamNGs Originalen liegt über der dünnen "distant"-Fernschicht (Raster 6-8, ~0,3-0,6 Elemente/m²)
-# ein dichtes "close"-Preset (Raster 4, ~1,3 Elemente/m², Halme bis 1,2 m). Nur die Fernschicht allein
-# ergibt einzelne kleine Halme.
+# --- Dense tall grass: the real templates and the meadow mapping -------------------------------
+# In BeamNG's originals, a dense "close" preset (grid 4, ~1.3 elements/m², blades up to 1.2 m) sits on top of
+# the thin "distant" far layer (grid 6-8, ~0.3-0.6 elements/m²). The far layer alone
+# yields only single small blades.
 
 REAL_TEMPLATES_PATH = Path(__file__).parent.parent.parent / "data" / "ground_cover_templates.json"
 REAL_MAPPINGS_PATH = Path(__file__).parent.parent.parent / "data" / "osm_to_beamng.json"
@@ -188,11 +188,11 @@ def _clumps_per_m2(template):
 def test_dense_close_presets_are_present_and_really_dense(name):
     template = _real_templates()[name]
 
-    assert template["gridSize"] <= 4  # enges Raster = dichte Klumpen
-    assert template["radius"] <= 60  # "close": nur im Nahbereich, die Ferne deckt die dünne Schicht ab
-    assert max(t.get("sizeMax", 1) for t in template["types"]) >= 1.0  # hohe Halme
+    assert template["gridSize"] <= 4  # tight grid = dense clumps
+    assert template["radius"] <= 60  # "close": near range only, the thin layer covers the distance
+    assert max(t.get("sizeMax", 1) for t in template["types"]) >= 1.0  # tall blades
     assert _clumps_per_m2(template) >= 1.0
-    # 6 echte Billboard-Typen (die zwei weiteren Typen der Originale sind leere Platzhalter ohne Shape/UVs)
+    # 6 real billboard types (the two further types of the originals are empty placeholders without shape/UVs)
     assert len(template["types"]) >= 6
 
 
@@ -203,8 +203,8 @@ def test_meadow_gets_a_dense_tall_grass_preset_besides_the_distant_layers():
     templates = _real_templates()
 
     dense = [n for n in meadow["groundCover"] if templates[n]["gridSize"] <= 4 and "grass" in n]
-    assert dense, "Wiese ohne dichtes Gras-Preset"
-    # die dünne Fernschicht bleibt für die Weitsicht erhalten
+    assert dense, "meadow without dense grass preset"
+    # the thin far layer is kept for the long view
     assert any(templates[n]["radius"] >= 100 for n in meadow["groundCover"] if "grass" in n)
 
 
@@ -220,10 +220,10 @@ def test_meadow_grass_is_much_denser_than_the_old_distant_only_setup():
     assert density > 1.8 * old_density
 
 
-# --- Vier-Bilder-Modus: je Kachel-Variante ein eigenes Objekt --------------------------------------------
-# Ein GroundCover-Objekt trägt höchstens 8 Typen (alle 229 Objekte in BeamNGs Original-Levels haben genau 8;
-# Torque: MAX_COVERTYPES = 8). Werden die Typen für mehrere Kachel-Layer vervielfacht (24-32 Typen), fehlt
-# das Gras komplett. Deshalb bekommt jede Variante ein eigenes Objekt mit den Typen der Vorlage.
+# --- Four-image mode: one separate object per tile variant ---------------------------------------------
+# A GroundCover object carries at most 8 types (all 229 objects in BeamNG's original levels have exactly 8;
+# Torque: MAX_COVERTYPES = 8). If the types are multiplied for several tile layers (24-32 types), the
+# grass is missing entirely. Therefore each variant gets its own object with the types of the template.
 
 MAX_COVER_TYPES = 8
 
@@ -239,7 +239,7 @@ def test_each_tile_variant_gets_its_own_object_with_the_templates_own_types():
     assert sorted(i["name"] for i in short) == ["gc_mat_grass_t0_grass_short", "gc_mat_grass_t1_grass_short"]
     template_types = len(TEMPLATES_DATA["templates"]["grass_short"]["types"])
     for item in short:
-        assert len(item["Types"]) == template_types  # nicht vervielfacht
+        assert len(item["Types"]) == template_types  # not multiplied
     assert {t["layer"] for t in short[0]["Types"]} == {"mat_grass_t0"}
     assert {t["layer"] for t in short[1]["Types"]} == {"mat_grass_t1"}
 
@@ -281,7 +281,7 @@ def test_object_names_are_unique_with_variants():
 
 
 def test_no_object_exceeds_the_engine_limit_of_8_types_in_any_mode():
-    # mit den ECHTEN Vorlagen und Landnutzungs-Kategorien, Einzelfoto- und Vier-Bilder-Modus
+    # with the REAL templates and land use categories, single-photo and four-image mode
     import json
 
     real = json.loads(REAL_TEMPLATES_PATH.read_text(encoding="utf-8"))

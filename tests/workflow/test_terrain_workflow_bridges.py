@@ -1,4 +1,4 @@
-"""Tests für TerrainWorkflow._build_bridges() und export_bridges(): Brücken (Deck + Pfeiler) als eigene DAE mit einem TSStatic."""
+"""Tests for TerrainWorkflow._build_bridges() and export_bridges(): bridges (deck + piers) as their own DAE with one TSStatic."""
 
 import sys
 from pathlib import Path
@@ -96,7 +96,7 @@ def test_export_bridges_writes_one_dae_one_item_and_registers_deck_and_pier_mate
     assert item["collisionType"] == "Visible Mesh Final"
     assert config.BRIDGE_MATERIAL_NAME in stub.materials.added
     assert config.BRIDGE_RAILING_MATERIAL_NAME in stub.materials.added
-    assert "asphalt_road_standard_structure" in stub.materials.added  # Fahrbahn-Deckmaterial (highway=primary)
+    assert "asphalt_road_standard_structure" in stub.materials.added  # carriageway deck material (highway=primary)
     assert stub.materials.added["asphalt_road_standard_structure"]["groundType"] == "ASPHALT"
 
 
@@ -128,16 +128,16 @@ def test_nothing_is_exported_and_stale_files_are_removed_without_bridges(shapes_
 
 
 def test_build_bridges_creates_a_mesh_per_bridge_with_a_pier_over_a_deep_span():
-    heights = np.full((50, 50), 150.0)  # flaches Tal, 50 m unter der Brücke
-    coords = np.array([[x, 5.0, 200.0] for x in np.linspace(0.0, 60.0, 7)])  # Brücke auf 200 m Höhe
+    heights = np.full((50, 50), 150.0)  # flat valley, 50 m below the bridge
+    coords = np.array([[x, 5.0, 200.0] for x in np.linspace(0.0, 60.0, 7)])  # bridge at 200 m elevation
     road = {"road_id": 1, "trimmed_centerline": coords, "osm_tags": {"highway": "primary", "bridge": "yes"}, "structure_type": "bridge"}
 
     meshes = TerrainWorkflow._build_bridges(SimpleNamespace(), [road], heights, 0.0, 0.0)
 
     assert len(meshes) == 1 and meshes[0]["id"] == "bridge_1"
     assert "asphalt_road_standard_structure" in meshes[0]["faces"] and config.BRIDGE_MATERIAL_NAME in meshes[0]["faces"]
-    assert len(meshes[0]["faces"][config.BRIDGE_MATERIAL_NAME]) > 0  # mindestens ein Pfeiler bei 60 m Spannweite
-    assert len(meshes[0]["faces"][config.BRIDGE_RAILING_MATERIAL_NAME]) > 0  # Geländer über die volle Länge
+    assert len(meshes[0]["faces"][config.BRIDGE_MATERIAL_NAME]) > 0  # at least one pier at a 60 m span
+    assert len(meshes[0]["faces"][config.BRIDGE_RAILING_MATERIAL_NAME]) > 0  # railing over the full length
 
 
 def test_build_bridges_skips_non_bridge_roads():

@@ -1,4 +1,4 @@
-"""Tests für world_to_beamng.terrain.road_embedding."""
+"""Tests for world_to_beamng.terrain.road_embedding."""
 
 import sys
 from pathlib import Path
@@ -24,12 +24,12 @@ def _road(polygon_xy, centerline_xyz):
 
 
 def test_embed_roads_sets_exact_road_height_only_near_road():
-    # 20x20 Heightmap, 1m/Zelle, überall 100m hoch
+    # 20x20 heightmap, 1m/cell, 100m high everywhere
     size = 20
     heights = np.full((size, size), 100.0)
     origin_x, origin_y, square_size = 0.0, 0.0, 1.0
 
-    # Eine flache Straße bei Z=95, Fläche x=[5,15], y=[5,15] (Centerline bei y=10)
+    # A flat road at Z=95, area x=[5,15], y=[5,15] (centerline at y=10)
     road = _road(
         polygon_xy=[[5, 5], [15, 5], [15, 15], [5, 15]],
         centerline_xyz=[[5, 10, 95], [15, 10, 95]],
@@ -37,24 +37,24 @@ def test_embed_roads_sets_exact_road_height_only_near_road():
 
     result = embed_roads_into_heightmap(heights, origin_x, origin_y, square_size, [road])
 
-    # Zellen unter der Straße müssen exakt auf Centerline-Höhe (95) gesetzt sein
-    # - kein Sicherheitsabstand mehr, da DecalRoad direkt auf das Terrain
-    # projiziert wird (siehe Modul-Docstring).
+    # Cells under the road must be set exactly to centerline height (95)
+    # - no safety margin anymore, since the DecalRoad is projected directly onto
+    # the terrain (see module docstring).
     assert np.isclose(result[10, 10], 95.0)
 
-    # Zellen weit weg von der Straße müssen unverändert bei 100 bleiben
+    # Cells far away from the road must remain unchanged at 100
     assert result[1, 1] == 100.0
     assert result[18, 18] == 100.0
 
-    # Original-Array darf nicht verändert worden sein (Funktion gibt Kopie zurück)
+    # Original array must not have been modified (function returns a copy)
     assert heights[10, 10] == 100.0
 
 
 def test_embed_roads_can_raise_terrain_above_surroundings():
-    # Straße liegt HÖHER als natürliches Terrain (z.B. Damm/Brückenrampe) ->
-    # anders als beim früheren Mesh-Ansatz DARF das Terrain jetzt angehoben
-    # werden, weil es die sichtbare Straßenoberfläche selbst ist (DecalRoad
-    # hat keine eigene Geometrie, die durchstoßen werden könnte).
+    # Road is HIGHER than natural terrain (e.g. fill/bridge ramp) ->
+    # unlike the earlier mesh approach, the terrain MAY now be raised,
+    # because it is the visible road surface itself (a DecalRoad
+    # has no geometry of its own that could be poked through).
     size = 10
     heights = np.full((size, size), 50.0)
     origin_x, origin_y, square_size = 0.0, 0.0, 1.0
@@ -67,14 +67,14 @@ def test_embed_roads_can_raise_terrain_above_surroundings():
     result = embed_roads_into_heightmap(heights, origin_x, origin_y, square_size, [road])
 
     assert np.isclose(result[5, 5], 200.0)
-    # Ausserhalb der Straße unverändert
+    # Unchanged outside the road
     assert result[0, 0] == 50.0
 
 
 def test_embed_roads_follows_curved_centerline_height():
-    # Gebogene Straße mit unterschiedlicher Höhe an beiden Enden -> die
-    # Ziel-Höhe muss entlang der Centerline linear interpoliert werden, nicht
-    # konstant sein.
+    # Curved road with different height at both ends -> the
+    # target height must be interpolated linearly along the centerline, not
+    # constant.
     size = 20
     heights = np.zeros((size, size))
     origin_x, origin_y, square_size = 0.0, 0.0, 1.0
@@ -91,12 +91,12 @@ def test_embed_roads_follows_curved_centerline_height():
     assert result[10, 2] < result[10, 18]
 
 
-# --- embed_roads_into_heightmap(clamp_to_max=True) - Brücken-Auflager -----------------------------------
+# --- embed_roads_into_heightmap(clamp_to_max=True) - bridge abutments -----------------------------------
 
 
 def test_clamp_to_max_lowers_terrain_above_the_deck():
     size = 20
-    heights = np.full((size, size), 120.0)  # Gelände ragt komplett über das Deck (100) hinaus
+    heights = np.full((size, size), 120.0)  # terrain protrudes completely above the deck (100)
     origin_x, origin_y, square_size = 0.0, 0.0, 1.0
 
     road = _road(
@@ -106,13 +106,13 @@ def test_clamp_to_max_lowers_terrain_above_the_deck():
 
     result = embed_roads_into_heightmap(heights, origin_x, origin_y, square_size, [road], clamp_to_max=True)
 
-    assert np.isclose(result[10, 10], 100.0)  # auf Deck-Niveau gekappt
-    assert result[1, 1] == 120.0  # außerhalb der Brückenbreite unverändert
+    assert np.isclose(result[10, 10], 100.0)  # clamped to deck level
+    assert result[1, 1] == 120.0  # unchanged outside the bridge width
 
 
 def test_clamp_to_max_leaves_terrain_below_the_deck_untouched():
     size = 20
-    heights = np.full((size, size), 40.0)  # Talboden weit UNTER dem Deck (100)
+    heights = np.full((size, size), 40.0)  # valley floor far BELOW the deck (100)
     origin_x, origin_y, square_size = 0.0, 0.0, 1.0
 
     road = _road(
@@ -122,8 +122,8 @@ def test_clamp_to_max_leaves_terrain_below_the_deck_untouched():
 
     result = embed_roads_into_heightmap(heights, origin_x, origin_y, square_size, [road], clamp_to_max=True)
 
-    assert result[10, 10] == 40.0  # Talboden bleibt sichtbar, nicht auf Deck-Niveau angehoben
-    assert heights[10, 10] == 40.0  # Original unverändert (Funktion gibt Kopie zurück)
+    assert result[10, 10] == 40.0  # valley floor stays visible, not raised to deck level
+    assert heights[10, 10] == 40.0  # original unchanged (function returns a copy)
 
 
 def test_sample_heightmap_bilinear_matches_grid_points():
@@ -170,9 +170,9 @@ def test_build_road_embankment_profiles_straight_road():
 
 
 def test_slope_width_override_replaces_the_computed_width_on_that_side_only():
-    # Gleiches Setup wie test_build_road_embankment_profiles_straight_road(): Centerline entlang x=20,
-    # Richtung +y. STANDARD-"links" (offset_points()-Konvention: Richtung +90 Grad gedreht) liegt hier bei
-    # x=17 - das ist (siehe Docstring-Hinweis) genau "right_edge_xyz" dieser Funktion.
+    # Same setup as test_build_road_embankment_profiles_straight_road(): centerline along x=20,
+    # direction +y. DEFAULT "left" (offset_points() convention: direction rotated +90 degrees) is at
+    # x=17 here - that is (see docstring note) exactly "right_edge_xyz" of this function.
     size = 40
     heights = np.full((size, size), 100.0)
     origin_x, origin_y, square_size = 0.0, 0.0, 1.0
@@ -189,9 +189,9 @@ def test_slope_width_override_replaces_the_computed_width_on_that_side_only():
     )
 
     road = roads[0]
-    assert np.allclose(road["right_edge_xyz"][:, 0], 17.0)  # = STANDARD-"links", die überschriebene Seite
-    assert np.allclose(road["right_slope_width"], 0.0)  # feste Breite (0) statt berechnet
-    assert np.allclose(road["left_slope_width"], 5.0)  # andere Seite unverändert normal (berechnet)
+    assert np.allclose(road["right_edge_xyz"][:, 0], 17.0)  # = DEFAULT "left", the overridden side
+    assert np.allclose(road["right_slope_width"], 0.0)  # fixed width (0) instead of computed
+    assert np.allclose(road["left_slope_width"], 5.0)  # other side unchanged, normal (computed)
 
 
 def test_slope_width_override_can_set_both_sides_to_different_fixed_values():
@@ -211,26 +211,26 @@ def test_slope_width_override_can_set_both_sides_to_different_fixed_values():
     )
 
     road = roads[0]
-    assert np.allclose(road["right_slope_width"], 0.0)  # STANDARD "left" -> diese Funktion "right"
-    assert np.allclose(road["left_slope_width"], 5.0)  # STANDARD "right" -> diese Funktion "left"
+    assert np.allclose(road["right_slope_width"], 0.0)  # DEFAULT "left" -> this function "right"
+    assert np.allclose(road["left_slope_width"], 5.0)  # DEFAULT "right" -> this function "left"
 
 
 def test_slope_width_override_samples_natural_z_past_the_override_corridor_not_at_the_edge():
-    """Regression: bei einer Galerie zeigt das DGM direkt an der Fahrbahnkante nicht das natürliche
-    Gelände, sondern die reale Talseiten-Struktur (Brüstung/Dachüberstand) - empirisch an zwei echten
-    Galerien (Gotthard) bestätigt: Höhensprung von 2.6-13.9m schon 2m hinter der Kante. natural_z MUSS
-    deshalb am fernen Ende des überschriebenen Korridors abgetastet werden (Kante + Override-Breite),
-    sonst "glättet" die Böschung auf die erhöhte Struktur-Höhe statt talwärts zu gehen - sichtbar als
-    stehenbleibende Geländespitze statt eines Gefälles."""
+    """Regression: for a gallery, the DGM directly at the road edge does not show the natural
+    terrain but the real valley-side structure (parapet/roof overhang) - empirically confirmed on two real
+    galleries (Gotthard): height jump of 2.6-13.9m already 2m behind the edge. natural_z MUST
+    therefore be sampled at the far end of the overridden corridor (edge + override width),
+    otherwise the embankment "smooths" onto the raised structure height instead of descending toward the
+    valley - visible as a remaining terrain spike instead of a downward slope."""
     size = 40
     origin_x, origin_y, square_size = 0.0, 0.0, 1.0
     centerline = np.array([[20.0, y, 95.0] for y in range(5, 36)], dtype=float)
 
-    # Nachgebautes DGM-Muster einer echten Galerie: bis kurz hinter die Fahrbahnkante (x=17, STANDARD-
-    # "links") noch die erhöhte Bauwerksoberfläche (95, ~Straßenniveau), danach (x<=12, Kante+5) das
-    # deutlich tiefere echte Gelände (50).
+    # Reconstructed DGM pattern of a real gallery: up to just behind the road edge (x=17, DEFAULT
+    # "left") still the raised structure surface (95, ~road level), afterwards (x<=12, edge+5) the
+    # much lower real terrain (50).
     heights = np.full((size, size), 95.0)
-    heights[:, :13] = 50.0  # x < 13 -> "echtes Gelände" jenseits des Korridors (Kante bei x=17, +5 -> x=12)
+    heights[:, :13] = 50.0  # x < 13 -> "real terrain" beyond the corridor (edge at x=17, +5 -> x=12)
 
     class FakeMapper:
         def get_road_properties(self, tags):
@@ -243,22 +243,22 @@ def test_slope_width_override_samples_natural_z_past_the_override_corridor_not_a
     )
 
     road = roads[0]
-    # STANDARD-"left"-Override betrifft "right_*" dieser Funktion (siehe Hinweis oben in der Datei).
+    # DEFAULT "left" override affects "right_*" of this function (see note at the top of the file).
     assert np.allclose(road["right_slope_width"], 5.0)
-    # Die Kante selbst (x=17) läge noch komplett im erhöhten (95) Bereich - ohne den Fix würde
-    # right_natural_z dort abgetastet und läge bei ~95, nicht bei den echten ~50 jenseits des Korridors.
+    # The edge itself (x=17) would still lie completely in the raised (95) area - without the fix,
+    # right_natural_z would be sampled there and be ~95, not the real ~50 beyond the corridor.
     assert np.allclose(road["right_natural_z"], 50.0)
 
 
 def test_slope_width_override_of_zero_keeps_sampling_natural_z_at_the_edge():
-    """Override=0 (z.B. Galerie-Bergseite) bedeutet "keine Böschung" - hier gibt es keinen Korridor, der
-    natural_z verfälschen könnte, also bleibt die Abtastung an der Kante (ohnehin irrelevant, da
-    _blend_one_side bei Breite 0 gar nichts mehr anfasst)."""
+    """Override=0 (e.g. gallery mountain side) means "no embankment" - there is no corridor here that could
+    distort natural_z, so the sampling stays at the edge (irrelevant anyway, since
+    _blend_one_side touches nothing at width 0)."""
     size = 40
     origin_x, origin_y, square_size = 0.0, 0.0, 1.0
     centerline = np.array([[20.0, y, 95.0] for y in range(5, 36)], dtype=float)
     heights = np.full((size, size), 100.0)
-    heights[:, 17] = 80.0  # Wert exakt an der Kante (x=17)
+    heights[:, 17] = 80.0  # value exactly at the edge (x=17)
 
     class FakeMapper:
         def get_road_properties(self, tags):
@@ -272,19 +272,19 @@ def test_slope_width_override_of_zero_keeps_sampling_natural_z_at_the_edge():
 
     road = roads[0]
     assert np.allclose(road["right_slope_width"], 0.0)
-    assert np.allclose(road["right_natural_z"], 80.0)  # unverändert an der Kante abgetastet
+    assert np.allclose(road["right_natural_z"], 80.0)  # sampled unchanged at the edge
 
 
 def test_flat_shoulder_side_stays_at_road_height_and_ignores_the_real_heightmap():
-    """Galerie-Bergseite: 1 m flacher Saum auf Fahrbahnhöhe direkt an der Wand-Innenkante (kein
-    Böschungswinkel, keine Interpolation zum Gelände) - natural_z muss der Kantenhöhe selbst entsprechen,
-    unabhängig davon, was tatsächlich im (hier extra "unnatürlich" gewählten) Heightmap steht."""
+    """Gallery mountain side: 1 m flat shoulder at road height directly at the wall inner edge (no
+    embankment angle, no interpolation to the terrain) - natural_z must equal the edge height itself,
+    regardless of what is actually in the heightmap (deliberately chosen "unnatural" here)."""
     size = 40
     origin_x, origin_y, square_size = 0.0, 0.0, 1.0
     centerline = np.array([[20.0, y, 95.0] for y in range(5, 36)], dtype=float)
 
-    # Absichtlich NICHT bei 95 (Straßenhöhe): beweist, dass der flache Saum das reale Heightmap komplett
-    # ignoriert, statt es (wie ohne flat_shoulder_sides) am fernen Ende abzutasten.
+    # Deliberately NOT at 95 (road height): proves that the flat shoulder ignores the real heightmap
+    # completely, instead of sampling it (as without flat_shoulder_sides) at the far end.
     heights = np.full((size, size), 40.0)
 
     class FakeMapper:
@@ -302,21 +302,21 @@ def test_flat_shoulder_side_stays_at_road_height_and_ignores_the_real_heightmap(
 
     road = roads[0]
     assert np.allclose(road["right_slope_width"], 1.0)
-    assert np.allclose(road["right_natural_z"], 95.0)  # = Kantenhöhe (Centerline-Z), NICHT 40 aus dem Heightmap
+    assert np.allclose(road["right_natural_z"], 95.0)  # = edge height (centerline Z), NOT 40 from the heightmap
 
 
 def test_flat_shoulder_side_produces_a_constant_height_corridor_when_blended():
-    """Wie oben, aber End-to-End über apply_embankment_blend() + embed_roads_into_heightmap() (dieselbe
-    Reihenfolge wie in terrain_workflow.py::process_tile()): der 1m-Korridor bergseits (x=16..17, jenseits
-    der Fahrbahnkante bei x=17) muss konstant auf Fahrbahnhöhe (95) bleiben, obwohl das rohe Heightmap dort
-    absichtlich einen abweichenden Wert (40) zeigt - er darf nicht durchscheinen."""
+    """As above, but end-to-end via apply_embankment_blend() + embed_roads_into_heightmap() (same
+    order as in terrain_workflow.py::process_tile()): the 1m corridor on the mountain side (x=16..17, beyond
+    the road edge at x=17) must stay constant at road height (95), although the raw heightmap deliberately
+    shows a different value (40) there - it must not show through."""
     size = 40
     origin_x, origin_y, square_size = 0.0, 0.0, 1.0
     centerline = np.array([[20.0, y, 95.0] for y in range(5, 36)], dtype=float)
 
-    # Überall auf Fahrbahnhöhe (95) - die NICHT überschriebene Seite (x=23) sieht dadurch diff=0 und bleibt
-    # bei min_slope_width (2m, nicht "davonlaufend"), nur der geprüfte Flach-Saum-Bereich (x=14..16, jenseits
-    # des 1m-Korridors bei x=16..17) weicht bewusst ab, um zu beweisen, dass er ignoriert wird.
+    # Everywhere at road height (95) - the NOT overridden side (x=23) therefore sees diff=0 and stays
+    # at min_slope_width (2m, not "running away"), only the tested flat-shoulder area (x=14..16, beyond
+    # the 1m corridor at x=16..17) deliberately deviates, to prove that it is ignored.
     heights = np.full((size, size), 95.0)
     heights[:, 14:17] = 40.0
 
@@ -337,11 +337,11 @@ def test_flat_shoulder_side_produces_a_constant_height_corridor_when_blended():
     blended = apply_embankment_blend(heights, origin_x, origin_y, square_size, roads)
     result = embed_roads_into_heightmap(blended, origin_x, origin_y, square_size, [poly])
 
-    # STANDARD-"left"-Override betrifft die "right_xy"-Kante bei x=17 (siehe Docstring-Hinweis) - der
-    # 1m-Korridor reicht bis x=16. Jede Zelle darin muss exakt 95 sein (Fahrbahnhöhe), nicht 40.
-    assert np.allclose(result[10:30, 17], 95.0)  # Kante selbst (von embed gesetzt)
-    assert np.allclose(result[10:30, 16], 95.0)  # 1m-Korridor (vom flachen Saum überschrieben)
-    assert np.allclose(result[10:30, 14], 40.0)  # außerhalb des Korridors: unverändertes rohes Gelände
+    # DEFAULT "left" override affects the "right_xy" edge at x=17 (see docstring note) - the
+    # 1m corridor extends to x=16. Every cell in it must be exactly 95 (road height), not 40.
+    assert np.allclose(result[10:30, 17], 95.0)  # edge itself (set by embed)
+    assert np.allclose(result[10:30, 16], 95.0)  # 1m corridor (overwritten by the flat shoulder)
+    assert np.allclose(result[10:30, 14], 40.0)  # outside the corridor: unchanged raw terrain
 
 
 def test_no_override_leaves_both_sides_normal():
@@ -450,11 +450,11 @@ if __name__ == "__main__":
     print("Alle Tests bestanden.")
 
 
-# --- Charakterisierung: Optimierung darf das Ergebnis nicht verändern ---------------------
+# --- Characterization: the optimization must not change the result ------------------------
 
 
 def _diagonal_road(size=400, width=6.0):
-    """Lange, gekrümmte Diagonal-Straße: riesige Bounding-Box, aber schmaler Streifen."""
+    """Long, curved diagonal road: huge bounding box, but narrow strip."""
     from shapely.geometry import LineString
 
     t = np.linspace(20.0, size - 20.0, 120)
@@ -465,7 +465,7 @@ def _diagonal_road(size=400, width=6.0):
 
 
 def _reference_embed(heights, origin_x, origin_y, square_size, road):
-    """Brute-Force-Referenz: volle Bounding-Box, kein Vorfiltern (alte Logik)."""
+    """Brute-force reference: full bounding box, no prefiltering (old logic)."""
     from world_to_beamng.terrain.road_embedding import _points_in_polygon_2d, _project_onto_polyline
 
     result = heights.copy()
@@ -495,7 +495,7 @@ def test_embed_matches_brute_force_reference_on_long_diagonal_road():
     result = embed_roads_into_heightmap(heights, 0.0, 0.0, 1.0, [road])
     reference = _reference_embed(heights, 0.0, 0.0, 1.0, road)
 
-    assert np.count_nonzero(result != heights) > 500  # Straße wurde wirklich eingebettet
+    assert np.count_nonzero(result != heights) > 500  # road was really embedded
     np.testing.assert_array_equal(result, reference)
 
 
@@ -510,11 +510,11 @@ def test_embed_with_subcell_resolution_and_offset_origin_matches_reference():
     np.testing.assert_array_equal(result, reference)
 
 
-# --- Optimierung: identisch zur einfachen Referenzschleife ----------------------------------
+# --- Optimization: identical to the simple reference loop -----------------------------------
 
 
 def _reference_project_onto_polyline(qx, qy, poly_x, poly_y, poly_z):
-    """Die ursprüngliche Schleife über alle Segmente (Referenz)."""
+    """The original loop over all segments (reference)."""
     best_dist = np.full(qx.shape, np.inf)
     best_z = np.zeros(qx.shape)
     for i in range(len(poly_x) - 1):
@@ -538,10 +538,10 @@ def _polylines():
     lines = {}
     t = np.linspace(0, 300, 200)
     lines["kurve"] = (t, 40 * np.sin(t / 30.0), 100 + 0.1 * t)
-    # Haarnadel: die Linie läuft zurück und kommt sich selbst nahe
+    # Hairpin: the line runs back and comes close to itself
     u = np.linspace(0, 1, 120)
     lines["haarnadel"] = (np.concatenate([u * 200, 200 - u * 200]), np.concatenate([np.zeros(120), np.full(120, 6.0)]), np.linspace(50, 80, 240))
-    # doppelte Punkte (Nulllängen-Segmente) und wenige Punkte
+    # duplicate points (zero-length segments) and few points
     lines["doppelte"] = (np.array([0, 0, 10, 10, 10, 30.0]), np.array([0, 0, 5, 5, 5, -4.0]), np.array([1, 2, 3, 4, 5, 6.0]))
     lines["zwei"] = (np.array([0.0, 50.0]), np.array([0.0, 20.0]), np.array([10.0, 30.0]))
     lines["zufall"] = (np.cumsum(rng.uniform(0.5, 4, 150)), np.cumsum(rng.uniform(-3, 3, 150)), rng.uniform(0, 100, 150))
@@ -556,7 +556,7 @@ def test_project_onto_polyline_is_identical_to_the_reference_loop():
         lo_x, hi_x, lo_y, hi_y = px.min() - 15, px.max() + 15, py.min() - 15, py.max() + 15
         qx = rng.uniform(lo_x, hi_x, 3000)
         qy = rng.uniform(lo_y, hi_y, 3000)
-        # auch Punkte exakt auf Stützpunkten und in gleichem Abstand zu zwei Segmenten
+        # also points exactly on sample points and at equal distance to two segments
         n_on = min(5, len(px))
         qx[:n_on], qy[:n_on] = px[:n_on], py[:n_on]
 
@@ -575,7 +575,7 @@ def test_project_onto_polyline_keeps_the_shape_and_handles_no_valid_segment():
 
 
 def _reference_blend_one_side(heights, origin_x, origin_y, square_size, size_x, size_y, edge_xyz, slope_width, natural_z):
-    """Die ursprüngliche Variante: alle Zellen der Bounding Box abfragen (Referenz)."""
+    """The original variant: query all cells of the bounding box (reference)."""
     from scipy.spatial import cKDTree
 
     if len(edge_xyz) == 0:
@@ -619,12 +619,12 @@ def test_blend_one_side_is_identical_to_the_full_bounding_box_reference():
     heights = 200.0 + rng.rand(size, size) * 5
     cases = []
     t = np.linspace(20, 470, 300)
-    diagonal = np.column_stack([t, 0.9 * t + 12 * np.sin(t / 25.0), 100 + 0.05 * t])  # lange Diagonale
+    diagonal = np.column_stack([t, 0.9 * t + 12 * np.sin(t / 25.0), 100 + 0.05 * t])  # long diagonal
     cases.append((diagonal, rng.uniform(1.0, 9.0, len(t)), 200 + rng.rand(len(t))))
     short = np.column_stack([np.linspace(100, 130, 30), np.linspace(50, 60, 30), np.full(30, 210.0)])
     cases.append((short, np.full(30, 4.0), np.full(30, 205.0)))
-    cases.append((diagonal[::-1].copy(), np.zeros(300), np.zeros(300)))  # Böschungsbreite 0
-    cases.append((np.array([[-50.0, -50.0, 1.0], [-40.0, -45.0, 1.0]]), np.array([5.0, 5.0]), np.array([2.0, 2.0])))  # außerhalb
+    cases.append((diagonal[::-1].copy(), np.zeros(300), np.zeros(300)))  # embankment width 0
+    cases.append((np.array([[-50.0, -50.0, 1.0], [-40.0, -45.0, 1.0]]), np.array([5.0, 5.0]), np.array([2.0, 2.0])))  # outside
 
     for origin_x, origin_y, square in ((0.0, 0.0, 1.0), (3.3, -2.7, 0.5), (-10.0, 5.0, 2.0)):
         for edge, width, natural in cases:
@@ -635,11 +635,11 @@ def test_blend_one_side_is_identical_to_the_full_bounding_box_reference():
 
 
 def test_slope_width_override_may_vary_per_centerline_point():
-    # Galerie-Talseite: die Böschungsbreite wird je Station talwärts bis hinter das Dach gesucht
+    # Gallery valley side: the embankment width is searched per station toward the valley up to behind the roof
     size = 40
     centerline = np.array([[20.0, y, 95.0] for y in range(5, 36)], dtype=float)
     widths = np.linspace(4.0, 8.0, len(centerline))
-    heights = np.tile(np.arange(size, dtype=float), (size, 1))  # Höhe = x: natural_z verrät die Abtaststelle
+    heights = np.tile(np.arange(size, dtype=float), (size, 1))  # height = x: natural_z reveals the sampling position
 
     class FakeMapper:
         def get_road_properties(self, tags):
@@ -650,6 +650,6 @@ def test_slope_width_override_may_vary_per_centerline_point():
         [poly], heights, 0.0, 0.0, 1.0, FakeMapper(), slope_angle_deg=45.0, min_slope_width=2.0, max_slope_width=30.0,
     )[0]
 
-    # STANDARD-"left" = -x (Laufrichtung +y) und betrifft "right_*" dieser Funktion
+    # DEFAULT "left" = -x (direction of travel +y) and affects "right_*" of this function
     assert np.allclose(road["right_slope_width"], widths)
     assert np.allclose(road["right_natural_z"], 20.0 - 3.0 - widths)

@@ -1,7 +1,7 @@
 """
-Regressionstest: io/lod2.py::cache_lod2_buildings() transformiert die BBox über die zentrale
-Quell-CRS (world_to_beamng.geometry.coordinates) statt eines lokal hartkodierten, abweichenden
-EPSG:32632 (vorheriger Bug - alles andere in der Pipeline nutzt EPSG:25832).
+Regression test: io/lod2.py::cache_lod2_buildings() transforms the BBox via the central
+source CRS (world_to_beamng.geometry.coordinates) instead of a locally hardcoded, differing
+EPSG:32632 (previous bug - everything else in the pipeline uses EPSG:25832).
 """
 
 import inspect
@@ -27,7 +27,7 @@ def test_cache_lod2_buildings_uses_the_central_transformer_and_hits_cache_withou
     cache_dir = tmp_path / "cache"
     cache_dir.mkdir()
     height_hash = "regressiontest"
-    (cache_dir / f"lod2_{height_hash}.pkl").write_bytes(b"")  # Cache-Hit, kein echtes LoD2-Verzeichnis noetig
+    (cache_dir / f"lod2_{height_hash}.pkl").write_bytes(b"")  # cache hit, no real LoD2 directory needed
 
     result = cache_lod2_buildings(
         lod2_dir=str(tmp_path / "does_not_exist"),

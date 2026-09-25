@@ -1,4 +1,4 @@
-"""Tests für world_to_beamng.terrain.ter_writer."""
+"""Tests for world_to_beamng.terrain.ter_writer."""
 
 import sys
 from pathlib import Path
@@ -15,7 +15,7 @@ from world_to_beamng.terrain.ter_writer import (
 
 
 def decode_heights_from_u16(encoded, z_min, max_height):
-    """Kehrt encode_heights_to_u16() um (nur für den Rundlauf-Test)."""
+    """Inverts encode_heights_to_u16() (only for the round-trip test)."""
     return z_min + encoded.astype(np.float64) * (max_height / 65536.0)
 
 
@@ -41,7 +41,7 @@ def test_invalid_size_rejected(tmp_path):
 
     try:
         write_ter(tmp_path / "bad.ter", heightmap, layer_map, [])
-        assert False, "sollte ValueError werfen (100 ist keine Zweierpotenz)"
+        assert False, "should raise ValueError (100 is not a power of two)"
     except ValueError as e:
         assert "power of two" in str(e)
 
@@ -54,7 +54,7 @@ def test_height_encode_decode_round_trip():
     encoded = encode_heights_to_u16(heights_m, z_min, max_height)
     decoded = decode_heights_from_u16(encoded, z_min, max_height)
 
-    # Präzision: max_height / 65536 = 1024/65536 = 0.015625m pro Schritt
+    # Precision: max_height / 65536 = 1024/65536 = 0.015625m per step
     assert np.allclose(decoded, heights_m, atol=0.02)
 
 

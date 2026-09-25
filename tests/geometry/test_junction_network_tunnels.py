@@ -1,5 +1,5 @@
-"""Tests für world_to_beamng.geometry.junctions.build_junction_network: Tunnel liegen auf einer anderen Ebene und
-bilden nie Kreuzungen - weder wird ein Tunnel an einem darüber kreuzenden Weg geteilt, noch umgekehrt."""
+"""Tests for world_to_beamng.geometry.junctions.build_junction_network: tunnels lie on a different level and
+never form junctions - a tunnel is neither split at a path crossing above it, nor vice versa."""
 
 import sys
 from pathlib import Path
@@ -12,7 +12,7 @@ from world_to_beamng.geometry.junctions import build_junction_network
 
 
 def _road(road_id, points, z=100.0, **tags):
-    # wie aus get_road_polygons(): Liste von (x, y, z), dicht (1 m) abgetastet
+    # as from get_road_polygons(): list of (x, y, z), densely (1 m) sampled
     coords = []
     for (x0, y0), (x1, y1) in zip(points[:-1], points[1:]):
         n = max(1, int(round(np.hypot(x1 - x0, y1 - y0))))
@@ -22,7 +22,7 @@ def _road(road_id, points, z=100.0, **tags):
 
 
 def test_a_path_crossing_over_a_tunnel_splits_neither_road():
-    # (Tunnel und Weg bilden je ein eigenes Netz ohne gemeinsame Endpunkte - es entsteht gar keine Junction)
+    # (tunnel and path each form their own network without shared endpoints - no junction arises at all)
     tunnel = _road(1, [(0.0, 0.0), (50.0, 0.0), (100.0, 0.0)], z=50.0, highway="primary", tunnel="yes")
     path = _road(2, [(50.0, -30.0), (50.0, 0.0), (50.0, 30.0)], highway="path")
 
@@ -44,9 +44,9 @@ def test_surface_junctions_are_still_detected_and_split():
     roads, junctions = build_junction_network([main, side, tunnel, branch])
 
     ids = [r["id"] for r in roads]
-    assert 1001 in ids and 1002 in ids and 1 not in ids  # Hauptstraße an der Einmündung geteilt
-    assert ids[-1] == 3  # Tunnel unverändert hinten angehängt
-    assert len(junctions) == 2  # T-Einmündung + Endpunkt bei x=100 (ohne den Tunnel)
+    assert 1001 in ids and 1002 in ids and 1 not in ids  # main road split at the T-junction
+    assert ids[-1] == 3  # tunnel appended unchanged at the end
+    assert len(junctions) == 2  # T-junction + endpoint at x=100 (without the tunnel)
     assert all(3 not in [roads[i]["id"] for i in j["road_indices"]] for j in junctions)
 
 
@@ -61,24 +61,24 @@ def test_tunnel_branching_off_a_tunnel_is_still_a_junction():
     roads, junctions = build_junction_network([main, branch, other, path_over, seed_a, seed_b])
     ids = [r["id"] for r in roads]
 
-    assert 1001 in ids and 1002 in ids and 1 not in ids  # Haupttunnel an der Abzweigung geteilt ...
+    assert 1001 in ids and 1002 in ids and 1 not in ids  # main tunnel split at the branch ...
     tunnel_parts = [r for r in roads if r["id"] in (1001, 1002)]
-    assert sorted(round(float(np.asarray(r["coords"])[:, 0].max())) for r in tunnel_parts) == [50, 100]  # ... nur dort, nicht am Weg bei x=20
-    assert 4 in ids  # der Weg darüber bleibt ganz
+    assert sorted(round(float(np.asarray(r["coords"])[:, 0].max())) for r in tunnel_parts) == [50, 100]  # ... only there, not at the path at x=20
+    assert 4 in ids  # the path above stays whole
     tunnel_junctions = [j for j in junctions if any(roads[i]["id"] in (1001, 1002, 2, 3) for i in j["road_indices"])]
-    assert len(tunnel_junctions) == 2  # Abzweigung bei x=50 + Stoß bei x=100
+    assert len(tunnel_junctions) == 2  # branch at x=50 + joint at x=100
     for j in junctions:
         kinds = {roads[i]["osm_tags"].get("tunnel") == "yes" for i in j["road_indices"]}
-        assert len(kinds) == 1  # nie Tunnel und Oberfläche in derselben Junction
+        assert len(kinds) == 1  # never tunnel and surface in the same junction
     for road in roads:
         for end in ("start", "end"):
             index = road["junction_indices"][end]
             if index is not None:
-                assert any(roads[i] is road for i in junctions[index]["road_indices"])  # Indizes passen zur Gesamtliste
+                assert any(roads[i] is road for i in junctions[index]["road_indices"])  # indices match the overall list
 
 
 def _with_nodes(road, nodes):
-    """OSM-Knoten wie aus get_road_polygons(): [(node_id, x, y), ...] plus die Way-ID."""
+    """OSM nodes as from get_road_polygons(): [(node_id, x, y), ...] plus the way ID."""
     road["osm_way_id"] = road["id"]
     road["osm_nodes"] = nodes
     return road
@@ -103,8 +103,8 @@ def test_tunnels_crossing_at_different_depths_without_a_shared_osm_node_are_not_
     roads, junctions = build_junction_network(_tunnel_crossing_setup(shared_node=False))
     ids = [r["id"] for r in roads]
 
-    assert 1 in ids and 2 in ids  # keiner der beiden Tunnel geteilt
-    assert len(junctions) == 1  # nur der echte Stoß der Seed-Ways (gemeinsamer Knoten 31)
+    assert 1 in ids and 2 in ids  # neither of the two tunnels split
+    assert len(junctions) == 1  # only the real joint of the seed ways (shared node 31)
 
 
 def test_tunnels_sharing_an_osm_node_form_a_real_junction():

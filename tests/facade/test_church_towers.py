@@ -1,5 +1,5 @@
 """
-Kirchtürme: Erkennung (OSM-Kirche + hohe Wände) und Wirkung im Mapper (keine Fenster, Turmuhr an der Frontseite).
+Church towers: detection (OSM church + tall walls) and effect in the mapper (no windows, tower clock on the front).
 """
 
 import sys
@@ -31,7 +31,7 @@ def _box_walls(x0, y0, x1, y1, z0, z1):
 
 
 def _church(tower_side=5.0, tower_height=24.0, nave_height=8.0):
-    """Kirchenschiff (x 0..12) mit Turm an der Westseite (x -tower_side..0), ein Gebäude wie in den LOD2-Daten."""
+    """Nave (x 0..12) with a tower on the west side (x -tower_side..0), a building like in the LOD2 data."""
     walls = _box_walls(0, 0, 12, 8, 0, nave_height) + _box_walls(-tower_side, 1.5, 0, 1.5 + tower_side, 0, tower_height)
     roofs = [
         (np.array([[0, 0, nave_height], [12, 0, nave_height], [12, 8, nave_height], [0, 8, nave_height]], float), TRIS),
@@ -53,7 +53,7 @@ def _sprites(mesh):
     return found
 
 
-# ---------------------------------------------------------------- Erkennung
+# ---------------------------------------------------------------- Detection
 
 
 def test_tags():
@@ -68,7 +68,7 @@ def test_the_tall_walls_of_a_church_are_the_tower():
     finder = ChurchTowerFinder([CHURCH_AREA], [])
 
     assert finder.mark([church]) == 1
-    assert church["tower_walls"] == [4, 5, 6, 7]  # die vier Turmwände, nicht das Schiff
+    assert church["tower_walls"] == [4, 5, 6, 7]  # the four tower walls, not the nave
 
 
 def test_a_tall_building_without_a_church_polygon_is_no_tower():
@@ -80,18 +80,18 @@ def test_a_tall_building_without_a_church_polygon_is_no_tower():
 
 
 def test_a_church_without_a_tower_rising_out_of_it_is_left_alone():
-    church = _church(tower_height=10.0, nave_height=8.0)  # nur 2 m höher als das Schiff
+    church = _church(tower_height=10.0, nave_height=8.0)  # only 2 m taller than the nave
 
     assert ChurchTowerFinder([CHURCH_AREA], []).mark([church]) == 0
 
 
 def test_walls_inside_an_osm_bell_tower_polygon_count_as_tower():
-    church = _church(tower_height=9.0)  # zu niedrig für die Höhenregel
+    church = _church(tower_height=9.0)  # too low for the height rule
     tower_area = box(-5.5, 1.0, 0.5, 7.0)
 
     ChurchTowerFinder([CHURCH_AREA], [tower_area]).mark([church])
 
-    assert {4, 5, 6, 7} <= set(church["tower_walls"])  # (zusätzlich ggf. die gemeinsame Wand bei x = 0 im synthetischen Gebäude)
+    assert {4, 5, 6, 7} <= set(church["tower_walls"])  # (plus, if applicable, the shared wall at x = 0 in the synthetic building)
 
 
 def test_a_building_covered_by_a_bell_tower_polygon_is_a_free_standing_tower():
@@ -129,7 +129,7 @@ def test_tower_walls_get_no_windows_but_the_nave_keeps_them():
 
     mesh = FacadeMapper().map_building(church)
 
-    tower_windows = [q for is_clock, q in _sprites(mesh) if not is_clock and q[:, 0].min() < -0.5]  # Turm: x von -5 bis 0
+    tower_windows = [q for is_clock, q in _sprites(mesh) if not is_clock and q[:, 0].min() < -0.5]  # tower: x from -5 to 0
     nave_windows = [q for is_clock, q in _sprites(mesh) if not is_clock and q[:, 0].min() >= -0.5]
     assert not tower_windows
     assert nave_windows
@@ -143,12 +143,12 @@ def test_the_clock_sits_on_the_front_of_the_tower_facing_away_from_the_nave():
 
     assert len(clocks) == 1
     clock = clocks[0]
-    assert np.allclose(clock[:, 0], -5.0 - config.FACADE_WINDOW_OFFSET_M)  # Westwand des Turms (x = -5), leicht davor
+    assert np.allclose(clock[:, 0], -5.0 - config.FACADE_WINDOW_OFFSET_M)  # west wall of the tower (x = -5), slightly in front of it
     width, height = 2.0, 2.0
     assert abs(clock[1][1] - clock[0][1]) == pytest.approx(width) and clock[2][2] - clock[1][2] == pytest.approx(height)
-    assert clock[:, 1].mean() == pytest.approx(1.5 + 2.5)  # mittig auf der Wand (y 1,5 .. 6,5)
+    assert clock[:, 1].mean() == pytest.approx(1.5 + 2.5)  # centered on the wall (y 1.5 .. 6.5)
     assert clock[:, 2].min() >= config.CHURCH_CLOCK_MIN_HEIGHT_M
-    assert clock[:, 2].max() <= 24.0 - config.CHURCH_CLOCK_BELOW_TOP_M + 1.0 + 1e-9  # unter dem Turmkopf
+    assert clock[:, 2].max() <= 24.0 - config.CHURCH_CLOCK_BELOW_TOP_M + 1.0 + 1e-9  # below the tower head
 
 
 def test_a_free_standing_tower_gets_its_clock_on_the_west_wall():

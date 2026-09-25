@@ -1,8 +1,8 @@
-"""Tests für die Highway-Typ-Defaults (Breite/Material) gegen die echte data/osm_to_beamng.json.
+"""Tests for the highway type defaults (width/material) against the real data/osm_to_beamng.json.
 
-Hintergrund (docs/OSM_ROAD_ANALYSIS.md): motorway/trunk/primary und alle *_link-Typen fehlten in
-highway_defaults und fielen auf den unclassified-Default (5 m) zurück; Links wurden zudem auf ihren
-Basistyp gekürzt ('primary_link' -> 'primary') und damit so breit wie die Hauptfahrbahn.
+Background (docs/OSM_ROAD_ANALYSIS.md): motorway/trunk/primary and all *_link types were missing from
+highway_defaults and fell back to the unclassified default (5 m); links were also truncated to their
+base type ('primary_link' -> 'primary') and thus as wide as the main carriageway.
 """
 
 import sys
@@ -41,7 +41,7 @@ def test_major_roads_are_wider_than_unclassified(mapper, highway):
 
 @pytest.mark.parametrize("highway", ["motorway", "trunk", "primary", "secondary", "tertiary"])
 def test_link_without_lanes_is_single_lane_ramp(mapper, highway):
-    # Ohne lanes-Tag ist eine Rampe einspurig - deutlich schmaler als ihre Hauptfahrbahn.
+    # Without a lanes tag a ramp is single-lane - much narrower than its main carriageway.
     link = mapper.get_road_properties({"highway": f"{highway}_link"})
     main = mapper.get_road_properties({"highway": highway})
 
@@ -55,7 +55,7 @@ def test_link_lanes_tag_still_wins(mapper):
 
 
 def test_unknown_suffix_type_falls_back_to_base_type(mapper):
-    # Unbekannte Varianten mit Unterstrich nutzen weiterhin ihren Basistyp.
+    # Unknown variants with an underscore still use their base type.
     assert mapper.get_road_properties({"highway": "primary_foo"})["width"] == pytest.approx(
         mapper.get_road_properties({"highway": "primary"})["width"]
     )

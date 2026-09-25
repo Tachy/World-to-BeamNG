@@ -1,4 +1,4 @@
-"""Tests für world_to_beamng.walls.mesh_parts.add_box_column: rechteckige Stütze (Brücken-Pfeiler, Galerie-Stützen)."""
+"""Tests for world_to_beamng.walls.mesh_parts.add_box_column: rectangular column (bridge pier, gallery columns)."""
 
 import sys
 from pathlib import Path
@@ -26,14 +26,14 @@ def test_column_footprint_is_rotated_with_the_given_direction():
     axis_aligned, rotated = MeshBuilder(), MeshBuilder()
 
     add_box_column(axis_aligned, cx=0.0, cy=0.0, bottom_z=0.0, top_z=1.0, size=2.0, tile_m=1.0, direction=(1.0, 0.0))
-    # 30° statt achsenparallel - die Profilkanten müssen mitdrehen, nicht am Welt-X/Y bleiben.
+    # 30° instead of axis-parallel - the profile edges must rotate along, not stay on world X/Y.
     add_box_column(rotated, cx=0.0, cy=0.0, bottom_z=0.0, top_z=1.0, size=2.0, tile_m=1.0, direction=(np.cos(np.radians(30)), np.sin(np.radians(30))))
 
     xy_axis = {tuple(np.round(p, 3)) for p in np.array(axis_aligned.vertices)[:, :2]}
     xy_rotated = {tuple(np.round(p, 3)) for p in np.array(rotated.vertices)[:, :2]}
-    assert xy_axis != xy_rotated  # andere Ecken als bei achsenparalleler Ausrichtung
+    assert xy_axis != xy_rotated  # different corners than with axis-parallel orientation
 
-    # Unveränderter Querschnitt (halbe Diagonale als Radius), nur gedreht.
+    # Unchanged cross-section (half the diagonal as radius), only rotated.
     radii = np.linalg.norm(np.array(rotated.vertices)[:, :2], axis=1)
     assert radii == pytest.approx(np.sqrt(2.0), abs=1e-6)
 
@@ -52,7 +52,7 @@ def test_column_has_four_outward_facing_side_quads():
 
     add_box_column(builder, cx=0.0, cy=0.0, bottom_z=0.0, top_z=1.0, size=1.0, tile_m=1.0)
 
-    assert len(builder.faces) == 4 * 2  # 4 Seiten, je 2 Dreiecke
+    assert len(builder.faces) == 4 * 2  # 4 sides, 2 triangles each
     directions = {tuple(np.round(n, 2)) for n in builder.normals}
     assert directions == {(1.0, 0.0, 0.0), (-1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, -1.0, 0.0)}
     tris = np.array([[builder.vertices[i] for i in face] for face in builder.faces])

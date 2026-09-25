@@ -1,8 +1,8 @@
-"""Tests für world_to_beamng.geometry.junctions.split_roads_at_mid_junctions: Straßen an Mid-Junctions
-aufteilen. Regression: eine Mid-Junction, deren Projektion exakt (oder numerisch fast) auf einen bereits
-vorhandenen Centerline-Punkt fällt, darf keinen doppelten Endpunkt erzeugen (0-Länge-Segment -> NaN bei
-nachgelagerter Richtungs-Normalisierung, z.B. in Brücken-/Tunnel-/Galerie-Meshes, die keine eigene
-Duplikat-Bereinigung wie drop_close_nodes() durchlaufen)."""
+"""Tests for world_to_beamng.geometry.junctions.split_roads_at_mid_junctions: split roads at mid-junctions.
+Regression: a mid-junction whose projection falls exactly (or numerically almost) on an already
+existing centerline point must not produce a duplicate endpoint (zero-length segment -> NaN in
+downstream direction normalization, e.g. in bridge/tunnel/gallery meshes that do not go through their own
+duplicate cleanup like drop_close_nodes())."""
 
 import sys
 from pathlib import Path
@@ -41,8 +41,8 @@ def test_mid_junction_landing_exactly_on_an_existing_point_does_not_duplicate_it
 
 
 def test_mid_junction_landing_very_close_to_an_existing_point_does_not_produce_a_near_zero_segment():
-    # Projektion faellt numerisch fast (aber nicht exakt) auf den Punkt bei x=2 - derselbe Fehlermodus kann
-    # auch ohne exakte Gleichheit auftreten (Rundung in der Projektionsrechnung).
+    # Projection falls numerically almost (but not exactly) on the point at x=2 - the same failure mode can
+    # also occur without exact equality (rounding in the projection calculation).
     road = _road(1, [(0.0, 0.0), (1.0, 0.0), (2.0, 0.0), (3.0, 0.0), (4.0, 0.0)])
     junctions = [{"position": (2.0 + 1e-9, 0.0, 0.0), "connection_types": {0: ["mid"]}}]
 
@@ -77,14 +77,14 @@ def test_road_without_mid_junctions_is_returned_unchanged():
 
 
 def test_same_xy_matches_np_allclose_including_the_relative_tolerance():
-    """_same_xy ersetzt np.allclose(a[:2], b[:2], atol=1e-6) - gleiche Entscheidung auch knapp an der Toleranzgrenze
-    (rtol=1e-5 macht sie bei Koordinaten um 1000 m ca. 1 cm groß)."""
+    """_same_xy replaces np.allclose(a[:2], b[:2], atol=1e-6) - same decision even right at the tolerance limit
+    (rtol=1e-5 makes it about 1 cm large for coordinates around 1000 m)."""
     rng = np.random.default_rng(3)
     base = rng.uniform(-3000.0, 3000.0, size=(4000, 3))
     offsets = rng.choice([0.0, 1e-7, 1e-6, 5e-3, 1e-2, 2e-2, 1.0], size=(4000, 2)) * rng.choice([-1.0, 1.0], size=(4000, 2))
     other = base.copy()
     other[:, :2] += offsets
-    other[::7, :2] = base[::7, :2] * (1 + 1e-5)  # genau auf der relativen Grenze
+    other[::7, :2] = base[::7, :2] * (1 + 1e-5)  # exactly on the relative limit
     for a, b in zip(base, other):
         assert _same_xy(a, b) == bool(np.allclose(a[:2], b[:2], atol=1e-6))
         assert _same_xy(b, a) == bool(np.allclose(b[:2], a[:2], atol=1e-6))

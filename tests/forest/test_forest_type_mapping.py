@@ -1,9 +1,9 @@
 """
-Tests für die Zuordnung OSM-Tags -> Waldtyp.
+Tests for the mapping of OSM tags -> forest type.
 
-Nur landuse=forest bekommt den hohen Mischwald; Gehölze (natural=wood, landuse=wood) bekommen den dichten
-Laubwald aus großen Laubbäumen mit Unterholz; alles andere mit Bäumen (natural=forest, Feuchtgebiet,
-Naturschutzgebiet, ...) bekommt nur niedrige Laubbäume.
+Only landuse=forest gets the tall mixed forest; woods (natural=wood, landuse=wood) get the dense
+deciduous forest of large deciduous trees with undergrowth; everything else with trees (natural=forest,
+wetland, nature reserve, ...) gets only low deciduous trees.
 """
 
 import json
@@ -54,13 +54,13 @@ def test_everything_else_with_trees_gets_only_low_deciduous_trees(normalizer, ta
     [{"trees": "conifer"}, {"trees": "broadleaf"}, {"leaf_type": "needleleaf"}, {"leaf_type": "broadleaved"}],
 )
 def test_tag_overrides_never_redirect_a_wood_to_another_type(normalizer, extra):
-    # natural=wood mit Nadel-/Laubbaum-Tag bleibt der dichte Laubwald (Overrides gelten nur für landuse=forest)
+    # natural=wood with a conifer/deciduous tree tag stays the dense deciduous forest (overrides only apply to landuse=forest)
     assert normalizer._map_to_forest_type({"natural": "wood", **extra}) == BROADLEAF
     assert normalizer._map_to_forest_type({"natural": "forest", **extra}) == LOW
 
 
 def test_overrides_still_refine_landuse_forest(normalizer):
-    # Nadelwald wird Mischwald (kein reiner Nadelwald-Typ), Laubwald der dichte hohe Laubwald
+    # Conifer forest becomes mixed forest (no pure conifer forest type), deciduous forest the dense tall deciduous forest
     assert normalizer._map_to_forest_type({"landuse": "forest", "leaf_type": "needleleaf"}) == TALL_MIXED
     assert normalizer._map_to_forest_type({"landuse": "forest", "trees": "conifer"}) == TALL_MIXED
     assert normalizer._map_to_forest_type({"landuse": "forest", "leaf_type": "broadleaved"}) == TALL_DECIDUOUS
@@ -71,11 +71,11 @@ def test_low_area_types_are_unchanged(normalizer):
     assert normalizer._map_to_forest_type({"natural": "heath"}) == "german_sparse_deciduous"
     assert normalizer._map_to_forest_type({"leisure": "park"}) == "german_sparse_deciduous"
     assert normalizer._map_to_forest_type({"landuse": "orchard"}) == "orchard_area"
-    assert normalizer._map_to_forest_type({"natural": "tree_row"}) == "tree_row"  # Baumreihe (Linie), s. test_forest_tree_rows
+    assert normalizer._map_to_forest_type({"natural": "tree_row"}) == "tree_row"  # tree row (line), see test_forest_tree_rows
 
 
 def test_overrides_without_a_scope_still_apply_everywhere():
-    # Abwärtskompatibel: ohne "tag_overrides_only_for" gelten die Overrides wie bisher für alle
+    # Backward compatible: without "tag_overrides_only_for" the overrides apply to all as before
     config = {
         "forest_type_templates": {},
         "forest_mappings": {"natural": {"wood": "a"}, "tag_overrides": {"trees=conifer": "b"}},
@@ -89,21 +89,21 @@ def test_low_deciduous_template_has_only_low_deciduous_trees(forest_config):
 
     assert len(trees) >= 8
     assert sum(trees.values()) == pytest.approx(1.0)
-    # hohe/Nadel-Bäume, Gruppen und Büsche sind tabu (gemessene Höhen: forest/large/douglasfir >= 15 m)
+    # tall/conifer trees, groups and bushes are taboo (measured heights: forest/large/douglasfir >= 15 m)
     for name in trees:
         assert not any(bad in name for bad in ("douglasfir", "large", "forest", "dead", "bush", "wall", "blocker"))
-    # nur echte, kleine Laubbäume
+    # only real, small deciduous trees
     assert all(any(kind in name for kind in ("aspen_small", "beech_small", "oak_sml")) for name in trees)
 
 
 def test_low_deciduous_scale_keeps_trees_low(forest_config):
-    # average_height wirkt als Skalierung (Zielhöhe / 20 m): niedriger Wald muss unter dem hohen bleiben
+    # average_height acts as a scale (target height / 20 m): low forest must stay below the tall one
     low = forest_config["forest_type_templates"][LOW]["average_height"]
     tall = forest_config["forest_type_templates"][TALL_MIXED]["average_height"]
 
     assert max(low) <= max(tall) and min(low) <= min(tall)
-    assert max(low) / 20.0 <= 1.2  # Skalierung <= 1,2: kleine Assets (max 12 m) bleiben unter ~15 m
-    assert min(low) / 20.0 >= 0.5  # nicht unter den Clamp der Skalierung fallen
+    assert max(low) / 20.0 <= 1.2  # scale <= 1.2: small assets (max 12 m) stay below ~15 m
+    assert min(low) / 20.0 >= 0.5  # do not fall below the scale clamp
 
 
 def test_generator_produces_the_same_rules_as_the_committed_json(forest_config):
@@ -128,14 +128,14 @@ def test_generator_produces_the_same_rules_as_the_committed_json(forest_config):
     assert mappings["clearings"]["forest_type"] == LOW
     assert set(types[LOW]["preferred_trees"]) <= set(gen.LOW_DECIDUOUS_TREES)
     assert types[BROADLEAF] == forest_config["forest_type_templates"][BROADLEAF]
-    assert "osm_id_overrides" not in mappings  # Regel statt Einzelfall-Ausnahme
+    assert "osm_id_overrides" not in mappings  # rule instead of a one-off exception
 
 
-# --- Lichtungen (innere Ringe von Wald-Relationen) ------------------------------------------
+# --- Clearings (inner rings of forest relations) --------------------------------------------
 
 
 class _AlwaysForest:
-    """Minimaler OSMMapper-Ersatz: jedes übergebene Element gilt als Wald."""
+    """Minimal OSMMapper stand-in: every element passed in counts as forest."""
 
     forest_mappings = {}
 
@@ -172,9 +172,9 @@ def test_clearing_inside_a_forest_relation_gets_only_low_deciduous_trees(forest_
     by_type = {f["type"]: f for f in forests}
     assert set(by_type) == {TALL_MIXED, LOW}
     tall, clearing = by_type[TALL_MIXED]["geometry"], by_type[LOW]["geometry"]
-    assert tall.area == pytest.approx(100 * 100 - 20 * 20)  # hoher Wald ohne Lichtung
+    assert tall.area == pytest.approx(100 * 100 - 20 * 20)  # tall forest without the clearing
     assert not tall.contains(Point(50, 50))
-    assert clearing.area == pytest.approx(20 * 20)  # die Lichtung selbst
+    assert clearing.area == pytest.approx(20 * 20)  # the clearing itself
     assert clearing.contains(Point(50, 50))
 
 
@@ -186,8 +186,8 @@ def test_relation_without_inner_ring_stays_a_single_tall_forest(forest_config):
 
 
 def test_outer_ring_split_over_several_ways_is_assembled_not_chord_closed(forest_config):
-    # Konkaver Ring (U-Form, Fläche 8800) aus zwei offenen Ways, wie in OSM üblich: jeden Way einzeln
-    # mit einer Sehne zu schließen ergäbe überlappende/fehlende Flächen
+    # Concave ring (U shape, area 8800) from two open ways, as usual in OSM: closing each way individually
+    # with a chord would yield overlapping/missing areas
     first = _way(10, [(0, 0), (100, 0), (100, 100), (60, 100)])
     second = _way(12, [(60, 100), (60, 40), (40, 40), (40, 100), (0, 100), (0, 0)])
 
@@ -205,12 +205,12 @@ def test_clearing_type_is_configurable_and_falls_back_to_the_forest_type(forest_
 
     forests = _normalize(config, [_way(10, SQUARE), _way(11, HOLE_RING), _relation([10], [11])])
 
-    # ohne "clearings"-Eintrag wird die Lichtung wie der umgebende Wald behandelt, aber geometrisch korrekt
+    # without a "clearings" entry the clearing is treated like the surrounding forest, but geometrically correct
     assert {f["type"] for f in forests} == {TALL_MIXED}
     assert sum(f["geometry"].area for f in forests) == pytest.approx(100 * 100)
 
 
-# --- Gärten, Kleingärten, Wohngebiete: kleine Bäume und Büsche -----------------------------------
+# --- Gardens, allotments, residential areas: small trees and bushes -----------------------------
 
 GARDEN = "garden_mixed"
 RESIDENTIAL = "residential_green"
@@ -234,7 +234,7 @@ def test_garden_template_mixes_small_trees_and_bushes_and_stays_low(forest_confi
     bushes = {n: w for n, w in trees.items() if "bush" in n}
     small_trees = {n: w for n, w in trees.items() if "bush" not in n}
     assert bushes and small_trees
-    assert 0.3 <= sum(small_trees.values()) <= 0.6  # Bäume und Büsche, Büsche leicht überwiegend
+    assert 0.3 <= sum(small_trees.values()) <= 0.6  # trees and bushes, bushes slightly predominant
     for name in small_trees:
         assert any(kind in name for kind in ("aspen_small", "beech_small", "oak_sml"))
     for name in trees:
@@ -252,11 +252,11 @@ def test_residential_template_has_only_bushes(forest_config):
 def test_garden_and_residential_are_sparse_enough_not_to_look_like_a_forest(forest_config):
     templates = forest_config["forest_type_templates"]
 
-    # ForestWorkflow nutzt 5 m Mindestabstand: Abstand = 5 / sqrt(Dichte); Ziel ca. 7-14 m
+    # ForestWorkflow uses 5 m minimum spacing: spacing = 5 / sqrt(density); target about 7-14 m
     for name in (GARDEN, RESIDENTIAL):
         spacing = 5.0 / templates[name]["tree_density"] ** 0.5
         assert 7.0 <= spacing <= 14.0, f"{name}: Abstand {spacing:.1f} m"
-    assert templates[GARDEN]["average_height"][1] / 20.0 <= 1.2  # keine übergroßen Skalierungen
+    assert templates[GARDEN]["average_height"][1] / 20.0 <= 1.2  # no oversized scales
 
 
 def test_single_tree_template_exists_and_is_configured(forest_config):
@@ -267,8 +267,8 @@ def test_single_tree_template_exists_and_is_configured(forest_config):
 
 
 def test_single_trees_are_large_broad_deciduous_trees(forest_config):
-    # OSM natural=tree: freistehende große Laubbäume (Eiche/Buche mit breiter Krone), keine kleinen Bäume,
-    # keine schlanken Waldstämme (*_forest_*), keine Espen (nur ca. 10 m) und keine Nadelbäume
+    # OSM natural=tree: free-standing large deciduous trees (oak/beech with a broad crown), no small trees,
+    # no slender forest trunks (*_forest_*), no aspens (only about 10 m) and no conifers
     trees = forest_config["forest_type_templates"][SINGLE]["preferred_trees"]
 
     assert len(trees) >= 4
@@ -277,11 +277,11 @@ def test_single_trees_are_large_broad_deciduous_trees(forest_config):
 
 
 def test_single_trees_are_scaled_up_not_down(forest_config):
-    # average_height wirkt als Skalierung (Zielhöhe / 20 m); die Assets sind 13-21 m hoch
+    # average_height acts as a scale (target height / 20 m); the assets are 13-21 m tall
     low, high = forest_config["forest_type_templates"][SINGLE]["average_height"]
 
-    assert low / 20.0 >= 0.8  # nicht unter ca. 80 % der Originalgröße
-    assert high / 20.0 <= 1.3  # und nicht überproportional groß
+    assert low / 20.0 >= 0.8  # not below about 80 % of the original size
+    assert high / 20.0 <= 1.3  # and not disproportionately large
 
 
 def test_tree_rows_keep_their_small_trees(forest_config):
@@ -291,13 +291,13 @@ def test_tree_rows_keep_their_small_trees(forest_config):
 
 
 def test_holes_of_non_forest_relations_are_not_planted_as_clearings(forest_config):
-    # Loch in einem Wohngebiet ist etwas anderes (Feld, Wald, Teich): dort pflanzt "clearings" nicht
+    # A hole in a residential area is something else (field, forest, pond): "clearings" does not plant there
     residential = {"landuse": "residential", "type": "multipolygon"}
 
     forests = _normalize(forest_config, [_way(10, SQUARE), _way(11, HOLE_RING), _relation([10], [11], tags=residential)])
 
     assert [f["type"] for f in forests] == [RESIDENTIAL]
-    assert forests[0]["geometry"].area == pytest.approx(100 * 100 - 20 * 20)  # Loch trotzdem ausgespart
+    assert forests[0]["geometry"].area == pytest.approx(100 * 100 - 20 * 20)  # hole is left out anyway
 
 
 def test_generator_produces_garden_rules_too(forest_config):
@@ -315,14 +315,14 @@ def test_generator_produces_garden_rules_too(forest_config):
     assert mappings["landuse"]["residential"] == RESIDENTIAL
     assert mappings["single_trees"] == {"forest_type": SINGLE}
     assert set(types[SINGLE]["preferred_trees"]) <= set(gen.LARGE_DECIDUOUS_TREES)
-    assert all("large" not in t for t in types["tree_row"]["preferred_trees"])  # Reihen bleiben klein
-    assert mappings["clearings"]["only_for"]  # Lichtungen nur für Wald-Relationen
+    assert all("large" not in t for t in types["tree_row"]["preferred_trees"])  # rows stay small
+    assert mappings["clearings"]["only_for"]  # clearings only for forest relations
 
 
-# --- Obstplantagen: ca. 5 m hohe, rundkronige Laubbäume ----------------------------------------------
+# --- Orchards: about 5 m tall, round-crowned deciduous trees ----------------------------------------------
 
 ORCHARD = "orchard_area"
-# gemessene Modellhöhen der Assets (Z-Ausdehnung der DAE) - breitkronige kleine Laubbäume, Krone ca. halb so breit wie hoch
+# measured model heights of the assets (Z extent of the DAE) - broad-crowned small deciduous trees, crown about half as wide as tall
 ORCHARD_MODEL_HEIGHTS = {"tree_oak_sml_a": 8.5, "tree_oak_sml_b": 9.5, "tree_beech_small_c": 9.9}
 
 
@@ -339,19 +339,19 @@ def test_orchard_has_only_broad_crowned_deciduous_trees_no_bushes_no_slender_asp
 
 
 def test_orchard_trees_end_up_about_5_m_tall(forest_config):
-    # Endhöhe = Modellhöhe x Skalierung; Skalierung = Zielhöhe / 20 m, begrenzt auf 0,5..2,0 (ForestInstanceGenerator)
+    # Final height = model height x scale; scale = target height / 20 m, clamped to 0.5..2.0 (ForestInstanceGenerator)
     template = forest_config["forest_type_templates"][ORCHARD]
     low, high = template["average_height"]
     scale_low, scale_high = (min(2.0, max(0.5, v / 20.0)) for v in (low, high))
     heights = [ORCHARD_MODEL_HEIGHTS[n] * s for n in template["preferred_trees"] for s in (scale_low, scale_high)]
     mean = sum(ORCHARD_MODEL_HEIGHTS[n] * (scale_low + scale_high) / 2 for n in template["preferred_trees"]) / len(template["preferred_trees"])
 
-    assert 4.6 <= mean <= 5.6  # ca. 5 m
-    assert min(heights) >= 3.8 and max(heights) <= 6.5  # keine Zwerge, keine Riesen
+    assert 4.6 <= mean <= 5.6  # about 5 m
+    assert min(heights) >= 3.8 and max(heights) <= 6.5  # no dwarfs, no giants
 
 
 def test_orchard_spacing_looks_like_an_orchard_not_a_forest(forest_config):
-    spacing = 5.0 / forest_config["forest_type_templates"][ORCHARD]["tree_density"] ** 0.5  # ForestWorkflow: 5 m Mindestabstand
+    spacing = 5.0 / forest_config["forest_type_templates"][ORCHARD]["tree_density"] ** 0.5  # ForestWorkflow: 5 m minimum spacing
 
     assert 7.0 <= spacing <= 11.0
 
@@ -370,7 +370,7 @@ def test_generator_emits_the_same_orchard_rules(forest_config):
     assert types[ORCHARD]["tree_density"] == committed["tree_density"]
 
 
-# --- Dichter Wald aus großen Laubbäumen mit Unterholz (natural=wood / landuse=wood) ---------------------------------
+# --- Dense forest of large deciduous trees with undergrowth (natural=wood / landuse=wood) ---------------------------------
 
 
 def test_broadleaf_wood_is_all_large_deciduous_trees_plus_undergrowth(forest_config):
@@ -380,10 +380,10 @@ def test_broadleaf_wood_is_all_large_deciduous_trees_plus_undergrowth(forest_con
     undergrowth = {n: w for n, w in trees.items() if "bush" in n}
 
     assert sum(trees.values()) == pytest.approx(1.0)
-    # alle Bäume breitkronig und groß (Eiche/Buche "large"), kein Nadelholz, keine Espen/Waldstämme/kleinen Bäume
+    # all trees broad-crowned and large (oak/beech "large"), no conifers, no aspens/forest trunks/small trees
     assert canopy and all(any(kind in n for kind in ("oak_large", "beech_large")) for n in canopy)
     assert not any(bad in n for n in trees for bad in ("douglasfir", "fir", "dead", "aspen_small", "forest", "group"))
-    # Unterholz: Büsche mit spürbarem Anteil
+    # Undergrowth: bushes with a noticeable share
     assert undergrowth and 0.2 <= sum(undergrowth.values()) <= 0.5
 
 
@@ -391,10 +391,10 @@ def test_broadleaf_wood_is_much_denser_but_smaller_than_the_first_version(forest
     templates = forest_config["forest_type_templates"]
     broadleaf, low = templates[BROADLEAF], templates[LOW]
 
-    # Mindestabstand im ForestWorkflow = 5 m / sqrt(Dichte): 2/3 von 5/sqrt(1,6) = 2,63 m -> Dichte 3,6
+    # Minimum spacing in ForestWorkflow = 5 m / sqrt(density): 2/3 of 5/sqrt(1.6) = 2.63 m -> density 3.6
     spacing = 5.0 / broadleaf["tree_density"] ** 0.5
     assert spacing == pytest.approx(2.0 / 3.0 * 5.0 / 1.6**0.5, rel=0.01)
     assert broadleaf["tree_density"] >= 3 * low["tree_density"]
-    # halbe Baumgröße: Skalierung (Zielhöhe / 20 m) 0,5-0,65 statt 1,0-1,3; nicht unter den Clamp von 0,5
+    # half the tree size: scale (target height / 20 m) 0.5-0.65 instead of 1.0-1.3; not below the clamp of 0.5
     assert min(broadleaf["average_height"]) / 20.0 == pytest.approx(0.5)
     assert max(broadleaf["average_height"]) / 20.0 == pytest.approx(0.65)

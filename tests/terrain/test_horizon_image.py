@@ -1,5 +1,5 @@
 """
-Tests: Horizont-Fläche und Horizont-Bild (Ausschneiden und Umprojizieren eines beliebigen georeferenzierten Bilds).
+Tests: Horizon area and horizon image (clipping and reprojecting an arbitrary georeferenced image).
 """
 
 import sys
@@ -16,19 +16,19 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from world_to_beamng import config
 from world_to_beamng.terrain.horizon_image import _dst_crs, build_horizon_image, horizon_area, horizon_area_wgs84
 
-UTM_CRS = _dst_crs()  # Default-Quell-CRS (EPSG:25832), solange kein set_source_crs() aufgerufen wurde
+UTM_CRS = _dst_crs()  # default source CRS (EPSG:25832) as long as no set_source_crs() was called
 
 CENTER = (401000.0, 5298000.0)
 AREA = horizon_area(CENTER)
-# WGS84-Quellbild, das die Horizont-Fläche reichlich überdeckt
+# WGS84 source image that covers the horizon area generously
 LON_MIN, LAT_MIN, LON_MAX, LAT_MAX = 6.8, 47.2, 8.6, 48.5
 
 
 def _write(path, crs="EPSG:4326", bounds=(LON_MIN, LAT_MIN, LON_MAX, LAT_MAX), bands=3, size=(180, 130)):
-    """Rot = Länge (0..255 über die Bildbreite), Grün = Breite (0..255 über die Bildhöhe), Blau konstant."""
+    """Red = longitude (0..255 across image width), green = latitude (0..255 across image height), blue constant."""
     height, width = size
     cols = np.linspace(0, 255, width)[None, :].repeat(height, axis=0)
-    rows = np.linspace(255, 0, height)[:, None].repeat(width, axis=1)  # Zeile 0 = Norden = 255
+    rows = np.linspace(255, 0, height)[:, None].repeat(width, axis=1)  # row 0 = north = 255
     data = np.stack([cols, rows, np.full((height, width), 50.0)][:bands]).astype("uint8")
     profile = dict(driver="GTiff", width=width, height=height, count=bands, dtype="uint8", transform=from_bounds(*bounds, width, height))
     if crs:
@@ -49,9 +49,9 @@ def test_area_wgs84_contains_the_centre_point_and_spans_roughly_the_expected_ext
     lon_min, lat_min, lon_max, lat_max = horizon_area_wgs84(CENTER)
     lon, lat = Transformer.from_crs(UTM_CRS, "EPSG:4326", always_xy=True).transform(*CENTER)
 
-    # transform_bounds() der UTM-Eckpunkte ergibt wegen Meridiankonvergenz kein exakt auf `lon`/`lat`
-    # zentriertes Rechteck (die UTM-Fläche ist quadratisch, ~2*HORIZON_HALF_SIZE_M breit) - deshalb
-    # hier nur eine grobe Lage-/Größenprüfung statt exakter Zentrierung.
+    # Because of meridian convergence, transform_bounds() of the UTM corner points does not yield a rectangle
+    # exactly centered on `lon`/`lat` (the UTM area is square, ~2*HORIZON_HALF_SIZE_M wide) - therefore
+    # only a rough position/size check here instead of exact centering.
     assert lon_min < lon < lon_max and lat_min < lat < lat_max
     approx_deg_per_m = 1 / 111_000
     expected_span = 2 * config.HORIZON_HALF_SIZE_M * approx_deg_per_m
@@ -90,11 +90,11 @@ def test_north_is_up(tmp_path):
     with rasterio.open(out) as result:
         green = result.read(2).astype(int)
 
-    assert green[5].mean() > green[-5].mean()  # Quelle: Norden = größerer Grünwert; obere Bildzeile = Norden
+    assert green[5].mean() > green[-5].mean()  # source: north = larger green value; top image row = north
 
 
 def test_a_source_that_covers_only_part_of_the_area_warns_and_leaves_black(tmp_path, caplog):
-    partial = _write(tmp_path / "src.tif", bounds=(LON_MIN, LAT_MIN, 7.7, LAT_MAX))  # bis etwa zur Gebietsmitte
+    partial = _write(tmp_path / "src.tif", bounds=(LON_MIN, LAT_MIN, 7.7, LAT_MAX))  # up to about the middle of the area
     out = tmp_path / "horizon.tif"
 
     with caplog.at_level("WARNING", logger="world_to_beamng"):
@@ -103,7 +103,7 @@ def test_a_source_that_covers_only_part_of_the_area_warns_and_leaves_black(tmp_p
     assert 0.4 < coverage < 0.7
     assert "covers only" in caplog.text
     with rasterio.open(out) as result:
-        assert result.read(1)[:, -3:].max() == 0  # rechter Rand liegt außerhalb der Quelle
+        assert result.read(1)[:, -3:].max() == 0  # right edge lies outside the source
 
 
 def test_source_without_coordinate_system_is_rejected(tmp_path):

@@ -1,7 +1,7 @@
 """
-Tests für den Gebäude-Export als EIN Objekt auf der Gesamtfläche (statt 500-m-Kacheln).
+Tests for the building export as ONE object over the whole area (instead of 500 m tiles).
 
-Wie die Straßen (DecalRoads) über die ganze Fläche laufen, gibt es jetzt EINE Gebäude-DAE und EIN TSStatic.
+Just as the roads (DecalRoads) run across the whole area, there is now ONE building DAE and ONE TSStatic.
 """
 
 import sys
@@ -22,7 +22,7 @@ from world_to_beamng.workflow.building_workflow import (
 
 
 def _building(x, y):
-    # bounds = (min_x, min_y, min_z, max_x, max_y, max_z) wie im Exporter
+    # bounds = (min_x, min_y, min_z, max_x, max_y, max_z) as in the exporter
     return {"bounds": (x - 5, y - 5, 0, x + 5, y + 5, 10)}
 
 
@@ -44,7 +44,7 @@ def test_without_a_tile_size_all_buildings_form_one_group():
 
 
 def test_single_group_also_keeps_buildings_without_bounds():
-    groups = group_buildings(BUILDINGS + [{"name": "ohne bounds"}], None)
+    groups = group_buildings(BUILDINGS + [{"name": "without bounds"}], None)
 
     assert len(groups[(0, 0)]) == 5
 
@@ -112,7 +112,7 @@ def test_stale_tile_daes_are_removed_but_the_current_one_stays(tmp_path):
 
 
 def test_shapes_stay_below_the_beamng_node_limit():
-    # BeamNG verwirft ab 2048 Nodes pro Shape alles Weitere (ein Node je Gebäude)
+    # BeamNG discards everything beyond 2048 nodes per shape (one node per building)
     assert 0 < config.MAX_BUILDINGS_PER_SHAPE < 2048
 
 
@@ -123,7 +123,7 @@ def test_many_buildings_are_split_into_shapes_within_the_node_limit():
 
     assert [len(s[3]) for s in shapes] == [1000, 1000, 611]
     assert [s[2] for s in shapes] == ["buildings", "buildings_part_2", "buildings_part_3"]
-    # kein Gebäude geht verloren oder doppelt ein
+    # no building is lost or duplicated
     assert sorted(id(b) for s in shapes for b in s[3]) == sorted(id(b) for b in buildings)
 
 
@@ -134,7 +134,7 @@ def test_few_buildings_stay_one_shape_with_the_single_name():
 
 
 def test_split_shapes_are_spatially_compact():
-    # zwei weit auseinanderliegende Cluster dürfen nicht durchmischt werden
+    # two widely separated clusters must not be mixed together
     west = [_building(x, 0) for x in range(0, 100, 10)]
     east = [_building(5000 + x, 0) for x in range(0, 100, 10)]
 

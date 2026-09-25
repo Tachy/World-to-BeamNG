@@ -1,8 +1,8 @@
-"""Tests für split_decal_nodes(): lange Fahrbahn-DecalRoads in Stücke teilen.
+"""Tests for split_decal_nodes(): splitting long carriageway DecalRoads into pieces.
 
-Hintergrund (im Spiel gefunden, 2026-09-24): BeamNG zeichnet pro DecalRoad nur eine begrenzte Menge Geometrie - das
-Decal wird auf die Terrain-Dreiecke unter seiner Fläche zugeschnitten, und road_33264943009 (6,5 m breit, Knoten alle
-0,81 m) brach nach 97 Segmenten (~78 m, ~510 m^2) ab; der Rest fehlte, die schmalen Linien darauf blieben sichtbar.
+Background (found in game, 2026-09-24): BeamNG draws only a limited amount of geometry per DecalRoad - the
+decal is clipped to the terrain triangles under its area, and road_33264943009 (6.5 m wide, nodes every
+0.81 m) broke off after 97 segments (~78 m, ~510 m^2); the rest was missing, the narrow lines on it stayed visible.
 """
 
 import sys
@@ -45,7 +45,7 @@ def test_chunks_share_their_boundary_node_and_cover_all_nodes_in_order():
     chunks = split_decal_nodes(nodes, max_area=250.0, min_tail_length=5.0)
 
     for first, second in zip(chunks, chunks[1:]):
-        assert first[-1] == second[0]  # gleicher Stoßknoten (Position, Höhe, Breite) - nahtlos
+        assert first[-1] == second[0]  # same joint node (position, height, width) - seamless
     rebuilt = chunks[0] + [n for c in chunks[1:] for n in c[1:]]
     assert rebuilt == nodes
 
@@ -58,14 +58,14 @@ def test_wider_roads_get_shorter_chunks():
 
 
 def test_short_tail_is_merged_into_the_previous_chunk():
-    # 250 m^2 / 6,5 m = 38,46 m je Stück: 40 m ergäben einen 1,5-m-Rest - der hängt am ersten Stück
+    # 250 m^2 / 6.5 m = 38.46 m per piece: 40 m would leave a 1.5 m remainder - it attaches to the first piece
     chunks = split_decal_nodes(_road(40.0), max_area=250.0, min_tail_length=5.0)
 
     assert len(chunks) == 1
 
 
 def test_every_chunk_has_at_least_two_nodes_even_with_sparse_nodes():
-    nodes = _road(200.0, spacing=50.0)  # ein Segment allein ist schon größer als das Budget
+    nodes = _road(200.0, spacing=50.0)  # a single segment alone is already larger than the budget
     chunks = split_decal_nodes(nodes, max_area=250.0, min_tail_length=5.0)
 
     assert all(len(c) >= 2 for c in chunks)

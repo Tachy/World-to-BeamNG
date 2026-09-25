@@ -1,4 +1,4 @@
-"""Erkennung von Junctions in Centerlines: gemeinsame Endpunkte, T-Einmündungen und Kreuzungen."""
+"""Detection of junctions in centerlines: shared endpoints, T-junctions and crossings."""
 
 import sys
 from pathlib import Path
@@ -17,8 +17,8 @@ def _road(points, z=100.0):
 
 def _with_seed(roads):
     """
-    Die T-/Kreuzungs-Erkennung läuft nur, wenn es überhaupt gemeinsame Endpunkte gibt (die Funktion kehrt sonst
-    früh zurück) - ein weit entferntes Straßenpaar mit gemeinsamem Endpunkt stellt das sicher.
+    T-/crossing detection only runs if there are any shared endpoints at all (the function otherwise returns
+    early) - a distant road pair with a shared endpoint ensures this.
     """
     seed = [_road(_line(5000, 0, 5050, 0)), _road(_line(5050, 0, 5050, 40))]
     return list(roads) + seed
@@ -29,7 +29,7 @@ def _near_origin(junctions):
 
 
 def _line(x0, y0, x1, y1, step=5.0):
-    """Gerade mit Stützpunkten im Abstand `step`."""
+    """Straight line with support points at spacing `step`."""
     length = ((x1 - x0) ** 2 + (y1 - y0) ** 2) ** 0.5
     count = max(1, int(round(length / step)))
     return [(x0 + (x1 - x0) * i / count, y0 + (y1 - y0) * i / count) for i in range(count + 1)]
@@ -53,7 +53,7 @@ def test_two_roads_sharing_an_endpoint_form_one_junction():
 
 def test_endpoint_on_a_through_road_is_a_t_junction():
     through = _road(_line(0, 0, 100, 0))
-    side = _road(_line(47, 30, 47, 0))  # endet zwischen zwei Stützpunkten der durchgehenden Straße
+    side = _road(_line(47, 30, 47, 0))  # ends between two support points of the continuous road
 
     junctions = _near_origin(detect_junctions_in_centerlines(_with_seed([through, side])))
 
@@ -103,7 +103,7 @@ def test_near_parallel_roads_within_the_tolerance_meet_between_their_closest_ver
     assert all(j["road_indices"] == [0, 1] for j in junctions)
 
 
-# --- räumlicher Index -----------------------------------------------------------------------------------
+# --- spatial index --------------------------------------------------------------------------------
 
 
 def _junction(x, y):
@@ -114,16 +114,16 @@ def test_junction_index_finds_the_first_junction_within_the_tolerance():
     junctions = [_junction(10.0, 10.0), _junction(10.4, 10.0), _junction(50.0, 50.0)]
     index = _JunctionIndex(junctions, tolerance=1.0)
 
-    assert index.find(10.2, 10.0) is junctions[0]  # beide im Radius: die erste der Liste
-    assert index.find(11.3, 10.0) is junctions[1]  # 1,3 m von #0 (außerhalb), 0,9 m von #1
+    assert index.find(10.2, 10.0) is junctions[0]  # both within the radius: the first of the list
+    assert index.find(11.3, 10.0) is junctions[1]  # 1.3 m from #0 (outside), 0.9 m from #1
     assert index.find(30.0, 30.0) is None
 
 
 def test_junction_index_boundary_is_inclusive_and_sees_junctions_added_later():
     junctions = [_junction(0.0, 0.0)]
     index = _JunctionIndex(junctions, tolerance=1.0)
-    assert index.find(1.0, 0.0) is junctions[0]  # genau Toleranz
+    assert index.find(1.0, 0.0) is junctions[0]  # exactly the tolerance
     assert index.find(1.01, 0.0) is None
 
-    junctions.append(_junction(-5.3, 7.7))  # Zellen mit negativen Koordinaten
+    junctions.append(_junction(-5.3, 7.7))  # cells with negative coordinates
     assert index.find(-5.0, 7.5) is junctions[1]

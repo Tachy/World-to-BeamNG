@@ -1,8 +1,8 @@
 """
-Tests für den Vier-Bilder-Modus: ein Luftbild pro DGM1-Kachel (terrain/photo_tiles.py).
+Tests for the four-image mode: one aerial photo per DGM1 tile (terrain/photo_tiles.py).
 
-Die bestehende Logik (Layer-Map mit Foto = Index 0, Landnutzung nach Name) bleibt unverändert; erst am Ende
-wird die Layer-Map pro Kachel in physische Materialien aufgeteilt (aerial_photo_<k>, mat_grass_t<k>, ...).
+The existing logic (layer map with photo = index 0, land use by name) stays unchanged; only at the end
+is the layer map split per tile into physical materials (aerial_photo_<k>, mat_grass_t<k>, ...).
 """
 
 import sys
@@ -30,7 +30,7 @@ def test_specs_have_one_photo_per_tile_in_a_stable_order_with_local_bounds():
     specs = photo_tile_specs(FOUR, OFFSET)
 
     assert [s["name"] for s in specs] == ["aerial_photo_0", "aerial_photo_1", "aerial_photo_2", "aerial_photo_3"]
-    # Reihenfolge: Süden zuerst, dann Westen zuerst - unabhängig von der Eingabereihenfolge
+    # Order: south first, then west first - independent of the input order
     assert [s["bounds"] for s in specs] == [
         (-2000.0, 0.0, -2000.0, 0.0),
         (0.0, 2000.0, -2000.0, 0.0),
@@ -42,14 +42,14 @@ def test_specs_have_one_photo_per_tile_in_a_stable_order_with_local_bounds():
 
 def test_tile_index_map_assigns_every_cell_to_the_tile_it_lies_in():
     specs = photo_tile_specs(FOUR, OFFSET)
-    # 1-m-Zellen ab (-2000,-2000); die Heightmap ist auf 4096 aufgefüllt, Daten reichen bis x/y = +2000
+    # 1 m cells starting at (-2000,-2000); the heightmap is padded to 4096, data extends to x/y = +2000
     index_map = build_tile_index_map(4096, -2000.0, -2000.0, 1.0, specs)
 
-    assert index_map[10, 10] == 0  # SW-Kachel
-    assert index_map[10, 3000] == 1  # SO (Zeile = y, Spalte = x)
+    assert index_map[10, 10] == 0  # SW tile
+    assert index_map[10, 3000] == 1  # SE (row = y, column = x)
     assert index_map[3000, 10] == 2  # NW
-    assert index_map[3000, 3000] == 3  # NO
-    # Kachelgrenze: Zelle x = 0 gehört schon zur östlichen Kachel, x = -1 noch zur westlichen
+    assert index_map[3000, 3000] == 3  # NE
+    # Tile boundary: cell x = 0 already belongs to the eastern tile, x = -1 still to the western one
     assert index_map[10, 1999] == 0 and index_map[10, 2000] == 1
     assert index_map[1999, 10] == 0 and index_map[2000, 10] == 2
 
@@ -58,10 +58,10 @@ def test_the_outermost_data_cells_and_the_padded_rim_belong_to_the_edge_tiles():
     specs = photo_tile_specs(FOUR, OFFSET)
     index_map = build_tile_index_map(4096, -2000.0, -2000.0, 1.0, specs)
 
-    assert index_map[4000, 4000] == 3  # letzte Datenzelle (x = y = +2000)
-    assert index_map[4095, 4095] == 3  # aufgefüllter Rand: nächste Kachel
+    assert index_map[4000, 4000] == 3  # last data cell (x = y = +2000)
+    assert index_map[4095, 4095] == 3  # padded edge: nearest tile
     assert index_map[4095, 10] == 2 and index_map[10, 4095] == 1
-    assert index_map.min() >= 0  # nichts bleibt ohne Kachel
+    assert index_map.min() >= 0  # nothing is left without a tile
 
 
 def test_single_tile_maps_everything_to_it():
@@ -70,11 +70,11 @@ def test_single_tile_maps_everything_to_it():
     assert build_tile_index_map(2048, -1000.0, -1000.0, 1.0, specs).max() == 0
 
 
-# --- Layer-Map pro Kachel aufteilen ----------------------------------------------------------------
+# --- Split the layer map per tile ------------------------------------------------------------------
 
 
 def _small_case():
-    # 4x4-Zellen-Terrain, 2x2 Kacheln zu je 2x2 Zellen; Foto (0), Wiese (1), Wald (2)
+    # 4x4-cell terrain, 2x2 tiles of 2x2 cells each; photo (0), meadow (1), forest (2)
     specs = [
         {"index": 0, "name": "aerial_photo_0", "bounds": (0, 2, 0, 2)},
         {"index": 1, "name": "aerial_photo_1", "bounds": (2, 4, 0, 2)},
@@ -111,13 +111,13 @@ def test_landuse_layers_become_one_variant_per_tile_and_keep_their_meaning():
 
     result, new_names, variants, parents = expand_layers_per_tile(layer_map, names, index_map, [s["name"] for s in specs])
 
-    assert new_names[result[0, 1]] == "mat_grass_t0"  # Wiese in Kachel 0
-    assert new_names[result[1, 2]] == "mat_grass_t1"  # Wiese in Kachel 1
+    assert new_names[result[0, 1]] == "mat_grass_t0"  # meadow in tile 0
+    assert new_names[result[1, 2]] == "mat_grass_t1"  # meadow in tile 1
     assert new_names[result[1, 0]] == "mat_forest_t0"
     assert new_names[result[2, 3]] == "mat_forest_t3"
     assert variants["mat_grass"] == ["mat_grass_t0", "mat_grass_t1", "mat_grass_t2", "mat_grass_t3"]
-    assert variants["mat_forest"] == ["mat_forest_t0", "mat_forest_t3"]  # nur wo es Wald gibt
-    # jede Variante kennt ihre Ausgangs-Schicht und das Foto ihrer Kachel (für die Basisfarbe)
+    assert variants["mat_forest"] == ["mat_forest_t0", "mat_forest_t3"]  # only where there is forest
+    # each variant knows its source layer and the photo of its tile (for the base color)
     assert parents["mat_grass_t1"] == ("mat_grass", "aerial_photo_1")
     assert parents["mat_forest_t3"] == ("mat_forest", "aerial_photo_3")
 
@@ -141,7 +141,7 @@ def test_photo_materials_come_first_and_only_used_variants_exist():
     _, new_names, _, _ = expand_layers_per_tile(layer_map, names, index_map, [s["name"] for s in specs])
 
     assert new_names[:4] == ["aerial_photo_0", "aerial_photo_1", "aerial_photo_2", "aerial_photo_3"]
-    assert "mat_forest_t1" not in new_names and "mat_forest_t2" not in new_names  # dort gibt es keinen Wald
+    assert "mat_forest_t1" not in new_names and "mat_forest_t2" not in new_names  # there is no forest there
     assert len(new_names) == len(set(new_names))
 
 
@@ -155,16 +155,16 @@ def test_more_than_254_materials_are_rejected():
         expand_layers_per_tile(layer_map.astype(np.uint8), names, index_map, ["p0", "p1"])
 
 
-# --- Zusammenfassende Funktion für process_tile ---------------------------------------------------
+# --- Combined function for process_tile -----------------------------------------------------------
 
 
 def test_split_layers_by_tile_returns_everything_the_export_needs():
     from world_to_beamng.terrain.photo_tiles import split_layers_by_tile
 
     layer_map = np.zeros((4096, 4096), dtype=np.uint8)
-    layer_map[100:200, 100:200] = 1  # Wiese in der SW-Kachel
-    layer_map[3000:3100, 3000:3100] = 1  # Wiese in der NO-Kachel
-    layer_map[:, 4001:] = HOLE  # aufgefüllter Rand
+    layer_map[100:200, 100:200] = 1  # meadow in the SW tile
+    layer_map[3000:3100, 3000:3100] = 1  # meadow in the NE tile
+    layer_map[:, 4001:] = HOLE  # padded edge
 
     result = split_layers_by_tile(layer_map, ["aerial_photo", "mat_grass"], FOUR, OFFSET, -2000.0, -2000.0, 1.0)
 

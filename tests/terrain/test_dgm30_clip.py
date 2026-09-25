@@ -1,6 +1,6 @@
 """
-Tests: DGM30 wird auf die Horizont-Fläche zugeschnitten (ganze 1°-Kacheln machen den Horizont sonst zu groß) und
-mehrere Dateien werden kombiniert; fehlende Abdeckung wird gemeldet.
+Tests: DGM30 is clipped to the horizon area (whole 1° tiles would otherwise make the horizon too large) and
+multiple files are combined; missing coverage is reported.
 """
 
 import sys
@@ -27,9 +27,9 @@ CENTER_LON, CENTER_LAT = Transformer.from_crs("EPSG:25832", "EPSG:4326", always_
 
 @pytest.fixture(autouse=True)
 def _isolate_cache_dir(tmp_path, monkeypatch):
-    """load_dgm30_tiles() schreibt jetzt auch ohne tile_hash einen Pro-Kachel-Cache (siehe
-    horizon._cached_geotiff_as_xyz()) - ohne Isolierung würden Tests das echte cache/-Verzeichnis
-    dieses Repos verschmutzen."""
+    """load_dgm30_tiles() now writes a per-tile cache even without tile_hash (see
+    horizon._cached_geotiff_as_xyz()) - without isolation, tests would pollute the real cache/ directory
+    of this repo."""
     monkeypatch.setattr(config, "CACHE_DIR", tmp_path / "cache")
 
 
@@ -40,7 +40,7 @@ def _grid(half=4000.0, step=200.0):
 
 
 def _tile(path, lon_min, lon_max):
-    """DGM30-Datei in WGS84 (wie das Copernicus DEM), Höhe = 100 m + 1000 m je Grad Länge."""
+    """DGM30 file in WGS84 (like the Copernicus DEM), elevation = 100 m + 1000 m per degree of longitude."""
     bounds = (lon_min, CENTER_LAT - 0.04, lon_max, CENTER_LAT + 0.04)
     cols, rows = 60, 80
     lon = np.linspace(lon_min, lon_max, cols)[None, :].repeat(rows, axis=0)
@@ -51,7 +51,7 @@ def _tile(path, lon_min, lon_max):
     return path
 
 
-# ---------------------------------------------------------------- Zuschnitt
+# ---------------------------------------------------------------- Clipping
 
 
 def test_points_outside_the_area_are_dropped():
@@ -93,7 +93,7 @@ def test_missing_sides_are_reported(keep, expected):
 
 
 def test_a_small_gap_at_the_edge_is_not_reported():
-    points, elevations = _grid(half=HALF - 400.0)  # endet 400 m vor dem Rand: Kachelrand-Toleranz
+    points, elevations = _grid(half=HALF - 400.0)  # ends 400 m before the edge: tile edge tolerance
 
     assert clip_dgm30_to_area(points, elevations, AREA, local_offset=OFFSET)[2] == []
 
@@ -107,7 +107,7 @@ def test_data_completely_outside_gives_an_empty_result():
     assert len(heights) == 0 and missing == []
 
 
-# ---------------------------------------------------------------- Laden aus Dateien
+# ---------------------------------------------------------------- Loading from files
 
 
 def test_several_files_are_combined_and_clipped(tmp_path):
@@ -116,9 +116,9 @@ def test_several_files_are_combined_and_clipped(tmp_path):
 
     points, elevations = load_dgm30_tiles(tmp_path, AREA, local_offset=OFFSET)
 
-    assert np.abs(points).max() <= HALF  # 4,5 km breite Kacheln, zugeschnitten auf ±3 km
-    assert points[:, 0].min() < -2000 and points[:, 0].max() > 2000  # beide Dateien tragen bei
-    assert elevations.min() < 100 < elevations.max()  # Höhen aus beiden Hälften (linear in der Länge)
+    assert np.abs(points).max() <= HALF  # 4.5 km wide tiles, clipped to ±3 km
+    assert points[:, 0].min() < -2000 and points[:, 0].max() > 2000  # both files contribute
+    assert elevations.min() < 100 < elevations.max()  # elevations from both halves (linear in longitude)
 
 
 def test_one_file_alone_leaves_the_other_half_uncovered(tmp_path):
@@ -126,7 +126,7 @@ def test_one_file_alone_leaves_the_other_half_uncovered(tmp_path):
 
     points, _ = load_dgm30_tiles(tmp_path, AREA, local_offset=OFFSET)
 
-    assert points[:, 0].max() < 500  # Osten fehlt: der Horizont endet dort früher
+    assert points[:, 0].max() < 500  # east is missing: the horizon ends earlier there
     assert clip_dgm30_to_area(points, np.zeros(len(points)), AREA, OFFSET)[2] == ["east"]
 
 
@@ -153,17 +153,17 @@ def test_cache_is_not_reused_after_more_tiles_are_added(tmp_path):
     _tile(tiles / "east.tif", CENTER_LON, CENTER_LON + 0.06)
     combined, _ = load_dgm30_tiles(tiles, AREA, local_offset=OFFSET, tile_hash="abc")
 
-    assert len(list((tmp_path / "cache").glob("dgm30_horizon_abc_*.npz"))) == 2  # je Dateisatz ein Cache
+    assert len(list((tmp_path / "cache").glob("dgm30_horizon_abc_*.npz"))) == 2  # one cache per file set
     assert np.array_equal(first, again)
-    assert combined[:, 0].max() > first[:, 0].max() + 1000  # die neue Kachel zählt sofort
+    assert combined[:, 0].max() > first[:, 0].max() + 1000  # the new tile counts immediately
 
 
 def test_per_tile_conversion_is_reused_across_a_core_area_switch(tmp_path):
-    """Regression: ein Wechsel des Kerngebiets (anderer tile_hash, z.B. zwischen zwei Testregionen
-    wie BaWue und der Schweiz) darf die teure GeoTIFF-Konvertierung (Lesen + Reprojizieren +
-    200m-Grid-Downsampling) einer unveraenderten DGM30-Kachel nicht wiederholen - nur die
-    anschliessende Kombination/Zuschnitt fuers jeweilige Gebiet ist tile_hash-abhaengig (siehe
-    horizon._cached_geotiff_as_xyz(), unabhaengig von _dgm30_cache_file())."""
+    """Regression: changing the core area (different tile_hash, e.g. between two test regions
+    like BaWue and Switzerland) must not repeat the expensive GeoTIFF conversion (reading + reprojecting +
+    200m grid downsampling) of an unchanged DGM30 tile - only the subsequent combination/clipping
+    for the respective area depends on tile_hash (see
+    horizon._cached_geotiff_as_xyz(), independent of _dgm30_cache_file())."""
     tiles = tmp_path / "dgm30"
     tiles.mkdir()
     _tile(tiles / "west.tif", CENTER_LON - 0.06, CENTER_LON)
@@ -172,14 +172,14 @@ def test_per_tile_conversion_is_reused_across_a_core_area_switch(tmp_path):
         load_dgm30_tiles(tiles, AREA, local_offset=OFFSET, tile_hash="region-bw")
         load_dgm30_tiles(tiles, AREA, local_offset=OFFSET, tile_hash="region-ch")
 
-    assert spy.call_count == 1  # die Kachel wurde trotz Gebietswechsel (anderer tile_hash) nur einmal gelesen
+    assert spy.call_count == 1  # the tile was read only once despite the area change (different tile_hash)
     assert len(list((tmp_path / "cache").glob("dgm30_tile_*.npz"))) == 1
-    assert len(list((tmp_path / "cache").glob("dgm30_horizon_*.npz"))) == 2  # je Kerngebiet ein Kombi-Cache
+    assert len(list((tmp_path / "cache").glob("dgm30_horizon_*.npz"))) == 2  # one combined cache per core area
 
 
 def test_per_tile_cache_survives_process_restart(tmp_path):
-    """Der Pro-Kachel-Cache ist eine Datei unter cache/, kein In-Memory-Zustand - ein zweiter,
-    komplett unabhaengiger Aufruf (simuliert einen neuen Prozess/Lauf) muss ihn genauso treffen."""
+    """The per-tile cache is a file under cache/, not in-memory state - a second,
+    completely independent call (simulates a new process/run) must hit it just the same."""
     tiles = tmp_path / "dgm30"
     tiles.mkdir()
     tif_file = _tile(tiles / "west.tif", CENTER_LON - 0.06, CENTER_LON)
@@ -188,6 +188,6 @@ def test_per_tile_cache_survives_process_restart(tmp_path):
     with patch("world_to_beamng.terrain.horizon._load_geotiff_as_xyz") as mock_load:
         points_b, elevations_b = horizon._cached_geotiff_as_xyz(tif_file)
 
-    mock_load.assert_not_called()  # zweiter "Prozess" liest die teure Originalfunktion nie
+    mock_load.assert_not_called()  # second "process" never calls the expensive original function
     assert np.array_equal(points_a, points_b)
     assert np.array_equal(elevations_a, elevations_b)

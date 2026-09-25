@@ -1,5 +1,5 @@
 """
-Tests für Fenster-Atlas, Putztextur und Kies-Textur.
+Tests for the window atlas, plaster texture and gravel texture.
 """
 
 import sys
@@ -34,7 +34,7 @@ def gravel():
     return GravelTextureGenerator(size_px=256, repeat_m=1.0).generate()
 
 
-# ---------------------------------------------------------------- Fenster-Atlas
+# ---------------------------------------------------------------- Window atlas
 
 
 def test_sprites_have_their_real_size_in_metres():
@@ -92,17 +92,17 @@ def test_the_reveal_shows_up_in_the_normal_map(windows):
     x, y, w, h = LAYOUT.rect_px(WindowSprite.WINDOW_PLAIN)
     normal = windows["normal"][y : y + h, x : x + w].astype(int)
 
-    assert np.abs(normal[..., 0] - 128).max() > 20  # Kanten von Rahmen/Laibung kippen die Normale
+    assert np.abs(normal[..., 0] - 128).max() > 20  # edges of frame/reveal tilt the normal
 
 
 def test_glass_is_smoother_than_the_frame(windows):
     x, y, w, h = LAYOUT.rect_px(WindowSprite.WINDOW_PLAIN)
     rough = windows["roughness"][y : y + h, x : x + w, 0]
 
-    assert rough.min() < 40 and rough.max() > 100  # Glas ~0,08 -> 20; Rahmen/Laibung deutlich rauer
+    assert rough.min() < 40 and rough.max() > 100  # glass ~0.08 -> 20; frame/reveal clearly rougher
 
 
-# ---------------------------------------------------------------- Putz
+# ---------------------------------------------------------------- Plaster
 
 
 def test_one_albedo_per_plaster_colour_with_its_average_tone(plaster):
@@ -123,7 +123,7 @@ def test_plaster_tiles_without_seams(plaster):
     albedo = plaster["albedo"]["white"].astype(float)
     typical = np.abs(np.diff(albedo, axis=0)).mean()
 
-    assert np.abs(albedo[0] - albedo[-1]).mean() < typical * 3  # Sprung über die Kante wie zwischen Nachbarpixeln
+    assert np.abs(albedo[0] - albedo[-1]).mean() < typical * 3  # jump across the edge like between neighboring pixels
     assert np.abs(albedo[:, 0] - albedo[:, -1]).mean() < typical * 3
 
 
@@ -134,13 +134,13 @@ def test_plaster_normals_are_normalised(plaster):
 
 
 def test_plaster_has_no_cell_structure(plaster):
-    # Keine Wiederholung innerhalb der Textur: Zeilen-/Spaltenmittelwerte schwanken kaum (kein Raster, keine Fugen)
+    # No repetition within the texture: row/column means barely vary (no grid, no joints)
     gray = plaster["albedo"]["white"].astype(float).mean(axis=-1)
 
     assert gray.mean(axis=0).std() < 2.0 and gray.mean(axis=1).std() < 2.0
 
 
-# ---------------------------------------------------------------- Kies
+# ---------------------------------------------------------------- Gravel
 
 
 def test_gravel_is_tileable_and_rough(gravel):

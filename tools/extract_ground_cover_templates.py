@@ -1,16 +1,16 @@
 """
-Extract Ground Cover Templates: Übernimmt erprobte Bodenbewuchs-Definitionen (Gras,
-Blumen, Farn, Unkraut) aus BeamNGs eigenen Levels nach data/ground_cover_templates.json.
+Extract Ground Cover Templates: takes over proven ground vegetation definitions (grass,
+flowers, fern, weeds) from BeamNG's own levels into data/ground_cover_templates.json.
 
-Hintergrund: Grashalme etc. sind in BeamNG kein Teil der Terrain-Textur, sondern
-separate `GroundCover`-Objekte. Ein Objekt hat EIN Billboard-Material (Textur-Atlas,
-siehe /assets/materials/foliage/...) und mehrere `Types`, jeweils mit `billboardUVs`
-(Ausschnitt im Atlas), Größe, Klumpung und dem Terrain-Layer, auf dem sie wachsen.
-Die UV-Rechtecke sind von Hand nicht sinnvoll zu erfinden - deshalb werden sie aus
-Original-Objekten kopiert. Der Layer wird hier bewusst weggelassen und erst beim
-Export auf unser Terrain-Material gesetzt.
+Background: blades of grass etc. are not part of the terrain texture in BeamNG but
+separate `GroundCover` objects. An object has ONE billboard material (texture atlas,
+see /assets/materials/foliage/...) and several `Types`, each with `billboardUVs`
+(region in the atlas), size, clumping and the terrain layer they grow on.
+The UV rectangles cannot sensibly be invented by hand - so they are copied from
+original objects. The layer is deliberately omitted here and only set to our terrain
+material during export.
 
-Aufruf: python tools/extract_ground_cover_templates.py
+Usage: python tools/extract_ground_cover_templates.py
 """
 
 import json
@@ -25,9 +25,9 @@ from vendor_shared_textures import get_beamng_install_dir
 
 OUTPUT_PATH = Path(__file__).parent.parent / "data" / "ground_cover_templates.json"
 
-# Vorlagenname -> (Level, Objektname im Level). Auswahl nach Sichtung der Original-
-# Levels: je Billboard-Material das Objekt mit den meisten Typen, bei mehreren
-# Varianten die weiter reichende ("distant").
+# Template name -> (level, object name in the level). Chosen after reviewing the original
+# levels: per billboard material the object with the most types, and among several
+# variants the one with the longer range ("distant").
 SOURCES = {
     "grass_short": ("Industrial", "small_grass_green_distant"),
     "grass_long": ("Industrial", "long_grass_green_distant"),
@@ -38,15 +38,15 @@ SOURCES = {
     "weed": ("Cliff", "weed1"),
     "fern": ("driver_training", "fern1"),
     "wet_plant": ("Industrial", "wet_weed_02"),
-    # Dichte "close"-Presets (Raster 4, Radius 50, ~1,3 Elemente/m², Halme bis 1,2 m): das ist das
-    # dichte hohe Gras der Original-Levels. Die "distant"-Vorlagen oben sind nur die dünne Fernschicht
-    # (Raster 6-8, ~0,3-0,6/m²) - allein ergeben sie einzelne kleine Halme.
+    # Dense "close" presets (grid 4, radius 50, ~1.3 elements/m², blades up to 1.2 m): this is the
+    # dense tall grass of the original levels. The "distant" templates above are only the thin far layer
+    # (grid 6-8, ~0.3-0.6/m²) - on their own they yield isolated small blades.
     "grass_medium_close": ("east_coast_usa", "medium_grass_close"),
     "dry_grass_medium_close": ("Industrial", "medium_grass_dry_close"),
 }
 
-# Objekt-Felder, die 1:1 übernommen werden (alles andere - persistentId, Position,
-# __parent - gehört zum Original-Level).
+# Object fields that are taken over 1:1 (everything else - persistentId, position,
+# __parent - belongs to the original level).
 OBJECT_FIELDS = (
     "radius",
     "gridSize",
@@ -79,7 +79,7 @@ def _find_ground_cover(zip_file: zipfile.ZipFile, object_name: str) -> dict:
             continue
         if obj.get("class") == "GroundCover" and obj.get("name") == object_name:
             return obj
-    raise LookupError(f"GroundCover '{object_name}' nicht gefunden")
+    raise LookupError(f"GroundCover '{object_name}' not found")
 
 
 def _find_material(levels_dir: Path, material_name: str) -> dict:
@@ -100,7 +100,7 @@ def _find_material(levels_dir: Path, material_name: str) -> dict:
             ]
             if stage_paths and all(p.startswith("/assets/") for p in stage_paths):
                 return material
-    raise LookupError(f"Material '{material_name}' mit gemeinsamen /assets/-Texturen nicht gefunden")
+    raise LookupError(f"Material '{material_name}' with shared /assets/ textures not found")
 
 
 def _clean_material(material: dict) -> dict:
@@ -133,7 +133,7 @@ def main():
         template.update({field: source[field] for field in OBJECT_FIELDS if field in source})
         template["types"] = billboard_types
         templates[template_name] = template
-        print(f"[OK] {template_name}: {level}/{object_name} -> {material_name}, {len(billboard_types)} Typen")
+        print(f"[OK] {template_name}: {level}/{object_name} -> {material_name}, {len(billboard_types)} types")
 
     OUTPUT_PATH.write_text(
         json.dumps({"billboard_materials": materials, "templates": templates}, indent=2, ensure_ascii=False) + "\n",

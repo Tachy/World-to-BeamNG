@@ -1,4 +1,4 @@
-"""Tests für TerrainWorkflow._build_wall_meshes() und export_walls(): Bruchsteinmauern als eigene DAE mit einem TSStatic."""
+"""Tests for TerrainWorkflow._build_wall_meshes() and export_walls(): rubble stone walls as a separate DAE with one TSStatic."""
 
 import sys
 from pathlib import Path
@@ -82,10 +82,10 @@ def test_export_walls_writes_one_dae_one_item_and_a_stone_material(shapes_dir):
     assert dae_path == shapes_dir / "walls" / "walls.dae" and with_uv is True and len(meshes) == 2
     item = stub.items.objects["walls"]
     assert item["class"] == "TSStatic" and item["position"] == [0, 0, 0]
-    assert item["shape_name"] == "levels/world_to_beamng/art/shapes/walls/walls.dae"  # Schrägstriche wie BeamNG sie erwartet
-    assert item["collisionType"] == "Visible Mesh Final"  # Fahrzeuge stoßen an die Mauer
+    assert item["shape_name"] == "levels/world_to_beamng/art/shapes/walls/walls.dae"  # slashes as BeamNG expects them
+    assert item["collisionType"] == "Visible Mesh Final"  # vehicles collide with the wall
     material = stub.materials.added[config.WALL_MATERIAL_NAME]
-    assert {k: material["textures"][k] for k in STONE} == STONE  # Foto-Textur aus data/textures, nicht BeamNGs Stock-Content
+    assert {k: material["textures"][k] for k in STONE} == STONE  # photo texture from data/textures, not BeamNG stock
     assert material["textures"]["useAnisotropic"] is True and not material.get("color")
 
 
@@ -98,7 +98,7 @@ def test_export_walls_takes_the_textures_from_the_registry_check_and_never_falls
 
     with pytest.raises(registry.MissingTexturesError):
         TerrainWorkflow.export_walls(stub, {"wall_meshes": [_mesh()]})
-    assert not stub.materials.added and not stub.dae.calls  # nichts halb exportiert
+    assert not stub.materials.added and not stub.dae.calls  # nothing half exported
 
 
 def test_nothing_is_exported_and_stale_files_are_removed_without_walls(shapes_dir, monkeypatch):
@@ -127,7 +127,7 @@ def test_build_wall_meshes_uses_only_walls_with_a_height_and_the_terrain_heights
 
     osm = [
         way(1, [(7.6800, 47.8300), (7.6802, 47.8300)], height="2", material="stone"),
-        way(2, [(7.6800, 47.8302), (7.6802, 47.8302)]),  # ohne Höhe
+        way(2, [(7.6800, 47.8302), (7.6802, 47.8302)]),  # without height
     ]
     ground = lambda x, y: np.full_like(np.asarray(x, float), 300.0)
 
@@ -137,9 +137,9 @@ def test_build_wall_meshes_uses_only_walls_with_a_height_and_the_terrain_heights
     assert stats["built"] == 1 and stats["without_height"] == 1
     z = meshes[0]["vertices"][:, 2]
     assert z.max() == pytest.approx(302.0) and z.min() == pytest.approx(300.0 - config.WALL_SINK)
-    # Breite quer zur Mauerrichtung (die Karte ist gegen Nord gedreht: UTM-Meridiankonvergenz): Mauerkörper plus Plattenüberstand
+    # Width across the wall direction (map is rotated against north: UTM meridian convergence): wall body plus cap overhang
     xy = meshes[0]["vertices"][:, :2]
-    axis = np.linalg.svd(xy - xy.mean(axis=0))[2][0]  # Hauptrichtung der Mauer
+    axis = np.linalg.svd(xy - xy.mean(axis=0))[2][0]  # main direction of the wall
     across = xy @ np.array([-axis[1], axis[0]])
     assert (across.max() - across.min()) == pytest.approx(0.5 + 2 * config.WALL_CAP_OVERHANG, abs=0.02)
     assert config.WALL_THICKNESS == pytest.approx(0.5)
@@ -152,7 +152,7 @@ def test_build_wall_meshes_snaps_walls_next_to_a_road_to_the_centerline_height()
     to_local = make_local_transform(offset)
     wall = {"type": "way", "id": 7, "tags": {"barrier": "retaining_wall", "height": "2"}, "geometry": [{"lat": 47.8300, "lon": 7.6800}, {"lat": 47.8300, "lon": 7.6802}]}
     (x0, y0), (x1, y1) = to_local(wall["geometry"])
-    # Centerline 2 m neben der Mauer (senkrecht zur Mauerrichtung), auf 320 m; Gelände 300 m
+    # Centerline 2 m beside the wall (perpendicular to the wall direction), at 320 m; terrain 300 m
     direction = np.array([x1 - x0, y1 - y0]) / np.hypot(x1 - x0, y1 - y0)
     shift = np.array([-direction[1], direction[0]]) * 2.0
     road = {"trimmed_centerline": np.array([[x0 + shift[0], y0 + shift[1], 320.0], [x1 + shift[0], y1 + shift[1], 320.0]])}

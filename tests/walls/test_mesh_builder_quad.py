@@ -1,7 +1,7 @@
-"""Tests für world_to_beamng.walls.mesh_parts.MeshBuilder.quad(): Umlaufsinn folgt der Normalen.
+"""Tests for world_to_beamng.walls.mesh_parts.MeshBuilder.quad(): winding order follows the normal.
 
-quad() nutzt für Kreuz-/Skalarprodukt bewusst reines Python statt numpy (siehe Kommentar in
-mesh_parts.py) - diese Tests sichern, dass das Ergebnis dasselbe bleibt wie mit np.cross()/np.dot().
+quad() deliberately uses plain Python instead of numpy for the cross/dot product (see comment in
+mesh_parts.py) - these tests ensure that the result stays the same as with np.cross()/np.dot().
 """
 
 import sys
@@ -48,7 +48,7 @@ def test_quad_flips_winding_when_corners_are_given_in_the_opposite_order():
 
 def test_quad_works_for_an_arbitrary_non_axis_aligned_normal():
     builder = MeshBuilder()
-    # Vierseitige Fläche in der xz-Ebene, Normale zeigt entlang -y.
+    # Four-sided face in the xz plane, normal points along -y.
     corners = [(0.0, 5.0, 0.0), (1.0, 5.0, 0.0), (1.0, 5.0, 1.0), (0.0, 5.0, 1.0)]
 
     builder.quad(corners, UVS, normal=(0.0, -1.0, 0.0))

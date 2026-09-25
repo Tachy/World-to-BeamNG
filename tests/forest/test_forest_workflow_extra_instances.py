@@ -1,4 +1,4 @@
-"""Tests für ForestWorkflow.add_instances() (zusätzliche Instanzen wie Weinberg-Reben)."""
+"""Tests for ForestWorkflow.add_instances() (additional instances such as vineyard vines)."""
 
 import json
 import sys

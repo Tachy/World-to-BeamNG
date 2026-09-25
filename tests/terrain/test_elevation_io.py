@@ -1,7 +1,7 @@
 """
-Tests: world_to_beamng.terrain.elevation_io.read_elevation_tile() - einheitlicher Reader für
-ASCII-XYZ-Punktwolken (in ZIP) und GeoTIFF-Raster (lose Datei oder in ZIP), Dispatch anhand des
-tatsächlichen Dateiinhalts.
+Tests: world_to_beamng.terrain.elevation_io.read_elevation_tile() - unified reader for
+ASCII-XYZ point clouds (in ZIP) and GeoTIFF rasters (loose file or in ZIP), dispatching on the
+actual file content.
 """
 
 import sys
@@ -21,7 +21,7 @@ from world_to_beamng.terrain.elevation_io import read_elevation_tile, read_eleva
 
 
 def _write_geotiff(path, bounds, size, crs="EPSG:25832", nodata=None, fill=None):
-    """Kleines Einzelband-GeoTIFF; Werte = fortlaufender Index, sofern `fill` nichts anderes vorgibt."""
+    """Small single-band GeoTIFF; values = running index unless `fill` specifies otherwise."""
     width, height = size
     data = np.arange(width * height, dtype="float32").reshape(height, width) + 100.0
     if fill is not None:
@@ -36,14 +36,14 @@ def _write_geotiff(path, bounds, size, crs="EPSG:25832", nodata=None, fill=None)
 
 
 def _write_xyz_zip(path, rows):
-    """ZIP mit einer einzelnen a.xyz-Datei (LGL-Format: 'X Y Z' pro Zeile)."""
+    """ZIP with a single a.xyz file (LGL format: 'X Y Z' per line)."""
     text = "\n".join(f"{x} {y} {z}" for x, y, z in rows)
     with zipfile.ZipFile(path, "w") as zf:
         zf.writestr("a.xyz", text)
     return path
 
 
-# ---------------------------------------------------------------- ASCII-XYZ (ZIP, LGL-Format)
+# ---------------------------------------------------------------- ASCII-XYZ (ZIP, LGL format)
 
 
 def test_xyz_in_zip_is_read_and_has_no_crs():
@@ -61,8 +61,8 @@ def test_xyz_in_zip_is_read_and_has_no_crs():
     assert points.shape == (3, 2)
     assert list(elevations) == [10.0, 10.5, 11.0]
     assert crs_epsg is None
-    # Punkte sind Zellmittelpunkte im 1m-Gitter (0.0/1.0) -> Abdeckung reicht 0.5m ueber die
-    # aeusseren Punkte hinaus, nicht nur bis zu ihrem reinen Min/Max (siehe Modul-Docstring)
+    # Points are cell centers on the 1m grid (0.0/1.0) -> coverage extends 0.5m beyond the
+    # outer points, not just to their plain min/max (see module docstring)
     assert bbox_utm == pytest.approx((-0.5, 1.5, -0.5, 1.5))
 
 
@@ -76,26 +76,26 @@ def test_zip_without_xyz_or_raster_members_returns_none(tmp_path):
     assert (points, elevations, crs_epsg, bbox_utm) == (None, None, None, None)
 
 
-# ---------------------------------------------------------------- GeoTIFF (lose Datei)
+# ---------------------------------------------------------------- GeoTIFF (loose file)
 
 
 def test_loose_geotiff_pixel_centres_match_rasterio_reference(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "GRID_SPACING", 1.0)
     path = tmp_path / "dem.tif"
-    bounds = (0.0, 0.0, 4.0, 4.0)  # 4x4 Pixel @ 1 m nativ = config.GRID_SPACING -> keine Umtastung
+    bounds = (0.0, 0.0, 4.0, 4.0)  # 4x4 pixels @ 1 m native = config.GRID_SPACING -> no resampling
     data = _write_geotiff(path, bounds, size=(4, 4), crs="EPSG:25832")
 
     points, elevations, crs_epsg, bbox_utm = read_elevation_tile(path)
 
     assert crs_epsg == 25832
-    assert len(points) == 16  # 4x4, keine NoData, keine Umtastung
-    # bbox_utm ist die ECHTE Rasterabdeckung (0..4), nicht die um einen halben Pixel kleinere
-    # Pixel-Mittelpunkt-BBox (0.5..3.5)
+    assert len(points) == 16  # 4x4, no NoData, no resampling
+    # bbox_utm is the REAL raster coverage (0..4), not the pixel-center BBox that is smaller by
+    # half a pixel (0.5..3.5)
     assert bbox_utm == pytest.approx((0.0, 4.0, 0.0, 4.0))
 
     with rasterio.open(path) as src:
         expected_xs, expected_ys = rasterio.transform.xy(src.transform, [0], [0])
-    # oberer linker Pixel-Mittelpunkt (Zeile 0, Spalte 0) muss unter den zurückgegebenen Punkten sein
+    # upper-left pixel center (row 0, column 0) must be among the returned points
     assert any(
         pytest.approx(expected_xs[0], abs=1e-6) == x and pytest.approx(expected_ys[0], abs=1e-6) == y
         for x, y in points
@@ -119,7 +119,7 @@ def test_nodata_pixels_are_masked_out(tmp_path, monkeypatch):
     path = tmp_path / "with_nodata.tif"
     width, height = 3, 3
     data = np.full((height, width), 50.0, dtype="float32")
-    data[1, 1] = -9999.0  # Mitte = NoData (wie swissALTI3D)
+    data[1, 1] = -9999.0  # center = NoData (like swissALTI3D)
     profile = dict(
         driver="GTiff", width=width, height=height, count=1, dtype="float32",
         crs="EPSG:25832", transform=from_bounds(0.0, 0.0, 3.0, 3.0, width, height), nodata=-9999.0,
@@ -129,36 +129,36 @@ def test_nodata_pixels_are_masked_out(tmp_path, monkeypatch):
 
     points, elevations, crs_epsg, bbox_utm = read_elevation_tile(path)
 
-    assert len(points) == 8  # 9 Pixel minus die eine NoData-Zelle
+    assert len(points) == 8  # 9 pixels minus the one NoData cell
     assert -9999.0 not in elevations
 
 
 def test_geotiff_finer_than_grid_spacing_is_downsampled_to_grid_spacing(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "GRID_SPACING", 1.0)
     path = tmp_path / "fine.tif"
-    # 0.25 m nativ auf 8x8 m Fläche = 32x32 Pixel -> soll auf ca. 1 m (8x8 Punkte) heruntergetastet werden
+    # 0.25 m native over an 8x8 m area = 32x32 pixels -> should be downsampled to about 1 m (8x8 points)
     _write_geotiff(path, (0.0, 0.0, 8.0, 8.0), size=(32, 32), crs="EPSG:25832")
 
     points, elevations, crs_epsg, bbox_utm = read_elevation_tile(path)
 
-    # Deutlich weniger als die 1024 nativen Pixel, nah an 8x8=64 (Ziel-Auflösung 1 m)
+    # Significantly fewer than the 1024 native pixels, close to 8x8=64 (target resolution 1 m)
     assert 50 <= len(points) <= 100
     xs = np.unique(np.round(points[:, 0], 3))
     spacing = np.diff(np.sort(xs)).mean()
     assert spacing == pytest.approx(1.0, abs=0.05)
-    # bbox_utm bleibt die ECHTE Flaeche (0..8), unabhaengig von der Umtastung
+    # bbox_utm stays the REAL area (0..8), independent of the resampling
     assert bbox_utm == pytest.approx((0.0, 8.0, 0.0, 8.0))
 
 
 def test_geotiff_coarser_than_grid_spacing_stays_native(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "GRID_SPACING", 1.0)
     path = tmp_path / "coarse.tif"
-    # 2 m nativ, gröber als GRID_SPACING=1 m -> bleibt unveraendert (kein Hochtasten hier)
+    # 2 m native, coarser than GRID_SPACING=1 m -> stays unchanged (no upsampling here)
     _write_geotiff(path, (0.0, 0.0, 8.0, 8.0), size=(4, 4), crs="EPSG:25832")
 
     points, elevations, crs_epsg, bbox_utm = read_elevation_tile(path)
 
-    assert len(points) == 16  # 4x4 native Pixel, unveraendert
+    assert len(points) == 16  # 4x4 native pixels, unchanged
     xs = np.unique(np.round(points[:, 0], 3))
     spacing = np.diff(np.sort(xs)).mean()
     assert spacing == pytest.approx(2.0, abs=0.05)
@@ -182,7 +182,7 @@ def test_geotiff_embedded_in_zip_is_read_via_vsizip(tmp_path, monkeypatch):
 
 
 def test_unknown_extension_is_reported_and_returns_none(tmp_path):
-    p = tmp_path / "data.xyz"  # lose .xyz-Datei (kein ZIP, keine Raster-Endung) wird nicht unterstuetzt
+    p = tmp_path / "data.xyz"  # loose .xyz file (no ZIP, no raster extension) is not supported
     p.write_text("0 0 1")
 
     points, elevations, crs_epsg, bbox_utm = read_elevation_tile(p)
@@ -190,20 +190,20 @@ def test_unknown_extension_is_reported_and_returns_none(tmp_path):
     assert (points, elevations, crs_epsg, bbox_utm) == (None, None, None, None)
 
 
-# ---------------------------------------------------------------- Cache-Rundreise (read_elevation_tile_cached)
+# ---------------------------------------------------------------- Cache round trip (read_elevation_tile_cached)
 
 
 def test_cached_read_preserves_bbox_and_crs_across_a_cache_hit(tmp_path, monkeypatch):
-    """Regressionstest: bbox_utm/crs_epsg muessen auch aus dem Cache (nicht nur beim Frisch-Parsen)
-    korrekt zurückkommen - eine fehlende bbox_utm im Cache hat vorher die Luftbild-Kacheln um
-    0.5m gegenüber der echten Terrain-Fläche verschoben (siehe Modul-Docstring)."""
+    """Regression test: bbox_utm/crs_epsg must also come back correctly from the cache (not only on a
+    fresh parse) - a missing bbox_utm in the cache previously shifted the aerial photo tiles by
+    0.5m relative to the real terrain area (see module docstring)."""
     monkeypatch.setattr(config, "GRID_SPACING", 1.0)
     path = tmp_path / "dem.tif"
     _write_geotiff(path, (0.0, 0.0, 4.0, 4.0), size=(4, 4), crs="EPSG:2056")
     cache = CacheManager(tmp_path / "cache")
 
     fresh = read_elevation_tile_cached(path, cache)
-    cached = read_elevation_tile_cached(path, cache)  # zweiter Aufruf -> Cache-Hit
+    cached = read_elevation_tile_cached(path, cache)  # second call -> cache hit
 
     assert fresh[2] == cached[2] == 2056  # crs_epsg
     assert fresh[3] == pytest.approx(cached[3])  # bbox_utm
@@ -212,19 +212,19 @@ def test_cached_read_preserves_bbox_and_crs_across_a_cache_hit(tmp_path, monkeyp
 
 
 def test_a_stale_cache_entry_without_bbox_utm_is_healed_not_treated_as_valid(tmp_path, monkeypatch):
-    """Cache-Eintraege aus der Zeit vor bbox_utm (nur points/elevations) duerfen NICHT als Treffer
-    gelten - sonst bbox_utm=None und die Kachel wird von scan_elevation_tiles() stillschweigend
-    uebersprungen, obwohl die Datei da ist und gueltige Daten hat."""
+    """Cache entries from before bbox_utm (only points/elevations) must NOT count as a hit -
+    otherwise bbox_utm=None and the tile is silently skipped by scan_elevation_tiles(),
+    even though the file is there and has valid data."""
     monkeypatch.setattr(config, "GRID_SPACING", 1.0)
     path = tmp_path / "dem.tif"
     _write_geotiff(path, (0.0, 0.0, 4.0, 4.0), size=(4, 4), crs="EPSG:25832")
     cache = CacheManager(tmp_path / "cache")
     tile_hash = cache.hash_file(path)
-    # Simuliert einen alten Cache-Eintrag von vor dieser Funktion (kein bbox_utm-Key)
+    # Simulates an old cache entry from before this function (no bbox_utm key)
     cache.set_npz(f"height_raw_{tile_hash}", points=np.zeros((1, 2)), elevations=np.zeros(1))
 
     points, elevations, crs_epsg, bbox_utm = read_elevation_tile_cached(path, cache)
 
     assert bbox_utm == pytest.approx((0.0, 4.0, 0.0, 4.0))
     assert crs_epsg == 25832
-    assert len(points) == 16  # frisch aus der echten Datei gelesen, nicht der Fake-Cache-Eintrag
+    assert len(points) == 16  # freshly read from the real file, not the fake cache entry

@@ -1,9 +1,9 @@
-"""Höhenprofil über Ketten aus Tunneln und Galerien (world_to_beamng.geometry.polygon.apply_structure_elevation_profiles).
+"""Elevation profile over chains of tunnels and galleries (world_to_beamng.geometry.polygon.apply_structure_elevation_profiles).
 
-Hintergrund (Nuova strada del San Gottardo, 2026-09-24): An Stößen Tunnel <-> Galerie liefert das Höhenmodell keine
-brauchbare Fahrbahnhöhe (dort liegt Berg bzw. das Galeriedach). Die Kette bekommt deshalb ein Profil durch ihre beiden
-Außenenden und durch Stützpunkte aus dem Galeriedach (Modellhöhe - lichte Höhe - Dachdicke), die mindestens 100 m von
-den Kettenenden und 200 m voneinander entfernt liegen.
+Background (Nuova strada del San Gottardo, 2026-09-24): At tunnel <-> gallery joints the elevation model gives no
+usable road height (there it shows the mountain or the gallery roof). The chain therefore gets a profile through its
+two outer ends and through support points taken from the gallery roof (model height - clearance height - roof
+thickness), which are at least 100 m from the chain ends and 200 m from each other.
 """
 
 import sys
@@ -29,7 +29,7 @@ def _z_at(roads, x):
         for px, _, pz in road["coords"]:
             if abs(px - x) < 1e-9:
                 return pz
-    raise AssertionError(f"kein Punkt bei x={x}")
+    raise AssertionError(f"no point at x={x}")
 
 
 def test_inner_joint_between_tunnels_ignores_the_terrain_height():
@@ -41,7 +41,7 @@ def test_inner_joint_between_tunnels_ignores_the_terrain_height():
 
     apply_structure_elevation_profiles(roads, **KW)
 
-    assert roads[0]["coords"][-1][2] == pytest.approx(115.0)  # auf der Geraden 100 -> 130, nicht 999
+    assert roads[0]["coords"][-1][2] == pytest.approx(115.0)  # on the straight line 100 -> 130, not 999
     assert roads[1]["coords"][0][2] == pytest.approx(115.0)
     assert _z_at(roads, 150) == pytest.approx(107.5)
 
@@ -59,8 +59,8 @@ def test_chain_works_when_members_are_digitised_in_opposite_directions():
 
 
 def test_gallery_roof_gives_support_points_away_from_the_chain_ends():
-    # Kette: Tunnel 0..150, Galerie 150..750, Tunnel 750..900. Wahre Fahrbahn in der Galerie 8 m über der Geraden
-    # zwischen den Außenenden (100 -> 118); das Höhenmodell zeigt dort das Dach (Fahrbahn + 5,5 m).
+    # Chain: tunnel 0..150, gallery 150..750, tunnel 750..900. True road in the gallery is 8 m above the straight line
+    # between the outer ends (100 -> 118); the elevation model shows the roof there (road + 5.5 m).
     line = lambda x: 100.0 + 0.02 * x
     roads = [
         _way(1, range(0, 151, 10), lambda x: 100.0 if x == 0 else 500.0, highway="primary", tunnel="yes"),
@@ -70,14 +70,14 @@ def test_gallery_roof_gives_support_points_away_from_the_chain_ends():
 
     apply_structure_elevation_profiles(roads, **KW)
 
-    # Stützpunkte bei 160, 360, 560: erster Galeriepunkt >= 100 m vom Ende (der Stoßpunkt 150 selbst zählt nie -
-    # genau dort ist das Höhenmodell unzuverlässig), dann alle 200 m; 760 läge schon im Tunnel
+    # Support points at 160, 360, 560: first gallery point >= 100 m from the end (the joint point 150 itself never
+    # counts - the elevation model is unreliable exactly there), then every 200 m; 760 would already be in the tunnel
     for x in (160, 360, 560):
-        # Median über +-10 m: am ersten Stützpunkt ist das Fenster am Stoß einseitig -> auf 2 % Steigung bis 0,1 m
+        # Median over +-10 m: at the first support point the window at the joint is one-sided -> up to 0.1 m at 2 % grade
         assert _z_at(roads, x) == pytest.approx(line(x) + 8.0, abs=0.15)
     assert _z_at(roads, 0) == pytest.approx(100.0) and _z_at(roads, 900) == pytest.approx(118.0)
-    assert _z_at(roads, 80) == pytest.approx(100.0 + (line(160) + 8.0 - 100.0) * 80 / 160, abs=0.1)  # zum Ende angeglichen
-    assert _z_at(roads, 150) < 500.0 and _z_at(roads, 750) < 500.0  # Stöße lesen nie das Gelände
+    assert _z_at(roads, 80) == pytest.approx(100.0 + (line(160) + 8.0 - 100.0) * 80 / 160, abs=0.1)  # blended toward the end
+    assert _z_at(roads, 150) < 500.0 and _z_at(roads, 750) < 500.0  # joints never read the terrain
 
 
 def test_gallery_closer_than_the_end_distance_gives_no_support_point():
@@ -85,11 +85,11 @@ def test_gallery_closer_than_the_end_distance_gives_no_support_point():
 
     apply_structure_elevation_profiles(roads, **KW)
 
-    assert _z_at(roads, 70) == pytest.approx(200.0)  # nur linear zwischen den Enden
+    assert _z_at(roads, 70) == pytest.approx(200.0)  # only linear between the ends
 
 
 def test_standalone_gallery_gets_roof_support_points_too():
-    # Einzelne Galerie 0..320: Stützpunkt nur bei 100 (300 läge näher als 100 m am Ende)
+    # Single gallery 0..320: support point only at 100 (300 would be closer than 100 m to the end)
     roads = [_way(1, range(0, 321, 10), lambda x: 200.0 if x in (0, 320) else 205.0 + ROOF, highway="primary", covered="yes", layer="-1")]
 
     apply_structure_elevation_profiles(roads, **KW)
@@ -102,7 +102,7 @@ def test_roof_support_point_uses_the_median_against_outliers():
     def roof(x):
         if x in (0, 320):
             return 200.0
-        return 999.0 if x == 100 else 205.0 + ROOF  # ein Ausreißer genau am Stützpunkt
+        return 999.0 if x == 100 else 205.0 + ROOF  # one outlier exactly at the support point
 
     roads = [_way(1, range(0, 321, 5), roof, highway="primary", covered="yes", layer="-1")]
 
@@ -119,12 +119,12 @@ def test_bridges_keep_their_own_linear_profile():
 
     apply_structure_elevation_profiles(roads, **KW)
 
-    assert _z_at(roads, 150) == pytest.approx(115.0)  # Brücke: linear 100 -> 130
-    assert _z_at(roads, 450) == pytest.approx(115.0)  # Tunnel für sich: linear 130 -> 100
+    assert _z_at(roads, 150) == pytest.approx(115.0)  # bridge: linear 100 -> 130
+    assert _z_at(roads, 450) == pytest.approx(115.0)  # tunnel on its own: linear 130 -> 100
 
 
 def test_gallery_end_is_levelled_to_the_approach_like_a_tunnel_end():
-    # Zufahrt x=0..30 mit stabilen 5 %, die letzten 8 m steigen steil an (Hang/Dach über dem Galerie-Ende)
+    # Approach x=0..30 with a stable 5 %, the last 8 m rise steeply (hillside/roof above the gallery end)
     approach = []
     for x in range(0, 31, 2):
         z = 100.0 + 0.05 * x + (max(0, x - 22) * 0.5)
@@ -140,7 +140,7 @@ def test_gallery_end_is_levelled_to_the_approach_like_a_tunnel_end():
     assert roads[1]["coords"][0] == pytest.approx((30.0, 0.0, 101.5))
 
 
-# --- Kette, die über die Kartengrenze reicht: Röhre mit Steigung 0 auf Einfahrtshöhe ---
+# --- Chain that extends beyond the map boundary: tube with grade 0 at the entrance height ---
 
 BOUNDS = (-1000.0, 1000.0, -1000.0, 1000.0)
 
@@ -165,7 +165,7 @@ def test_chain_ending_just_inside_the_edge_counts_as_leaving_the_map():
 
     apply_structure_elevation_profiles(roads, bounds=BOUNDS, edge_margin=25.0, **KW)
 
-    assert roads[0]["coords"][-1][2] == pytest.approx(100.0)  # x=990 liegt nur 10 m vor der Kante
+    assert roads[0]["coords"][-1][2] == pytest.approx(100.0)  # x=990 is only 10 m before the edge
 
 
 def test_chain_leaving_on_both_sides_keeps_its_linear_profile():
@@ -185,9 +185,9 @@ def test_chain_inside_the_map_is_not_flattened():
 
 
 def test_chain_leaving_the_map_without_an_approach_road_is_not_flattened():
-    # z.B. Festungsstollen: das Ende in der Karte ist eine Verzweigung im Berg, keine Einfahrt
+    # e.g. fortress tunnel: the end inside the map is a branch inside the mountain, not an entrance
     roads = [_way(1, range(800, 1201, 10), lambda x: 100.0 if x == 800 else (160.0 if x == 1200 else 999.0), highway="path", tunnel="yes")]
 
     apply_structure_elevation_profiles(roads, bounds=BOUNDS, edge_margin=25.0, **KW)
 
-    assert _z_at(roads, 1000) == pytest.approx(130.0)  # linear, nicht flach
+    assert _z_at(roads, 1000) == pytest.approx(130.0)  # linear, not flat

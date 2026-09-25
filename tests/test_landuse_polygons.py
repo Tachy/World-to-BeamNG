@@ -1,9 +1,9 @@
-"""Tests für world_to_beamng.osm.landuse_polygons.build_landuse_polygons().
+"""Tests for world_to_beamng.osm.landuse_polygons.build_landuse_polygons().
 
-Hintergrund: Der frühere Code baute Landnutzungs-Polygone nur aus Ways. Ein
-Multipolygon-Relationen (z.B. große Waldflächen) hat seine Geometrie aber in
-den Members - sie wurden komplett übersprungen (Wald: ~35 % der Fläche, aber
-nur 0,1 % des Terrains als Wald gemalt).
+Background: The earlier code built land use polygons only from ways. A
+multipolygon relation (e.g. large forest areas), however, has its geometry in
+the members - they were skipped entirely (forest: ~35 % of the area, but
+only 0.1 % of the terrain painted as forest).
 """
 
 import sys
@@ -17,7 +17,7 @@ from world_to_beamng.osm.landuse_polygons import build_landuse_polygons
 
 
 def _pt(x, y):
-    # Identität statt WGS84: to_local() in den Tests ist (lon, lat) -> (x, y)
+    # Identity instead of WGS84: to_local() in the tests is (lon, lat) -> (x, y)
     return {"lon": float(x), "lat": float(y)}
 
 
@@ -54,7 +54,7 @@ def test_closed_way_becomes_polygon():
 
 
 def test_unclosed_way_is_skipped():
-    # Ein offener Linienzug mit landuse-Tag ist keine Fläche (z.B. Member einer Relation)
+    # An open polyline with a landuse tag is not an area (e.g. member of a relation)
     result = build_landuse_polygons([_way({"landuse": "meadow"}, [(0, 0), (10, 0), (10, 10)])], _to_local)
 
     assert result == []
@@ -105,7 +105,7 @@ def test_multipolygon_relation_inner_ring_becomes_hole():
 
 
 def test_multipolygon_relation_outer_ring_assembled_from_several_ways():
-    # Der äußere Ring ist in OSM oft auf mehrere Ways verteilt
+    # In OSM the outer ring is often split across several ways
     members = [
         _member("outer", [(0, 0), (10, 0), (10, 10)]),
         _member("outer", [(10, 10), (0, 10), (0, 0)]),
@@ -160,7 +160,7 @@ def test_self_intersecting_way_is_repaired_or_skipped_not_raised():
 
 
 def test_detention_basin_relation_is_filled_so_the_pond_lies_inside_the_meadow():
-    # trockenes Rückhaltebecken: das kleine Gewässer ist als inner-Ring eingetragen, die Wiese soll aber durchgehen
+    # dry retention basin: the small water body is entered as an inner ring, but the meadow should continue through
     relation = _relation({"landuse": "basin", "basin": "detention"}, [_member("outer", SQUARE_10), _member("inner", SQUARE_4)])
 
     result = build_landuse_polygons([relation], _to_local)

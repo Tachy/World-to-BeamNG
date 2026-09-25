@@ -1,7 +1,7 @@
 """
-Tests: HorizonWorkflow.generate_horizon() verdrahtet die Auto-Download-Module
-(dgm30_fetch.ensure_dgm30_coverage, sentinel2_fetch.ensure_horizon_texture) korrekt vor den
-jeweils bestehenden Loadern ein - reine Verdrahtung, kein Netzwerk, alles gemockt.
+Tests: HorizonWorkflow.generate_horizon() wires the auto-download modules
+(dgm30_fetch.ensure_dgm30_coverage, sentinel2_fetch.ensure_horizon_texture) correctly in front of the
+respective existing loaders - pure wiring, no network, everything mocked.
 """
 
 import sys
@@ -36,9 +36,9 @@ def test_dgm30_auto_download_runs_before_load_dgm30_tiles_when_enabled(monkeypat
         result = HorizonWorkflow.generate_horizon(_stub(), global_offset=GLOBAL_OFFSET)
 
     assert calls == ["ensure_dgm30_coverage", "load_dgm30_tiles"]
-    assert result is None  # (None, None) -> Phase 5 übersprungen, unabhängig vom Auto-Download
+    assert result is None  # (None, None) -> phase 5 skipped, regardless of the auto-download
 
-    # Argumente: horizon_area_wgs84(global_offset) und config.DGM30_CACHE_DIR
+    # Arguments: horizon_area_wgs84(global_offset) and config.DGM30_CACHE_DIR
     mock_ensure.assert_called_once()
     (area_wgs84, dgm30_dir), _kwargs = mock_ensure.call_args
     assert dgm30_dir == config.DGM30_CACHE_DIR
@@ -54,7 +54,7 @@ def test_dgm30_auto_download_is_skipped_when_disabled(monkeypatch):
         result = HorizonWorkflow.generate_horizon(_stub(), global_offset=GLOBAL_OFFSET)
 
     mock_ensure.assert_not_called()
-    mock_load.assert_called_once()  # der bestehende Loader läuft trotzdem ganz normal weiter
+    mock_load.assert_called_once()  # the existing loader still runs completely normally
     assert result is None
 
 
@@ -67,12 +67,12 @@ def _mesh_stub():
 
 
 def _run_past_dgm30(monkeypatch, eox_auto_download):
-    """Lässt DGM30 mit gemockten, aber 'erfolgreichen' Punkten/Höhen durchlaufen, damit der Code
-    bis zum Sentinel-2-Block kommt - load_sentinel2_geotiff liefert None, sodass texture_horizon_mesh
-    (und damit texconv.exe) nie erreicht wird (siehe horizon.py:637-653: bei horizon_image=None gibt
-    texture_horizon_mesh sofort {"texture_path": None, "uv_map": None} zurück, ohne aufgerufen zu werden)."""
+    """Lets DGM30 run through with mocked but 'successful' points/heights so that the code
+    reaches the Sentinel-2 block - load_sentinel2_geotiff returns None so that texture_horizon_mesh
+    (and thus texconv.exe) is never reached (see horizon.py:637-653: with horizon_image=None
+    texture_horizon_mesh immediately returns {"texture_path": None, "uv_map": None} without being called)."""
     monkeypatch.setattr(config, "EOX_AUTO_DOWNLOAD", eox_auto_download)
-    monkeypatch.setattr(config, "DGM30_AUTO_DOWNLOAD", False)  # für diesen Testfall irrelevant, kein Rauschen
+    monkeypatch.setattr(config, "DGM30_AUTO_DOWNLOAD", False)  # irrelevant for this test case, no noise
 
     height_points = np.array([[0.0, 0.0], [10.0, 0.0], [0.0, 10.0], [10.0, 10.0]])
     height_elevations = np.array([100.0, 100.0, 100.0, 100.0])
@@ -107,9 +107,9 @@ def test_sentinel2_auto_download_runs_before_load_sentinel2_geotiff_when_enabled
         result = HorizonWorkflow.generate_horizon(_stub(), global_offset=GLOBAL_OFFSET)
 
     assert calls == ["ensure_horizon_texture", "load_sentinel2_geotiff"]
-    assert result is not None  # Export lief bis zum Ende durch (export_horizon_dae gemockt)
+    assert result is not None  # export ran through to the end (export_horizon_dae mocked)
 
-    # Rein automatisch: nur horizon_bbox, kein dest-Parameter mehr (kein manueller Override).
+    # Purely automatic: only horizon_bbox, no dest parameter anymore (no manual override).
     mock_ensure.assert_called_once()
     (horizon_bbox,), kwargs = mock_ensure.call_args
     assert len(horizon_bbox) == 4
@@ -131,8 +131,8 @@ def test_sentinel2_auto_download_is_skipped_when_disabled(monkeypatch):
 
 
 def test_dgm30_missing_still_skips_phase5_regardless_of_auto_download(monkeypatch):
-    """Bestehender Skip-Pfad bleibt unverändert funktionsfähig: liefert load_dgm30_tiles (None, None),
-    gibt generate_horizon() weiterhin None zurück - unabhängig davon, ob ensure_dgm30_coverage lief."""
+    """The existing skip path remains fully functional: if load_dgm30_tiles returns (None, None),
+    generate_horizon() still returns None - regardless of whether ensure_dgm30_coverage ran."""
     monkeypatch.setattr(config, "DGM30_AUTO_DOWNLOAD", True)
     with patch("world_to_beamng.terrain.dgm30_fetch.ensure_dgm30_coverage"), patch(
         "world_to_beamng.terrain.horizon.load_dgm30_tiles", return_value=(None, None)

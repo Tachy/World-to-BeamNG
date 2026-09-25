@@ -1,4 +1,4 @@
-"""Stämme (nicht nur der Ursprung) halten die Ausschlusszonen ein und stehen auf dem Boden."""
+"""Trunks (not just the origin) respect the exclusion zones and stand on the ground."""
 
 import sys
 from pathlib import Path
@@ -13,10 +13,10 @@ from world_to_beamng.forest.tree_footprints import TrunkFitter, read_trunk_feet
 from world_to_beamng.forest.vineyard_generator import make_height_sampler
 
 IDENTITY = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]
-# 90° um Z; BeamNG liest die Modellachsen als Zeilen: Modell-X zeigt nach +y, Modell-Y nach -x
+# 90° about Z; BeamNG reads the model axes as rows: model X points to +y, model Y to -x
 ROT_90 = [0.0, 1.0, 0.0, -1.0, 0.0, 0.0, 0.0, 0.0, 1.0]
 
-# Gruppe mit zwei Stämmen (Ursprung und 6 m in Modell-X), Einzelbaum mit einem Stamm im Ursprung
+# Group with two trunks (origin and 6 m along model X), single tree with one trunk at the origin
 FEET = {
     "group": np.array([[0.0, 0.0, -1.0], [6.0, 0.0, -1.0]]),
     "single": np.array([[0.0, 0.0, -0.5]]),
@@ -33,7 +33,7 @@ def _flat(z=0.0):
 
 
 def _downslope(gradient):
-    """Hang, der in +x-Richtung um `gradient` Höhenmeter je Meter fällt (Boden bei x = -gradient * x)."""
+    """Slope that falls by `gradient` meters of elevation per meter in the +x direction (ground at x = -gradient * x)."""
     return make_height_sampler(np.tile(-np.arange(60, dtype=float) * gradient, (60, 1)), 0.0, 0.0, 1.0)
 
 
@@ -49,7 +49,7 @@ def test_instances_that_fit_are_left_untouched():
 
 
 def test_trunk_inside_the_exclusion_zone_swaps_the_type_without_moving_the_tree():
-    # Ursprung frei (x=10), aber der zweite Stamm steht bei x=16 auf dem Weg
+    # Origin free (x=10), but the second trunk stands on the path at x=16
     instance = _instance("group", 10.0, 10.0, 0.0)
     result = _fitter(exclusion=box(14, 0, 20, 30)).fit([instance], POOL)
     assert len(result) == 1
@@ -60,11 +60,11 @@ def test_trunk_inside_the_exclusion_zone_swaps_the_type_without_moving_the_tree(
 
 
 def test_trunk_offsets_follow_rotation_and_scale():
-    # Um 90° gedreht zeigt der zweite Stamm nach +y: bei (10, 10 + 6 * 2) = (10, 22) mit scale 2
+    # Rotated by 90° the second trunk points to +y: at (10, 10 + 6 * 2) = (10, 22) with scale 2
     instance = _instance("group", 10.0, 10.0, 0.0, matrix=ROT_90, scale=2.0)
     blocked_at_y22 = _fitter(exclusion=box(5, 20, 15, 25)).fit([instance], POOL)
     assert blocked_at_y22[0]["type"] == "single"
-    free_at_x22 = _fitter(exclusion=box(20, 5, 25, 15)).fit([instance], POOL)  # dort läge der Stamm ohne Drehung
+    free_at_x22 = _fitter(exclusion=box(20, 5, 25, 15)).fit([instance], POOL)  # the trunk would lie there without rotation
     assert free_at_x22 == [instance]
 
 
@@ -75,8 +75,8 @@ def test_instance_is_dropped_when_no_pool_type_fits():
 
 
 def test_floating_trunk_sinks_the_tree_by_the_excess():
-    # Hang 0,5 m/m fällt nach +x: der Boden unter dem zweiten Stamm (x=16) liegt 3 m tiefer als am Ursprung.
-    # Fußpunkt bei -1 m => 2 m über dem Boden; max_float 0,5 => 1,5 m Absenkung nötig, erlaubt sind 2,0 m
+    # Slope 0.5 m/m falls toward +x: the ground below the second trunk (x=16) is 3 m lower than at the origin.
+    # Base point at -1 m => 2 m above the ground; max_float 0.5 => 1.5 m lowering needed, 2.0 m allowed
     instance = _instance("group", 10.0, 10.0, -5.0)
     result = _fitter(height_at=_downslope(0.5), max_float=0.5, max_sink=2.0).fit([instance], POOL)
     assert result[0]["type"] == "group"
@@ -88,7 +88,7 @@ def test_tree_on_too_steep_ground_is_swapped_when_sinking_is_not_enough():
     instance = _instance("group", 10.0, 10.0, -5.0)
     result = _fitter(height_at=_downslope(0.5), max_float=0.5, max_sink=1.0).fit([instance], POOL)
     assert result[0]["type"] == "single"
-    assert result[0]["pos"] == [10.0, 10.0, -5.0]  # Einzelbaum sitzt unverändert auf dem Boden
+    assert result[0]["pos"] == [10.0, 10.0, -5.0]  # single tree sits on the ground unchanged
 
 
 def test_buried_trunks_are_not_touched_on_flat_ground():
@@ -118,7 +118,7 @@ def test_empty_input_returns_empty_list():
     assert _fitter().fit([], POOL) == []
 
 
-# --- Stammfüße aus dem Kollisionsmodell ---------------------------------------------------------------------
+# --- Trunk bases from the collision model ---------------------------------------------------------------
 
 DAE_TEMPLATE = """<?xml version="1.0"?>
 <COLLADA><library_geometries>
@@ -140,14 +140,14 @@ def _write_dae(tmp_path, points):
 
 
 def test_read_trunk_feet_returns_the_lowest_point_of_every_trunk(tmp_path):
-    # zwei Stämme (je Fuß + Spitze) bei (0,0) und (5,-3); die Krone in der anderen Geometrie zählt nicht
+    # two trunks (base + tip each) at (0,0) and (5,-3); the crown in the other geometry does not count
     path = _write_dae(tmp_path, [(0, 0, -1.5), (0.1, 0, 8), (5, -3, -1.2), (5.2, -3, 9)])
     feet = read_trunk_feet(path)
     assert sorted(map(tuple, np.round(feet, 1).tolist())) == [(0.0, 0.0, -1.5), (5.0, -3.0, -1.2)]
 
 
 def test_read_trunk_feet_ignores_high_collision_pieces_and_merges_duplicates(tmp_path):
-    # Vertices desselben Stamms in benachbarten Zellen zählen einmal; Stücke hoch über dem Boden sind keine Füße
+    # Vertices of the same trunk in neighboring cells count once; pieces high above the ground are not bases
     path = _write_dae(tmp_path, [(0.9, 0, -1.0), (1.1, 0, -0.9), (3, 3, 6.0)])
     feet = read_trunk_feet(path)
     assert len(feet) == 1
@@ -161,7 +161,7 @@ def test_read_trunk_feet_falls_back_to_the_origin_without_collision_mesh(tmp_pat
     assert read_trunk_feet(tmp_path / "missing.dae").tolist() == [[0.0, 0.0, 0.0]]
 
 
-# --- Anbindung an den Instanz-Generator -----------------------------------------------------------------------
+# --- Connection to the instance generator ---------------------------------------------------------
 
 
 class _RecordingFitter:
@@ -170,7 +170,7 @@ class _RecordingFitter:
 
     def fit(self, instances, pool, row=False):
         self.calls.append((len(instances), dict(pool), row))
-        return instances[:1]  # simuliert verworfene Instanzen
+        return instances[:1]  # simulates discarded instances
 
 
 def test_instance_generator_passes_pool_and_row_flag_to_the_fitter():
@@ -187,7 +187,7 @@ def test_instance_generator_passes_pool_and_row_flag_to_the_fitter():
     result = ForestInstanceGenerator().generate_instances_for_forests(points, forests, properties, fitter=fitter)
 
     assert fitter.calls == [(2, {"group": 1.0}, False), (2, {"single": 1.0}, True)]
-    assert len(result) == 2  # nur, was der Fitter zurückgibt
+    assert len(result) == 2  # only what the fitter returns
 
 
 def test_instance_generator_without_fitter_is_unchanged():

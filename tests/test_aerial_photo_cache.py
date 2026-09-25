@@ -1,10 +1,10 @@
 """
-Tests für den Cache des Gesamt-Luftbilds (io/aerial.py).
+Tests for the cache of the overall aerial photo (io/aerial.py).
 
-Fehlerbild: Wurde von einer auf vier DGM1-Kacheln umgestellt, blieb das alte Ein-Kachel-Foto
-(2 km) im Level liegen, weil der Exporter das Foto nur an seiner Existenz erkannte. Es wurde dann auf
-die 4 km gestreckt. Das Foto muss deshalb neu gebaut werden, sobald sich Fläche, Ursprung, Größe oder
-die Quellbilder ändern.
+Failure pattern: When switching from one to four DGM1 tiles, the old single-tile photo
+(2 km) stayed in the level because the exporter only recognized the photo by its existence. It was then
+stretched to the 4 km. The photo must therefore be rebuilt whenever the area, origin, size or
+the source images change.
 """
 
 import sys
@@ -30,12 +30,12 @@ OFFSET = (401000.0, 5298000.0, 0.0)
 
 
 def aerial_photo_signature(aerial_dir, grid_bounds, global_offset, target_pixel_size=None):
-    """Signatur des EINEN Gesamtfotos für die Fläche grid_bounds (Ein-Kachel-Fall des Hauptprogramms)."""
+    """Signature of the ONE overall photo for the area grid_bounds (single-tile case of the main program)."""
     return aerial_photos_signature(aerial_dir, [{"name": SINGLE_PHOTO_NAME, "bounds": grid_bounds}], global_offset, target_pixel_size)
 
 
 def ensure_aerial_photo(aerial_dir, output_dir, grid_bounds, global_offset, target_pixel_size=None):
-    """Wie ensure_aerial_photos für das EINE Gesamtfoto der Fläche grid_bounds."""
+    """Like ensure_aerial_photos for the ONE overall photo of the area grid_bounds."""
     photos = [{"name": SINGLE_PHOTO_NAME, "bounds": grid_bounds}]
     return ensure_aerial_photos(aerial_dir, output_dir, photos, global_offset, target_pixel_size)
 
@@ -59,16 +59,16 @@ def test_signature_changes_with_area_origin_size_and_source_images(dirs):
     aerial_dir, _ = dirs
     base = _signature(aerial_dir)
 
-    assert _signature(aerial_dir) == base  # deterministisch
-    assert _signature(aerial_dir, bounds=ONE_TILE) != base  # andere Fläche
-    assert _signature(aerial_dir, offset=(402000.0, 5299000.0, 0.0)) != base  # anderer Ursprung
-    assert _signature(aerial_dir, size=16384) != base  # andere Auflösung
+    assert _signature(aerial_dir) == base  # deterministic
+    assert _signature(aerial_dir, bounds=ONE_TILE) != base  # different area
+    assert _signature(aerial_dir, offset=(402000.0, 5299000.0, 0.0)) != base  # different origin
+    assert _signature(aerial_dir, size=16384) != base  # different resolution
     (aerial_dir / "dop20rgb_32_399_5298_2_bw.zip").write_bytes(b"c" * 50)
-    assert _signature(aerial_dir) != base  # weiteres Quellbild
+    assert _signature(aerial_dir) != base  # additional source image
 
 
 def test_a_legacy_photo_without_signature_is_stale(dirs):
-    # Genau der Fehlerfall: ein Foto von gestern ohne Signatur darf nicht als aktuell gelten
+    # Exactly the failure case: a photo from yesterday without a signature must not count as current
     aerial_dir, textures = dirs
     (textures / AERIAL_PHOTO_FILENAME).write_bytes(b"old photo")
 

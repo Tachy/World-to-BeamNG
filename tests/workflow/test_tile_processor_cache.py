@@ -1,7 +1,7 @@
 """
-Tests für world_to_beamng.workflow.tile_processor.TileProcessor.load_height_data() als dünner
-Cache-Wrapper um terrain.elevation_io.read_elevation_tile() - Cache-Key bleibt dateibasiert,
-ein Cache-Hit vermeidet ein zweites Parsen der Quelldatei.
+Tests for world_to_beamng.workflow.tile_processor.TileProcessor.load_height_data() as a thin
+cache wrapper around terrain.elevation_io.read_elevation_tile() - the cache key stays file-based,
+a cache hit avoids parsing the source file a second time.
 """
 
 import sys
@@ -38,9 +38,9 @@ def test_load_height_data_reads_the_file_once_and_then_serves_from_cache(tmp_pat
     monkeypatch.setattr(elevation_io, "read_elevation_tile", spy)
 
     points1, elevations1 = processor.load_height_data(tile)
-    points2, elevations2 = processor.load_height_data(tile)  # zweiter Aufruf -> Cache-Hit
+    points2, elevations2 = processor.load_height_data(tile)  # second call -> cache hit
 
-    assert len(calls) == 1  # nur einmal tatsächlich geparst
+    assert len(calls) == 1  # actually parsed only once
     assert np.array_equal(points1, points2)
     assert np.array_equal(elevations1, elevations2)
     assert list(elevations1) == [10.0, 10.5]
@@ -48,13 +48,13 @@ def test_load_height_data_reads_the_file_once_and_then_serves_from_cache(tmp_pat
 
 def test_load_height_data_cache_key_is_file_hash_based(tmp_path):
     zip_a = _xyz_zip(tmp_path / "a.zip")
-    zip_b = _xyz_zip(tmp_path / "b.zip")  # inhaltlich identisch, anderer Dateiname/-pfad
+    zip_b = _xyz_zip(tmp_path / "b.zip")  # identical content, different file name/path
     processor = TileProcessor(CacheManager(tmp_path / "cache"))
 
     points_a, elevations_a = processor.load_height_data({"filepath": zip_a})
     points_b, elevations_b = processor.load_height_data({"filepath": zip_b})
 
-    # gleicher Inhalt -> gleicher Hash -> derselbe Cache-Datei liefert dasselbe Ergebnis
+    # same content -> same hash -> the same cache file yields the same result
     assert np.array_equal(points_a, points_b)
     assert np.array_equal(elevations_a, elevations_b)
 

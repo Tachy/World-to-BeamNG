@@ -1,15 +1,15 @@
 """
-Extract Environment Defaults: Übernimmt Licht, Himmel, Nebel, Wolken und Regen aus BeamNGs eigenen Vorgaben
-nach data/environment_defaults.json, statt Werte zu raten.
+Extract Environment Defaults: takes over light, sky, fog, clouds and rain from BeamNG's own defaults
+into data/environment_defaults.json instead of guessing values.
 
-Quellen (alles aus der BeamNG-Installation):
-- Objekt-Felder von LevelInfo, ScatterSky, TimeOfDay, CloudLayer, Precipitation aus dem italy-Level: EIN konsistenter,
-  fertig abgestimmter Satz (statt Werte aus verschiedenen Leveln zu mischen).
-- Wetter-Vorgabe `sunny_noon` aus gameengine.zip: art/weather/defaults.json (die Farb-/Lichtwerte des Spiels für
-  "sonnig"). Deren `time` und `fogDensity` werden bewusst NICHT übernommen: die Uhrzeit wird aus einer Uhrzeit berechnet
-  (siehe managers/environment.py), die Nebeldichte ist levelspezifisch wie in den Original-Leveln.
+Sources (all from the BeamNG installation):
+- Object fields of LevelInfo, ScatterSky, TimeOfDay, CloudLayer, Precipitation from the italy level: ONE consistent,
+  already tuned set (instead of mixing values from different levels).
+- Weather preset `sunny_noon` from gameengine.zip: art/weather/defaults.json (the game's color/light values for
+  "sunny"). Its `time` and `fogDensity` are deliberately NOT taken over: the time of day is computed from a clock time
+  (see managers/environment.py), the fog density is level-specific as in the original levels.
 
-Aufruf: python tools/extract_environment_defaults.py
+Usage: python tools/extract_environment_defaults.py
 """
 
 import json
@@ -27,25 +27,25 @@ SOURCE_LEVEL = "italy"
 WEATHER_PRESET = "sunny_noon"
 CLASSES = ("LevelInfo", "ScatterSky", "TimeOfDay", "CloudLayer", "Precipitation")
 
-# Gehört zum Original-Level bzw. wird von uns gesetzt
+# Belongs to the original level or is set by us
 LOCATION_FIELDS = ("name", "class", "persistentId", "__parent", "position", "rotation", "rotationMatrix", "scale")
-# Nicht sinnvoll übertragbar: level-spezifische Umgebungs-Map (wir nutzen eine globale) und Sternbild-Bezeichnungen
+# Cannot sensibly be transferred: level-specific environment map (we use a global one) and constellation names
 DROP_FIELDS = {
     "LevelInfo": ("globalEnviromentMap", "gravity"),
     "ScatterSky": ("constellationNames",),
 }
-# Aus der Wetter-Vorgabe nur diese Klassen/Felder als Startzustand (keine Uhrzeit, keine Nebeldichte)
+# From the weather preset only these classes/fields as the initial state (no time of day, no fog density)
 WEATHER_CLASSES = ("ScatterSky", "CloudLayer", "Precipitation")
 
 
 def clean_object(obj: dict, class_name: str) -> dict:
-    """Felder eines Original-Objekts ohne Ortsangaben, IDs, None-Werte und level-spezifische Felder."""
+    """Fields of an original object without location data, IDs, None values and level-specific fields."""
     drop = set(LOCATION_FIELDS) | set(DROP_FIELDS.get(class_name, ()))
     return {k: v for k, v in obj.items() if k not in drop and v is not None}
 
 
 def weather_start_values(preset: dict) -> dict:
-    """Startzustand aus einer Wetter-Vorgabe: nur Licht-/Farbwerte, Wolken, Regen (ohne TimeOfDay/LevelInfo/Wind)."""
+    """Initial state from a weather preset: only light/color values, clouds, rain (without TimeOfDay/LevelInfo/wind)."""
     return {cls: dict(preset[cls]) for cls in WEATHER_CLASSES if cls in preset}
 
 
@@ -76,7 +76,7 @@ def main():
         objects = _find_objects(z)
     missing = [c for c in CLASSES if c not in objects]
     if missing:
-        raise LookupError(f"{SOURCE_LEVEL}: keine Objekte der Klassen {missing}")
+        raise LookupError(f"{SOURCE_LEVEL}: no objects of the classes {missing}")
 
     with zipfile.ZipFile(install / "gameengine.zip") as z:
         presets = json.loads(z.read("art/weather/defaults.json").decode("utf-8", "ignore"))
@@ -84,10 +84,10 @@ def main():
 
     fields = {cls: clean_object(objects[cls], cls) for cls in CLASSES}
 
-    # Die Gradienten müssen GLOBAL im Spiel liegen (nichts zu vendoren, kein Bezug auf ein anderes Level)
+    # The gradients must live GLOBALLY in the game (nothing to vendor, no reference to another level)
     for path in gradient_paths(fields["ScatterSky"]):
         if path.startswith("/") or path.startswith("levels/") or path not in available:
-            raise ValueError(f"Himmels-Gradient nicht global im Spiel vorhanden: {path}")
+            raise ValueError(f"Sky gradient not available globally in the game: {path}")
 
     data = {
         "source": f"{SOURCE_LEVEL}/items.level.json + gameengine.zip:art/weather/defaults.json ({WEATHER_PRESET})",
@@ -96,8 +96,8 @@ def main():
     }
     OUTPUT_PATH.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     for cls in CLASSES:
-        print(f"[OK] {cls}: {len(fields[cls])} Felder")
-    print(f"[OK] Wetter-Vorgabe {WEATHER_PRESET}: {sorted(data['weather'])}")
+        print(f"[OK] {cls}: {len(fields[cls])} fields")
+    print(f"[OK] Weather preset {WEATHER_PRESET}: {sorted(data['weather'])}")
     print(f"[DONE] {OUTPUT_PATH}")
 
 

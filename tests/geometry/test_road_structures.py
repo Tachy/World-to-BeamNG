@@ -1,4 +1,4 @@
-"""Tests für world_to_beamng.geometry.road_structures: Klassifizierung von Brücken/Tunneln/Galerien anhand OSM-Tags."""
+"""Tests for world_to_beamng.geometry.road_structures: classification of bridges/tunnels/galleries from OSM tags."""
 
 import sys
 from pathlib import Path
@@ -47,7 +47,7 @@ def test_split_by_structure_type_separates_surface_from_structures():
         {"road_id": 2, "structure_type": "bridge"},
         {"road_id": 3, "structure_type": "tunnel"},
         {"road_id": 4, "structure_type": "gallery"},
-        {"road_id": 5},  # fehlendes Feld -> gilt als surface
+        {"road_id": 5},  # missing field -> counts as surface
     ]
 
     surface, structures = split_by_structure_type(roads)
@@ -57,26 +57,26 @@ def test_split_by_structure_type_separates_surface_from_structures():
 
 
 def test_covered_road_below_ground_is_a_gallery():
-    # Nuova strada zwischen Tunnel Fieud und Tunnel Banchi: way 746194686 trägt nur covered=yes + layer=-1, kein
-    # tunnel-Tag - vor Ort eine talseitig offene Galerie (Entscheidung 2026-09-24, siehe
-    # docs/superpowers/specs/2026-09-24-tunnel-gallery-transition-design.md), keine geschlossene Röhre.
+    # Nuova strada between Tunnel Fieud and Tunnel Banchi: way 746194686 carries only covered=yes + layer=-1, no
+    # tunnel tag - on site a gallery open on the valley side (decision 2026-09-24, see
+    # docs/superpowers/specs/2026-09-24-tunnel-gallery-transition-design.md), not a closed tube.
     assert classify_structure({"highway": "primary", "covered": "yes", "layer": "-1"}) == "gallery"
     assert classify_structure({"highway": "primary", "covered": "yes", "layer": "-2"}) == "gallery"
 
 
 def test_covered_road_at_or_above_ground_stays_on_the_surface():
-    assert classify_structure({"highway": "service", "covered": "yes"}) == "surface"  # z.B. unter einem Vordach
+    assert classify_structure({"highway": "service", "covered": "yes"}) == "surface"  # e.g. under a canopy
     assert classify_structure({"highway": "service", "covered": "yes", "layer": "0"}) == "surface"
     assert classify_structure({"highway": "service", "covered": "yes", "layer": "1"}) == "surface"
-    assert classify_structure({"highway": "service", "covered": "yes", "layer": "-1;0"}) == "surface"  # unlesbar
+    assert classify_structure({"highway": "service", "covered": "yes", "layer": "-1;0"}) == "surface"  # unreadable
 
 
 def test_negative_layer_alone_is_not_a_tunnel():
-    assert classify_structure({"highway": "primary", "layer": "-1"}) == "surface"  # z.B. Unterführung/Einschnitt
+    assert classify_structure({"highway": "primary", "layer": "-1"}) == "surface"  # e.g. underpass/cut
 
 
 def test_covered_road_without_tunnel_tag_is_a_gallery():
-    # z.B. die lange Galerie der Nuova strada (Way 746194686) und Galleria artificiale Banchi (430132545)
+    # e.g. the long gallery of the Nuova strada (way 746194686) and Galleria artificiale Banchi (430132545)
     assert classify_structure({"highway": "primary", "covered": "yes", "layer": "-1"}) == "gallery"
     assert classify_structure({"highway": "primary", "covered": "yes", "layer": "-1", "tunnel": "no"}) == "gallery"
 

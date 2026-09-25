@@ -1,4 +1,4 @@
-"""Tests für world_to_beamng.tunnels.gallery_mesh: talseitig offene Lawinengalerie (Dach + Stützen)."""
+"""Tests for world_to_beamng.tunnels.gallery_mesh: avalanche gallery open on the valley side (roof + columns)."""
 
 import sys
 from pathlib import Path
@@ -19,9 +19,9 @@ def _straight_coords(length=60.0, z=500.0, n=13):
 
 def test_valley_side_picks_the_lower_natural_terrain():
     xy = np.array([[0.0, 0.0], [10.0, 0.0]])
-    # Gelände fällt nach +y ab: bei Laufrichtung +x ist +y die LINKE Seite (Standard-Konvention wie
-    # offset_points(): links = Richtung um +90° CCW gedreht = (-dy,dx); für direction=(1,0) ist das (0,1) = +y).
-    # +y ist also die Talseite -> links talwärts -> side < 0.
+    # Terrain falls toward +y: when driving in +x direction, +y is the LEFT side (standard convention as in
+    # offset_points(): left = direction rotated by +90° CCW = (-dy,dx); for direction=(1,0) that is (0,1) = +y).
+    # So +y is the valley side -> left is downhill -> side < 0.
     ground_at = lambda x, y: 500.0 - 2.0 * np.asarray(y, float)
 
     side = valley_side(xy, ground_at, half_width=4.0)
@@ -31,7 +31,7 @@ def test_valley_side_picks_the_lower_natural_terrain():
 
 def test_valley_side_flips_when_the_slope_is_mirrored():
     xy = np.array([[0.0, 0.0], [10.0, 0.0]])
-    ground_at = lambda x, y: 500.0 + 2.0 * np.asarray(y, float)  # steigt nach +y -> -y (rechts) ist die Talseite
+    ground_at = lambda x, y: 500.0 + 2.0 * np.asarray(y, float)  # rises toward +y -> -y (right) is the valley side
 
     side = valley_side(xy, ground_at, half_width=4.0)
 
@@ -46,8 +46,8 @@ def test_roof_and_floor_are_flat_at_the_given_heights():
     )
     v = mesh["vertices"]
 
-    assert v[:, 2].min() == pytest.approx(497.0)  # Boden(500) - Bodendicke(3)
-    assert v[:, 2].max() == pytest.approx(505.35)  # Boden(500) + Höhe(5) + Dachdicke(0.35)
+    assert v[:, 2].min() == pytest.approx(497.0)  # floor(500) - floor thickness(3)
+    assert v[:, 2].max() == pytest.approx(505.35)  # floor(500) + height(5) + roof thickness(0.35)
 
 
 def test_faces_are_split_by_material():
@@ -59,55 +59,55 @@ def test_faces_are_split_by_material():
 
 
 def _off_grid_vertices_near(vertices, y, grid_step=5.0, tol=0.3):
-    """Vertices nahe y, deren X NICHT auf dem Centerline-Punktraster (Vielfache von grid_step) liegt - Boden/
-    Dach/Wand-Flächen haben nur Vertices auf dem Punktraster, nur Stützen fügen Vertices dazwischen ein."""
+    """Vertices near y whose X is NOT on the centerline point grid (multiples of grid_step) - floor/
+    roof/wall faces only have vertices on the point grid, only columns insert vertices in between."""
     x, y_coord = vertices[:, 0], vertices[:, 1]
     on_grid = np.abs((x / grid_step) - np.round(x / grid_step)) < 0.01
     return np.sum((~on_grid) & (np.abs(y_coord - y) < tol))
 
 
 def test_columns_are_on_the_valley_side_not_the_mountain_side():
-    # Boden/Dach/Wand spannen immer beide Kanten (y=+4 und y=-4) und liegen nur auf dem 5m-Centerline-
-    # Punktraster - nur Stützen (hier bei x=5,15,...,55, exakt auf dem Raster in diesem Szenario deckungs-
-    # gleich mit column_spacing=10) fügen zusätzliche Vertices EXAKT an ihrer x-Position ein. Um das von
-    # Boden/Dach/Wand-Vertices (ebenfalls bei Vielfachen von 5) zu unterscheiden, column_spacing hier bewusst
-    # NICHT auf dem 5m-Raster wählen.
-    ground_at = lambda x, y: 500.0 - 2.0 * np.asarray(y, float)  # fällt nach +y -> +y ist die Talseite (links)
+    # Floor/roof/wall always span both edges (y=+4 and y=-4) and lie only on the 5 m centerline
+    # point grid - only columns (here at x=5,15,...,55, exactly on the grid in this scenario, coinciding
+    # with column_spacing=10) insert additional vertices EXACTLY at their x position. To distinguish that from
+    # floor/roof/wall vertices (also at multiples of 5), deliberately do NOT choose column_spacing on the
+    # 5 m grid here.
+    ground_at = lambda x, y: 500.0 - 2.0 * np.asarray(y, float)  # falls toward +y -> +y is the valley side (left)
     mesh = build_gallery_mesh(_straight_coords(length=60.0, z=500.0), width=8.0, height=5.0, ground_at=ground_at, floor_material=FLOOR, roof_material=ROOF, column_spacing=12.0)
 
     v = np.array(mesh["vertices"])
-    assert _off_grid_vertices_near(v, y=4.0) > 0  # Talseite: Stützen-Vertices abseits des Punktrasters
-    assert _off_grid_vertices_near(v, y=-4.0) == 0  # Bergseite: keine Stützen
+    assert _off_grid_vertices_near(v, y=4.0) > 0  # valley side: column vertices off the point grid
+    assert _off_grid_vertices_near(v, y=-4.0) == 0  # mountain side: no columns
 
 
 def test_wall_extends_wall_thickness_into_the_mountain():
-    ground_at = lambda x, y: 500.0 - 2.0 * np.asarray(y, float)  # Bergseite ist -y (rechts)
+    ground_at = lambda x, y: 500.0 - 2.0 * np.asarray(y, float)  # mountain side is -y (right)
     mesh = build_gallery_mesh(
         _straight_coords(z=500.0), width=8.0, height=5.0, ground_at=ground_at, floor_material=FLOOR,
-        roof_material=ROOF, wall_thickness=3.0, column_spacing=1000.0,  # keine Stützen (verfälschen die Kante sonst)
+        roof_material=ROOF, wall_thickness=3.0, column_spacing=1000.0,  # no columns (would distort the edge)
     )
 
     v = np.array(mesh["vertices"])
-    # Bergseite (y<0): die Wand-Außenfläche reicht bis width/2 + wall_thickness = 4 + 3 = 7 m von der Achse.
+    # Mountain side (y<0): the outer wall face extends to width/2 + wall_thickness = 4 + 3 = 7 m from the axis.
     assert v[:, 1].min() == pytest.approx(-7.0)
-    # Talseite (y>0) bleibt bei der reinen Fahrbahnbreite, width/2 = 4 m.
+    # Valley side (y>0) stays at the plain carriageway width, width/2 = 4 m.
     assert v[:, 1].max() == pytest.approx(4.0)
 
 
 def test_wall_is_flush_with_the_roof_top():
-    ground_at = lambda x, y: 500.0 - 2.0 * np.asarray(y, float)  # Bergseite ist -y (rechts)
+    ground_at = lambda x, y: 500.0 - 2.0 * np.asarray(y, float)  # mountain side is -y (right)
     mesh = build_gallery_mesh(
         _straight_coords(z=500.0), width=8.0, height=5.0, ground_at=ground_at, floor_material=FLOOR,
-        roof_material=ROOF, roof_thickness=0.5, column_spacing=1000.0,  # keine Stützen (verfälschen die Kante sonst)
+        roof_material=ROOF, roof_thickness=0.5, column_spacing=1000.0,  # no columns (would distort the edge)
     )
 
     v = np.array(mesh["vertices"])
-    mountain_side = np.abs(v[:, 1] + 4.0) < 6.0  # gesamte Bergseite (Wand reicht bis y=-9 bei wall_thickness=5)
-    assert v[mountain_side][:, 2].max() == pytest.approx(505.5)  # Boden(500) + Höhe(5) + Dachdicke(0.5)
+    mountain_side = np.abs(v[:, 1] + 4.0) < 6.0  # entire mountain side (wall extends to y=-9 with wall_thickness=5)
+    assert v[mountain_side][:, 2].max() == pytest.approx(505.5)  # floor(500) + height(5) + roof thickness(0.5)
 
 
 def test_curb_is_on_the_open_side_only():
-    ground_at = lambda x, y: 500.0 - 2.0 * np.asarray(y, float)  # Talseite (offen) ist +y
+    ground_at = lambda x, y: 500.0 - 2.0 * np.asarray(y, float)  # valley side (open) is +y
     mesh = build_gallery_mesh(
         _straight_coords(z=500.0), width=8.0, height=5.0, ground_at=ground_at, floor_material=FLOOR,
         roof_material=ROOF, curb_height=0.5, curb_width=0.25, column_spacing=1000.0,
@@ -116,13 +116,13 @@ def test_curb_is_on_the_open_side_only():
     v = np.array(mesh["vertices"])
     at_valley_edge = np.abs(v[:, 1] - 4.0) < 0.01
     at_mountain_edge = np.abs(v[:, 1] + 4.0) < 0.01
-    # Sockel-Oberkante (500.5 = Boden 500 + Sockelhöhe 0.5) nur auf der Talseite, nicht auf der Bergseite.
+    # Curb top edge (500.5 = floor 500 + curb height 0.5) only on the valley side, not on the mountain side.
     assert np.any(np.isclose(v[at_valley_edge][:, 2], 500.5))
     assert not np.any(np.isclose(v[at_mountain_edge][:, 2], 500.5))
 
 
 def test_curb_does_not_widen_the_gallery_footprint():
-    # Sockel liegt curb_width INNERHALB der Fahrbahnkante, ragt also nicht über die bisherige Breite hinaus.
+    # The curb lies curb_width INSIDE the carriageway edge, so it does not extend beyond the previous width.
     ground_at = lambda x, y: 500.0 - 2.0 * np.asarray(y, float)
     mesh = build_gallery_mesh(
         _straight_coords(z=500.0), width=8.0, height=5.0, ground_at=ground_at, floor_material=FLOOR,
@@ -134,10 +134,10 @@ def test_curb_does_not_widen_the_gallery_footprint():
 
 
 def test_columns_sit_flush_on_top_of_the_curb_not_in_the_floor():
-    """Regression: Stützen steckten bisher vom Boden-Niveau an im Sockel (Z-Überlappung) - die Basis muss
-    jetzt auf der Sockel-Oberkante sitzen, die Oberkante bleibt unverändert bei der Dach-Unterkante (die
-    Stütze wird dadurch um curb_height kürzer)."""
-    ground_at = lambda x, y: 500.0 - 2.0 * np.asarray(y, float)  # +y ist Talseite (offen)
+    """Regression: columns previously started at floor level inside the curb (Z overlap) - the base must
+    now sit on the curb top edge, the top edge stays unchanged at the roof underside (the
+    column becomes shorter by curb_height as a result)."""
+    ground_at = lambda x, y: 500.0 - 2.0 * np.asarray(y, float)  # +y is the valley side (open)
     mesh = build_gallery_mesh(
         _straight_coords(length=60.0, z=500.0), width=8.0, height=5.0, ground_at=ground_at,
         floor_material=FLOOR, roof_material=ROOF, column_spacing=12.0,
@@ -145,20 +145,20 @@ def test_columns_sit_flush_on_top_of_the_curb_not_in_the_floor():
     )
     v = np.array(mesh["vertices"])
 
-    # Stützen-Vertices: abseits des 5m-Punktrasters (x) UND nahe der Talseiten-Kante (y=4, Stützen-Außenkante).
+    # Column vertices: off the 5 m point grid (x) AND near the valley-side edge (y=4, outer column edge).
     off_grid = np.abs((v[:, 0] / 5.0) - np.round(v[:, 0] / 5.0)) >= 0.01
     near_valley_edge = np.abs(v[:, 1] - 4.0) < 0.5
     column_vertices = v[off_grid & near_valley_edge]
 
     assert len(column_vertices) > 0
-    assert column_vertices[:, 2].min() == pytest.approx(500.5)  # Sockel-Oberkante (Boden 500 + 0.5), nicht 500
-    assert column_vertices[:, 2].max() == pytest.approx(505.0)  # unverändert: Boden(500) + Höhe(5)
+    assert column_vertices[:, 2].min() == pytest.approx(500.5)  # curb top edge (floor 500 + 0.5), not 500
+    assert column_vertices[:, 2].max() == pytest.approx(505.0)  # unchanged: floor(500) + height(5)
 
 
 def test_columns_footprint_is_centered_on_the_curb_and_flush_with_the_roof_edge():
-    """Regression: Stützen standen bisher auf der Fahrbahnkante zentriert (Dachkante schnitt durch die
-    Stützenmitte). Jetzt auf der Sockel-Mittellinie zentriert - bei curb_width == column_size fällt die
-    Stützen-Außenkante exakt mit der (unveränderten) Dach-/Fahrbahnkante zusammen."""
+    """Regression: columns were previously centered on the carriageway edge (roof edge cut through the
+    column center). Now centered on the curb centerline - with curb_width == column_size the outer
+    column edge coincides exactly with the (unchanged) roof/carriageway edge."""
     ground_at = lambda x, y: 500.0 - 2.0 * np.asarray(y, float)
     mesh = build_gallery_mesh(
         _straight_coords(length=60.0, z=500.0), width=8.0, height=5.0, ground_at=ground_at,
@@ -170,8 +170,8 @@ def test_columns_footprint_is_centered_on_the_curb_and_flush_with_the_roof_edge(
     column_vertices = v[off_grid]
 
     assert len(column_vertices) > 0
-    assert column_vertices[:, 1].max() == pytest.approx(4.0)  # = width/2 = Dach-/Fahrbahnkante, kein Überstand
-    assert column_vertices[:, 1].min() == pytest.approx(3.6)  # Sockel-Mitte (3.8) - halbe Stützenbreite (0.2)
+    assert column_vertices[:, 1].max() == pytest.approx(4.0)  # = width/2 = roof/carriageway edge, no overhang
+    assert column_vertices[:, 1].min() == pytest.approx(3.6)  # curb center (3.8) - half column width (0.2)
 
 
 def test_ends_are_capped_with_outward_facing_faces():
@@ -179,7 +179,7 @@ def test_ends_are_capped_with_outward_facing_faces():
     mesh = build_gallery_mesh(_straight_coords(z=500.0), width=8.0, height=5.0, ground_at=ground_at, floor_material=FLOOR, roof_material=ROOF)
 
     v, n = np.array(mesh["vertices"]), np.array(mesh["normals"])
-    # Stirnflächen am Anfang (x=0, Normale -x) und Ende (x=60, Normale +x).
+    # End faces at the start (x=0, normal -x) and end (x=60, normal +x).
     start_faces = np.abs(v[:, 0]) < 1e-6
     end_faces = np.abs(v[:, 0] - 60.0) < 1e-6
     assert np.any(start_faces & (n[:, 0] < -0.99))
@@ -202,7 +202,7 @@ def test_build_galleries_skips_degenerate_galleries():
     assert build_galleries(galleries, ground_at, roof_material=ROOF) == []
 
 
-# --- resolve_open_side / open_side-Override ----------------------------------------------------------------------
+# --- resolve_open_side / open_side override ----------------------------------------------------------------------
 
 
 def test_resolve_open_side_reads_the_avalanche_protector_tag():
@@ -216,8 +216,8 @@ def test_resolve_open_side_is_none_without_a_reliable_tag():
 
 
 def test_open_side_override_ignores_ground_at_even_when_it_disagrees():
-    # ground_at würde die Talseite auf +y (links) legen (siehe test_valley_side_picks_the_lower_natural_terrain) -
-    # der Tag muss trotzdem gewinnen, das DGM zeigt an einer bestehenden Galerie ja das Bauwerk selbst.
+    # ground_at would put the valley side on +y (left) (see test_valley_side_picks_the_lower_natural_terrain) -
+    # the tag must still win, since at an existing gallery the DGM shows the structure itself.
     ground_at = lambda x, y: 500.0 - 2.0 * np.asarray(y, float)
     mesh = build_gallery_mesh(
         _straight_coords(length=60.0, z=500.0), width=8.0, height=5.0, ground_at=ground_at,
@@ -225,12 +225,12 @@ def test_open_side_override_ignores_ground_at_even_when_it_disagrees():
     )
 
     v = np.array(mesh["vertices"])
-    assert _off_grid_vertices_near(v, y=-4.0) > 0  # "right" = -y offen -> Stützen dort
+    assert _off_grid_vertices_near(v, y=-4.0) > 0  # "right" = -y open -> columns there
     assert _off_grid_vertices_near(v, y=4.0) == 0
 
 
 def test_build_galleries_uses_the_osm_tag_when_present():
-    ground_at = lambda x, y: 500.0 - 2.0 * np.asarray(y, float)  # würde ohne Tag "left" liefern
+    ground_at = lambda x, y: 500.0 - 2.0 * np.asarray(y, float)  # would return "left" without the tag
     galleries = [{
         "id": 1, "coords": _straight_coords(length=60.0, z=500.0), "width": 8.0, "floor_material": FLOOR,
         "osm_tags": {"avalanche_protector:right": "open"},
@@ -257,12 +257,13 @@ def test_end_caps_can_be_left_out():
     uncapped = build_gallery_mesh(_straight_coords(), cap_start=False, **kwargs)
 
     assert _cap_faces(capped, 0.0, -1.0) and not _cap_faces(uncapped, 0.0, -1.0)
-    assert _cap_faces(uncapped, 60.0, 1.0)  # anderes Ende bleibt verschlossen
+    assert _cap_faces(uncapped, 60.0, 1.0)  # other end stays closed
 
 
 def test_without_tag_the_whole_gallery_opens_to_the_majority_valley_side():
-    # Gelände kippt bei x = 42: davor liegt rechts (-y) das Tal, danach links (+y). Die Galerie ist trotzdem auf
-    # ganzer Länge nach EINER Seite offen - der mit der Mehrheit (rechts), die Bergwand durchgehend links.
+    # Terrain tips over at x = 42: before that the valley is on the right (-y), after that on the left (+y). The
+    # gallery is still open toward ONE side over its whole length - the majority side (right), the mountain wall
+    # continuously left.
     def ground_at(x, y):
         x, y = np.asarray(x, float), np.asarray(y, float)
         return np.where(x < 42.0, 500.0 + 2.0 * y, 500.0 - 2.0 * y)
@@ -273,19 +274,19 @@ def test_without_tag_the_whole_gallery_opens_to_the_majority_valley_side():
     )
     y = mesh["vertices"][:, 1]
 
-    assert np.any(np.isclose(y, 9.0))  # Außenkante der Bergwand links (4 + 5 m)
-    assert not np.any(np.isclose(y, -9.0))  # rechts nirgends eine Wand
+    assert np.any(np.isclose(y, 9.0))  # outer edge of the mountain wall on the left (4 + 5 m)
+    assert not np.any(np.isclose(y, -9.0))  # no wall anywhere on the right
 
 
 def _embedded_slope(valley_right: bool):
-    """Hang wie nach der Einbettung: bis 6 m neben der Achse flach (Fahrbahn + Böschungssaum, mit einer winzigen
-    Gegenneigung wie im echten Export), außerhalb fällt der Hang zur Talseite steil ab."""
-    sign = 1.0 if valley_right else -1.0  # Laufrichtung +x: rechts = -y, links = +y
+    """Slope as after embedding: flat up to 6 m beside the axis (carriageway + embankment fringe, with a tiny
+    counter-slope as in the real export), outside of that the slope drops steeply toward the valley side."""
+    sign = 1.0 if valley_right else -1.0  # driving in +x direction: right = -y, left = +y
 
     def ground_at(x, y):
         y = np.asarray(y, float)
-        slope = 500.0 + sign * y  # valley_right: rechts (-y) tiefer
-        flat = 500.0 - 0.01 * sign * y  # Gegenneigung im flachen Band: täuscht die falsche Seite vor
+        slope = 500.0 + sign * y  # valley_right: right (-y) is lower
+        flat = 500.0 - 0.01 * sign * y  # counter-slope in the flat band: feigns the wrong side
         return np.where(np.abs(y) <= 6.0, flat, slope)
 
     return ground_at
@@ -307,7 +308,7 @@ def test_untagged_gallery_on_an_embedded_slope_opens_to_the_valley():
     )
     y = mesh["vertices"][:, 1]
 
-    assert np.any(np.isclose(y, 3.25 + 5.0))  # Bergwand links (Hang steigt nach links)
+    assert np.any(np.isclose(y, 3.25 + 5.0))  # mountain wall on the left (slope rises toward the left)
     assert not np.any(np.isclose(y, -(3.25 + 5.0)))
 
 
@@ -329,5 +330,5 @@ def test_build_galleries_uses_a_given_open_side():
     mesh = build_galleries([gallery], _embedded_slope(valley_right=True), ROOF, wall_thickness=5.0)[0]
     y = mesh["vertices"][:, 1]
 
-    assert np.any(np.isclose(y, -(3.25 + 5.0)))  # vorgegeben links offen -> Bergwand rechts, trotz Gelände
+    assert np.any(np.isclose(y, -(3.25 + 5.0)))  # forced open on the left -> mountain wall on the right, despite terrain
     assert not np.any(np.isclose(y, 3.25 + 5.0))

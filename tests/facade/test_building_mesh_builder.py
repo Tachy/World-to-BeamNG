@@ -1,6 +1,6 @@
 """
-Integration: BuildingMeshBuilder verteilt Wände auf Putz + Fenster, Schrägdächer auf Biberschwanz + Überstand,
-Flachdächer auf Kies + Blechrand.
+Integration: BuildingMeshBuilder distributes walls to plaster + windows, pitched roofs to beaver-tail tiles + overhang,
+flat roofs to gravel + sheet metal rim.
 """
 
 import sys
@@ -41,7 +41,7 @@ def _building(roof_ring, key="DEBW_TEST_1"):
 
 
 FLAT = [[0, 0, 6], [10, 0, 6], [10, 8, 6], [0, 8, 6]]
-SLOPED = [[0, 0, 6], [10, 0, 6], [10, 4, 9], [0, 4, 9]]  # Neigung ~37°, First bei y = 4 ohne Wand darunter
+SLOPED = [[0, 0, 6], [10, 0, 6], [10, 4, 9], [0, 4, 9]]  # slope ~37°, ridge at y = 4 with no wall below
 
 
 def _build(building):
@@ -97,7 +97,7 @@ def test_roof_uv_of_a_steep_roof_is_metric_including_the_overhang():
 
     roof = sorted({i for face in mesh["faces"][ROOF_MATERIAL] for i in face})
     uvs = mesh["uvs"][roof]
-    eave_extension = config.ROOF_EAVE_OVERHANG_M / 0.8  # waagerechtes Maß -> in der Dachebene (cos 37° = 0,8)
+    eave_extension = config.ROOF_EAVE_OVERHANG_M / 0.8  # horizontal measure -> in the roof plane (cos 37° = 0.8)
     assert (uvs[:, 1].max() - uvs[:, 1].min()) * config.ROOF_REPEAT_M == pytest.approx(5.0 + eave_extension)
 
 

@@ -1,6 +1,6 @@
-"""Tests für die weichen Breitenübergänge zwischen DecalRoads (geometry/road_width_transitions.py).
+"""Tests for the smooth width transitions between DecalRoads (geometry/road_width_transitions.py).
 
-Anforderung: Breitenwechsel an einem Stoß werden über 10 m (5 m davor, 5 m danach) mit einem Spline geglättet.
+Requirement: width changes at a joint are smoothed with a spline over 10 m (5 m before, 5 m after).
 """
 
 import sys
@@ -29,7 +29,7 @@ def _width_at(nodes, x):
     for n in nodes:
         if abs(n[0] - x) < 1e-6:
             return n[3]
-    raise AssertionError(f"kein Knoten bei x={x}")
+    raise AssertionError(f"no node at x={x}")
 
 
 def test_smoothstep_is_cubic_hermite():
@@ -95,7 +95,7 @@ def test_inserted_nodes_keep_min_spacing():
     b = _road([(20, 0), (40, 0)], 9.75)
     new_a, _ = apply_width_transitions([a, b], **KW)
     gaps = np.diff([n[0] for n in new_a])
-    # die vorhandene 0,3-m-Lücke (19.7 -> 20) bleibt, eingefügt wird nur mit >= 0,5 m Abstand
+    # the existing 0.3 m gap (19.7 -> 20) stays, nodes are only inserted with >= 0.5 m spacing
     assert sorted(gaps)[0] == pytest.approx(0.3)
     assert sum(g < 0.5 for g in gaps) == 1
 
@@ -143,7 +143,7 @@ def test_input_lists_are_not_modified():
     assert [a, b] == before
 
 
-# --- Keil-Lücke an geknickten Stößen schließen ---
+# --- Close the wedge gap at kinked joints ---
 
 from shapely.geometry import LineString, Point
 from shapely.ops import unary_union
@@ -166,7 +166,7 @@ def _kinked_pair(kink_deg, reverse_second=False, width=6.5):
 
 
 def _outer_wedge_point(kink_deg, width=6.5):
-    # Außenseite eines Linksknicks ist rechts; Punkt kurz vor der Fahrbahnkante auf der Winkelhalbierenden
+    # The outside of a left kink is on the right; point just before the road edge on the angle bisector
     half = np.radians(kink_deg) / 2.0
     normal_right = np.array([np.sin(half), -np.cos(half)])
     return Point(*(normal_right * (width / 2.0 - 0.1)))
@@ -175,7 +175,7 @@ def _outer_wedge_point(kink_deg, width=6.5):
 @pytest.mark.parametrize("reverse_second", [False, True])
 def test_kinked_continuation_leaves_no_outer_wedge_gap(reverse_second):
     first, second = _kinked_pair(15.0, reverse_second)
-    assert not unary_union([_surface(first), _surface(second)]).contains(_outer_wedge_point(15.0))  # Ausgangslage
+    assert not unary_union([_surface(first), _surface(second)]).contains(_outer_wedge_point(15.0))  # initial situation
 
     new_first, new_second = close_continuation_gaps([first, second], endpoint_tol=0.5, max_angle_deg=30.0)
 
@@ -187,9 +187,9 @@ def test_gap_closing_moves_only_the_joint_ends_along_their_own_direction():
     new_first, new_second = close_continuation_gaps([first, second], endpoint_tol=0.5, max_angle_deg=30.0)
 
     extension = 6.5 / 2.0 * np.tan(np.radians(15.0)) + 0.05
-    assert new_first[-1][:2] == pytest.approx([extension, 0.0])  # geradeaus weiter in eigener Richtung
+    assert new_first[-1][:2] == pytest.approx([extension, 0.0])  # continues straight in its own direction
     assert new_first[:-1] == first[:-1] and new_second[1:] == second[1:]
-    assert new_first[-1][3] == first[-1][3]  # Breite bleibt
+    assert new_first[-1][3] == first[-1][3]  # width stays the same
     start_dir = np.array(second[1][:2]) - np.array(second[0][:2])
     moved = np.array(new_second[0][:2]) - np.array(second[0][:2])
     assert float(np.dot(moved, start_dir)) < 0.0 and np.linalg.norm(moved) == pytest.approx(extension)
@@ -198,6 +198,6 @@ def test_gap_closing_moves_only_the_joint_ends_along_their_own_direction():
 def test_straight_continuation_and_unpaired_ends_stay_untouched():
     a = _road([(0, 0), (10, 0), (20, 0)], 6.5)
     b = _road([(20, 0), (30, 0), (40, 0)], 6.5)
-    corner = _road([(40, 0), (40, 20)], 6.5)  # rechtwinklig, keine Geradeaus-Fortsetzung
+    corner = _road([(40, 0), (40, 20)], 6.5)  # right-angled, no straight continuation
 
     assert close_continuation_gaps([a, b, corner], endpoint_tol=0.5, max_angle_deg=30.0) == [a, b, corner]

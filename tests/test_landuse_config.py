@@ -1,8 +1,8 @@
-"""Konsistenz-Tests für data/osm_to_beamng.json["landuse_mappings"].
+"""Consistency tests for data/osm_to_beamng.json["landuse_mappings"].
 
-Ziel: Jeder relevante OSM-Landnutzungstyp wird in BeamNG irgendwie gerendert
-(eigene Terrain-Schicht mit Bodenbewuchs) - außer Gewerbegebiete, wo bewusst das
-Luftbild bleibt. Wasserflächen haben Wiesenboden (use_material_of).
+Goal: Every relevant OSM land use type is rendered somehow in BeamNG
+(own terrain layer with ground cover) - except commercial areas, where the
+aerial photo is deliberately kept. Water areas have meadow ground (use_material_of).
 """
 
 import json
@@ -55,14 +55,14 @@ def _photo_categories():
         ({"landuse": "vineyard"}, "vineyard"),
         ({"natural": "scrub"}, "scrub"),
         ({"natural": "wetland"}, "wetland"),
-        # Wohngebiete: eigene Schicht mit Rasen (Straßen/Häuser werden per Maske ausgespart)
+        # Residential areas: own layer with lawn (roads/houses are cut out via mask)
         ({"landuse": "residential"}, "residential"),
-        # Luftbild bleibt (Häuser/Straßen/Wasser im Foto)
+        # Aerial photo stays (houses/roads/water in the photo)
         ({"landuse": "commercial"}, "urban"),
         ({"landuse": "industrial"}, "urban"),
         ({"landuse": "greenhouse_horticulture"}, "urban"),
         ({"leisure": "sports_hall"}, "urban"),
-        # Fels/Steinbruch: kein eigenes Material, Luftbild bleibt (zeigt Fels/Geröll bereits realistisch)
+        # Rock/quarry: no material of its own, aerial photo stays (already shows rock/scree realistically)
         ({"landuse": "quarry"}, "bare_ground"),
         ({"natural": "bare_rock"}, "bare_ground"),
         ({"natural": "scree"}, "bare_ground"),
@@ -70,11 +70,11 @@ def _photo_categories():
         ({"landuse": "basin"}, "water"),
         ({"leisure": "swimming_pool"}, "water"),
         ({"leisure": "water_park"}, "water"),
-        # Unbekannter, aber vorhandener landuse-artiger Tag -> generisches Gras statt unbemaltem Foto-Rest
+        # Unknown but present landuse-like tag -> generic grass instead of an unpainted photo remainder
         ({"landuse": "military"}, "meadow"),
         ({"leisure": "nature_reserve"}, "meadow"),
         ({"natural": "valley"}, "meadow"),
-        # trockene Hochwasser-Rückhaltebecken: Wiese statt Wasser
+        # dry flood retention basins: meadow instead of water
         ({"landuse": "basin", "basin": "detention"}, "meadow"),
         ({"landuse": "basin", "basin": "detention", "layer": "-1"}, "meadow"),
         ({"natural": "water", "basin": "detention"}, "meadow"),
@@ -85,7 +85,7 @@ def test_osm_tag_maps_to_expected_category(tags, expected):
 
 
 def test_region_relations_and_unrelated_tags_are_not_mapped():
-    # natural=mountain_range ist eine Region, keine Bodenfläche
+    # natural=mountain_range is a region, not a ground area
     assert get_landuse_category({"natural": "mountain_range"}, MAPPINGS) is None
     assert get_landuse_category({"building": "yes"}, MAPPINGS) is None
 
@@ -98,9 +98,9 @@ def test_water_has_meadow_ground_and_wins_over_the_other_layers():
 
 def test_commercial_keeps_the_aerial_photo():
     assert MAPPINGS["urban"]["keep_photo"] is True
-    # Foto-Kategorien müssen andere Schichten überdecken können
+    # Photo categories must be able to cover other layers
     assert MAPPINGS["urban"]["priority"] > max(d["priority"] for d in _material_categories().values())
-    # Wohngebiete sind NICHT mehr Foto-Kategorie, sondern haben Rasen
+    # Residential areas are NO longer a photo category, but have lawn
     assert "residential" not in MAPPINGS["urban"]["osm_tags"].get("landuse", [])
 
 
@@ -109,9 +109,9 @@ def test_residential_gets_lawn_but_yields_to_more_specific_areas():
 
     assert residential["internal_name"] == "mat_residential"
     assert any("grass" in template for template in residential["groundCover"])
-    # kurzer Rasen, kein hohes Gras zwischen den Häusern
+    # short lawn, no tall grass between the houses
     assert all(TEMPLATES[t]["gridSize"] > 4 or max(x.get("sizeMax", 1) for x in TEMPLATES[t]["types"]) < 1.0 for t in residential["groundCover"])
-    # Gärten/Parks/Wiesen/Wald/Obst innerhalb eines Wohngebiets behalten ihre eigene Schicht
+    # Gardens/parks/meadows/forest/orchards within a residential area keep their own layer
     assert residential["priority"] < min(d["priority"] for n, d in _material_categories().items() if n != "residential")
 
 
@@ -120,26 +120,26 @@ def test_no_osm_tag_value_is_claimed_by_two_categories():
     for name, data in MAPPINGS.items():
         for key, values in data.get("osm_tags", {}).items():
             for value in values:
-                assert (key, value) not in seen, f"{key}={value} in '{name}' und '{seen[(key, value)]}'"
+                assert (key, value) not in seen, f"{key}={value} in '{name}' and '{seen[(key, value)]}'"
                 seen[(key, value)] = name
 
 
 def test_material_categories_are_complete_and_unique():
     names = [d["internal_name"] for d in _material_categories().values()]
-    assert len(names) == len(set(names)), "internal_name muss je Kategorie eindeutig sein (Terrain-Layer-Name)"
+    assert len(names) == len(set(names)), "internal_name must be unique per category (terrain layer name)"
     for name, data in _material_categories().items():
         for field in ("priority", "internal_name", "groundModelName", "detailColorMap", "detailNormalMap", "groundCover"):
-            assert field in data, f"{name}: Feld {field} fehlt"
+            assert field in data, f"{name}: field {field} missing"
         assert data["internal_name"].startswith("mat_")
 
 
 def test_priorities_are_unique_among_material_categories():
     priorities = [d["priority"] for d in _material_categories().values()]
-    assert len(priorities) == len(set(priorities)), "gleiche Priorität -> Überlappung nicht deterministisch"
+    assert len(priorities) == len(set(priorities)), "same priority -> overlap not deterministic"
 
 
 def test_detail_textures_are_vendored_level_paths():
-    # tools/vendor_shared_textures.py kopiert nur Pfade unter diesem Prefix in den Level
+    # tools/vendor_shared_textures.py only copies paths under this prefix into the level
     for name, data in _material_categories().items():
         for key in ("detailColorMap", "detailNormalMap"):
             assert data[key].startswith(LEVEL_TEXTURE_PREFIX), f"{name}.{key}: {data[key]}"
@@ -148,9 +148,9 @@ def test_detail_textures_are_vendored_level_paths():
 
 def test_ground_cover_references_existing_templates():
     for name, data in _material_categories().items():
-        assert data["groundCover"], f"{name}: kein Bodenbewuchs"
+        assert data["groundCover"], f"{name}: no ground cover"
         for template in data["groundCover"]:
-            assert template in TEMPLATES, f"{name}: unbekannte Ground-Cover-Vorlage {template}"
+            assert template in TEMPLATES, f"{name}: unknown ground cover template {template}"
 
 
 def test_vineyard_has_row_settings_and_grass_undergrowth():
@@ -161,5 +161,5 @@ def test_vineyard_has_row_settings_and_grass_undergrowth():
     assert 1.5 <= rows["row_spacing"] <= 4.0
     assert rows["segment_length"] > 0
     assert rows["item"] in ("grape_vine", "grape_vine_group")
-    # Gras unter den Reben
+    # Grass under the vines
     assert any("grass" in template for template in vineyard["groundCover"])

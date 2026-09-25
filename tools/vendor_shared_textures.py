@@ -1,12 +1,12 @@
 """
-Vendor Shared Textures: Kopiert von data/osm_to_beamng.json referenzierte BeamNG-Standard-
-Texturen (Asphalt, Putz, Dachziegel, ...) aus der BeamNG-Installation in den eigenen Level.
+Vendor Shared Textures: Copies the BeamNG default textures referenced by data/osm_to_beamng.json
+(asphalt, plaster, roof tiles, ...) from the BeamNG installation into the level itself.
 
-Hintergrund: osm_to_beamng.json referenziert diese Texturen unter
-"levels/world_to_beamng/art/shapes/assets/materials/..." - also so, als lägen sie bereits
-lokal im Level. Bisher hat sie dort aber niemand hingelegt, deshalb zeigt BeamNG beim Laden
-"no Texture" für Straßen/Gebäude. Dieses Script holt die echten Dateien aus den BeamNG-
-Content-ZIPs (content/assets/materials/*.zip) und kopiert sie an die erwartete Stelle.
+Background: osm_to_beamng.json references these textures under
+"levels/world_to_beamng/art/shapes/assets/materials/..." - i.e. as if they already lay
+locally in the level. Until now nobody put them there, which is why BeamNG shows
+"no Texture" for roads/buildings on load. This script fetches the real files from the BeamNG
+content ZIPs (content/assets/materials/*.zip) and copies them to the expected location.
 """
 
 from pathlib import Path
@@ -14,14 +14,14 @@ import json
 import sys
 import zipfile
 
-# Importiere config
+# Import config
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from world_to_beamng import config
 from world_to_beamng.io.beamng_install import get_beamng_install_dir
 
 
 def find_texture_paths(obj, level_prefix: str, found: set) -> None:
-    """Sammelt rekursiv alle String-Werte, die unter dem Level-Textur-Prefix liegen."""
+    """Recursively collects all string values that lie under the level texture prefix."""
     if isinstance(obj, dict):
         for v in obj.values():
             find_texture_paths(v, level_prefix, found)
@@ -33,7 +33,7 @@ def find_texture_paths(obj, level_prefix: str, found: set) -> None:
 
 
 def build_zip_index(materials_dir: Path) -> dict:
-    """Baut ein Dict {virtueller_pfad_in_der_zip: zip_datei} über alle materials-ZIPs."""
+    """Builds a dict {virtual_path_in_zip: zip_file} over all materials ZIPs."""
     index = {}
     for zip_path in sorted(materials_dir.glob("*.zip")):
         try:
@@ -48,15 +48,15 @@ def build_zip_index(materials_dir: Path) -> dict:
 
 def main():
     print("=" * 80)
-    print("[START] Vendor Shared Textures (Straßen/Gebäude-Materialien lokal einbetten)")
+    print("[START] Vendor Shared Textures (embed road/building materials locally)")
     print("=" * 80)
 
     install_dir = get_beamng_install_dir()
     materials_dir = install_dir / "content" / "assets" / "materials"
-    print(f"[INFO] BeamNG-Installation: {install_dir}")
+    print(f"[INFO] BeamNG installation: {install_dir}")
 
     if not materials_dir.is_dir():
-        print(f"[ERROR] Materials-Verzeichnis nicht gefunden: {materials_dir}")
+        print(f"[ERROR] Materials directory not found: {materials_dir}")
         return
 
     osm_config_path = Path("data/osm_to_beamng.json")
@@ -65,15 +65,15 @@ def main():
     level_prefix = f"levels/{config.LEVEL_NAME}/art/shapes/assets/materials/"
     found = set()
     find_texture_paths(osm_config, level_prefix, found)
-    print(f"[INFO] {len(found)} referenzierte geteilte Texturen in osm_to_beamng.json gefunden")
+    print(f"[INFO] Found {len(found)} referenced shared textures in osm_to_beamng.json")
 
     if not found:
-        print("[INFO] Nichts zu tun.")
+        print("[INFO] Nothing to do.")
         return
 
-    print("[INFO] Baue Index über BeamNG content/assets/materials/*.zip ...")
+    print("[INFO] Building index over BeamNG content/assets/materials/*.zip ...")
     zip_index = build_zip_index(materials_dir)
-    print(f"[INFO] {len(zip_index)} Dateien in {len(list(materials_dir.glob('*.zip')))} ZIPs indiziert")
+    print(f"[INFO] Indexed {len(zip_index)} files in {len(list(materials_dir.glob('*.zip')))} ZIPs")
 
     level_shapes_prefix = f"levels/{config.LEVEL_NAME}/art/shapes/"
     open_zips = {}
@@ -81,7 +81,7 @@ def main():
     missing = []
 
     for level_path in sorted(found):
-        virtual_path = level_path[len(level_shapes_prefix):]  # z.B. "assets/materials/decalroad/..."
+        virtual_path = level_path[len(level_shapes_prefix):]  # e.g. "assets/materials/decalroad/..."
         zip_path = zip_index.get(virtual_path)
 
         if not zip_path:
@@ -97,14 +97,14 @@ def main():
         dest.write_bytes(z.read(virtual_path))
         copied += 1
 
-    print(f"\n[DONE] {copied} Texturen kopiert")
+    print(f"\n[DONE] {copied} textures copied")
     if missing:
-        print(f"[WARNUNG] {len(missing)} Texturen NICHT in den Content-ZIPs gefunden:")
+        print(f"[WARNING] {len(missing)} textures NOT found in the content ZIPs:")
         for m in missing:
             print("   ", m)
 
     print("=" * 80)
-    print("[✓] ERFOLGREICH ABGESCHLOSSEN" if not missing else "[!] ABGESCHLOSSEN MIT WARNUNGEN")
+    print("[✓] COMPLETED SUCCESSFULLY" if not missing else "[!] COMPLETED WITH WARNINGS")
     print("=" * 80)
 
 

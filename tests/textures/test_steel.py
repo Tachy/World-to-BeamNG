@@ -1,4 +1,4 @@
-"""Tests für world_to_beamng.textures.steel: prozedurale Stahl-Textur für Brücken-Geländer."""
+"""Tests for world_to_beamng.textures.steel: procedural steel texture for bridge railings."""
 
 import sys
 from pathlib import Path

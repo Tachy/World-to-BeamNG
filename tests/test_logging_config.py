@@ -1,9 +1,9 @@
-"""Tests für world_to_beamng/logging_config.py: Root-Cause-Fix für stumme Modul-Logger.
+"""Tests for world_to_beamng/logging_config.py: root-cause fix for silent module loggers.
 
-Vorher konfigurierte LoggerConfig nur den Logger "w2b" - Module, die das
-Standard-Idiom logging.getLogger(__name__) nutzen (z.B. world_to_beamng.
-workflow.terrain_workflow), propagierten NICHT zu "w2b" und verwarfen
-INFO/DEBUG-Meldungen lautlos (Root-Logger-Default-Level WARNING).
+Previously LoggerConfig only configured the logger "w2b" - modules using the
+standard idiom logging.getLogger(__name__) (e.g. world_to_beamng.
+workflow.terrain_workflow) did NOT propagate to "w2b" and silently discarded
+INFO/DEBUG messages (root logger default level WARNING).
 """
 
 import logging
@@ -22,10 +22,10 @@ ROOT = Path(__file__).parent.parent
 
 
 def _run_fresh_process(code: str, env_extra: dict) -> str:
-    """Führt `code` in einem NEUEN Python-Prozess aus - das LoggerConfig-Singleton ist
-    prozessweit global, ein In-Process-Test würde die reale Import-Reihenfolge von
-    world_to_beamng.config (siehe test_config_LOG_LEVEL_survives_the_real_import_order unten)
-    nicht abbilden, da hier im Testlauf schon längst irgendein anderes Modul importiert wurde."""
+    """Runs `code` in a NEW Python process - the LoggerConfig singleton is
+    process-wide global, an in-process test would not reproduce the real import order of
+    world_to_beamng.config (see test_config_LOG_LEVEL_survives_the_real_import_order below),
+    since some other module has long since been imported here in the test run."""
     env = {**os.environ, **env_extra}
     result = subprocess.run(
         [sys.executable, "-B", "-c", code], cwd=ROOT, env=env, capture_output=True, text=True, check=True
@@ -89,19 +89,19 @@ def test_console_handler_does_not_choke_on_literal_square_brackets(capsys):
     LoggerConfig.get_instance(log_file=None, level=logging.INFO)
     logger = logging.getLogger("world_to_beamng.textures.registry")
 
-    logger.info("  [OK] Texture foo (procedural)")  # darf NICHT als rich-Markup interpretiert werden
+    logger.info("  [OK] Texture foo (procedural)")  # must NOT be interpreted as rich markup
 
     captured = capsys.readouterr()
     assert "[OK] Texture foo" in captured.out
 
 
 def test_config_LOG_LEVEL_env_var_survives_the_real_import_order():
-    """Regression: world_to_beamng/config.py importierte früher `from .osm.osm_mapper import
-    OSMMapper` VOR der eigenen LoggerConfig.get_instance()-Konfiguration - osm_mapper.py ruft
-    beim eigenen Modul-Import bereits logger = LoggerConfig.get_logger() auf, was das Singleton
-    (get_instance()-"nur einmal erzeugen"-Guard) mit den Default-Werten (INFO) fest einfror.
-    config.py's eigener LOG_LEVEL-Aufruf wurde dadurch zum stillen No-Op. Muss in einem frischen
-    Prozess laufen (siehe _run_fresh_process()-Docstring)."""
+    """Regression: world_to_beamng/config.py used to import `from .osm.osm_mapper import
+    OSMMapper` BEFORE its own LoggerConfig.get_instance() configuration - osm_mapper.py already calls
+    logger = LoggerConfig.get_logger() on its own module import, which froze the singleton
+    (get_instance() "create only once" guard) with the default values (INFO).
+    config.py's own LOG_LEVEL call thereby became a silent no-op. Must run in a fresh
+    process (see _run_fresh_process() docstring)."""
     out = _run_fresh_process(
         "from world_to_beamng import config\n"
         "import logging\n"
@@ -117,7 +117,7 @@ def test_config_LOG_LEVEL_defaults_to_warning_without_the_env_var():
         "from world_to_beamng import config\n"
         "import logging\n"
         "print(logging.getLogger('world_to_beamng').getEffectiveLevel())",
-        {"LOG_LEVEL": ""},  # sicherstellen, dass eine evtl. gesetzte Variable NICHT durchschlägt
+        {"LOG_LEVEL": ""},  # make sure a possibly set variable does NOT leak through
     )
 
     assert int(out) == logging.WARNING

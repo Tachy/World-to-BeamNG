@@ -1,4 +1,4 @@
-"""Straßensperre vor Tunneleinfahrten, deren Tunnel über die Kartengrenze reicht (tunnels/roadblock.py)."""
+"""Road barrier in front of tunnel entrances whose tunnel extends beyond the map border (tunnels/roadblock.py)."""
 
 import sys
 from pathlib import Path
@@ -12,7 +12,7 @@ from world_to_beamng.tunnels.tunnel_portal import plan_tunnels
 
 BOUNDS = (-1000.0, 1000.0, -1000.0, 1000.0)
 KW = dict(bounds=BOUNDS, edge_margin=25.0, width_margin=1.5, distance=5.0, side_margin=0.5, spacing=1.5, entrance_tol=0.5)
-ENTRANCES = [(800.0, 0.0), (0.0, 0.0)]  # Endpunkte von Oberflächenstraßen (Zufahrten)
+ENTRANCES = [(800.0, 0.0), (0.0, 0.0)]  # end points of surface roads (approaches)
 
 
 def _plans(coords, width=2.0):
@@ -23,9 +23,11 @@ def _plans(coords, width=2.0):
 def test_entrance_of_a_tunnel_leaving_the_map_gets_a_barrier_row_across_the_road():
     blocks = plan_roadblocks(_plans([(800.0, 0.0, 100.0), (1200.0, 0.0, 100.0)]), entrances=ENTRANCES, **KW)
 
-    # 2 m Weg + 2 x 0,5 m = 3 m -> 2 Elemente à 1,5 m, 5 m vor der Portalebene (x = 800), quer zur Fahrtrichtung
+    # 2 m path + 2 x 0.5 m = 3 m -> 2 elements of 1.5 m, 5 m in front of the portal plane (x = 800), across the
+    # driving direction
     assert sorted(b["xy"] for b in blocks) == [pytest.approx((795.0, -0.75)), pytest.approx((795.0, 0.75))]
-    # Zeilen = Bilder der lokalen Achsen (BeamNG): x (Längsachse der Barriere) quer = (0, -1), y = Tunnelachse (+x Welt)
+    # Rows = images of the local axes (BeamNG): x (longitudinal axis of the barrier) across = (0, -1),
+    # y = tunnel axis (+x world)
     assert all(b["rotation_matrix"] == pytest.approx([0.0, -1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0]) for b in blocks)
     assert all(b["name"].startswith("roadblock_7_start_") for b in blocks)
 
@@ -33,7 +35,7 @@ def test_entrance_of_a_tunnel_leaving_the_map_gets_a_barrier_row_across_the_road
 def test_barrier_row_spans_a_wide_road():
     blocks = plan_roadblocks(_plans([(800.0, 0.0, 100.0), (1200.0, 0.0, 100.0)], width=6.5), entrances=ENTRANCES, **KW)
 
-    assert sorted(b["xy"][1] for b in blocks) == pytest.approx([-3.0, -1.5, 0.0, 1.5, 3.0])  # 7,5 m Sperrbreite
+    assert sorted(b["xy"][1] for b in blocks) == pytest.approx([-3.0, -1.5, 0.0, 1.5, 3.0])  # 7.5 m barrier width
 
 
 def test_entrance_at_the_end_of_the_way_is_handled_too():
@@ -52,5 +54,5 @@ def test_tunnel_inside_the_map_gets_no_barrier():
 
 
 def test_tunnel_end_without_an_approach_road_gets_no_barrier():
-    # Verzweigung im Berg (z.B. Festungsstollen): keine Straße schließt an -> keine Einfahrt, keine Sperre
+    # Branch in the mountain (e.g. fortress tunnel): no road connects -> no entrance, no barrier
     assert plan_roadblocks(_plans([(800.0, 0.0, 100.0), (1200.0, 0.0, 100.0)]), entrances=[], **KW) == []

@@ -1,4 +1,4 @@
-"""Tests für MaterialManager.add_terrain_materials()."""
+"""Tests for MaterialManager.add_terrain_materials()."""
 
 import sys
 from pathlib import Path

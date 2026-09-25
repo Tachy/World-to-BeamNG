@@ -1,5 +1,5 @@
 """
-Tests: Konfiguration ohne persönliche Werte - Level-Ordner aus %LOCALAPPDATA%, API-Key nur aus der Umgebung.
+Tests: configuration without personal values - level folder from %LOCALAPPDATA%, API key only from the environment.
 """
 
 import re
@@ -33,11 +33,11 @@ def test_derived_folders_live_below_the_level_folder(tmp_path):
     textures, user_dir = out.splitlines()
 
     assert Path(textures) == tmp_path / "BeamNG" / "BeamNG.drive" / "current" / "levels" / "world_to_beamng" / "art" / "shapes" / "textures"
-    assert Path(user_dir) == tmp_path / "BeamNG" / "BeamNG.drive" / "current"  # daraus liest ForestWorkflow die Baum-Assets
+    assert Path(user_dir) == tmp_path / "BeamNG" / "BeamNG.drive" / "current"  # ForestWorkflow reads the tree assets from here
 
 
 def test_no_secret_or_personal_path_is_committed_in_the_config():
     text = CONFIG_FILE.read_text(encoding="utf-8")
 
-    assert not re.search(r"\b[0-9a-f]{32}\b", text), "sieht nach einem API-Key im Klartext aus"
+    assert not re.search(r"\b[0-9a-f]{32}\b", text), "looks like a plaintext API key"
     assert "C:/Users/" not in text and "C:\\Users\\" not in text

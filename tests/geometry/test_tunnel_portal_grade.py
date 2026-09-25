@@ -1,6 +1,6 @@
-"""Tests für world_to_beamng.geometry.polygon.settle_tunnel_portals_to_approach_grade: der OSM-Tunnelanfang
-liegt oft schon im Hang (DGM zeigt dort die Portal-Böschung statt Straßenniveau) - Portalhöhe und die letzten
-Meter der Zufahrt werden auf die stabile Steigung der Zufahrt weiter draußen gebracht."""
+"""Tests for world_to_beamng.geometry.polygon.settle_tunnel_portals_to_approach_grade: the OSM tunnel start
+is often already inside the hillside (DGM shows the portal embankment there instead of road level) - the portal height
+and the last few meters of the approach are brought to the stable grade of the approach further out."""
 
 import sys
 from pathlib import Path
@@ -21,8 +21,8 @@ def _road(road_id, coords, **tags):
 
 
 def _approach_with_hump():
-    # Zufahrt x=0..30 mit stabilen 5 % Steigung Richtung Tunnel (z = 100 + 0.05 x); die letzten 8 m vor dem
-    # Portal (x=22..30) steigen dagegen steil an (Hangflanke über dem Portal, bis +4 m über der Straßen-Linie).
+    # Approach x=0..30 with a stable 5 % grade toward the tunnel (z = 100 + 0.05 x); the last 8 m before the
+    # portal (x=22..30), however, rise steeply (hillside above the portal, up to +4 m above the road line).
     coords = []
     for x in range(0, 31, 2):
         z = 100.0 + 0.05 * x
@@ -40,12 +40,12 @@ def test_portal_height_follows_the_stable_approach_grade():
 
     settle_tunnel_portals_to_approach_grade(roads, slope_threshold=SLOPE, stable_length=STABLE, max_distance=MAX_DIST)
 
-    # stabile Linie z = 100 + 0.05 x bis ans Portal (x=30) verlängert -> 101.5 statt 105.5
+    # stable line z = 100 + 0.05 x extended to the portal (x=30) -> 101.5 instead of 105.5
     assert roads[1]["coords"][0] == pytest.approx((30.0, 0.0, 101.5))
-    assert roads[1]["coords"][1:] == tunnel[1:]  # Rest des Tunnels unverändert (lineares Profil folgt später)
+    assert roads[1]["coords"][1:] == tunnel[1:]  # rest of the tunnel unchanged (linear profile follows later)
     for x, _, z in roads[0]["coords"]:
-        assert z == pytest.approx(100.0 + 0.05 * x)  # Buckel der Zufahrt auf die stabile Steigung gebracht
-    assert roads[0]["coords"][-1] == roads[1]["coords"][0]  # gemeinsamer Grenzpunkt bleibt identisch
+        assert z == pytest.approx(100.0 + 0.05 * x)  # hump of the approach brought to the stable grade
+    assert roads[0]["coords"][-1] == roads[1]["coords"][0]  # shared boundary point stays identical
 
 
 def test_portal_on_an_already_stable_approach_is_left_alone():
@@ -60,7 +60,7 @@ def test_portal_on_an_already_stable_approach_is_left_alone():
 
 
 def test_portal_is_left_alone_when_the_approach_never_becomes_stable_within_the_limit():
-    approach = [(float(x), 0.0, 100.0 + 0.3 * x) for x in range(0, 61, 2)]  # durchgehend 30 %
+    approach = [(float(x), 0.0, 100.0 + 0.3 * x) for x in range(0, 61, 2)]  # 30 % throughout
     tunnel = [approach[-1], (100.0, 0.0, 120.0)]
     roads = [_road(1, list(approach), highway="primary"), _road(2, list(tunnel), highway="primary", tunnel="yes")]
 
@@ -71,7 +71,7 @@ def test_portal_is_left_alone_when_the_approach_never_becomes_stable_within_the_
 
 
 def test_approach_given_in_reverse_direction_and_tunnel_end_are_handled():
-    # Zufahrt beginnt am Portal (umgekehrte Laufrichtung), Tunnel endet dort.
+    # Approach starts at the portal (reversed direction), tunnel ends there.
     approach = list(reversed(_approach_with_hump()))
     portal = approach[0]
     tunnel = [(100.0, 0.0, 125.0), (60.0, 0.0, 120.0), portal]

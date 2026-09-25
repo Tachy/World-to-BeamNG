@@ -1,9 +1,9 @@
 """
-Tests für managers/environment.py: Licht, Himmel, Nebel, Wolken, Regen aus BeamNGs eigenen Vorgaben.
+Tests for managers/environment.py: light, sky, fog, clouds, rain from BeamNG's own defaults.
 
-Die Werte stammen aus data/environment_defaults.json (siehe tools/extract_environment_defaults.py): ein abgestimmter
-Satz des italy-Levels plus die Wetter-Vorgabe `sunny_noon` des Spiels - nichts davon ist geraten. Sonnenstand
-berechnet BeamNG selbst aus Datum, Breite/Länge und Uhrzeit (TimeOfDay).
+The values come from data/environment_defaults.json (see tools/extract_environment_defaults.py): a tuned
+set from the italy level plus the game's `sunny_noon` weather preset - none of it is guessed. BeamNG computes the
+sun position itself from date, latitude/longitude and time of day (TimeOfDay).
 """
 
 import sys
@@ -39,7 +39,7 @@ def _by_class(lines):
     return {line["class"]: line for line in lines}
 
 
-# --- Uhrzeit: BeamNGs eigene Formel (core/solarTimeOfDay.lua: timeFromMinutes) -----------------------
+# --- Time of day: BeamNG's own formula (core/solarTimeOfDay.lua: timeFromMinutes) --------------------
 
 
 @pytest.mark.parametrize(
@@ -47,7 +47,7 @@ def _by_class(lines):
     [("12:00", 0.0), ("00:00", 0.5), ("18:00", 0.25), ("06:00", 0.75), ("11:00", 0.9583333), ("10:05", 0.9201389)],
 )
 def test_clock_time_uses_the_games_own_formula(clock, expected):
-    # 0.0 = 12 Uhr, 0.5 = Mitternacht; italy startet mit 0.92 = 10:05 Uhr
+    # 0.0 = 12:00 noon, 0.5 = midnight; italy starts at 0.92 = 10:05 AM
     assert clock_to_time_of_day(clock) == pytest.approx(expected, abs=1e-6)
 
 
@@ -57,21 +57,21 @@ def test_invalid_clock_times_are_rejected(bad):
         clock_to_time_of_day(bad)
 
 
-# --- Objekte ---------------------------------------------------------------------------------------
+# --- Objects ---------------------------------------------------------------------------------------
 
 
 def test_all_environment_objects_exist_and_there_is_no_separate_sun():
     by_class = _by_class(_lines())
 
     assert set(by_class) == {"LevelInfo", "ScatterSky", "TimeOfDay", "CloudLayer", "Precipitation"}
-    # ScatterSky liefert die Sonne selbst; nur die Innenraum-Level der Originale haben ein Sun-Objekt
+    # ScatterSky provides the sun itself; only the originals' indoor levels have a Sun object
     assert "Sun" not in by_class
 
 
 def test_names_and_persistent_ids_are_unique_stable_and_parented():
     first, second = _lines(), _lines()
 
-    assert first == second  # deterministisch
+    assert first == second  # deterministic
     assert len({l["name"] for l in first}) == len(first)
     assert len({l["persistentId"] for l in first}) == len(first)
     assert all(l["parentId"] == "MissionGroup" for l in first)
@@ -82,7 +82,7 @@ def test_level_info_carries_fog_color_distance_and_the_correctly_spelled_environ
 
     assert info["fogColor"] == [0.7, 0.8, 0.9, 1.0]
     assert info["fogDensity"] == 0.0002 and info["visibleDistance"] == 25000
-    assert info["globalEnviromentMap"] == "BNG_Sky_02_cubemap"  # Schreibweise der Engine
+    assert info["globalEnviromentMap"] == "BNG_Sky_02_cubemap"  # spelling as used by the engine
     assert "globalEnvironmentMap" not in info
     assert info["levelName"] == "world_to_beamng" and info["decalsEnabled"] is True
 
@@ -91,12 +91,12 @@ def test_scatter_sky_is_the_games_tuned_set_with_global_gradients_and_sunny_valu
     sky = _by_class(_lines())["ScatterSky"]
 
     gradients = [v for k, v in sky.items() if k.endswith("GradientFile")]
-    assert gradients and all(g.startswith("art/sky_gradients/") for g in gradients)  # global, nicht /levels/italy/...
+    assert gradients and all(g.startswith("art/sky_gradients/") for g in gradients)  # global, not /levels/italy/...
     sunny = DEFAULTS["weather"]["ScatterSky"]
     for key, value in sunny.items():
-        assert sky[key] == value  # Farb-/Lichtwerte der Vorgabe "sunny_noon"
+        assert sky[key] == value  # color/light values of the "sunny_noon" preset
     assert "constellationNames" not in sky
-    # keine der früher geratenen Handwerte
+    # none of the previously guessed hand-tuned values
     assert "fadeStartDistance" not in sky and "texSize" not in sky
 
 
@@ -106,27 +106,27 @@ def test_time_of_day_follows_location_date_and_clock():
     assert (tod["latitude"], tod["longitude"]) == (47.84, 7.68)
     assert (tod["year"], tod["month"], tod["day"]) == (2026, 6, 21)
     assert tod["time"] == tod["startTime"] == pytest.approx(clock_to_time_of_day("11:00"))
-    assert tod["play"] is False  # Uhrzeit steht, im Spiel regelbar
+    assert tod["play"] is False  # time of day is fixed, adjustable in game
 
 
 def test_clouds_use_a_global_texture_and_the_sunny_coverage():
     clouds = _by_class(_lines())["CloudLayer"]
 
-    assert clouds["texture"].startswith("art/skies/clouds/")  # globales Asset, nichts zu vendoren
+    assert clouds["texture"].startswith("art/skies/clouds/")  # global asset, nothing to vendor
     assert clouds["coverage"] == DEFAULTS["weather"]["CloudLayer"]["coverage"]
 
 
 def test_rain_object_exists_but_is_off():
     rain = _by_class(_lines())["Precipitation"]
 
-    assert rain["dataBlock"] == "rain_medium"  # im Spiel global definiert
+    assert rain["dataBlock"] == "rain_medium"  # defined globally in the game
     assert rain["numDrops"] == 0
 
 
 def test_the_defaults_are_the_extracted_game_data():
     assert DEFAULTS["weather"]["preset"] == "sunny_noon"
     assert "time" not in DEFAULTS["weather"].get("ScatterSky", {})
-    assert "TimeOfDay" not in DEFAULTS["weather"]  # Uhrzeit wird aus einer Uhrzeit berechnet, nicht aus der Vorgabe
+    assert "TimeOfDay" not in DEFAULTS["weather"]  # time of day is computed from a clock time, not taken from the preset
 
 
 # --- Config ----------------------------------------------------------------------------------------
@@ -134,14 +134,14 @@ def test_the_defaults_are_the_extracted_game_data():
 
 def test_environment_config_has_sane_values():
     assert len(config.ENV_FOG_COLOR) == 4 and all(0.0 <= c <= 1.0 for c in config.ENV_FOG_COLOR)
-    assert config.ENV_FOG_COLOR[2] > config.ENV_FOG_COLOR[0]  # bläulicher Dunst, nicht grau
+    assert config.ENV_FOG_COLOR[2] > config.ENV_FOG_COLOR[0]  # bluish haze, not gray
     assert config.ENV_FOG_HEIGHT_MARGIN >= 0
     assert clock_to_time_of_day(config.ENV_CLOCK_TIME) >= 0.0
     year, month, day = config.ENV_DATE
     assert 1 <= month <= 12 and 1 <= day <= 31
 
 
-# --- Extraktions-Tool (reine Funktionen) -----------------------------------------------------------
+# --- Extraction tool (pure functions) --------------------------------------------------------------
 
 
 def test_extraction_removes_location_ids_and_level_specific_fields():

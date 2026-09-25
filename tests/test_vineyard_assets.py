@@ -1,8 +1,8 @@
-"""Tests für world_to_beamng.io.vineyard_assets.ensure_vineyard_assets().
+"""Tests for world_to_beamng.io.vineyard_assets.ensure_vineyard_assets().
 
-Die Reben-Shapes (grape_vine, grape_vine_group) stammen aus BeamNGs italy-Level und
-werden samt Materialien in den eigenen Level kopiert; die Forest-Items werden in
-art/forest/managedItemData.json eingetragen.
+The vine shapes (grape_vine, grape_vine_group) come from BeamNG's italy level and
+are copied into our own level together with their materials; the forest items are
+registered in art/forest/managedItemData.json.
 """
 
 import json
@@ -76,7 +76,7 @@ def test_writes_only_the_needed_materials(tmp_path):
     ensure_vineyard_assets(level, install)
 
     materials = json.loads((level / "art" / "shapes" / "vineyard" / "main.materials.json").read_text())
-    assert set(materials) == {"grape", "olive_trunk", "leaves_strong"}  # "unrelated" nicht
+    assert set(materials) == {"grape", "olive_trunk", "leaves_strong"}  # but not "unrelated"
 
 
 def test_materials_already_defined_in_the_level_are_not_duplicated(tmp_path):
@@ -101,8 +101,8 @@ def test_materials_get_stable_unique_persistent_ids(tmp_path):
 
     ids = [m["persistentId"] for m in first.values()]
     assert len(set(ids)) == len(ids)
-    assert all(not i.startswith("orig-") for i in ids)  # nicht die IDs des Original-Levels
-    assert first == second  # stabil über Exporte hinweg
+    assert all(not i.startswith("orig-") for i in ids)  # not the IDs of the original level
+    assert first == second  # stable across exports
 
 
 def test_registers_forest_items_in_managed_item_data(tmp_path):
@@ -146,10 +146,10 @@ def test_is_idempotent(tmp_path):
 
 
 def test_second_identical_call_does_not_rewrite_the_file(tmp_path):
-    """Regression: diese Funktion läuft bei JEDEM Export (siehe Modul-Docstring). Ein unbedingtes
-    Schreiben würde den Zeitstempel jedes Mal ändern, obwohl der Inhalt identisch bleibt - andere
-    Caches (workflow/forest_workflow.py::_forest_cache_key()) nutzen genau diesen Zeitstempel, um
-    zu erkennen, ob sich die verfügbaren Baumarten geändert haben, und würden sonst nie treffen."""
+    """Regression: this function runs on EVERY export (see module docstring). Writing unconditionally
+    would change the timestamp every time even though the content stays identical - other
+    caches (workflow/forest_workflow.py::_forest_cache_key()) use exactly this timestamp to
+    detect whether the available tree species have changed, and would otherwise never hit."""
     install, level = _make_install(tmp_path), _level(tmp_path)
     item_path = level / "art" / "forest" / "managedItemData.json"
 

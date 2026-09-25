@@ -1,4 +1,4 @@
-"""Wählbare Spawnpunkte vor den Einfahrten von Tunnelketten (tunnels/entrance_spawns.py)."""
+"""Selectable spawn points in front of the entrances of tunnel chains (tunnels/entrance_spawns.py)."""
 
 import sys
 from pathlib import Path
@@ -70,7 +70,7 @@ def test_short_approach_puts_the_spawn_at_its_far_end():
 
 
 def test_unnamed_underpass_gets_no_spawn():
-    # Kurze Feldweg-Unterführungen (highway=track, tunnel=yes ohne Namen) sind keine Tunnelkette zum Anfahren
+    # Short track underpasses (highway=track, tunnel=yes without a name) are not a tunnel chain to drive up to
     roads = [_road(1, range(-100, 1, 10), highway="track"), _road(2, [0.0, 15.0], highway="track", tunnel="yes"),
              _road(3, range(15, 116, 10), highway="track")]
 

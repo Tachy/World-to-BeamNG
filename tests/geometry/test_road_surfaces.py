@@ -1,4 +1,4 @@
-"""Vereinigte Straßenflächen für Ausschlusszonen."""
+"""Merged road surfaces for exclusion zones."""
 
 import sys
 from pathlib import Path
@@ -31,7 +31,7 @@ def test_crossing_roads_are_merged_into_one_surface():
 
 
 def test_simplification_stays_within_the_tolerance():
-    # dicht aufgelöste Kurve: viele Eckpunkte
+    # densely sampled curve: many corner points
     t = np.linspace(0, np.pi, 400)
     road = _road(list(zip(100 * np.cos(t), 100 * np.sin(t))))
     exact = union_road_surfaces([road], tolerance=0.0)

@@ -1,11 +1,11 @@
-"""Tests für das Straßen-Oberflächen-Mapping (4 Oberflächen) gegen die echte
+"""Tests for the road surface mapping (4 surfaces) against the real
 data/osm_to_beamng.json.
 
-Hintergrund: Die frühere `dirt_road`-Oberfläche nutzte `dirt_road_gravels`, ein
-Kies-Overlay mit ~92 % transparenten Pixeln - Waldwege waren dadurch praktisch
-unsichtbar. Jetzt gibt es getrennte Oberflächen für Erdweg (dirt_road) und
-Kiesweg (gravel_road), beide mit deckenden Flächentexturen aus BeamNGs eigenem
-west_coast_usa-Level (road_dirt_02 / road_gravel).
+Background: The earlier `dirt_road` surface used `dirt_road_gravels`, a
+gravel overlay with ~92 % transparent pixels - forest tracks were therefore
+practically invisible. Now there are separate surfaces for dirt road (dirt_road)
+and gravel road (gravel_road), both with opaque area textures from BeamNG's own
+west_coast_usa level (road_dirt_02 / road_gravel).
 """
 
 import sys
@@ -42,41 +42,41 @@ def test_road_surfaces_defined(mapper):
 @pytest.mark.parametrize(
     "tags, expected",
     [
-        # Highway-Defaults
+        # highway defaults
         ({"highway": "track"}, "dirt_road"),
         ({"highway": "path"}, "dirt_road"),
         ({"highway": "residential"}, "asphalt_road_standard"),
         ({"highway": "secondary"}, "asphalt_road_standard"),
         ({"highway": "footway"}, "concrete"),
         ({"highway": "steps"}, "concrete"),
-        # tracktype: grade1 -> Asphalt, grade2 -> Kies, grade3..5 -> Erdweg
+        # tracktype: grade1 -> asphalt, grade2 -> gravel, grade3..5 -> dirt road
         ({"highway": "track", "tracktype": "grade1"}, "asphalt_road_standard"),
         ({"highway": "track", "tracktype": "grade2"}, "gravel_road"),
         ({"highway": "track", "tracktype": "grade3"}, "dirt_road"),
         ({"highway": "track", "tracktype": "grade4"}, "dirt_road"),
         ({"highway": "track", "tracktype": "grade5"}, "dirt_road"),
-        # surface-Tag: Kies-artige Oberflächen
+        # surface tag: gravel-like surfaces
         ({"highway": "track", "surface": "gravel"}, "gravel_road"),
         ({"highway": "track", "surface": "fine_gravel"}, "gravel_road"),
         ({"highway": "track", "surface": "compacted"}, "gravel_road"),
         ({"highway": "service", "surface": "gravel"}, "gravel_road"),
         ({"highway": "path", "surface": "gravel"}, "gravel_road"),
-        # surface-Tag: Erd-artige Oberflächen
+        # surface tag: dirt-like surfaces
         ({"highway": "track", "surface": "ground"}, "dirt_road"),
         ({"highway": "track", "surface": "dirt"}, "dirt_road"),
         ({"highway": "track", "surface": "earth"}, "dirt_road"),
-        # surface-Tag schlägt tracktype
+        # surface tag beats tracktype
         ({"highway": "track", "surface": "ground", "tracktype": "grade2"}, "dirt_road"),
         ({"highway": "track", "surface": "gravel", "tracktype": "grade5"}, "gravel_road"),
-        # bestehendes Verhalten: Asphalt-Surface bleibt Asphalt
+        # existing behavior: asphalt surface stays asphalt
         ({"highway": "track", "surface": "asphalt"}, "asphalt_road_standard"),
         ({"highway": "path", "surface": "paved"}, "asphalt_road_standard"),
-        # Pflaster (z.B. Tremola am Gotthard): eigene Kopfsteinpflaster-Oberfläche
+        # paving (e.g. Tremola at the Gotthard): dedicated cobblestone surface
         ({"highway": "secondary", "surface": "sett"}, "cobblestone_road"),
         ({"highway": "residential", "surface": "cobblestone"}, "cobblestone_road"),
         ({"highway": "residential", "surface": "unhewn_cobblestone"}, "cobblestone_road"),
         ({"highway": "service", "surface": "paving_stones"}, "cobblestone_road"),
-        # unbefestigt/Natur: nie Asphalt, auch wenn der Highway-Typ Asphalt wäre
+        # unpaved/natural: never asphalt, even if the highway type would be asphalt
         ({"highway": "service", "surface": "unpaved"}, "gravel_road"),
         ({"highway": "track", "surface": "unpaved"}, "gravel_road"),
         ({"highway": "path", "surface": "grass"}, "dirt_road"),
@@ -88,8 +88,8 @@ def test_surface_mapping(mapper, tags, expected):
 
 
 def test_surface_specific_properties_follow_surface_not_highway(mapper):
-    # Ein Kiesweg bekommt die Kies-Eigenschaften, auch wenn der Highway-Typ
-    # (service) eigentlich Asphalt wäre - die Breite bleibt vom Highway-Typ.
+    # A gravel road gets the gravel properties, even if the highway type
+    # (service) would actually be asphalt - the width stays from the highway type.
     props = mapper.get_road_properties({"highway": "service", "surface": "gravel"})
 
     assert props["internal_name"] == "gravel_road"
@@ -106,25 +106,25 @@ def test_gravel_road_has_own_priority_between_dirt_and_asphalt(mapper):
 
 
 def test_dirt_and_gravel_do_not_use_sparse_gravels_overlay(mapper):
-    # dirt_road_gravels ist ein Kies-Streu-Overlay (Opacity-Mittelwert 19/255)
-    # und deshalb als alleinige Wegfläche praktisch unsichtbar.
+    # dirt_road_gravels is a scattered-gravel overlay (mean opacity 19/255)
+    # and therefore practically invisible as the sole track surface.
     for name in ("dirt_road", "gravel_road"):
         for path in mapper.surface_types[name]["textures"].values():
-            assert "dirt_road_gravels" not in path, f"{name} nutzt noch das Overlay: {path}"
+            assert "dirt_road_gravels" not in path, f"{name} still uses the overlay: {path}"
 
 
 def test_dirt_and_gravel_use_opaque_road_surface_textures(mapper):
     dirt = mapper.surface_types["dirt_road"]["textures"]
     gravel = mapper.surface_types["gravel_road"]["textures"]
 
-    # Beide teilen sich Opacity/AO/Roughness aus m_dirt_road_01 (wie BeamNGs
-    # road_dirt_02 / road_gravel), unterscheiden sich aber im Farbbild.
+    # Both share opacity/AO/roughness from m_dirt_road_01 (like BeamNG's
+    # road_dirt_02 / road_gravel), but differ in the color image.
     assert dirt["opacityMap"].endswith("m_dirt_road_01/t_dirt_road_o.data.dds")
     assert gravel["opacityMap"] == dirt["opacityMap"]
     assert dirt["baseColorMap"].endswith("m_dirt_road_01/t_dirt_road_b.color.dds")
     assert gravel["baseColorMap"].endswith("road_gravel/t_dirt_road_02_b.color.dds")
     assert dirt["baseColorMap"] != gravel["baseColorMap"]
-    # Alle Maps vollständig (PBR-Stage wie bei BeamNGs eigenen Materialien)
+    # All maps complete (PBR stage like in BeamNG's own materials)
     for tex in (dirt, gravel):
         assert set(tex) >= {"baseColorMap", "normalMap", "roughnessMap", "ambientOcclusionMap", "opacityMap"}
 
@@ -140,8 +140,8 @@ def test_gravel_material_entry_is_translucent_gravel_ground_type(mapper):
 
 
 def test_gravel_material_entry_passes_opacity_factor(mapper):
-    # BeamNGs road_gravel setzt opacityFactor=0.721, damit das Terrain darunter
-    # etwas durchscheint - hier optional pro Oberfläche konfigurierbar.
+    # BeamNG's road_gravel sets opacityFactor=0.721 so that the terrain below
+    # shows through slightly - optionally configurable per surface here.
     entry = mapper.generate_materials_json_entry("x", {"textures": {"baseColorMap": "a.dds"}, "opacityFactor": 0.72})
 
     assert entry["Stages"][0]["opacityFactor"] == pytest.approx(0.72)
@@ -159,7 +159,7 @@ def test_cobblestone_surface_uses_vendored_cobblestone_textures(mapper):
     assert cobble["groundModelName"] == "cobblestone"
     assert cobble["textures"]["baseColorMap"].endswith("tileable/stone/italy_cobblestone/italy_cobblestone_d.dds")
     assert cobble["textures"]["normalMap"].endswith("tileable/stone/italy_cobblestone/italy_cobblestone_n.dds")
-    # zwischen Kies und Asphalt gezeichnet (renderPriority)
+    # drawn between gravel and asphalt (renderPriority)
     assert (
         mapper.surface_types["gravel_road"]["priority"]
         < cobble["priority"]

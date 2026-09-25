@@ -1,5 +1,5 @@
 """
-Tests für Flachdach-Erkennung und Blechrand.
+Tests for flat roof detection and sheet metal rim.
 """
 
 import sys
@@ -72,7 +72,7 @@ def test_rim_faces_point_outward_inward_and_up_regardless_of_ring_direction(reve
         else:
             position = mesh.vertices[face].mean(axis=0)[:2]
             outward_side = float(direction[:2] @ (position - centre)) > 0
-            # Außenfläche liegt weiter außen als die Innenfläche derselben Kante, Normale zeigt jeweils weg vom Rand
+            # Outer face lies further out than the inner face of the same edge, normal points away from the edge
             out += outward_side
             inward += not outward_side
     assert up == 8 and out == 8 and inward == 8
@@ -94,7 +94,7 @@ def test_no_rim_on_sloped_roofs():
 
 
 def test_no_rim_on_edges_shared_with_another_roof():
-    # Zwei nebeneinanderliegende Flachdachpolygone: die gemeinsame Kante bekommt keinen Rand
+    # Two adjacent flat roof polygons: the shared edge gets no rim
     building = {
         "walls": _box_walls(0, 0, 20, 6, 6),
         "roofs": [(_rect(0, 0, 10, 6, 6), TRIS), (_rect(10, 0, 20, 6, 6), TRIS)],
@@ -106,7 +106,7 @@ def test_no_rim_on_edges_shared_with_another_roof():
 
 
 def test_no_rim_where_a_higher_wall_continues():
-    # Nordwand (y = 6) reicht auf 9 m -> Brandwand über dem 6-m-Flachdach
+    # North wall (y = 6) reaches up to 9 m -> firewall above the 6 m flat roof
     walls = _box_walls(0, 0, 10, 6, 6)
     walls[2] = _wall((10, 6), (0, 6), 0.0, 9.0)
     building = {"walls": walls, "roofs": [(_rect(0, 0, 10, 6, 6), TRIS)]}
@@ -114,7 +114,7 @@ def test_no_rim_where_a_higher_wall_continues():
     mesh = FlatRoofRimBuilder().build(building)
 
     assert len(mesh.faces) == 3 * 6
-    assert mesh.vertices[:, 1].max() < 6.0 + 1e-9 + config.FLAT_ROOF_EDGE_THICKNESS_M  # kein Rand an y = 6 (nur Eckenüberstand)
+    assert mesh.vertices[:, 1].max() < 6.0 + 1e-9 + config.FLAT_ROOF_EDGE_THICKNESS_M  # no rim at y = 6 (only corner overhang)
 
 
 def test_building_without_roof_has_no_rim():

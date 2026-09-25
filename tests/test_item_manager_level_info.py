@@ -1,4 +1,4 @@
-"""Tests für die LevelInfo-Basiszeile (Sichtweite/Nebel) des ItemManagers."""
+"""Tests for the LevelInfo base line (view distance/fog) of the ItemManager."""
 
 import sys
 from pathlib import Path
@@ -14,18 +14,18 @@ def _level_info():
 
 
 def test_level_info_sets_visible_distance_from_config():
-    # Ohne visibleDistance greift der BeamNG-Standard (~1 km): der Rest wird geclippt.
+    # Without visibleDistance the BeamNG default (~1 km) applies: the rest is clipped.
     info = _level_info()
 
     assert info["visibleDistance"] == config.LEVEL_VISIBLE_DISTANCE
-    assert info["visibleDistance"] > 5000  # mindestens so weit wie die kleinsten Original-Level
+    assert info["visibleDistance"] > 5000  # at least as far as the smallest original levels
 
 
 def test_level_info_sets_fog_density_from_config():
     assert _level_info()["fogDensity"] == config.LEVEL_FOG_DENSITY
 
 
-# --- Umgebungsobjekte (Licht/Wetter aus BeamNGs Vorgaben) ---------------------------------------------
+# --- Environment objects (light/weather from BeamNG's defaults) ---------------------------------------
 
 
 def _classes(lines):
@@ -36,7 +36,7 @@ def test_base_lines_have_the_environment_objects_and_no_guessed_sun():
     classes = _classes(ItemManager.OTHER_BASE_LINES)
 
     assert {"LevelInfo", "ScatterSky", "TimeOfDay", "CloudLayer", "Precipitation", "SimGroup"} <= set(classes)
-    assert "Sun" not in classes  # der ScatterSky liefert die Sonne
+    assert "Sun" not in classes  # the ScatterSky provides the sun
 
 
 def test_level_info_has_the_fog_color_and_the_engines_spelling_of_the_environment_map():
@@ -55,7 +55,7 @@ def test_set_base_line_fields_changes_only_this_instance(tmp_path):
 
     changed = next(l for l in items.base_lines if l["name"] == "theLevelInfo")
     assert changed["fogAtmosphereHeight"] == 812.5
-    assert _level_info().get("fogAtmosphereHeight") == original  # Klassen-Liste bleibt unverändert
+    assert _level_info().get("fogAtmosphereHeight") == original  # class list stays unchanged
     ItemManager.reset_instance()
     assert next(l for l in ItemManager.get_instance(tmp_path).base_lines if l["name"] == "theLevelInfo").get("fogAtmosphereHeight") == original
     ItemManager.reset_instance()
@@ -96,9 +96,9 @@ def test_info_json_declares_the_default_spawn_point_name(tmp_path):
     ItemManager.get_instance(tmp_path).save_info_json()
 
     info = json.loads((tmp_path / "info.json").read_text(encoding="utf-8"))
-    # Name des SpawnSphere-Objekts ("spawn"), NICHT der PlayerDropPoints-SimGroup - siehe setSpawnpoint.lua
+    # Name of the SpawnSphere object ("spawn"), NOT of the PlayerDropPoints SimGroup - see setSpawnpoint.lua
     assert info["defaultSpawnPointName"] == "spawn"
-    assert "spawnPointName" not in info  # falscher Schlüssel, BeamNG liest nur defaultSpawnPointName
+    assert "spawnPointName" not in info  # wrong key, BeamNG only reads defaultSpawnPointName
     ItemManager.reset_instance()
 
 
@@ -112,7 +112,7 @@ def test_info_json_declares_time_of_day_support(tmp_path):
     ItemManager.reset_instance()
 
 
-# --- info_json / set_info_json_fields (Minimap/Terrain-Größe zur Exportzeit) --------------------------
+# --- info_json / set_info_json_fields (minimap/terrain size at export time) ---------------------------
 
 
 def test_info_json_defaults_to_a_copy_of_level_info(tmp_path):
@@ -121,7 +121,7 @@ def test_info_json_defaults_to_a_copy_of_level_info(tmp_path):
 
     items.info_json["size"] = [1234, 1234]
 
-    assert ItemManager.LEVEL_INFO["size"] == [2000, 2000]  # Klassen-Konstante bleibt unverändert
+    assert ItemManager.LEVEL_INFO["size"] == [2000, 2000]  # class constant stays unchanged
     ItemManager.reset_instance()
 
 
@@ -134,7 +134,7 @@ def test_set_info_json_fields_changes_only_this_instance(tmp_path):
     assert items.info_json["size"] == [4096, 4096]
     assert ItemManager.LEVEL_INFO["size"] == [2000, 2000]
     ItemManager.reset_instance()
-    assert ItemManager.get_instance(tmp_path).info_json["size"] == [2000, 2000]  # neue Instanz: wieder Default
+    assert ItemManager.get_instance(tmp_path).info_json["size"] == [2000, 2000]  # new instance: default again
     ItemManager.reset_instance()
 
 
@@ -153,6 +153,6 @@ def test_save_info_json_writes_the_minimap_only_when_it_was_set(tmp_path):
     with_minimap = json.loads((tmp_path / "info.json").read_text(encoding="utf-8"))
     ItemManager.reset_instance()
 
-    assert "minimap" not in without_minimap  # wie ein echtes Level ohne Minimap (z.B. italy)
+    assert "minimap" not in without_minimap  # like a real level without a minimap (e.g. italy)
     assert with_minimap["minimap"][0]["file"] == "minimap/terrain.png"
     assert with_minimap["size"] == [4096, 4096]

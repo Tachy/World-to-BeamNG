@@ -1,5 +1,5 @@
 """
-Tests für die Wände: fugenloser Putz, Fenster von oben nach unten, erhöhter Keller.
+Tests for the walls: seamless plaster, windows from top to bottom, raised basement.
 """
 
 import sys
@@ -22,7 +22,7 @@ BASEMENT = (WindowSprite.BASEMENT_PLAIN, WindowSprite.BASEMENT_BARS)
 
 
 def _wall(a, b, z0, z1):
-    """Rechteckwand von a nach b (xy); Ring mit Schlusspunkt, Normale nach rechts der Richtung a->b."""
+    """Rectangular wall from a to b (xy); ring with closing point, normal to the right of the direction a->b."""
     (ax, ay), (bx, by) = a, b
     ring = np.array([[ax, ay, z0], [bx, by, z0], [bx, by, z1], [ax, ay, z1], [ax, ay, z0]], dtype=float)
     return ring, TRIS
@@ -34,7 +34,7 @@ def _polygon_wall(points_xyz):
 
 
 def _house(key="H", width=10.0, depth=8.0, height=6.0, rotation=0.0, inward=False, floor_z=(0.0, 0.0, 0.0, 0.0)):
-    """Quader mit vier Wänden (nach außen orientiert, von oben gegen den Uhrzeigersinn) und Flachdach in Traufhöhe."""
+    """Box with four walls (oriented outward, counterclockwise seen from above) and a flat roof at eave height."""
     corners = [(0, 0), (width, 0), (width, depth), (0, depth)]
     walls = []
     for i in range(4):
@@ -52,7 +52,7 @@ def _rotate(points, degrees):
 
 
 def _windows(mesh):
-    """Fensterflächen als [(Sprite, [BL, BR, TR, TL])]; die Vertices je Fenster liegen als Vierergruppe hintereinander."""
+    """Window faces as [(sprite, [BL, BR, TR, TL])]; the vertices of each window lie consecutively as a group of four."""
     indices = sorted({i for face in mesh.window_faces for i in face})
     result = []
     for start in range(0, len(indices), 4):
@@ -74,15 +74,15 @@ def _area(mesh, faces):
     return total
 
 
-# ---------------------------------------------------------------- Putz
+# ---------------------------------------------------------------- Plaster
 
 
 def test_every_wall_is_one_uncut_polygon():
     mesh = FacadeMapper().map_building(_house(width=25.0, depth=14.0, height=9.0))
 
-    assert len(mesh.wall_faces) == 4 * 2  # zwei Dreiecke je Rechteckwand, keine Zellen
+    assert len(mesh.wall_faces) == 4 * 2  # two triangles per rectangular wall, no cells
     plaster_vertices = {i for face in mesh.wall_faces for i in face}
-    assert len(plaster_vertices) == 4 * 4  # nur die Eckpunkte der Wände
+    assert len(plaster_vertices) == 4 * 4  # only the corner points of the walls
 
 
 def test_plaster_area_is_preserved_including_a_concave_wall():
@@ -95,7 +95,7 @@ def test_plaster_area_is_preserved_including_a_concave_wall():
     assert _area(mesh, mesh.wall_faces) == pytest.approx(10 * 6 - 2 * 3)
 
 
-@pytest.mark.parametrize("wall_index", [0, 1])  # 0: entlang x, 1: entlang y (Regression: alter Code hatte dort kein U)
+@pytest.mark.parametrize("wall_index", [0, 1])  # 0: along x, 1: along y (regression: the old code had no U there)
 def test_plaster_uvs_are_metric(wall_index):
     house = _house()
     house["walls"] = [house["walls"][wall_index]]
@@ -121,20 +121,20 @@ def test_plaster_triangles_keep_the_winding_of_the_source_rings():
             assert any(np.linalg.norm(np.cross(normal, r)) < 1e-9 and normal @ r > 0 for r in ring_normals)
 
 
-# ---------------------------------------------------------------- Fenster
+# ---------------------------------------------------------------- Windows
 
 
 def test_windows_are_counted_from_the_eave_downwards():
     mesh = FacadeMapper().map_building(_house(height=6.0))
 
-    # zwei Geschosse: Böden bei 3,0 und 0,0 -> Fensterunterkante 0,9 m darüber
+    # two storeys: floors at 3.0 and 0.0 -> window sill 0.9 m above them
     assert _sills(mesh, exclude=DOORS) == [0.9, 3.9]
 
 
 def test_a_taller_house_keeps_the_storeys_aligned_to_the_eave():
     mesh = FacadeMapper().map_building(_house(height=8.0))
 
-    # Traufe 8,0: Böden bei 5,0 und 2,0; darunter (2,0 m) ein erhöhter Keller
+    # Eave 8.0: floors at 5.0 and 2.0; below that (2.0 m) a raised basement
     assert _sills(mesh, exclude=DOORS + BASEMENT) == [2.9, 5.9]
 
 
@@ -142,9 +142,9 @@ def test_the_remainder_below_the_storeys_becomes_a_raised_basement_with_low_wind
     mesh = FacadeMapper().map_building(_house(height=8.0))
 
     basement = [q for s, q in _windows(mesh) if s in BASEMENT]
-    assert basement, "kein Kellerfenster"
-    assert {round(float(q[0][2]), 3) for q in basement} == {config.FACADE_BASEMENT_SILL_M}  # Bodennähe
-    assert all(q[3][2] < 2.0 for q in basement)  # bleiben unter dem Erdgeschossboden
+    assert basement, "no basement window"
+    assert {round(float(q[0][2]), 3) for q in basement} == {config.FACADE_BASEMENT_SILL_M}  # near the ground
+    assert all(q[3][2] < 2.0 for q in basement)  # stay below the ground floor level
 
 
 def test_no_basement_when_the_storeys_fill_the_wall():
@@ -154,7 +154,7 @@ def test_no_basement_when_the_storeys_fill_the_wall():
 
 
 def test_basement_windows_only_where_enough_wall_is_visible():
-    # Nordwand (Index 2) steht am Hang 1,5 m höher: dort ist der Keller kaum sichtbar
+    # North wall (index 2) stands 1.5 m higher on the slope: the basement is barely visible there
     house = _house(height=8.0, floor_z=(0.0, 0.0, 1.5, 0.0))
 
     mesh = FacadeMapper().map_building(house)
@@ -166,7 +166,7 @@ def test_basement_windows_only_where_enough_wall_is_visible():
 
 def test_a_door_only_where_the_ground_floor_is_at_ground_level():
     flush = FacadeMapper().map_building(_house(height=6.0))
-    raised = FacadeMapper().map_building(_house(height=8.0))  # Erdgeschoss 2 m über dem Gelände
+    raised = FacadeMapper().map_building(_house(height=8.0))  # ground floor 2 m above the terrain
 
     assert [s for s, _ in _windows(flush) if s in DOORS]
     assert not [s for s, _ in _windows(raised) if s in DOORS]
@@ -177,13 +177,13 @@ def test_exactly_one_door_and_it_sits_on_the_longest_wall():
 
     doors = [q for s, q in _windows(mesh) if s in DOORS]
     assert len(doors) == 1
-    assert np.allclose(doors[0][:, 1], 0.0, atol=0.1) or np.allclose(doors[0][:, 1], 6.0, atol=0.1)  # lange Wand
-    assert doors[0][0][2] == pytest.approx(0.0)  # Schwelle = Erdgeschossboden
+    assert np.allclose(doors[0][:, 1], 0.0, atol=0.1) or np.allclose(doors[0][:, 1], 6.0, atol=0.1)  # long wall
+    assert doors[0][0][2] == pytest.approx(0.0)  # threshold = ground floor level
 
 
 def test_windows_stand_in_front_of_the_wall():
     house = _house(height=6.0)
-    house["walls"] = [house["walls"][0]]  # Südwand y = 0, Normale -y
+    house["walls"] = [house["walls"][0]]  # south wall y = 0, normal -y
 
     mesh = FacadeMapper().map_building(house)
 
@@ -241,7 +241,7 @@ def test_empty_building():
     assert not mesh.wall_faces and not mesh.window_faces
 
 
-# ---------------------------------------------------------------- Farbe und Determinismus
+# ---------------------------------------------------------------- Color and determinism
 
 
 def test_mapping_is_deterministic():
@@ -254,7 +254,7 @@ def test_mapping_is_deterministic():
 
 
 def test_hash_is_reproducible_across_processes():
-    # Fester Wert: crc32 ist prozessübergreifend konstant, Python-hash() (gesalzen) wäre es nicht
+    # Fixed value: crc32 is constant across processes, Python hash() (salted) would not be
     assert stable_hash("DEBWL0010000abcd") == 858753638
     assert plaster_index("DEBWL0010000abcd") == plaster_index("DEBWL0010000abcd")
 
@@ -268,5 +268,5 @@ def test_plaster_colours_follow_the_weights():
 
     for color, measured in zip(PLASTER_COLORS, share):
         assert measured == pytest.approx(color.weight / 1000, abs=0.012)
-    assert share[0] > 0.5  # vorwiegend weiß
-    assert share[-2:].sum() < 0.08  # Rottöne ganz vereinzelt
+    assert share[0] > 0.5  # predominantly white
+    assert share[-2:].sum() < 0.08  # red tones very rare

@@ -1,4 +1,4 @@
-"""Tests für world_to_beamng.textures.library: eingecheckte Texturen (data/textures) -> DDS im Level."""
+"""Tests for world_to_beamng.textures.library: committed textures (data/textures) -> DDS in the level."""
 
 import json
 import sys
@@ -29,7 +29,7 @@ def _write_texture(library_dir, name, tile_m=1.5, value=100, channels=CHANNELS):
 
 @pytest.fixture
 def written(monkeypatch):
-    """Ersetzt texconv: schreibt eine leere DDS und merkt sich (Name, Format, Pixelmittel, Mips)."""
+    """Replaces texconv: writes an empty DDS and records (name, format, pixel mean, mips)."""
     calls = []
 
     def fake_write_dds(pixels, output_dir, name, dds_format, max_mip_levels):
@@ -56,7 +56,7 @@ def test_textures_become_dds_with_the_stock_formats_and_full_mips(tmp_path, writ
     }
     assert set(paths["roof_gravel"]) == {"baseColorMap", "normalMap", "roughnessMap"}
     assert paths["roof_gravel"]["baseColorMap"].endswith("roof_gravel_b.color.dds")
-    assert paths["roof_gravel"]["baseColorMap"].startswith("levels/")  # relativ zum BeamNG-Userordner, Schrägstriche
+    assert paths["roof_gravel"]["baseColorMap"].startswith("levels/")  # relative to the BeamNG user folder, with slashes
     assert "\\" not in paths["roof_gravel"]["baseColorMap"]
 
 

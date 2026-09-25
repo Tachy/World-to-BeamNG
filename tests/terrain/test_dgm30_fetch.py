@@ -1,5 +1,5 @@
 """
-Tests: DGM30-Auto-Download (Copernicus-DEM-GLO-30-Kacheln von S3).
+Tests: DGM30 auto-download (Copernicus DEM GLO-30 tiles from S3).
 """
 
 import json
@@ -33,7 +33,7 @@ from world_to_beamng.terrain.dgm30_fetch import (
         (52, -1, "Copernicus_DSM_COG_10_N52_00_W001_00_DEM"),  # N, W
         (-1, 18, "Copernicus_DSM_COG_10_S01_00_E018_00_DEM"),  # S, E
         (-33, -70, "Copernicus_DSM_COG_10_S33_00_W070_00_DEM"),  # S, W
-        (0, 0, "Copernicus_DSM_COG_10_N00_00_E000_00_DEM"),  # Nullgrad -> N/E
+        (0, 0, "Copernicus_DSM_COG_10_N00_00_E000_00_DEM"),  # zero degrees -> N/E
     ],
 )
 def test_copernicus_tile_id(lat_deg, lon_deg, expected):
@@ -44,7 +44,7 @@ def test_copernicus_tile_id(lat_deg, lon_deg, expected):
 
 
 def test_bbox_exactly_on_a_degree_boundary_does_not_produce_an_extra_tile():
-    # lat_max = 48.0 liegt exakt auf der Gradgrenze -> keine Kachel N48
+    # lat_max = 48.0 lies exactly on the degree boundary -> no N48 tile
     tile_ids = required_tile_ids((7.0, 47.0, 8.0, 48.0))
 
     assert tile_ids == [copernicus_tile_id(47, 7)]
@@ -69,7 +69,7 @@ def test_bbox_spanning_two_tiles_in_both_directions_produces_all_four():
 
 # --- missing_tile_ids() -----------------------------------------------------------------------
 
-BBOX = (7.0, 47.0, 8.0, 48.0)  # -> genau eine Kachel: N47_00_E007_00
+BBOX = (7.0, 47.0, 8.0, 48.0)  # -> exactly one tile: N47_00_E007_00
 TILE_ID = copernicus_tile_id(47, 7)
 
 
@@ -136,13 +136,13 @@ def test_404_is_recorded_as_not_found_and_cached(mock_get, tmp_path):
 
     assert result == {"downloaded": [], "not_found": [TILE_ID], "failed": []}
     assert not (tmp_path / f"{TILE_ID}.tif").exists()
-    assert mock_get.call_count == 1  # kein Retry bei 404
+    assert mock_get.call_count == 1  # no retry on 404
 
     cache_content = json.loads((tmp_path / ".not_found_cache.json").read_text(encoding="utf-8"))
     assert TILE_ID in cache_content
 
 
-@patch("world_to_beamng.terrain.dgm30_fetch.time.sleep")  # Backoff-Wartezeit im Test überspringen
+@patch("world_to_beamng.terrain.dgm30_fetch.time.sleep")  # skip the backoff wait in the test
 @patch("world_to_beamng.terrain.dgm30_fetch.requests.get")
 def test_timeout_then_success_still_downloads_the_tile(mock_get, mock_sleep, tmp_path):
     mock_get.side_effect = [requests.exceptions.Timeout(), _mock_response(200)]
@@ -163,7 +163,7 @@ def test_exhausted_retries_are_recorded_as_failed_and_not_cached(mock_get, mock_
 
     assert result == {"downloaded": [], "not_found": [], "failed": [TILE_ID]}
     assert mock_get.call_count == config.DGM30_FETCH_MAX_RETRIES
-    assert not (tmp_path / ".not_found_cache.json").exists()  # failed != not_found -> nicht gecacht
+    assert not (tmp_path / ".not_found_cache.json").exists()  # failed != not_found -> not cached
 
 
 @patch("world_to_beamng.terrain.dgm30_fetch.requests.get")

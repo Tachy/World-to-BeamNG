@@ -1,4 +1,4 @@
-"""Tests für TerrainWorkflow.export_ground_cover() mit den echten Config-Daten."""
+"""Tests for TerrainWorkflow.export_ground_cover() with the real config data."""
 
 import sys
 from pathlib import Path
@@ -28,7 +28,7 @@ def _export(layer_map, names):
 
 def test_ground_cover_is_exported_only_for_layers_present_in_the_layer_map():
     layer_map = np.zeros((10, 10), dtype=np.uint8)
-    layer_map[5:, :] = 1  # nur mat_grass kommt vor, mat_forest ist nicht gemalt
+    layer_map[5:, :] = 1  # only mat_grass occurs, mat_forest is not painted
     names = ["aerial_photo", "mat_grass", "mat_forest"]
 
     count, stub = _export(layer_map, names)
@@ -46,7 +46,7 @@ def test_meadow_gets_grass_and_flowers_billboards():
 
     materials = {o["material"] for o in stub.items.objects.values()}
     assert {"m_grass_green_short_01", "m_grass_green_long_01", "m_flowers_01"} <= materials
-    # Billboard-Materialien sind registriert und nutzen gemeinsame /assets/-Texturen
+    # Billboard materials are registered and use shared /assets/ textures
     for name in materials:
         stage = stub.materials.materials[name]["Stages"][0]
         assert stage["baseColorMap"].startswith("/assets/")
@@ -70,7 +70,7 @@ def test_only_photo_layer_means_no_ground_cover():
 
 
 def test_every_material_category_produces_ground_cover_when_painted():
-    # Ziel: jede Landnutzung bekommt Bodenbewuchs
+    # Goal: every land use gets ground vegetation
     mappings = config.OSM_MAPPER.config["landuse_mappings"]
     layers = ["aerial_photo"] + [d["internal_name"] for d in mappings.values() if d.get("internal_name") and not d.get("keep_photo")]
     layer_map = np.arange(len(layers), dtype=np.uint8).reshape(1, -1)
@@ -78,7 +78,7 @@ def test_every_material_category_produces_ground_cover_when_painted():
     _, stub = _export(layer_map, layers)
 
     for layer in layers[1:]:
-        assert any(name.startswith(f"gc_{layer}_") for name in stub.items.objects), f"{layer} ohne Bodenbewuchs"
+        assert any(name.startswith(f"gc_{layer}_") for name in stub.items.objects), f"{layer} without ground cover"
 
 
 def test_disabled_ground_cover_exports_nothing(monkeypatch):
@@ -91,7 +91,7 @@ def test_disabled_ground_cover_exports_nothing(monkeypatch):
 
 
 def test_ground_cover_creates_one_object_per_tile_variant_and_finds_the_used_layers_by_their_variants():
-    # Vier-Bilder-Modus: die Layer-Map enthält nur Varianten (mat_grass_t0 ...), nicht den Schicht-Namen
+    # Four-image mode: the layer map only contains variants (mat_grass_t0 ...), not the layer name
     layer_map = np.zeros((4, 4), dtype=np.uint8)
     layer_map[:, :2] = 1
     layer_map[:, 2:] = 2
@@ -105,5 +105,5 @@ def test_ground_cover_creates_one_object_per_tile_variant_and_finds_the_used_lay
     assert all(name.startswith(("gc_mat_grass_t0_", "gc_mat_grass_t1_")) for name in stub.items.objects)
     for name, obj in stub.items.objects.items():
         layer = "mat_grass_t0" if name.startswith("gc_mat_grass_t0_") else "mat_grass_t1"
-        assert {t["layer"] for t in obj["Types"]} == {layer}  # ein Objekt = eine Kachel-Variante
-        assert len(obj["Types"]) <= 8  # Engine-Grenze: 8 Typen je Objekt
+        assert {t["layer"] for t in obj["Types"]} == {layer}  # one object = one tile variant
+        assert len(obj["Types"]) <= 8  # engine limit: 8 types per object

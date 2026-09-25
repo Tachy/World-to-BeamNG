@@ -1,5 +1,5 @@
 """
-Tests: Der Horizont-Loader liest genau die konfigurierte Sentinel-2-Datei, nicht irgendein .tif im Ordner.
+Tests: The horizon loader reads exactly the configured Sentinel-2 file, not just any .tif in the folder.
 """
 
 import sys
@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from world_to_beamng.terrain.horizon import load_sentinel2_geotiff
 
 BBOX = (0.0, 1.0, 0.0, 1.0)
-CONFIGURED_FILENAME = "horizon_texture_deadbeef.tif"  # beliebiger Name - der Aufrufer entscheidet den Pfad
+CONFIGURED_FILENAME = "horizon_texture_deadbeef.tif"  # arbitrary name - the caller decides the path
 
 
 def _write_geotiff(path: Path, bounds):

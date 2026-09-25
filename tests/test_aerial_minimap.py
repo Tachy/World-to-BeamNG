@@ -1,7 +1,7 @@
 """
-Tests für das BigMap-Vorschaubild (io/aerial.py::build_minimap_image()/minimap_info_json_fields()): baut die
-Minimap aus den bereits fertigen aerial_photo*.png (keine Quellbilder/Zips nötig, anders als
-tests/test_aerial_photo_tiles.py, das die Luftbilder selbst erst zusammensetzt).
+Tests for the BigMap preview image (io/aerial.py::build_minimap_image()/minimap_info_json_fields()): builds the
+minimap from the already finished aerial_photo*.png (no source images/zips needed, unlike
+tests/test_aerial_photo_tiles.py, which assembles the aerial photos itself first).
 """
 
 import sys
@@ -45,8 +45,8 @@ def test_single_mosaic_is_resized_onto_the_minimap_canvas(tmp_path):
 def test_tiles_are_placed_side_by_side_east_west(tmp_path):
     textures = tmp_path / "textures"
     textures.mkdir()
-    _photo(textures, "aerial_photo_0", RED)  # Westen: x 0..20
-    _photo(textures, "aerial_photo_1", BLUE)  # Osten: x 20..40
+    _photo(textures, "aerial_photo_0", RED)  # west: x 0..20
+    _photo(textures, "aerial_photo_1", BLUE)  # east: x 20..40
     photos = [
         {"name": "aerial_photo_0", "bounds": (0.0, 20.0, 0.0, 20.0)},
         {"name": "aerial_photo_1", "bounds": (20.0, 40.0, 0.0, 20.0)},
@@ -57,15 +57,15 @@ def test_tiles_are_placed_side_by_side_east_west(tmp_path):
 
     image = np.asarray(Image.open(out).convert("RGB"), dtype=float)
     left, right = image[:, :20].reshape(-1, 3).mean(axis=0), image[:, 20:].reshape(-1, 3).mean(axis=0)
-    assert left[0] > 150 and left[2] < 60  # links: rot
-    assert right[2] > 150 and right[0] < 60  # rechts: blau
+    assert left[0] > 150 and left[2] < 60  # left: red
+    assert right[2] > 150 and right[0] < 60  # right: blue
 
 
 def test_tiles_are_stacked_north_south_with_row_0_as_north(tmp_path):
     textures = tmp_path / "textures"
     textures.mkdir()
-    _photo(textures, "aerial_photo_south", RED)  # y 0..20 (Süden)
-    _photo(textures, "aerial_photo_north", GREEN)  # y 20..40 (Norden)
+    _photo(textures, "aerial_photo_south", RED)  # y 0..20 (south)
+    _photo(textures, "aerial_photo_north", GREEN)  # y 20..40 (north)
     photos = [
         {"name": "aerial_photo_south", "bounds": (0.0, 20.0, 0.0, 20.0)},
         {"name": "aerial_photo_north", "bounds": (0.0, 20.0, 20.0, 40.0)},
@@ -76,8 +76,8 @@ def test_tiles_are_stacked_north_south_with_row_0_as_north(tmp_path):
 
     image = np.asarray(Image.open(out).convert("RGB"), dtype=float)
     top, bottom = image[:20].reshape(-1, 3).mean(axis=0), image[20:].reshape(-1, 3).mean(axis=0)
-    assert top[1] > 150 and top[0] < 60  # oben (Zeile 0) = Norden = grün
-    assert bottom[0] > 150 and bottom[1] < 60  # unten = Süden = rot
+    assert top[1] > 150 and top[0] < 60  # top (row 0) = north = green
+    assert bottom[0] > 150 and bottom[1] < 60  # bottom = south = red
 
 
 def test_missing_source_photo_returns_false_and_writes_nothing(tmp_path):
@@ -130,7 +130,7 @@ def test_ensure_minimap_rebuilds_after_the_aerial_photo_changed(tmp_path):
 
     _photo(textures, "aerial_photo", BLUE)
     source = textures / "aerial_photo.png"
-    os.utime(source, ns=(source.stat().st_atime_ns, source.stat().st_mtime_ns + 10**9))  # sicher neuere mtime
+    os.utime(source, ns=(source.stat().st_atime_ns, source.stat().st_mtime_ns + 10**9))  # guaranteed newer mtime
 
     assert _ensure(textures, out) == "built"
     assert _dominant(out)[0] == "blue"

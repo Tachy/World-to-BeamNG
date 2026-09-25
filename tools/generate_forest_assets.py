@@ -1,10 +1,10 @@
 """
 Generate Forest Assets: managedItemData.json + forest_type_templates
 
-Kombiniertes Script das:
-1. DAE-Dateien scannt und managedItemData.json generiert (art/forest/, BeamNG-Item-Registry)
-2. Aus den gescannten Items Waldtypen und Mappings generiert
-3. osm_to_beamng.json aktualisiert
+Combined script that:
+1. Scans DAE files and generates managedItemData.json (art/forest/, BeamNG item registry)
+2. Generates forest types and mappings from the scanned items
+3. Updates osm_to_beamng.json
 """
 
 from pathlib import Path
@@ -14,13 +14,13 @@ import zipfile
 from collections import defaultdict
 import sys
 
-# Importiere config
+# Import config
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from world_to_beamng import config
 from world_to_beamng.io.beamng_install import get_beamng_install_dir
 
 
-# Mapping von Dateinamen-Patterns zu Baumarten
+# Mapping from filename patterns to tree species
 TREE_NAME_PATTERNS = {
     r"oak|eiche": "oak",
     r"pedunculate|sessile|quercus": "oak",
@@ -47,7 +47,7 @@ TREE_NAME_PATTERNS = {
 
 
 def extract_tree_name_from_filename(filename: str) -> str:
-    """Extrahiere Baumnamen aus DAE-Dateiname."""
+    """Extract the tree name from a DAE filename."""
     name = Path(filename).stem
     name_lower = name.lower()
 
@@ -61,45 +61,44 @@ def extract_tree_name_from_filename(filename: str) -> str:
     return cleaned.lower()
 
 
-# east_coast_usa's Bonus-Ordner "ECA_coast_bush" enthält neben generischen
-# Filler-Büschen (generibush*) auch mediterrane Arten (Korkeiche, Pinie), die
-# für einen deutschen Wald (Schwarzwald/Freiburg) fehl am Platz sind - siehe
-# Recherche 2026-09-18: cork_oak_bush_* und maritime_pine_bush waren über die
-# reinen Dateinamen-Muster in extract_tree_name_from_filename() fälschlich in
-# den "deutschen" Waldmischungen gelandet. cork_oak_bush_* referenziert
-# zusätzlich die kaputte "holm_oak_trunk"-Textur (existiert im aktuellen
-# east_coast_usa.zip nicht mehr) - der Ausschluss behebt beides zugleich.
-# generibush/generibush_small bleiben (klimaneutrale Filler-Büsche, keine
-# Abhängigkeit zu den ausgeschlossenen Arten).
+# east_coast_usa's bonus folder "ECA_coast_bush" contains, besides generic
+# filler bushes (generibush*), also Mediterranean species (cork oak, stone pine) that
+# are out of place in a German forest (Black Forest/Freiburg) - see
+# research 2026-09-18: cork_oak_bush_* and maritime_pine_bush had wrongly ended up in
+# the "German" forest mixes via the plain filename patterns in
+# extract_tree_name_from_filename(). cork_oak_bush_* additionally references
+# the broken "holm_oak_trunk" texture (no longer exists in the current
+# east_coast_usa.zip) - the exclusion fixes both at once.
+# generibush/generibush_small stay (climate-neutral filler bushes, no
+# dependency on the excluded species).
 EXCLUDED_NON_NATIVE_SPECIES = ("cork_oak_bush_large", "cork_oak_bush_medium", "maritime_pine_bush")
 
 
 def extract_tree_assets_from_zip(dest_dir: Path, install_dir: Path) -> int:
     """
-    Entpackt den Baum-Asset-Ordner (DAE, kompilierte .cdae, Imposter-DDS,
-    materials.json) direkt aus dem AKTUELL INSTALLIERTEN east_coast_usa.zip.
+    Extracts the tree asset folder (DAE, compiled .cdae, imposter DDS,
+    materials.json) directly from the CURRENTLY INSTALLED east_coast_usa.zip.
 
-    Grund, warum nicht aus dem entpackten Userordner (AppData/.../levels/
-    east_coast_usa) kopiert wird, wie früher: dieser Ordner ist ein Jahrzehnte
-    alter Überbleibsel-Unpack (Dateien datiert 2013), den Steam-Updates nie
-    anfassen - seine materials.json/.dae referenzieren Material-/Textur-Namen
-    (z.B. "m_fir_merged_foliage" für Douglasie/Aspen), die im aktuell
-    installierten Content-Pack längst umbenannt oder entfernt wurden (siehe
-    Recherche 2026-09-18: Douglasie nutzt jetzt "m_fir_leaves_distant" +
-    generierte .imposter.dds statt der alten merged_foliage-Textur). Das
-    Content-Zip dagegen ist IMMER exakt so aktuell wie die installierte
-    Spielversion und intern konsistent (DAE, Material und Texturen werden
-    zusammen geshippt) - daher keine .link-Auflösung mehr nötig, das aktuelle
-    Zip enthält gar keine .link-Platzhalter mehr.
+    Reason why it is not copied from the unpacked user folder (AppData/.../levels/
+    east_coast_usa) as before: that folder is a decades-old leftover unpack
+    (files dated 2013) that Steam updates never touch - its materials.json/.dae
+    reference material/texture names (e.g. "m_fir_merged_foliage" for Douglas fir/aspen)
+    that were long since renamed or removed in the currently installed content
+    pack (see research 2026-09-18: Douglas fir now uses "m_fir_leaves_distant" +
+    generated .imposter.dds instead of the old merged_foliage texture). The
+    content zip on the other hand is ALWAYS exactly as up to date as the installed
+    game version and internally consistent (DAE, material and textures are
+    shipped together) - hence no .link resolution is needed anymore, the current
+    zip does not contain any .link placeholders at all.
 
-    EXCLUDED_NON_NATIVE_SPECIES wird übersprungen (siehe dort).
+    EXCLUDED_NON_NATIVE_SPECIES is skipped (see there).
 
     Returns:
-        Anzahl der entpackten Dateien
+        Number of extracted files
     """
     zip_path = install_dir / "content" / "levels" / "east_coast_usa.zip"
     if not zip_path.is_file():
-        print(f"[ERROR] east_coast_usa.zip nicht gefunden: {zip_path}")
+        print(f"[ERROR] east_coast_usa.zip not found: {zip_path}")
         return 0
 
     prefix = "levels/east_coast_usa/art/shapes/trees/"
@@ -120,37 +119,37 @@ def extract_tree_assets_from_zip(dest_dir: Path, install_dir: Path) -> int:
             out_path.write_bytes(z.read(entry))
             count += 1
 
-    print(f"[INFO] {count} Baum-Asset-Dateien aus {zip_path.name} entpackt -> {dest_dir}")
+    print(f"[INFO] {count} tree asset files extracted from {zip_path.name} -> {dest_dir}")
     if excluded:
-        print(f"[INFO] {excluded} Dateien nicht-heimischer Arten übersprungen ({', '.join(EXCLUDED_NON_NATIVE_SPECIES)})")
+        print(f"[INFO] {excluded} files of non-native species skipped ({', '.join(EXCLUDED_NON_NATIVE_SPECIES)})")
     return count
 
 
 def copy_tree_assets(dest_dir: Path, install_dir: Path) -> int:
     """
-    Entpackt den kompletten Baum-Asset-Ordner in den eigenen Level, damit
-    world_to_beamng nicht mehr von einem fremden Level (east_coast_usa)
-    abhängt (siehe extract_tree_assets_from_zip()).
+    Extracts the complete tree asset folder into the level itself, so that
+    world_to_beamng no longer depends on a foreign level (east_coast_usa)
+    (see extract_tree_assets_from_zip()).
 
-    Ersetzt die Meshes NICHT mehr durch BeamNGs "kanonische" trees_library
-    (content/assets/meshes.zip) - Recherche 2026-09-18 ergab, dass deren
-    beech/oak/birch-Meshes intern auf "m_ind_beech_leaves"/"m_ind_birch_leaves_01"-
-    Materialien verweisen, die in KEINEM installierten Content-Pack definiert
-    sind (Sackgasse, nicht das alte "stale path"-Problem: dieselbe Recherche,
-    die east_coast_usa als Quelle fixte, zeigte, dass die trees_library selbst
-    kaputt ist). east_coast_usa's eigene, per main.materials.json vollständig
-    definierte Meshes (z.B. "m_birch_leaves_distant" statt "m_ind_birch_leaves_01")
-    sind daher jetzt in JEDEM Fall die zuverlässigere Quelle.
+    Does NOT replace the meshes with BeamNG's "canonical" trees_library anymore
+    (content/assets/meshes.zip) - research 2026-09-18 showed that its
+    beech/oak/birch meshes internally reference "m_ind_beech_leaves"/"m_ind_birch_leaves_01"
+    materials that are defined in NO installed content pack
+    (dead end, not the old "stale path" problem: the same research
+    that fixed east_coast_usa as the source showed that the trees_library itself
+    is broken). east_coast_usa's own meshes, fully defined via main.materials.json
+    (e.g. "m_birch_leaves_distant" instead of "m_ind_birch_leaves_01"),
+    are therefore now the more reliable source in EVERY case.
 
-    Schreibt anschließend "levels/east_coast_usa/..."-Pfadreferenzen in allen
-    TEXT-Dateien (materials.json UND .dae, COLLADA embedded texture refs) auf den
-    eigenen Level um. .cdae-Dateien sind ein kompiliertes Binär-Cache-Format, das
-    den alten Pfad ebenfalls einbettet, aber NICHT sicher text-patchbar ist
-    (Längen-präfixierte Strings) - diese werden stattdessen gelöscht, damit BeamNG
-    sie beim nächsten Laden automatisch frisch aus der .dae neu kompiliert.
+    Afterwards rewrites "levels/east_coast_usa/..." path references in all
+    TEXT files (materials.json AND .dae, COLLADA embedded texture refs) to the
+    own level. .cdae files are a compiled binary cache format that
+    also embeds the old path but is NOT safely text-patchable
+    (length-prefixed strings) - they are deleted instead, so that BeamNG
+    recompiles them fresh from the .dae automatically on the next load.
 
     Returns:
-        Anzahl der entpackten Dateien (0 bei Fehlschlag)
+        Number of extracted files (0 on failure)
     """
     extracted = extract_tree_assets_from_zip(dest_dir, install_dir)
     if extracted == 0:
@@ -167,24 +166,24 @@ def copy_tree_assets(dest_dir: Path, install_dir: Path) -> int:
             text_file.write_text(text.replace(old_ref, new_ref), encoding="utf-8")
             fixed += 1
 
-    # .cdae ist ein kompilierter Binär-Cache und bettet den alten Pfad ein.
-    # Löschen -> BeamNG kompiliert beim nächsten Laden automatisch frisch aus der .dae.
+    # .cdae is a compiled binary cache and embeds the old path.
+    # Delete -> BeamNG recompiles fresh from the .dae automatically on the next load.
     cdae_files = list(dest_dir.rglob("*.cdae"))
     for cdae_file in cdae_files:
         cdae_file.unlink()
     if cdae_files:
-        print(f"[INFO] {len(cdae_files)} .cdae Cache-Dateien gelöscht (werden beim Laden neu kompiliert)")
+        print(f"[INFO] {len(cdae_files)} .cdae cache files deleted (recompiled on load)")
 
-    print(f"[INFO] {fixed} Text-Dateien (.dae/.materials.json) auf eigenen Level-Pfad umgeschrieben")
+    print(f"[INFO] {fixed} text files (.dae/.materials.json) rewritten to the own level path")
     return extracted
 
 
 def scan_dae_files(dir_path: str, beamng_root: str) -> dict:
     """
-    Scanne DAE-Dateien und generiere managedItemData.
+    Scan DAE files and generate managedItemData.
 
-    WICHTIG: dir_path MUSS bereits innerhalb von beamng_root liegen (siehe copy_tree_assets),
-    damit shapeFile auf den eigenen Level zeigt statt auf die Quelle der Assets.
+    IMPORTANT: dir_path MUST already lie inside beamng_root (see copy_tree_assets),
+    so that shapeFile points to the own level instead of the source of the assets.
 
     Returns:
         {tree_key: {name, class, shapeFile, collidable, radius}}
@@ -193,14 +192,14 @@ def scan_dae_files(dir_path: str, beamng_root: str) -> dict:
     beamng_root_obj = Path(beamng_root)
 
     if not dir_path_obj.is_dir():
-        print(f"[ERROR] Verzeichnis nicht gefunden: {dir_path}")
+        print(f"[ERROR] Directory not found: {dir_path}")
         return None
 
     dae_files = sorted(dir_path_obj.rglob("*.dae"))
 
-    print(f"[INFO] Gefundene DAE-Dateien: {len(dae_files)}")
+    print(f"[INFO] DAE files found: {len(dae_files)}")
     if not dae_files:
-        print("[ERROR] Keine DAE-Dateien gefunden!")
+        print("[ERROR] No DAE files found!")
         return None
 
     forest_item_data = {}
@@ -210,7 +209,7 @@ def scan_dae_files(dir_path: str, beamng_root: str) -> dict:
         tree_type = extract_tree_name_from_filename(dae_file.name)
         item_key = dae_file.stem
 
-        # dae_file liegt unter beamng_root_obj (world_to_beamng) -> "levels/<level>/<rel>"
+        # dae_file lies under beamng_root_obj (world_to_beamng) -> "levels/<level>/<rel>"
         relative_dae = dae_file.relative_to(beamng_root_obj)
         shape_file_path = f"levels/{config.LEVEL_NAME}/" + str(relative_dae).replace("\\", "/")
 
@@ -229,7 +228,7 @@ def scan_dae_files(dir_path: str, beamng_root: str) -> dict:
         if idx <= 10 or idx % 10 == 0:
             print(f"[{idx:3d}] {item_key:40s} → {tree_type:15s}")
 
-    print(f"\n[INFO] Baum-Typen Übersicht:")
+    print(f"\n[INFO] Tree type overview:")
     for tree_type in sorted(tree_type_counts.keys()):
         print(f"       {tree_type:30s} : {tree_type_counts[tree_type]:3d}x")
 
@@ -237,7 +236,7 @@ def scan_dae_files(dir_path: str, beamng_root: str) -> dict:
 
 
 def categorize_trees(forest_item_data: dict) -> dict:
-    """Kategorisiere Bäume nach Typ."""
+    """Categorize trees by type."""
     trees_by_type = defaultdict(list)
     for tree_key, tree_info in forest_item_data.items():
         tree_type = tree_info.get("name", "unknown")
@@ -246,15 +245,15 @@ def categorize_trees(forest_item_data: dict) -> dict:
 
 
 def create_tree_distribution(preferred_trees: list) -> dict:
-    """Erstelle tree_distribution Dictionary mit gleichmäßiger Verteilung."""
+    """Create a tree_distribution dictionary with uniform distribution."""
     if not preferred_trees:
         return {}
     probability = 1.0 / len(preferred_trees)
     return {tree: probability for tree in preferred_trees}
 
 
-# Niedrige Laubbäume (gemessene Modellhöhe 6-12,2 m). Explizit statt per Namensmuster:
-# "low" im Namen ist unzuverlässig (tree_douglasfir_group_low ist 22,6 m hoch).
+# Low deciduous trees (measured model height 6-12.2 m). Explicit instead of via name pattern:
+# "low" in the name is unreliable (tree_douglasfir_group_low is 22.6 m tall).
 LOW_DECIDUOUS_TREES = [
     "tree_aspen_small_low",
     "tree_aspen_small_low_group",
@@ -270,8 +269,8 @@ LOW_DECIDUOUS_TREES = [
 ]
 
 
-# Gärten/Wohngebiete: kleine Laubbäume (Obstbaum-Größe; BeamNG hat keine echten Obstbäume) und
-# Büsche (gemessene Höhe 1,2-3,3 m). Explizit, weil Namensmuster bei den Höhen täuschen.
+# Gardens/residential areas: small deciduous trees (fruit-tree size; BeamNG has no real fruit trees) and
+# bushes (measured height 1.2-3.3 m). Explicit, because name patterns are misleading regarding heights.
 GARDEN_TREES = [
     "tree_aspen_small_low",
     "tree_aspen_small_a",
@@ -294,14 +293,14 @@ GARDEN_BUSHES = [
     "tree_beech_bush_b",
     "generibush_small",
 ]
-# Obstplantagen (landuse=orchard): breitkronige kleine Laubbäume (Modellhöhe 8,5-9,9 m, Krone ca. halb so breit wie hoch).
-# Espen sind zu schlank, beech_small_d wäre mit 6-7 m zu hoch, Büsche sind keine Bäume.
+# Orchards (landuse=orchard): broad-crowned small deciduous trees (model height 8.5-9.9 m, crown approx. half as wide as tall).
+# Aspens are too slim, beech_small_d would be too tall at 6-7 m, bushes are not trees.
 ORCHARD_TREES = [
     "tree_oak_sml_a",
     "tree_oak_sml_b",
     "tree_beech_small_c",
 ]
-# Baumreihen (natural=tree_row): kleine Laubbäume
+# Tree rows (natural=tree_row): small deciduous trees
 TREE_ROW_TREES = [
     "tree_aspen_small_a",
     "tree_aspen_small_b",
@@ -313,8 +312,8 @@ TREE_ROW_TREES = [
     "tree_oak_sml_a",
     "tree_oak_sml_b",
 ]
-# Einzelbäume (natural=tree): große, breitkronige Laubbäume (gemessene Modellhöhe 13-21 m). Die Espen "large" sind
-# nur 10 m hoch und schmal, die "*_forest_*"-Bäume schlanke Waldstämme - beide passen nicht für freistehende Bäume.
+# Single trees (natural=tree): large, broad-crowned deciduous trees (measured model height 13-21 m). The "large" aspens
+# are only 10 m tall and narrow, the "*_forest_*" trees are slim forest trunks - neither suits free-standing trees.
 LARGE_DECIDUOUS_TREES = [
     "tree_oak_large_a",
     "tree_oak_large_b",
@@ -324,13 +323,13 @@ LARGE_DECIDUOUS_TREES = [
 ]
 
 
-# Gehölze (natural=wood, landuse=wood): dichter Wald aus großen Laubbäumen mit Unterholz
+# Woods (natural=wood, landuse=wood): dense forest of large deciduous trees with undergrowth
 BROADLEAF_UNDERGROWTH_TYPE = "german_broadleaf_undergrowth"
-BROADLEAF_CANOPY_SHARE = 0.65  # Anteil der großen Laubbäume, der Rest ist Unterholz (Büsche)
+BROADLEAF_CANOPY_SHARE = 0.65  # Share of large deciduous trees, the rest is undergrowth (bushes)
 
 
 def generate_forest_types(trees_by_type: dict) -> dict:
-    """Generiere sinnvolle Waldtypen für deutsche Wälder."""
+    """Generate sensible forest types for German forests."""
     forest_types = {}
     all_tree_keys = []
     for tree_type, keys in trees_by_type.items():
@@ -346,7 +345,7 @@ def generate_forest_types(trees_by_type: dict) -> dict:
             "lod_distance": 250.0,
             "collision_enabled": True,
             "preferred_trees": create_tree_distribution(deciduous_trees),
-            "comment": "Dichter Laubwald - Buchen und Eichen (klassischer deutscher Wald)",
+            "comment": "Dense deciduous forest - beech and oak (classic German forest)",
         }
 
     # 2. German Mixed Forest
@@ -359,11 +358,11 @@ def generate_forest_types(trees_by_type: dict) -> dict:
             "lod_distance": 220.0,
             "collision_enabled": True,
             "preferred_trees": create_tree_distribution(mixed_trees),
-            "comment": "Mischwald - Buchen, Eichen und Espen (vielfältiger Bestand)",
+            "comment": "Mixed forest - beech, oak and aspen (diverse stand)",
         }
 
-    # 2b. German Low Deciduous: alles mit Bäumen außer landuse=forest und Gehölzen (natural/landuse=wood) bekommt nur niedrige Laubbäume.
-    # average_height wirkt als Skalierung (Zielhöhe / 20 m): 16-22 -> 0,8-1,1.
+    # 2b. German Low Deciduous: everything with trees except landuse=forest and woods (natural/landuse=wood) gets only low deciduous trees.
+    # average_height acts as scaling (target height / 20 m): 16-22 -> 0.8-1.1.
     low_trees = [t for t in LOW_DECIDUOUS_TREES if t in all_tree_keys]
     if low_trees:
         forest_types["german_low_deciduous"] = {
@@ -373,12 +372,12 @@ def generate_forest_types(trees_by_type: dict) -> dict:
             "lod_distance": 200.0,
             "collision_enabled": True,
             "preferred_trees": create_tree_distribution(low_trees),
-            "comment": "Niedriger Laubwald (6-13 m) - alles mit Bäumen außer landuse=forest und Gehölzen (natural/landuse=wood); "
-            "average_height wirkt als Skalierung (Zielhöhe/20 m)",
+            "comment": "Low deciduous forest (6-13 m) - everything with trees except landuse=forest and woods "
+                       "(natural/landuse=wood); average_height acts as a scale (target height/20 m)",
         }
 
-    # 2c. Gärten/Kleingärten, Wohngebiete, Einzelbäume. Mindestabstand im ForestWorkflow ist 5 m:
-    # Abstand = 5 / sqrt(tree_density) -> 0,3 ergibt ca. 9 m (lichte Bepflanzung).
+    # 2c. Gardens/allotments, residential areas, single trees. Minimum spacing in the ForestWorkflow is 5 m:
+    # spacing = 5 / sqrt(tree_density) -> 0.3 gives approx. 9 m (sparse planting).
     garden_trees = [t for t in GARDEN_TREES if t in all_tree_keys]
     garden_bushes = [t for t in GARDEN_BUSHES if t in all_tree_keys]
     if garden_trees and garden_bushes:
@@ -391,8 +390,8 @@ def generate_forest_types(trees_by_type: dict) -> dict:
             "lod_distance": 150.0,
             "collision_enabled": True,
             "preferred_trees": weights,
-            "comment": "Gärten/Kleingärten - lichte kleine Laubbäume (Obstbaum-Größe) und Büsche; "
-            "es gibt keine echten Obstbaum-Assets in BeamNG",
+            "comment": "Gardens/allotments - sparse small deciduous trees (fruit tree size) and bushes; BeamNG has "
+                       "no real fruit tree assets",
         }
     if garden_bushes:
         forest_types["residential_green"] = {
@@ -402,7 +401,7 @@ def generate_forest_types(trees_by_type: dict) -> dict:
             "lod_distance": 150.0,
             "collision_enabled": True,
             "preferred_trees": create_tree_distribution(garden_bushes),
-            "comment": "Wohngebiete - lichte Büsche zwischen den Häusern (Straßen/Gebäude werden ausgespart)",
+            "comment": "Residential areas - sparse bushes between the houses (roads/buildings are left out)",
         }
     single_trees = [t for t in LARGE_DECIDUOUS_TREES if t in all_tree_keys]
     if single_trees:
@@ -413,13 +412,13 @@ def generate_forest_types(trees_by_type: dict) -> dict:
             "lod_distance": 180.0,
             "collision_enabled": True,
             "preferred_trees": create_tree_distribution(single_trees),
-            "comment": "Einzelbäume (OSM natural=tree als Punkt): große, breitkronige Laubbäume (Eiche/Buche, 13-21 m); "
-            "average_height wirkt als Skalierung (Zielhöhe/20 m)",
+            "comment": "Single trees (OSM natural=tree as a point): large, broad-crowned deciduous trees (oak/beech,"
+                       " 13-21 m); average_height acts as a scale (target height/20 m)",
         }
-    # 2d. Dichter Wald aus 100 % großen, breitkronigen Laubbäumen mit Unterholz (natural=wood / landuse=wood).
-    # Dichte 3,6 -> Mindestabstand 5/sqrt(3,6) = 2,6 m (normaler Laubwald 0,7 = 6 m). Skalierung 10-13 m / 20 = 0,5-0,65:
-    # halbe Baumgröße, große Modelle (13-21 m) werden 6,5-14 m hoch (die ersten 1,0-1,3 hatten zu mächtige Stämme);
-    # die Büsche skalieren mit (gleiche Spanne je Polygon).
+    # 2d. Dense forest of 100 % large, broad-crowned deciduous trees with undergrowth (natural=wood / landuse=wood).
+    # Density 3.6 -> minimum spacing 5/sqrt(3.6) = 2.6 m (normal deciduous forest 0.7 = 6 m). Scaling 10-13 m / 20 = 0.5-0.65:
+    # half tree size, large models (13-21 m) become 6.5-14 m tall (the first 1.0-1.3 had trunks that were too massive);
+    # the bushes scale along (same range per polygon).
     if single_trees and garden_bushes:
         weights = {t: BROADLEAF_CANOPY_SHARE / len(single_trees) for t in single_trees}
         weights.update({t: (1.0 - BROADLEAF_CANOPY_SHARE) / len(garden_bushes) for t in garden_bushes})
@@ -430,12 +429,12 @@ def generate_forest_types(trees_by_type: dict) -> dict:
             "lod_distance": 220.0,
             "collision_enabled": True,
             "preferred_trees": weights,
-            "comment": "Dichter Laubwald aus großen, breitkronigen Eichen/Buchen (kein Nadelholz) mit Unterholz "
-            "(Büsche, ca. 35 %) - für Gehölze (natural=wood, landuse=wood)",
+            "comment": "Dense deciduous forest of large, broad-crowned oaks/beeches (no conifers) with undergrowth "
+                       "(bushes, approx. 35 %) - for woods (natural=wood, landuse=wood)",
         }
     row_trees = [t for t in TREE_ROW_TREES if t in all_tree_keys]
     if row_trees:
-        # Baumreihe: natural=tree_row ist eine LINIE - Bäume im Abstand row_spacing entlang der Linie
+        # Tree row: natural=tree_row is a LINE - trees at row_spacing distance along the line
         forest_types["tree_row"] = {
             "tree_density": 1.0,
             "row_spacing": 8.0,
@@ -444,7 +443,7 @@ def generate_forest_types(trees_by_type: dict) -> dict:
             "lod_distance": 180.0,
             "collision_enabled": True,
             "preferred_trees": create_tree_distribution(row_trees),
-            "comment": "Baumreihe (OSM natural=tree_row ist eine LINIE): Bäume im Abstand row_spacing entlang der Linie",
+            "comment": "Tree row (OSM natural=tree_row is a LINE): trees at spacing row_spacing along the line",
         }
 
     # 3. German Sparse Deciduous
@@ -457,11 +456,11 @@ def generate_forest_types(trees_by_type: dict) -> dict:
             "lod_distance": 180.0,
             "collision_enabled": True,
             "preferred_trees": create_tree_distribution(sparse_trees),
-            "comment": "Lichter Laubwald - überwiegend Busch- und kleinere Bäume",
+            "comment": "Sparse deciduous forest - mostly bushes and smaller trees",
         }
 
-    # 4. Orchard Area: ca. 5 m hohe, breitkronige (rundliche) Laubbäume. Skalierung = Zielhöhe / 20 m, mindestens 0,5:
-    # Modelle 8,5-9,9 m x 0,5-0,6 ergeben 4,2-6 m. Explizite Liste (gemessene Höhen), keine Namens-Heuristik.
+    # 4. Orchard Area: approx. 5 m tall, broad-crowned (roundish) deciduous trees. Scaling = target height / 20 m, at least 0.5:
+    # models 8.5-9.9 m x 0.5-0.6 give 4.2-6 m. Explicit list (measured heights), no name heuristic.
     orchard_trees = [t for t in ORCHARD_TREES if t in all_tree_keys]
     if orchard_trees:
         forest_types["orchard_area"] = {
@@ -471,8 +470,8 @@ def generate_forest_types(trees_by_type: dict) -> dict:
             "lod_distance": 150.0,
             "collision_enabled": True,
             "preferred_trees": create_tree_distribution(orchard_trees),
-            "comment": "Obstplantage - ca. 5 m hohe, breitkronige (rundliche) Laubbäume in ca. 9 m Abstand; "
-            "average_height wirkt als Skalierung (Zielhöhe/20 m, min. 0,5): Modelle 8,5-9,9 m x 0,5-0,6",
+            "comment": "Orchard - approx. 5 m tall, broad-crowned (roundish) deciduous trees at approx. 9 m spacing;"
+                       " average_height acts as a scale (target height/20 m, min. 0.5): models 8.5-9.9 m x 0.5-0.6",
         }
 
     # 5. Hedgerow
@@ -485,7 +484,7 @@ def generate_forest_types(trees_by_type: dict) -> dict:
             "lod_distance": 120.0,
             "collision_enabled": True,
             "preferred_trees": create_tree_distribution(hedge_trees),
-            "comment": "Hecke/Feldgehölz - dünne, lineare Bestände",
+            "comment": "Hedgerow/field copse - thin, linear stands",
         }
 
     # 6. Dead Forest
@@ -498,14 +497,14 @@ def generate_forest_types(trees_by_type: dict) -> dict:
             "lod_distance": 200.0,
             "collision_enabled": True,
             "preferred_trees": create_tree_distribution(dead_trees),
-            "comment": "Totholz/Verfallender Wald - dürre, tote Bäume",
+            "comment": "Dead wood/decaying forest - dry, dead trees",
         }
 
     return forest_types
 
 
 def generate_forest_mappings(forest_types: dict) -> dict:
-    """Generiere forest_mappings basierend auf verfügbaren Waldtypen."""
+    """Generate forest_mappings based on the available forest types."""
     if not forest_types:
         return {
             "landuse": {"forest": "generic_forest", "wood": "generic_forest", "orchard": "generic_forest"},
@@ -529,9 +528,9 @@ def generate_forest_mappings(forest_types: dict) -> dict:
         }
 
     default_forest = "german_mixed_forest" if "german_mixed_forest" in forest_types else list(forest_types.keys())[0]
-    # Nur landuse=forest bekommt den hohen Mischwald, Gehölze den dichten Laubwald, alles andere mit Bäumen den niedrigen Laubwald
+    # Only landuse=forest gets the tall mixed forest, woods the dense deciduous forest, everything else with trees the low deciduous forest
     low_forest = "german_low_deciduous" if "german_low_deciduous" in forest_types else default_forest
-    # Gehölze (natural=wood, landuse=wood): dichter Laubwald mit Unterholz
+    # Woods (natural=wood, landuse=wood): dense deciduous forest with undergrowth
     wood_forest = BROADLEAF_UNDERGROWTH_TYPE if BROADLEAF_UNDERGROWTH_TYPE in forest_types else low_forest
 
     garden = "garden_mixed" if "garden_mixed" in forest_types else None
@@ -568,51 +567,51 @@ def generate_forest_mappings(forest_types: dict) -> dict:
             ),
             "leaf_type=mixed": default_forest,
         },
-        # Lichtungen (innere Ringe von Wald-Relationen) bekommen nur niedrige Laubbäume
-        # Lichtungen nur in Wald-Relationen - ein Loch im Wohngebiet ist etwas anderes
+        # Clearings (inner rings of forest relations) get only low deciduous trees
+        # Clearings only in forest relations - a hole in a residential area is something else
         "clearings": {
             "forest_type": low_forest,
             "only_for": ["landuse=forest", "landuse=wood", "natural=wood", "natural=forest"],
         },
-        # Overrides (trees=conifer, ...) verfeinern nur landuse=forest - sonst würde z.B. ein
-        # natural=wood mit Nadelbaum-Tag in einen hohen Waldtyp umgeleitet
+        # Overrides (trees=conifer, ...) only refine landuse=forest - otherwise e.g. a
+        # natural=wood with a conifer tag would be redirected to a tall forest type
         "tag_overrides_only_for": ["landuse=forest"],
     }
     if "single_tree" in forest_types:
-        mappings["single_trees"] = {"forest_type": "single_tree"}  # OSM natural=tree (Punkte)
+        mappings["single_trees"] = {"forest_type": "single_tree"}  # OSM natural=tree (points)
     return mappings
 
 
 def main():
-    """Hauptfunktion: Generiere managedItemData.json und Waldtypen."""
+    """Main function: generate managedItemData.json and forest types."""
     print("=" * 80)
-    print("[START] Generiere Forest Assets (managedItemData + forest_type_templates)")
+    print("[START] Generating forest assets (managedItemData + forest_type_templates)")
     print("=" * 80)
 
     install_dir = get_beamng_install_dir()
 
-    # ===== PHASE 0: Baum-Assets in den eigenen Level kopieren =====
-    print("\n[PHASE 0] Kopiere Baum-Assets in den eigenen Level (macht world_to_beamng unabhängig)")
+    # ===== PHASE 0: Copy tree assets into the level itself =====
+    print("\n[PHASE 0] Copying tree assets into the own level (makes world_to_beamng self-contained)")
     print("-" * 80)
 
-    # east_coast_usa.zip dient als Fallback-Quelle für Geometrie + Material-Definitionen
-    # für Arten, die es in BeamNGs kanonischer trees_library nicht gibt (siehe
+    # east_coast_usa.zip serves as the fallback source for geometry + material definitions
+    # for species that do not exist in BeamNG's canonical trees_library (see
     # extract_tree_assets_from_zip()).
     dest_dir = config.BEAMNG_DIR / "art" / "shapes" / "trees"
     if copy_tree_assets(dest_dir, install_dir) == 0:
         return
 
-    # ===== PHASE 1: Scan DAE-Dateien (in der eigenen Kopie!) =====
-    print("\n[PHASE 1] Scanne DAE-Dateien und generiere managedItemData.json")
+    # ===== PHASE 1: Scan DAE files (in the own copy!) =====
+    print("\n[PHASE 1] Scanning DAE files and generating managedItemData.json")
     print("-" * 80)
 
     forest_item_data = scan_dae_files(str(dest_dir), str(config.BEAMNG_DIR))
 
     if not forest_item_data:
-        print("[ERROR] Keine Forest-Items generiert")
+        print("[ERROR] No forest items generated")
         return
 
-    # Speichere managedItemData.json (BeamNG erwartet die Item-Registry unter art/forest/)
+    # Save managedItemData.json (BeamNG expects the item registry under art/forest/)
     output_dir = config.BEAMNG_DIR / "art" / "forest"
     output_dir.mkdir(parents=True, exist_ok=True)
     output_file = output_dir / "managedItemData.json"
@@ -620,22 +619,22 @@ def main():
     with open(output_file, "w", encoding="utf-8") as f:
         json.dump(forest_item_data, f, indent=2, ensure_ascii=False)
 
-    print(f"\n[DONE] managedItemData.json erstellt: {output_file}")
+    print(f"\n[DONE] managedItemData.json created: {output_file}")
     print(f"       {len(forest_item_data)} Tree-Items")
 
-    # ===== PHASE 2: Generiere Waldtypen =====
-    print("\n[PHASE 2] Generiere Waldtypen und Mappings")
+    # ===== PHASE 2: Generate forest types =====
+    print("\n[PHASE 2] Generating forest types and mappings")
     print("-" * 80)
 
     trees_by_type = categorize_trees(forest_item_data)
 
-    print("\n[INFO] Baum-Kategorisierung:")
+    print("\n[INFO] Tree categorization:")
     for tree_type, trees in sorted(trees_by_type.items()):
         print(f"       {tree_type:20s} : {len(trees):2d}x")
 
     forest_types = generate_forest_types(trees_by_type)
 
-    print(f"\n[INFO] Generierte Waldtypen:")
+    print(f"\n[INFO] Generated forest types:")
     for forest_type in sorted(forest_types.keys()):
         tree_count = len(forest_types[forest_type].get("preferred_trees", {}))
         print(f"       {forest_type:30s} : {tree_count:3d} trees")
@@ -643,7 +642,7 @@ def main():
     forest_mappings = generate_forest_mappings(forest_types)
 
     # ===== PHASE 3: Update osm_to_beamng.json =====
-    print(f"\n[PHASE 3] Aktualisiere osm_to_beamng.json")
+    print(f"\n[PHASE 3] Updating osm_to_beamng.json")
     print("-" * 80)
 
     config_path = Path("data/osm_to_beamng.json")
@@ -656,16 +655,16 @@ def main():
     with open(config_path, "w", encoding="utf-8") as f:
         json.dump(osm_config, f, indent=4, ensure_ascii=False)
 
-    print(f"[DONE] osm_to_beamng.json aktualisiert")
+    print(f"[DONE] osm_to_beamng.json updated")
     print(f"       - {len(forest_types)} forest_type_templates")
-    print(f"       - forest_mappings aktualisiert")
+    print(f"       - forest_mappings updated")
 
     # ===== SUMMARY =====
     print("\n" + "=" * 80)
-    print("[✓] ERFOLGREICH ABGESCHLOSSEN")
+    print("[✓] COMPLETED SUCCESSFULLY")
     print("=" * 80)
     print(f"managedItemData.json: {len(forest_item_data)} Tree-Items")
-    print(f"Forest-Typen:        {len(forest_types)}")
+    print(f"Forest types:        {len(forest_types)}")
     print(f"  - german_deciduous_dense")
     print(f"  - german_mixed_forest")
     print(f"  - german_sparse_deciduous")

@@ -1,4 +1,4 @@
-"""Tests für world_to_beamng.terrain.horizon_seam (Horizont-Mesh mit exakt passendem Terrain-Loch)."""
+"""Tests for world_to_beamng.terrain.horizon_seam (horizon mesh with an exactly matching terrain hole)."""
 
 import sys
 from collections import Counter
@@ -15,7 +15,7 @@ HOLE = (-1000.0, -1000.0, 1000.0, 1000.0)
 
 
 def _domain_points(half=5000.0, step=200.0, offset=(-6.25, -45.33)):
-    """Unregelmäßig zum Loch ausgerichtetes DGM30-artiges Punktraster (wie in echt)."""
+    """DGM30-like point grid irregularly aligned to the hole (as in reality)."""
     xs = np.arange(-half, half + 1, step) + offset[0]
     ys = np.arange(-half, half + 1, step) + offset[1]
     gx, gy = np.meshgrid(xs, ys)
@@ -38,11 +38,11 @@ def test_anchored_axis_contains_both_hole_edges_exactly():
 
     assert -1000.0 in axis and 1000.0 in axis
     assert np.diff(axis) == pytest.approx(np.full(len(axis) - 1, 200.0))
-    assert axis.min() <= -4800.0 and axis.max() >= 4800.0  # deckt den Datenbereich ab
+    assert axis.min() <= -4800.0 and axis.max() >= 4800.0  # covers the data range
 
 
 def test_anchored_axis_adapts_spacing_when_hole_is_not_a_multiple():
-    axis = anchored_axis(-3000.0, 3000.0, -1000.0, 1050.0, 200.0)  # 2050 m Loch
+    axis = anchored_axis(-3000.0, 3000.0, -1000.0, 1050.0, 200.0)  # 2050 m hole
 
     assert -1000.0 in axis and 1050.0 in axis
     steps = np.diff(axis)
@@ -57,9 +57,9 @@ def test_blend_matches_terrain_at_hole_edge_and_dgm_far_away():
 
     z = blend_to_terrain(x, y, np.array([500.0, 500.0, 500.0]), HOLE, terrain, blend_distance=1000.0)
 
-    assert z[0] == pytest.approx(100.0)  # am Rand: Terrainhöhe
-    assert 100.0 < z[1] < 500.0  # dazwischen: sanfter Übergang
-    assert z[2] == pytest.approx(500.0)  # weit weg: reine DGM30-Höhe
+    assert z[0] == pytest.approx(100.0)  # at the edge: terrain height
+    assert 100.0 < z[1] < 500.0  # in between: smooth transition
+    assert z[2] == pytest.approx(500.0)  # far away: pure DGM30 height
 
 
 def test_every_triangle_faces_up():
@@ -77,8 +77,8 @@ def test_no_horizon_triangle_covers_the_terrain_except_the_hidden_flange():
     x0, y0, x1, y1 = HOLE
     inside = (cx > x0) & (cx < x1) & (cy > y0) & (cy < y1)
     deep = (cx > x0 + inset) & (cx < x1 - inset) & (cy > y0 + inset) & (cy < y1 - inset)
-    assert inside.any()  # der Flansch reicht ein Stück unter das Terrain
-    assert not deep.any()  # aber nichts liegt tiefer im Terrainbereich
+    assert inside.any()  # the flange extends a bit below the terrain
+    assert not deep.any()  # but nothing lies deeper within the terrain area
 
 
 def test_seam_vertices_sit_exactly_on_terrain_edge_heights():
@@ -91,7 +91,7 @@ def test_seam_vertices_sit_exactly_on_terrain_edge_heights():
     on_edge = (
         (np.isclose(v[:, 0], x0) | np.isclose(v[:, 0], x1)) & (v[:, 1] >= y0 - 1e-6) & (v[:, 1] <= y1 + 1e-6)
     ) | ((np.isclose(v[:, 1], y0) | np.isclose(v[:, 1], y1)) & (v[:, 0] >= x0 - 1e-6) & (v[:, 0] <= x1 + 1e-6))
-    assert on_edge.sum() >= 4 * 190  # feine Randpunkte (nicht nur das 200-m-Raster)
+    assert on_edge.sum() >= 4 * 190  # fine edge points (not just the 200 m grid)
     assert v[on_edge, 2] == pytest.approx(terrain(v[on_edge, 0], v[on_edge, 1]), abs=0.02)
 
 
@@ -103,9 +103,9 @@ def test_mesh_is_watertight_no_cracks_between_seam_and_grid():
         directed[(a, b)] += 1
         directed[(b, c)] += 1
         directed[(c, a)] += 1
-    # Jede innere Kante wird genau einmal je Richtung benutzt (konsistent orientiert)...
+    # Every inner edge is used exactly once per direction (consistently oriented)...
     assert max(directed.values()) == 1
-    # ...und hat ihr Gegenstück; offen bleiben nur Außenrand und Flansch-Innenkante.
+    # ...and has its counterpart; only the outer border and the flange inner edge remain open.
     open_edges = [(a, b) for (a, b) in directed if (b, a) not in directed]
     x0, y0, x1, y1 = HOLE
     tol = 1e-6
@@ -148,13 +148,13 @@ def test_grid_dimensions_are_returned_for_texturing():
 
 def test_seam_at_heightmap_resolution_follows_the_terrain_edge_exactly():
     """
-    Randring im Raster der Heightmap (1 m): die Horizont-Kante liegt auf jedem DGM1-Punkt exakt
-    auf dem Terrain und ist dazwischen wie die Terrainfläche linear -> kein Riss, DGM1 bleibt 1:1.
+    Border ring in the heightmap grid (1 m): the horizon edge lies exactly on the terrain at every DGM1 point
+    and is linear in between like the terrain surface -> no crack, DGM1 stays 1:1.
     """
     from world_to_beamng.terrain.road_embedding import sample_heightmap_bilinear
 
     rng = np.random.RandomState(3)
-    heights = 300.0 + np.cumsum(rng.randn(2049, 2049), axis=1) * 0.7  # raue, feine Terraindetails
+    heights = 300.0 + np.cumsum(rng.randn(2049, 2049), axis=1) * 0.7  # rough, fine terrain details
     terrain = lambda x, y: sample_heightmap_bilinear(
         heights, -1000.0, -1000.0, 1.0, np.column_stack([np.atleast_1d(x), np.atleast_1d(y)])
     )
@@ -165,15 +165,15 @@ def test_seam_at_heightmap_resolution_follows_the_terrain_edge_exactly():
     west = used[np.isclose(used[:, 0], x0) & (used[:, 1] >= y0) & (used[:, 1] <= y1)]
     west = west[np.argsort(west[:, 1])]
     assert len(west) >= 2001
-    mid_xy = 0.5 * (west[:-1, :2] + west[1:, :2])  # Punkte zwischen zwei Randvertices
+    mid_xy = 0.5 * (west[:-1, :2] + west[1:, :2])  # points between two edge vertices
     horizon_mid = 0.5 * (west[:-1, 2] + west[1:, 2])
     assert np.abs(horizon_mid - terrain(mid_xy[:, 0], mid_xy[:, 1])).max() < 1e-3
 
 
 @pytest.mark.parametrize("seam_step", [1.0, 2.0, 10.0])
 def test_no_degenerate_triangles_or_duplicate_edges_at_any_seam_resolution(seam_step):
-    # Bei feinem Randring (< Flanschbreite) fallen an den Ecken mehrere Randpunkte auf denselben
-    # Flansch-Innenpunkt - das darf keine Nulldreiecke oder doppelten Kanten erzeugen.
+    # With a fine border ring (< flange width), several edge points at the corners fall onto the same
+    # flange inner point - this must not produce zero-area triangles or duplicate edges.
     vertices, faces, _, _ = _build(seam_step=seam_step, flange_inset=5.0)
 
     assert (_signed_area_xy(vertices, faces) > 1e-6).all()

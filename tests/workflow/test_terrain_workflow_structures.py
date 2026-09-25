@@ -1,5 +1,5 @@
-"""Tests für die Terrain-Ausnahme und den DecalRoad-Ausschluss von Brücken/Tunnel/Galerien
-(TerrainWorkflow.process_tile()-Verdrahtung und export_decal_roads())."""
+"""Tests for the terrain exception and the DecalRoad exclusion of bridges/tunnels/galleries
+(TerrainWorkflow.process_tile() wiring and export_decal_roads())."""
 
 import sys
 from pathlib import Path
@@ -29,7 +29,7 @@ def test_bridge_and_tunnel_polygons_are_not_embedded_into_the_heightmap():
 
     result = embed_roads_into_heightmap(heights, 0.0, 0.0, 1.0, surface_roads)
 
-    assert result[5, 5] == 150.0  # nur die surface-Straße (1) wurde eingebettet
+    assert result[5, 5] == 150.0  # only the surface road (1) was embedded
 
 
 class _RecordingItems:
@@ -56,7 +56,7 @@ def test_export_decal_roads_skips_bridges_tunnels_and_galleries():
 
 
 def test_export_decal_roads_still_works_without_a_structure_type_field():
-    # Regression: bestehende Aufrufer/Tests, die "structure_type" nicht setzen, bleiben unverändert (surface-Default).
+    # Regression: existing callers/tests that do not set "structure_type" stay unchanged (surface default).
     stub = SimpleNamespace(items=_RecordingItems(), materials=SimpleNamespace(materials={}))
     polys = [{"road_id": 1, "trimmed_centerline": np.array([[0.0, 0.0, 100.0], [10.0, 0.0, 100.0]]), "osm_tags": {"highway": "residential"}}]
 

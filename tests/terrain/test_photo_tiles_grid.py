@@ -1,6 +1,6 @@
 """
-Tests für terrain.photo_tiles.build_processing_tile_grid() - fester Foto-/Material-Kachelraster
-über eine Gesamtfläche, unabhängig von der Größe/Anzahl der rohen Höhendaten-Kacheln.
+Tests for terrain.photo_tiles.build_processing_tile_grid() - fixed photo/material tile grid
+over a total area, independent of the size/number of the raw elevation data tiles.
 """
 
 import sys
@@ -14,7 +14,7 @@ from world_to_beamng.terrain.photo_tiles import build_processing_tile_grid, phot
 
 
 def test_exact_multiple_of_tile_size_gives_uniform_tiles():
-    # 4x4 km Fläche, 2 km Kacheln -> exakt 2x2 = 4 gleich große Kacheln (LGL-BW-Fall)
+    # 4x4 km area, 2 km tiles -> exactly 2x2 = 4 equally sized tiles (LGL-BW case)
     bbox = (399000.0, 403000.0, 5296000.0, 5300000.0)
 
     tiles = build_processing_tile_grid(bbox, tile_size_m=2000.0)
@@ -29,8 +29,8 @@ def test_exact_multiple_of_tile_size_gives_uniform_tiles():
 
 
 def test_result_is_independent_of_the_number_of_source_tiles():
-    # 16 lose 1-km-Quellkacheln (wie die Schweizer Testdaten) ergeben denselben 2-km-Raster wie
-    # 4 rohe 2-km-Kacheln, weil build_processing_tile_grid() nur die GESAMT-BBox kennt
+    # 16 loose 1 km source tiles (like the Swiss test data) yield the same 2 km grid as
+    # 4 raw 2 km tiles, because build_processing_tile_grid() only knows the TOTAL BBox
     bbox_from_16_source_tiles = (2685000.0, 2689000.0, 1153000.0, 1157000.0)
 
     tiles = build_processing_tile_grid(bbox_from_16_source_tiles, tile_size_m=2000.0)
@@ -43,13 +43,13 @@ def test_result_is_independent_of_the_number_of_source_tiles():
 
 
 def test_last_row_and_column_are_clamped_to_the_bbox_edge_not_oversized():
-    # 3999m Breite, 2000m Kacheln -> zweite Spalte wird auf 1999m statt 2000m geklemmt
+    # 3999m width, 2000m tiles -> second column is clamped to 1999m instead of 2000m
     bbox = (0.0, 3999.0, 0.0, 2000.0)
 
     tiles = build_processing_tile_grid(bbox, tile_size_m=2000.0)
 
     xs = sorted(t["bbox_utm"][:2] for t in tiles)
-    assert xs == [(0.0, 2000.0), (2000.0, 3999.0)]  # letzte Kachel 1999m statt 2000m
+    assert xs == [(0.0, 2000.0), (2000.0, 3999.0)]  # last tile 1999m instead of 2000m
 
 
 def test_area_smaller_than_one_tile_yields_a_single_tile():

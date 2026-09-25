@@ -1,4 +1,4 @@
-"""Tests für Gebäudeabstand und Einzelbäume (OSM-Punkte) im ForestWorkflow."""
+"""Tests for building distance and single trees (OSM points) in the ForestWorkflow."""
 
 import sys
 from pathlib import Path
@@ -12,7 +12,7 @@ from world_to_beamng import config
 from world_to_beamng.osm.landuse_polygons import make_local_transform
 from world_to_beamng.workflow.forest_workflow import ForestWorkflow
 
-OFFSET = (412000.0, 5297000.0)  # UTM-Ursprung nahe Freiburg
+OFFSET = (412000.0, 5297000.0)  # UTM origin near Freiburg
 TO_LOCAL = make_local_transform(OFFSET)
 
 
@@ -30,9 +30,9 @@ def test_building_buffer_keeps_trees_away_from_walls():
 
     buffer = workflow._create_building_buffer([_building(0, 0, 10, 10)], margin=2.0)
 
-    assert buffer.contains(Point(-1.5, 5))  # 1,5 m vor der Wand
-    assert buffer.contains(Point(5, 5))  # im Gebäude
-    assert not buffer.contains(Point(-3.0, 5))  # weiter weg ist frei
+    assert buffer.contains(Point(-1.5, 5))  # 1.5 m in front of the wall
+    assert buffer.contains(Point(5, 5))  # inside the building
+    assert not buffer.contains(Point(-3.0, 5))  # further away is free
 
 
 def test_building_buffer_ignores_non_buildings_and_returns_none_without_buildings():
@@ -46,7 +46,7 @@ def test_building_buffer_ignores_non_buildings_and_returns_none_without_building
 def test_single_trees_come_from_natural_tree_nodes_inside_the_tile():
     workflow = ForestWorkflow(config)
     inside = _tree_node(47.83, 7.68, 1)
-    far_away = _tree_node(47.90, 7.80, 2)  # außerhalb des Tiles
+    far_away = _tree_node(47.90, 7.80, 2)  # outside the tile
     other_node = _tree_node(47.8301, 7.6801, 3, tags={"amenity": "bench"})
     ax, ay = TO_LOCAL([{"lat": 47.83, "lon": 7.68}])[0]
     tile = (ax - 100, ay - 100, ax + 100, ay + 100)

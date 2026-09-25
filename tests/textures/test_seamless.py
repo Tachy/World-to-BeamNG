@@ -1,4 +1,4 @@
-"""Tests für world_to_beamng.textures.seamless: Foto -> nahtlose Kachel mit Normal- und Roughness-Map."""
+"""Tests for world_to_beamng.textures.seamless: photo -> seamless tile with normal and roughness map."""
 
 import sys
 from pathlib import Path
@@ -12,7 +12,7 @@ from world_to_beamng.textures import seamless
 
 
 def _photo(height=300, width=400, seed=3):
-    """Unruhiges 'Foto' mit Helligkeitsverlauf (Beleuchtung) - an den Rändern garantiert nicht periodisch."""
+    """Noisy 'photo' with a brightness gradient (lighting) - guaranteed not periodic at the edges."""
     rng = np.random.default_rng(seed)
     noise = rng.random((height, width, 3))
     ramp = np.linspace(0.3, 1.0, width)[None, :, None] * np.linspace(0.6, 1.0, height)[:, None, None]
@@ -20,7 +20,7 @@ def _photo(height=300, width=400, seed=3):
 
 
 def _seam(image):
-    """Mittlerer Sprung über die Kachelränder (Wrap) relativ zum mittleren Sprung zwischen Nachbarpixeln."""
+    """Mean jump across the tile edges (wrap) relative to the mean jump between neighboring pixels."""
     wrap = np.abs(image[0] - image[-1]).mean() + np.abs(image[:, 0] - image[:, -1]).mean()
     inner = np.abs(np.diff(image, axis=0)).mean() + np.abs(np.diff(image, axis=1)).mean()
     return wrap / inner
@@ -60,7 +60,7 @@ def test_flattening_removes_the_large_scale_lighting_but_keeps_the_average():
 
 def test_the_seamless_tile_has_no_visible_seam():
     photo = _photo(256, 256)
-    assert _seam(photo) > 2.0  # Ausgangslage: harte Naht
+    assert _seam(photo) > 2.0  # starting point: hard seam
 
     tile = seamless.make_seamless(photo)
 
@@ -69,7 +69,7 @@ def test_the_seamless_tile_has_no_visible_seam():
 
 
 def test_seamless_keeps_the_contrast():
-    photo = np.random.default_rng(5).random((256, 256, 3))  # ohne Beleuchtungsverlauf: vergleichbare Varianz
+    photo = np.random.default_rng(5).random((256, 256, 3))  # without lighting gradient: comparable variance
 
     tile = seamless.make_seamless(photo)
 
@@ -85,9 +85,9 @@ def test_derived_maps_are_valid_and_tile():
     assert normal.dtype == np.uint8 and normal.shape == (256, 256, 3)
     vectors = normal.astype(float) / 255.0 * 2.0 - 1.0
     assert np.abs(np.linalg.norm(vectors, axis=-1) - 1.0).max() < 0.03
-    assert normal[..., 2].min() > 128  # zeigt aus der Fläche heraus
+    assert normal[..., 2].min() > 128  # points out of the surface
     assert roughness.shape == (256, 256, 3)
-    assert 150 < roughness[..., 0].mean() < 240  # Stein: rau
+    assert 150 < roughness[..., 0].mean() < 240  # stone: rough
 
 
 def test_dark_joints_are_rougher_than_bright_stone():
@@ -106,7 +106,7 @@ def test_build_from_photo_returns_maps_and_the_real_tile_size():
 
     assert set(result["maps"]) == {"color", "normal", "roughness"}
     assert all(m.shape == (128, 128, 3) and m.dtype == np.uint8 for m in result["maps"].values())
-    assert result["tile_m"] == pytest.approx(2.0 * 300 / 400)  # Quadrat nutzt 300 von 400 Bildpunkten Breite
+    assert result["tile_m"] == pytest.approx(2.0 * 300 / 400)  # the square uses 300 of 400 pixels of width
 
 
 def test_build_from_photo_respects_an_explicit_crop_for_the_scale():

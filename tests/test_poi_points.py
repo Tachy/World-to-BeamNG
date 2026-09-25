@@ -1,4 +1,4 @@
-"""Tests für world_to_beamng.osm.poi_points: Orts- und Parkplatz-POI-Kandidaten für Spawn-Punkte."""
+"""Tests for world_to_beamng.osm.poi_points: village/town and parking-lot POI candidates for spawn points."""
 
 import sys
 from pathlib import Path
@@ -9,7 +9,7 @@ from world_to_beamng.osm.poi_points import extract_parking_points, extract_place
 
 
 def _pt(x, y):
-    # Identität statt WGS84: to_local() in den Tests ist (lon, lat) -> (x, y)
+    # Identity instead of WGS84: to_local() in the tests is (lon, lat) -> (x, y)
     return {"lon": float(x), "lat": float(y)}
 
 
@@ -88,8 +88,8 @@ def test_large_named_parking_lot_is_found():
     assert len(result) == 1
     assert result[0]["name"] == "Talstation"
     assert result[0]["kind"] == "parking"
-    assert result[0]["position_xy"] == (50.0, 50.0)  # Zentroid des Quadrats
-    assert result[0]["rank"] == 10000.0  # Fläche in m²
+    assert result[0]["position_xy"] == (50.0, 50.0)  # centroid of the square
+    assert result[0]["rank"] == 10000.0  # area in m²
 
 
 def test_small_parking_lot_is_filtered_out():

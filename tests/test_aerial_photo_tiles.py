@@ -1,8 +1,8 @@
 """
-Tests für den Vier-Bilder-Modus im Luftbild-Code (io/aerial.py): ein Foto je DGM1-Kachel.
+Tests for the four-image mode in the aerial photo code (io/aerial.py): one photo per DGM1 tile.
 
-Mit kleinen synthetischen Quell-Zips (1 m/px): jedes Foto muss genau den Ausschnitt seiner Kachel enthalten,
-auch wenn ein Quellbild über eine Kachelgrenze reicht.
+With small synthetic source zips (1 m/px): each photo must contain exactly the crop of its tile,
+even if a source image extends across a tile boundary.
 """
 
 import io
@@ -30,7 +30,7 @@ RED, BLUE, GREEN = (250, 20, 20), (20, 20, 250), (20, 250, 20)
 
 
 def _png(width, height, left_color, right_color=None):
-    """PNG, links/rechts in zwei Farben (right_color=None: einfarbig)."""
+    """PNG, left/right in two colors (right_color=None: single color)."""
     image = Image.new("RGB", (width, height), left_color)
     if right_color:
         image.paste(right_color, (width // 2, 0, width, height))
@@ -53,7 +53,7 @@ def _dominant(image_path):
 
 
 def _photos():
-    # zwei Kacheln nebeneinander, je 20 m breit und 20 m hoch (lokale Koordinaten)
+    # two tiles side by side, each 20 m wide and 20 m high (local coordinates)
     return [
         {"name": "aerial_photo_0", "bounds": (0.0, 20.0, 0.0, 20.0)},
         {"name": "aerial_photo_1", "bounds": (20.0, 40.0, 0.0, 20.0)},
@@ -63,7 +63,7 @@ def _photos():
 def test_each_photo_shows_only_the_area_of_its_own_tile(tmp_path):
     src = tmp_path / "satellite"
     src.mkdir()
-    # ein Quellbild pro Kachel (links rot, rechts blau) - obere linke Ecke = (x_origin, y_origin)
+    # one source image per tile (left red, right blue) - upper left corner = (x_origin, y_origin)
     _zip(src / "a.zip", "a", _png(20, 20, RED), OFFSET[0] + 0.0, OFFSET[1] + 20.0)
     _zip(src / "b.zip", "b", _png(20, 20, BLUE), OFFSET[0] + 20.0, OFFSET[1] + 20.0)
     out = tmp_path / "out"
@@ -79,7 +79,7 @@ def test_each_photo_shows_only_the_area_of_its_own_tile(tmp_path):
 def test_a_source_image_that_crosses_the_tile_border_is_split_correctly(tmp_path):
     src = tmp_path / "satellite"
     src.mkdir()
-    # EIN Quellbild über beide Kacheln: linke Hälfte rot, rechte Hälfte blau
+    # ONE source image across both tiles: left half red, right half blue
     _zip(src / "wide.zip", "wide", _png(40, 20, RED, BLUE), OFFSET[0] + 0.0, OFFSET[1] + 20.0)
     out = tmp_path / "out"
 
@@ -87,22 +87,22 @@ def test_a_source_image_that_crosses_the_tile_border_is_split_correctly(tmp_path
 
     _, left = _dominant(out / "aerial_photo_0.png")
     _, right = _dominant(out / "aerial_photo_1.png")
-    assert left[0] > 150 and left[2] < 60  # Kachel 0: rot
-    assert right[2] > 150 and right[0] < 60  # Kachel 1: blau
+    assert left[0] > 150 and left[2] < 60  # tile 0: red
+    assert right[2] > 150 and right[0] < 60  # tile 1: blue
 
 
 def test_tiles_stacked_north_south_use_their_own_rows_of_the_source(tmp_path):
     src = tmp_path / "satellite"
     src.mkdir()
-    # Quellbild 20x40 px: oben (Norden) grün, unten (Süden) rot - Kachel Nord: y 20..40, Kachel Süd: y 0..20
+    # Source image 20x40 px: top (north) green, bottom (south) red - north tile: y 20..40, south tile: y 0..20
     image = Image.new("RGB", (20, 40), GREEN)
     image.paste(RED, (0, 20, 20, 40))
     buffer = io.BytesIO()
     image.save(buffer, "PNG")
     _zip(src / "tall.zip", "tall", buffer.getvalue(), OFFSET[0], OFFSET[1] + 40.0)
     photos = [
-        {"name": "aerial_photo_0", "bounds": (0.0, 20.0, 0.0, 20.0)},  # Süd
-        {"name": "aerial_photo_1", "bounds": (0.0, 20.0, 20.0, 40.0)},  # Nord
+        {"name": "aerial_photo_0", "bounds": (0.0, 20.0, 0.0, 20.0)},  # south
+        {"name": "aerial_photo_1", "bounds": (0.0, 20.0, 20.0, 40.0)},  # north
     ]
     out = tmp_path / "out"
 
@@ -123,7 +123,7 @@ def test_photo_is_downscaled_to_the_target_size(tmp_path):
     assert Image.open(out / "aerial_photo_0.png").size == (8, 8)
 
 
-# --- Cache/Signatur für mehrere Fotos ---------------------------------------------------------------
+# --- Cache/signature for multiple photos ------------------------------------------------------------
 
 
 @pytest.fixture
@@ -152,7 +152,7 @@ def test_current_requires_every_photo_file(dirs):
     write_aerial_photo_signature(out, signature)
     (out / "aerial_photo_0.png").write_bytes(b"1")
 
-    assert not aerial_photo_is_current(out, signature)  # Foto 1 fehlt
+    assert not aerial_photo_is_current(out, signature)  # photo 1 is missing
 
     (out / "aerial_photo_1.png").write_bytes(b"2")
     assert aerial_photo_is_current(out, signature)
@@ -160,7 +160,7 @@ def test_current_requires_every_photo_file(dirs):
 
 def test_ensure_builds_all_photos_once_and_removes_stale_photos_of_the_other_mode(dirs, monkeypatch):
     src, out = dirs
-    (out / "aerial_photo.png").write_bytes(b"old single photo")  # Gesamtfoto aus dem anderen Modus
+    (out / "aerial_photo.png").write_bytes(b"old single photo")  # overall photo from the other mode
     calls = []
 
     def fake(aerial_dir, output_dir, photos, global_offset, target_pixel_size=None):
@@ -176,7 +176,7 @@ def test_ensure_builds_all_photos_once_and_removes_stale_photos_of_the_other_mod
 
     assert (first, second) == ("built", "current")
     assert calls == [["aerial_photo_0", "aerial_photo_1"]]
-    assert not (out / "aerial_photo.png").exists()  # veraltetes Gesamtfoto entfernt
+    assert not (out / "aerial_photo.png").exists()  # stale overall photo removed
     assert (out / "aerial_photo_0.png").exists() and (out / "aerial_photo_1.png").exists()
 
 

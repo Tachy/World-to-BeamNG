@@ -1,4 +1,4 @@
-"""Zone-Objekte, die Tunnelröhren abdunkeln (tunnels/tunnel_zones.py) - Schema wie in BeamNGs eigenen Levels."""
+"""Zone objects that darken tunnel tubes (tunnels/tunnel_zones.py) - schema as in BeamNG's own levels."""
 
 import sys
 from pathlib import Path
@@ -29,7 +29,7 @@ def _plans(coords, width=6.5):
 
 def _local_axes(zone):
     m = np.array(zone["rotation_matrix"]).reshape(3, 3)
-    return m[0], m[1], m[2]  # BeamNG: ZEILEN = Bilder der lokalen x (Längsachse), y, z
+    return m[0], m[1], m[2]  # BeamNG: ROWS = images of the local x (longitudinal axis), y, z
 
 
 def test_straight_tunnel_is_covered_by_equal_zones_starting_one_metre_inside():
@@ -38,14 +38,14 @@ def test_straight_tunnel_is_covered_by_equal_zones_starting_one_metre_inside():
 
     zones = _zones(plans)
 
-    assert len(zones) == 2  # 98 m zwischen den Einsätzen -> 2 x 49 m
+    assert len(zones) == 2  # 98 m between the insets -> 2 x 49 m
     centers = sorted(z["position"][0] for z in zones)
     assert centers == pytest.approx([25.5, 74.5])
     for zone in zones:
         assert zone["scale"] == pytest.approx([49.0 + 1.0, tube_width + 2.0, crown + 2.0])
         assert zone["position"][2] == pytest.approx(500.0 + crown / 2.0)
         assert zone["rotation_matrix"] == pytest.approx([1, 0, 0, 0, 1, 0, 0, 0, 1])
-    # Portalzone bleibt hell: Zonen beginnen 1 m hinter der Portalebene (inkl. 0,5 m Überlappung -> 0,5 m)
+    # Portal zone stays bright: zones start 1 m behind the portal plane (incl. 0.5 m overlap -> 0.5 m)
     assert min(z["position"][0] - z["scale"][0] / 2.0 for z in zones) == pytest.approx(0.5)
     assert max(z["position"][0] + z["scale"][0] / 2.0 for z in zones) == pytest.approx(99.5)
 
@@ -55,18 +55,18 @@ def test_zone_follows_the_tunnel_grade():
 
     forward, _, up = _local_axes(zones[0])
     assert forward == pytest.approx(np.array([100.0, 0.0, 10.0]) / np.hypot(100.0, 10.0), abs=1e-6)
-    assert up[2] > 0.99  # nicht gekippt, nur geneigt
+    assert up[2] > 0.99  # not tilted, only inclined
 
 
 def test_zones_follow_a_curved_tunnel_within_the_deviation_limit():
     angles = np.linspace(0.0, np.pi / 2.0, 30)
-    coords = [(100.0 * np.sin(a), 100.0 - 100.0 * np.cos(a), 500.0) for a in angles]  # Radius 100 m, 157 m lang
+    coords = [(100.0 * np.sin(a), 100.0 - 100.0 * np.cos(a), 500.0) for a in angles]  # radius 100 m, 157 m long
     plans = _plans(coords)
     centerline = np.array(plans[0]["coords"])[:, :2]
 
     zones = _zones(plans)
 
-    assert len(zones) > 4  # mehr als die reine Längenteilung, wegen der Krümmung
+    assert len(zones) > 4  # more than the pure length split, because of the curvature
     for zone in zones:
         forward, side, _ = _local_axes(zone)
         rel = centerline - np.array(zone["position"][:2])
@@ -86,7 +86,7 @@ def test_zone_fields_follow_the_vanilla_schema():
 
 
 def test_all_zones_of_a_tunnel_share_one_zone_group_and_tunnels_differ():
-    # Wie im Vanilla-Tunnel (jungle_rock_island: zoneGroup 1): die Zonen einer Röhre bilden einen zusammenhängenden Raum
+    # As in the vanilla tunnel (jungle_rock_island: zoneGroup 1): the zones of one tube form a contiguous space
     plans = _plans([(0.0, 0.0, 500.0), (300.0, 0.0, 500.0)])
     plans += plan_tunnels([{"id": 4, "coords": [(0.0, 50.0, 500.0), (100.0, 50.0, 500.0)], "width": 6.5, "floor_material": "f"}],
                           width_margin=1.5, segment_step=10.0, collar_ratio=0.1, flat_depth=1.5, length=3.5)
@@ -107,18 +107,18 @@ def test_each_tunnel_end_gets_a_portal_at_the_zone_face():
     portals = sorted(_portals(plans), key=lambda p: p["position"][0])
 
     assert len(portals) == 2
-    assert [p["position"][0] for p in portals] == pytest.approx([1.0, 99.0])  # an der Stirnfläche der Zonenkette
+    assert [p["position"][0] for p in portals] == pytest.approx([1.0, 99.0])  # at the end face of the zone chain
     for p in portals:
         assert p["position"][2] == pytest.approx(500.0 + crown / 2.0)
-        # Vanilla-Konvention: lokale y-Achse entlang des Tunnels, Maße [Breite, Tiefe, Höhe]
+        # Vanilla convention: local y axis along the tunnel, dimensions [width, depth, height]
         assert p["scale"] == pytest.approx([tube_width + 2.0, 3.0, crown + 2.0])
         m = np.array(p["rotation_matrix"]).reshape(3, 3)
-        assert np.abs(m[1]) == pytest.approx([1.0, 0.0, 0.0], abs=1e-9)  # Zeile 1 = lokale y-Achse entlang des Tunnels
+        assert np.abs(m[1]) == pytest.approx([1.0, 0.0, 0.0], abs=1e-9)  # row 1 = local y axis along the tunnel
         assert p["fields"] == {}
 
 
 def test_zone_on_a_diagonal_tunnel_is_aligned_with_the_tube():
-    # Nur auf diagonalen Röhren unterscheiden sich Zeile und Spalte - hier war der Fehler unsichtbar geblieben
+    # Row and column only differ on diagonal tubes - here the bug had stayed invisible
     zones = _zones(_plans([(0.0, 0.0, 500.0), (60.0, 60.0, 500.0)]))
 
     forward, _, _ = _local_axes(zones[0])

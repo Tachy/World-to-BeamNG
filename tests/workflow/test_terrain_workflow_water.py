@@ -1,4 +1,4 @@
-"""Tests für TerrainWorkflow.export_water() und _build_water() mit den echten Config-/Vorlagendaten."""
+"""Tests for TerrainWorkflow.export_water() and _build_water() with the real config/template data."""
 
 import sys
 from pathlib import Path
@@ -39,10 +39,10 @@ def test_streams_become_river_objects_with_the_template_render_settings():
     assert river["class"] == "River"
     assert river["position"] == river["nodes"][0][:3]
     assert len(river["nodes"]) == 5
-    # nur core-Texturen (immer vorhanden, nichts zu vendoren)
+    # core textures only (always present, nothing to vendor)
     for key in ("rippleTex", "foamTex", "depthGradientTex"):
         assert river[key].startswith("core/"), f"{key}: {river[key]}"
-    assert river["cubemap"] == "GreySkyCubemap"  # von der Engine selbst angelegt
+    assert river["cubemap"] == "GreySkyCubemap"  # created by the engine itself
 
 
 def test_ponds_become_water_blocks_with_an_engine_cubemap():
@@ -56,7 +56,7 @@ def test_ponds_become_water_blocks_with_an_engine_cubemap():
     assert water_block["class"] == "WaterBlock"
     assert water_block["position"] == [10.0, 20.0, 281.15]
     assert water_block["scale"] == [6.0, 4.0, 3.0]
-    # die Cubemap der Vorlage (cubemap_river_reflection) ist level-spezifisch und würde fehlen
+    # the template cubemap (cubemap_river_reflection) is level-specific and would be missing
     assert water_block["cubemap"] == config.WATER_POND_CUBEMAP == "DefaultSkyCubemap"
 
 
@@ -69,7 +69,7 @@ def test_nothing_is_exported_when_water_is_disabled_or_empty(monkeypatch):
 def test_build_water_clips_to_the_terrain_and_uses_the_heightmap():
     stub = SimpleNamespace()
     height_at = lambda x, y: np.full_like(np.asarray(x, float), 250.0)
-    # Bach quer durch das Terrain (-1000..1000), Teich am Rand; Punkte als lat/lon nahe dem Ursprung
+    # stream across the terrain (-1000..1000), pond at the edge; points as lat/lon near the origin
     from world_to_beamng.osm.landuse_polygons import make_local_transform
 
     offset = (412000.0, 5297000.0)
@@ -91,11 +91,11 @@ def test_build_water_clips_to_the_terrain_and_uses_the_heightmap():
 
     water = TerrainWorkflow._build_water(stub, osm, [pond, grass], offset, height_at, bounds)
 
-    assert len(water["rivers"]) == 1  # der Durchlass ist ausgeschlossen
+    assert len(water["rivers"]) == 1  # the culvert is excluded
     nodes = water["rivers"][0]["nodes"]
-    assert all(abs(n[2] - 250.2) < 1e-6 for n in nodes)  # Rinnenboden 250 + Wasserstand 0,2
-    assert len(water["ponds"]) == 1  # nur die Wasserfläche, nicht die Wiese
-    assert all(abs(b["position"][2] - 250.0) < 1e-6 for b in water["ponds"][0]["blocks"])  # Randhöhe des Teichs
+    assert all(abs(n[2] - 250.2) < 1e-6 for n in nodes)  # channel bed 250 + water level 0.2
+    assert len(water["ponds"]) == 1  # only the water surface, not the meadow
+    assert all(abs(b["position"][2] - 250.0) < 1e-6 for b in water["ponds"][0]["blocks"])  # edge height of the pond
 
 
 def test_dry_detention_basins_get_no_water_but_a_small_wet_basin_does():
@@ -108,7 +108,7 @@ def test_dry_detention_basins_get_no_water_but_a_small_wet_basin_does():
 
     assert len(water["ponds"]) == 1
     xs = [b["position"][0] for b in water["ponds"][0]["blocks"]]
-    assert 70 < min(xs) and max(xs) < 110  # nur das kleine Becken, nicht die 200 m breite Fläche
+    assert 70 < min(xs) and max(xs) < 110  # only the small basin, not the 200 m wide area
 
 
 def test_streams_end_at_the_pond_shore():
@@ -118,7 +118,7 @@ def test_streams_end_at_the_pond_shore():
 
     offset = (412000.0, 5297000.0)
     to_local = make_local_transform(offset)
-    line = [{"lat": 47.83, "lon": 7.68}, {"lat": 47.83, "lon": 7.6812}]  # gut 90 m West-Ost
+    line = [{"lat": 47.83, "lon": 7.68}, {"lat": 47.83, "lon": 7.6812}]  # a good 90 m west-east
     (x0, y0), (x1, _) = to_local(line)
     mid = (x0 + x1) / 2
     pond = {"osm_tags": {"natural": "water"}, "geometry": box(mid - 15, y0 - 10, mid + 15, y0 + 10)}
@@ -126,7 +126,7 @@ def test_streams_end_at_the_pond_shore():
 
     water = TerrainWorkflow._build_water(stub, osm, [pond], offset, height_at, (x0 - 500, x1 + 500, y0 - 500, y0 + 500))
 
-    assert len(water["rivers"]) == 2  # oberhalb und unterhalb des Teichs
+    assert len(water["rivers"]) == 2  # above and below the pond
     for river in water["rivers"]:
         for node in river["nodes"]:
-            assert not (mid - 15 + 0.5 < node[0] < mid + 15 - 0.5)  # kein Knoten im Teich (0,5 m Toleranz: seitliches Einrasten)
+            assert not (mid - 15 + 0.5 < node[0] < mid + 15 - 0.5)  # no node in the pond (0.5 m tolerance: side snapping)

@@ -1,4 +1,4 @@
-"""Tests: Nebelhöhe aus dem Gelände und Wasser-Raster (TerrainWorkflow)."""
+"""Tests: fog height from the terrain and water grid (TerrainWorkflow)."""
 
 import sys
 from pathlib import Path
@@ -40,7 +40,7 @@ def _pond(scale):
 
 
 def test_water_block_grid_is_never_larger_than_the_block():
-    # BeamNG warnt sonst "gridElementSize 5 is larger than scale ..." und kürzt selbst
+    # Otherwise BeamNG warns "gridElementSize 5 is larger than scale ..." and shortens it itself
     stub = SimpleNamespace(items=_Items())
 
     TerrainWorkflow.export_water(stub, {"water": _pond([2.2, 1.1, 3.0])})

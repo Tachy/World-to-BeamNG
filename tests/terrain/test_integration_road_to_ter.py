@@ -1,8 +1,8 @@
 """
-Kleiner End-to-End-Test: synthetisches Grid + eine synthetische Straße durch den
-kompletten Terrain-Export-Pfad (heightmap -> embankment -> road embedding -> .ter),
-um die Reihenfolge-Invariante (pristine heights zuerst) mit echtem Code statt nur
-einem Kommentar abzusichern.
+Small end-to-end test: synthetic grid + a synthetic road through the
+complete terrain export path (heightmap -> embankment -> road embedding -> .ter),
+to secure the ordering invariant (pristine heights first) with real code instead of just
+a comment.
 """
 
 import sys
@@ -27,7 +27,7 @@ class _FakeMapper:
 
 
 def test_road_to_ter_full_chain(tmp_path):
-    # Flaches 50x50 Grid bei 100m Höhe, 1m Abstand
+    # Flat 50x50 grid at 100m height, 1m spacing
     nx, ny, spacing = 50, 50, 1.0
     x_coords = np.arange(nx) * spacing
     y_coords = np.arange(ny) * spacing
@@ -41,9 +41,9 @@ def test_road_to_ter_full_chain(tmp_path):
     origin_x = heightmap_result["origin_x"]
     origin_y = heightmap_result["origin_y"]
 
-    # Eine Straße bei x=25, Z=95 (5m Einschnitt), width=6
+    # One road at x=25, Z=95 (5m cut), width=6
     centerline = np.array([[25.0, y, 95.0] for y in range(5, 45)], dtype=float)
-    # 2D-Straßenpolygon (x=[22,28], y=[5,45]) - entspricht width=6 um die Centerline
+    # 2D road polygon (x=[22,28], y=[5,45]) - corresponds to width=6 around the centerline
     road_polygon = np.array([[22.0, 5.0], [28.0, 5.0], [28.0, 45.0], [22.0, 45.0]])
     road_slope_polygons_2d = [
         {"trimmed_centerline": centerline, "osm_tags": {}, "road_polygon": road_polygon}
@@ -55,8 +55,8 @@ def test_road_to_ter_full_chain(tmp_path):
     )
     heights = apply_embankment_blend(heights, origin_x, origin_y, spacing, profiles)
 
-    # DecalRoad-Ansatz: Terrain wird exakt auf Centerline-Höhe gesetzt
-    # (kein Sicherheitsabstand mehr, siehe road_embedding.py-Moduldocstring)
+    # DecalRoad approach: terrain is set exactly to centerline height
+    # (no safety margin anymore, see the road_embedding.py module docstring)
     heights = embed_roads_into_heightmap(heights, origin_x, origin_y, spacing, road_slope_polygons_2d)
 
     z_min = float(heights.min())
@@ -70,12 +70,12 @@ def test_road_to_ter_full_chain(tmp_path):
     read_heightmap, read_layer_map, read_names = read_ter(ter_path)
     assert read_heightmap.shape == (size, size)
 
-    # Unter der Straße muss die Höhe deutlich niedriger sein als weit entfernt (natürliches Terrain)
+    # Under the road the height must be clearly lower than far away (natural terrain)
     row_mid = 25
     col_under_road = 25
     col_far_away = 5
     assert heights[row_mid, col_under_road] < heights[row_mid, col_far_away] - 2.0
-    # Weit entfernt vom Einschnitt: unverändert bei 100
+    # Far from the cut: unchanged at 100
     assert np.isclose(heights[row_mid, col_far_away], 100.0)
 
 

@@ -1,8 +1,8 @@
-"""Tests für OSMMapper.generate_materials_json_entry() - groundType/materialTag-Mapping.
+"""Tests for OSMMapper.generate_materials_json_entry() - groundType/materialTag mapping.
 
-Das ist der Code-Pfad für Straßen-Materialien im Haupt-Export
-(workflow/terrain_workflow.py::export_decal_roads() ruft ihn direkt auf und
-schreibt das Ergebnis in MaterialManager.materials).
+This is the code path for road materials in the main export
+(workflow/terrain_workflow.py::export_decal_roads() calls it directly and
+writes the result into MaterialManager.materials).
 """
 
 import sys
@@ -14,17 +14,17 @@ from world_to_beamng.osm.osm_mapper import OSMMapper
 
 
 def _mapper():
-    # Nicht existierender Pfad -> OSMMapper fällt auf leere Defaults zurück;
-    # generate_materials_json_entry() braucht kein geladenes self.config.
+    # Nonexistent path -> OSMMapper falls back to empty defaults;
+    # generate_materials_json_entry() does not need a loaded self.config.
     return OSMMapper(config_path="__does_not_exist__.json")
 
 
 def test_generate_materials_json_entry_maps_ground_type_uppercase():
     entry = _mapper().generate_materials_json_entry("dirt_road", {"groundModelName": "dirt", "textures": {}})
 
-    # BeamNGs art/groundmodels.json kennt nur GROSSGESCHRIEBENE Bezeichner
-    # (z.B. "DIRT") unter dem Key "groundType" - ohne diese Umsetzung würde
-    # stillschweigend der ASPHALT-Fallback für Reifenphysik/-sound greifen.
+    # BeamNG's art/groundmodels.json only knows UPPERCASE identifiers
+    # (e.g. "DIRT") under the key "groundType" - without this conversion the
+    # ASPHALT fallback for tire physics/sound would silently apply.
     assert entry["groundType"] == "DIRT"
     assert "groundModelName" not in entry
     assert entry["materialTag0"] == "RoadAndPath"
@@ -46,9 +46,9 @@ def test_generate_materials_json_entry_defaults_to_asphalt():
 
 
 def test_generate_materials_json_entry_is_translucent_decal_material():
-    # DecalRoad-Materialien MÜSSEN translucent sein, sonst kann BeamNG das
-    # Decal nicht auf die Terrain-Oberfläche darunter verblenden (verifiziert
-    # gegen west_coast_usa/art/road/main.materials.json -> "road_asphalt_2lane").
+    # DecalRoad materials MUST be translucent, otherwise BeamNG cannot blend the
+    # decal onto the terrain surface below (verified against
+    # west_coast_usa/art/road/main.materials.json -> "road_asphalt_2lane").
     entry = _mapper().generate_materials_json_entry("asphalt_road_standard", {"groundModelName": "asphalt"})
 
     assert entry["translucent"] is True

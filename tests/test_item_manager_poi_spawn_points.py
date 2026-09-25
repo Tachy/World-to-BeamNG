@@ -1,5 +1,5 @@
-"""ItemManager: zusätzliche, in der BeamNG-Fahrzeugauswahl wählbare Spawn-Punkte - ein SpawnSphere je
-POI (Ort oder großer Parkplatz, siehe osm/poi_points.py), ergänzt den automatischen Standard-Spawn."""
+"""ItemManager: additional spawn points selectable in BeamNG's vehicle selection - one SpawnSphere per
+POI (village/town or large parking lot, see osm/poi_points.py), supplementing the automatic default spawn."""
 
 import json
 import sys
@@ -27,7 +27,7 @@ def _poi(name, position=(0.0, 0.0, 100.0), kind="place", rank=1.0):
 
 
 def _roads_along_x():
-    """Eine Straße entlang der x-Achse (-500..500, Höhe 100) - nah genug an allen POIs der Tests unten."""
+    """A road along the x axis (-500..500, height 100) - close enough to all POIs of the tests below."""
     return [_road([(-500.0, 0.0, 100.0), (500.0, 0.0, 100.0)])]
 
 
@@ -68,7 +68,7 @@ def test_object_names_are_deduplicated_when_slugs_collide(manager):
     spawns = _spawns(manager, pois)
 
     object_names = {s["object_name"] for s in spawns}
-    assert len(object_names) == 2  # beide slugifizieren zu "spawn_weg" - müssen trotzdem eindeutig bleiben
+    assert len(object_names) == 2  # both slugify to "spawn_weg" - must still stay unique
 
 
 def test_duplicate_display_names_are_numbered(manager):
@@ -85,7 +85,7 @@ def test_result_is_capped_at_max_points_keeping_the_highest_ranked(manager):
 
     spawns = _spawns(manager, pois, max_points=1)
 
-    assert len(spawns) == 1 and spawns[0]["display_name"] == "Weiler4"  # höchster rank gewinnt
+    assert len(spawns) == 1 and spawns[0]["display_name"] == "Weiler4"  # highest rank wins
 
 
 @pytest.mark.parametrize("roads", [None, []])
@@ -116,7 +116,7 @@ def test_preview_builder_is_called_with_object_name_and_xy(manager):
 
     spawns = _spawns(manager, [_poi("Andermatt", position=(5.0, 6.0, 100.0))], preview_builder=preview_builder)
 
-    assert calls == [("spawn_andermatt", pytest.approx((5.0, 0.0)))]  # auf die Straße gesetzt
+    assert calls == [("spawn_andermatt", pytest.approx((5.0, 0.0)))]  # placed on the road
     assert spawns[0]["preview"] == "spawn_previews/spawn_andermatt.jpg"
 
 
@@ -126,7 +126,7 @@ def test_without_a_preview_builder_preview_is_none(manager):
     assert spawns[0]["preview"] is None
 
 
-# --- save() Integration --------------------------------------------------------------------------------
+# --- save() integration --------------------------------------------------------------------------------
 
 
 def test_save_writes_poi_spawn_spheres_after_the_default(manager, tmp_path):
@@ -135,7 +135,7 @@ def test_save_writes_poi_spawn_spheres_after_the_default(manager, tmp_path):
     lines = (tmp_path / "main" / "MissionGroup" / "PlayerDropPoints" / "items.level.json").read_text(encoding="utf-8").splitlines()
     objects = [json.loads(line) for line in lines]
 
-    assert objects[0]["name"] == "spawn"  # Standard-Spawn bleibt zuerst
+    assert objects[0]["name"] == "spawn"  # default spawn stays first
     assert objects[1]["name"] == "spawn_andermatt"
     assert objects[1]["parentId"] == "PlayerDropPoints"
     assert objects[1]["class"] == "SpawnSphere"
@@ -172,7 +172,7 @@ def test_save_without_pois_does_not_add_a_spawn_points_field(manager, tmp_path):
     assert "spawnPoints" not in info
 
 
-# --- Spawn auf die nächste Straße setzen, Heading parallel zur Centerline ---
+# --- Place spawn on the nearest road, heading parallel to the centerline ---
 
 import numpy as np
 
@@ -188,9 +188,9 @@ def _road(points, highway="secondary", structure="surface"):
 
 
 def _heading_matrix(dx, dy):
-    # wie _compute_vehicle_spawn(): BeamNG speichert die Bilder der lokalen Achsen in den ZEILEN (aus Vanilla-
-    # Spawnpunkten auf diagonalen Straßen abgeleitet: 20 von 24). Die Fahrzeugfront liegt auf lokal -Y (jbeam-
-    # Konvention, im Spiel bestätigt: mit Zeile 1 = Fahrtrichtung schaute das Auto rückwärts) -> Zeile 1 = -(dx, dy)
+    # like _compute_vehicle_spawn(): BeamNG stores the images of the local axes in the ROWS (derived from vanilla
+    # spawn points on diagonal roads: 20 of 24). The vehicle front lies on local -Y (jbeam
+    # convention, confirmed in game: with row 1 = driving direction the car faced backwards) -> row 1 = -(dx, dy)
     return [-dy, dx, 0.0, -dx, -dy, 0.0, 0.0, 0.0, 1.0]
 
 
@@ -200,7 +200,7 @@ def test_poi_spawn_is_moved_onto_the_nearest_road_with_heading_along_it(manager)
 
     spawns = manager._compute_poi_spawn_points(pois, road_polygons=roads)
 
-    assert spawns[0]["position"] == pytest.approx([30.0, 0.0, 103.3])  # Lotfußpunkt, Höhe entlang der Straße
+    assert spawns[0]["position"] == pytest.approx([30.0, 0.0, 103.3])  # foot of the perpendicular, height along the road
     assert spawns[0]["rotationMatrix"] == pytest.approx(_heading_matrix(1.0, 0.0))
 
 
@@ -287,7 +287,7 @@ def test_save_snaps_poi_spawn_spheres_onto_roads(manager, tmp_path):
 
 
 def _nearest_road_pose_reference(road_polygons, target_xy, max_distance):
-    """Frühere Version (Schleife je Straße) - Referenz für den vektorisierten _nearest_road_pose()."""
+    """Earlier version (loop per road) - reference for the vectorized _nearest_road_pose()."""
     import numpy as np
     from world_to_beamng import config
 
@@ -330,7 +330,7 @@ def test_nearest_road_pose_matches_the_per_road_reference_loop():
         n = int(rng.integers(1, 12))
         points = np.cumsum(rng.normal(0.0, 30.0, size=(n, 3)), axis=0) + rng.uniform(-1500, 1500, size=3)
         if k % 17 == 0 and n > 2:
-            points[1] = points[0]  # Segment der Länge 0
+            points[1] = points[0]  # zero-length segment
         roads.append({
             "trimmed_centerline": points,
             "osm_tags": {"highway": highways[k % len(highways)]},

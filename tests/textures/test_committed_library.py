@@ -1,4 +1,4 @@
-"""Prüft die eingecheckte Bibliothek data/textures: vollständig, quadratisch, Zweierpotenz, passend zur Config."""
+"""Checks the committed library data/textures: complete, square, power of two, matching the config."""
 
 import sys
 from pathlib import Path
@@ -28,5 +28,5 @@ def test_every_texture_is_complete_square_and_a_power_of_two(name):
             assert image.width == image.height
             assert image.width & (image.width - 1) == 0
             sizes.add(image.size)
-    assert len(sizes) == 1, "alle Kanäle einer Textur müssen gleich groß sein"
+    assert len(sizes) == 1, "all channels of a texture must have the same size"
     assert MANIFEST[name]["tile_m"] > 0 and MANIFEST[name]["source"]

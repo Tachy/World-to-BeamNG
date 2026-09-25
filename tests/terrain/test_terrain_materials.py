@@ -1,4 +1,4 @@
-"""Tests für world_to_beamng.terrain.terrain_materials."""
+"""Tests for world_to_beamng.terrain.terrain_materials."""
 
 import sys
 from pathlib import Path
@@ -44,9 +44,9 @@ LANDUSE_MAPPINGS_FIXTURE = {
         "groundModelName": "dirt",
         "detailColorMap": "a/dirt_b.png",
     },
-    # Wohngebiete etc.: Luftbild bleibt, überdeckt aber darunterliegende Layer
+    # Residential areas etc.: aerial photo stays, but covers layers beneath it
     "urban": {"osm_tags": {"landuse": ["residential"]}, "priority": 12, "keep_photo": True},
-    # Wasser: eigener Bereich, aber der Boden darunter ist Wiese (Material der Kategorie "meadow")
+    # Water: own area, but the ground beneath it is meadow (material of the category "meadow")
     "water": {"osm_tags": {"natural": ["water"]}, "priority": 15, "use_material_of": "meadow"},
     "disabled": {
         "osm_tags": {"landuse": ["quarry"]},
@@ -55,14 +55,14 @@ LANDUSE_MAPPINGS_FIXTURE = {
         "active": False,
         "detailColorMap": "a/quarry_b.png",
     },
-    # Ohne osm_tags (z.B. der "base"-Fallback-Eintrag) wird nie zugeordnet
+    # Without osm_tags (e.g. the "base" fallback entry) it is never assigned
     "base": {"priority": 0, "internal_name": "mat_base_satellite"},
 }
 
 
 def test_get_landuse_category_matches_tag_values():
     assert get_landuse_category({"landuse": "forest"}, LANDUSE_MAPPINGS_FIXTURE) == "forest"
-    # Alias-Tags: natural=wood gehört zur Kategorie "forest", nicht nur landuse=forest
+    # Alias tags: natural=wood belongs to the category "forest", not only landuse=forest
     assert get_landuse_category({"natural": "wood"}, LANDUSE_MAPPINGS_FIXTURE) == "forest"
     assert get_landuse_category({"landuse": "grass"}, LANDUSE_MAPPINGS_FIXTURE) == "meadow"
     assert get_landuse_category({"natural": "grassland"}, LANDUSE_MAPPINGS_FIXTURE) == "meadow"
@@ -70,21 +70,21 @@ def test_get_landuse_category_matches_tag_values():
 
 
 def test_get_landuse_category_defaults_a_genuinely_unlisted_value_to_meadow():
-    # Fläche HAT ein landuse/natural/leisure-Tag, aber KEINE Kategorie kennt diesen Wert überhaupt (auch keine
-    # inaktive) -> generisches Gras statt unbemalt (Foto-Rest) zu bleiben.
+    # Area HAS a landuse/natural/leisure tag, but NO category knows this value at all (not even an
+    # inactive one) -> generic grass instead of staying unpainted (photo remainder).
     assert get_landuse_category({"landuse": "railway"}, LANDUSE_MAPPINGS_FIXTURE) == "meadow"
 
 
 def test_get_landuse_category_active_false_excludes_from_the_default_too():
-    # "active": False bedeutet "bewusst bekannt, aber nie ein Terrain-Layer" (z.B. Regionen wie
-    # natural=mountain_range, siehe test_landuse_config.py) - das ist etwas anderes als "unbekannt" und
-    # darf NICHT einfach in den generischen Gras-Default durchfallen.
+    # "active": False means "deliberately known, but never a terrain layer" (e.g. regions like
+    # natural=mountain_range, see test_landuse_config.py) - this is different from "unknown" and
+    # must NOT simply fall through to the generic grass default.
     assert get_landuse_category({"landuse": "quarry"}, LANDUSE_MAPPINGS_FIXTURE) is None
 
 
 def test_get_landuse_category_stays_none_without_any_area_tag():
-    # Kein landuse/natural/leisure-Tag überhaupt (Gebäude, komplett unbeschriftetes Element) -> bleibt None,
-    # wird NICHT zu Gras (das würde das gesamte unbeschriftete Terrain plattbügeln statt beim Luftbild zu bleiben).
+    # No landuse/natural/leisure tag at all (building, completely untagged element) -> stays None,
+    # does NOT become grass (that would flatten all untagged terrain instead of staying with the aerial photo).
     assert get_landuse_category({"building": "yes"}, LANDUSE_MAPPINGS_FIXTURE) is None
     assert get_landuse_category({}, LANDUSE_MAPPINGS_FIXTURE) is None
 
@@ -100,17 +100,17 @@ def test_get_landuse_category_returns_photo_category():
 
 
 def test_get_landuse_category_prefers_higher_priority_on_multiple_tags():
-    # forest (10) schlägt meadow (4), egal welcher Tag zuerst geprüft wird
+    # forest (10) beats meadow (4), regardless of which tag is checked first
     tags = {"landuse": "meadow", "natural": "wood"}
 
     assert get_landuse_category(tags, LANDUSE_MAPPINGS_FIXTURE) == "forest"
 
 
 def test_photo_fallback_layer_single_material_for_whole_area():
-    # Seit 2026-09-18: EIN Foto-Material für die gesamte Fläche statt vieler
-    # 500m-Kachel-Materialien (siehe Docstring von build_photo_fallback_layer() -
-    # BeamNGs Terrain-Atlas-Packer verdreht Kacheln sichtbar, wenn ihm zu viele
-    # große, einzigartige Materialien übergeben werden).
+    # Since 2026-09-18: ONE photo material for the whole area instead of many
+    # 500 m tile materials (see the docstring of build_photo_fallback_layer() -
+    # BeamNG's terrain atlas packer visibly scrambles tiles when it is given too many
+    # large, unique materials).
     layer_map, names = build_photo_fallback_layer(size=20)
 
     assert layer_map.shape == (20, 20)
@@ -121,7 +121,7 @@ def test_photo_fallback_layer_single_material_for_whole_area():
 def test_paint_landuse_overwrites_photo_fallback():
     size = 20
     layer_map, names = build_photo_fallback_layer(size=size)
-    assert len(names) == 1  # ein Foto-Material deckt alles ab
+    assert len(names) == 1  # one photo material covers everything
 
     forest_polygon = Polygon([(5, 5), (15, 5), (15, 15), (5, 15)])
     landuse_polygons = [{"osm_tags": {"landuse": "forest"}, "geometry": forest_polygon}]
@@ -133,9 +133,9 @@ def test_paint_landuse_overwrites_photo_fallback():
     assert "mat_forest" in new_names
     forest_index = new_names.index("mat_forest")
 
-    # Zelle innerhalb des Wald-Polygons muss jetzt das Wald-Material haben
+    # Cell inside the forest polygon must now have the forest material
     assert new_layer_map[10, 10] == forest_index
-    # Zelle außerhalb muss beim Foto-Fallback bleiben
+    # Cell outside must stay at the photo fallback
     assert new_layer_map[0, 0] == names.index(names[0])
     assert new_layer_map[0, 0] != forest_index
 
@@ -160,9 +160,9 @@ def test_paint_landuse_priority_resolves_overlap():
     layer_map = np.zeros((size, size), dtype=np.uint8)
     names = ["tile_0_0"]
 
-    # Zwei überlappende Polygone: farmland (priority=5) und forest (priority=10)
-    farmland_poly = Polygon([(0, 0), (20, 0), (20, 20), (0, 20)])  # deckt alles ab
-    forest_poly = Polygon([(5, 5), (15, 5), (15, 15), (5, 15)])  # kleinerer Ausschnitt
+    # Two overlapping polygons: farmland (priority=5) and forest (priority=10)
+    farmland_poly = Polygon([(0, 0), (20, 0), (20, 20), (0, 20)])  # covers everything
+    forest_poly = Polygon([(5, 5), (15, 5), (15, 15), (5, 15)])  # smaller section
 
     landuse_polygons = [
         {"osm_tags": {"landuse": "farmland"}, "geometry": farmland_poly},
@@ -176,15 +176,15 @@ def test_paint_landuse_priority_resolves_overlap():
     forest_index = new_names.index("mat_forest")
     farmland_index = new_names.index("mat_dirt")
 
-    # Im Überlappungsbereich gewinnt forest (höhere priority)
+    # In the overlap area forest wins (higher priority)
     assert new_layer_map[10, 10] == forest_index
-    # Außerhalb des Wald-Polygons, aber innerhalb des Farmland-Polygons: farmland
+    # Outside the forest polygon, but inside the farmland polygon: farmland
     assert new_layer_map[1, 1] == farmland_index
 
 
 def test_paint_landuse_photo_category_restores_photo_over_other_layers():
-    # Wohngebiet (keep_photo, priority 12) liegt über einer Wiese (4): dort soll
-    # wieder das Luftbild (Index 0) sichtbar sein, nicht das Gras-Material.
+    # Residential area (keep_photo, priority 12) lies over a meadow (4): there the
+    # aerial photo (index 0) should be visible again, not the grass material.
     size = 20
     layer_map, names = build_photo_fallback_layer(size=size)
     meadow = Polygon([(0, 0), (20, 0), (20, 20), (0, 20)])
@@ -196,9 +196,9 @@ def test_paint_landuse_photo_category_restores_photo_over_other_layers():
 
     new_map, new_names = paint_landuse_materials(layer_map, names, size, 0.0, 0.0, 1.0, polygons, LANDUSE_MAPPINGS_FIXTURE)
 
-    assert new_names == ["aerial_photo", "mat_grass"]  # kein Material für "urban" angelegt
-    assert new_map[10, 10] == 0  # Wohngebiet: Luftbild
-    assert new_map[1, 1] == new_names.index("mat_grass")  # Wiese außerhalb
+    assert new_names == ["aerial_photo", "mat_grass"]  # no material created for "urban"
+    assert new_map[10, 10] == 0  # residential area: aerial photo
+    assert new_map[1, 1] == new_names.index("mat_grass")  # meadow outside
 
 
 def test_paint_landuse_accepts_multipolygon_geometry():
@@ -225,9 +225,9 @@ def _fake_placeholders_for_tier(tier: str) -> dict:
 
 _FAKE_PLACEHOLDERS = {tier: _fake_placeholders_for_tier(tier) for tier in ("base", "detail", "macro")}
 
-# BeamNGs v1.5-Terrain-Material-Editor speichert kein TerrainMaterial mit
-# leerem Texturslot (siehe terrain_materials.py::_add_required_pbr_slots());
-# ohne einen davon rendert BeamNG die "warning texture" (grauer Boden).
+# BeamNG's v1.5 terrain material editor does not save a TerrainMaterial with
+# an empty texture slot (see terrain_materials.py::_add_required_pbr_slots());
+# without one of them BeamNG renders the "warning texture" (gray ground).
 _REQUIRED_TERRAIN_TEX_FIELDS = [
     f"{channel}{tier}Tex" for channel in ("baseColor", "normal", "roughness", "ao", "height") for tier in ("Base", "Detail", "Macro")
 ]
@@ -254,10 +254,10 @@ def test_build_terrain_material_entries():
 
 
 def test_landuse_material_uses_aerial_photo_as_base_and_grey_texture_as_detail():
-    # BeamNGs Terrain-Texturen (t_grass_01_b ...) sind graue DETAIL-Texturen
-    # (Mittelwert RGB ~124, Sättigung < 15/255): als Basis-Textur ergeben sie
-    # einheitlich graue Flächen. Die Farbe kommt deshalb aus dem Luftbild,
-    # die graue Textur liegt als Detail darüber (wie in BeamNGs eigenen Levels).
+    # BeamNG's terrain textures (t_grass_01_b ...) are gray DETAIL textures
+    # (mean RGB ~124, saturation < 15/255): as a base texture they produce
+    # uniformly gray areas. The color therefore comes from the aerial photo,
+    # the gray texture lies on top as detail (like in BeamNG's own levels).
     entries = build_terrain_material_entries(
         ["aerial_photo", "mat_forest"], ["aerial_photo"], LANDUSE_MAPPINGS_FIXTURE, "world_to_beamng", 2048.0, _FAKE_PLACEHOLDERS
     )
@@ -278,8 +278,8 @@ def test_landuse_material_placeholders_do_not_overwrite_real_detail_textures():
     grass = entries["mat_grass"]
 
     assert grass["baseColorDetailTex"] == "a/grass_b.png"
-    assert grass["baseColorDetailStrength"] != [0.0, 0.0]  # Standardstärke, nicht stummgeschaltet
-    # ohne detailNormalMap bleibt der Normal-Detail-Slot ein stummer Platzhalter
+    assert grass["baseColorDetailStrength"] != [0.0, 0.0]  # default strength, not muted
+    # without detailNormalMap the normal detail slot stays a silent placeholder
     assert grass["normalDetailTex"] == _FAKE_PLACEHOLDERS["detail"]["normal"]
     assert grass["normalDetailStrength"] == [0.0, 0.0]
 
@@ -289,8 +289,8 @@ def test_landuse_material_sets_ground_model_uppercase():
         ["aerial_photo", "mat_dirt"], ["aerial_photo"], LANDUSE_MAPPINGS_FIXTURE, "world_to_beamng", 2048.0, _FAKE_PLACEHOLDERS
     )
 
-    # BeamNGs groundmodels.json kennt nur GROSSGESCHRIEBENE Namen; ohne
-    # groundmodelName loggt BeamNG "ground model not found ... using asphalt"
+    # BeamNG's groundmodels.json only knows UPPERCASE names; without
+    # groundmodelName BeamNG logs "ground model not found ... using asphalt"
     assert entries["mat_dirt"]["groundmodelName"] == "DIRT"
 
 
@@ -299,16 +299,16 @@ def test_photo_layer_entry_keeps_the_asphalt_grip_explicitly():
         ["aerial_photo"], ["aerial_photo"], LANDUSE_MAPPINGS_FIXTURE, "world_to_beamng", 2048.0, _FAKE_PLACEHOLDERS
     )
 
-    # Verhalten unverändert (Straßen brauchen den Asphalt-Grip): früher war es der stille Engine-Fallback,
-    # jetzt steht ASPHALT explizit da (sonst loggt BeamNG "ground model not found ... using asphalt")
+    # Behavior unchanged (roads need the asphalt grip): it used to be the silent engine fallback,
+    # now ASPHALT is stated explicitly (otherwise BeamNG logs "ground model not found ... using asphalt")
     assert entries["aerial_photo"]["groundmodelName"] == "ASPHALT"
 
 
 def test_ensure_flat_pbr_placeholders_matches_declared_tex_sizes(tmp_path):
-    # Regression: BeamNG meldet "dont have required size of W-H" und rendert
-    # die "warning texture" (grauer Boden), wenn ein Texturslot nicht exakt
-    # die in der TerrainMaterialTextureSet deklarierte Pixelgröße hat - ein
-    # generisches 8x8-Platzhalterbild reichte NICHT (Recherche 2026-09-18).
+    # Regression: BeamNG reports "dont have required size of W-H" and renders
+    # the "warning texture" (gray ground) if a texture slot does not have exactly
+    # the pixel size declared in the TerrainMaterialTextureSet - a
+    # generic 8x8 placeholder image was NOT enough (research 2026-09-18).
     placeholders = ensure_flat_pbr_placeholders(tmp_path, "world_to_beamng", base_tex_size=4096, detail_tex_size=1024, macro_tex_size=1024)
 
     for tier, expected_size in (("base", 4096), ("detail", 1024), ("macro", 1024)):
@@ -336,8 +336,8 @@ def _sized_fixture(tmp_path, size):
 
 
 def test_ensure_landuse_detail_textures_sized_resizes_mismatched_textures(tmp_path):
-    # Detail-Texturen müssen exakt die detailTexSize der TerrainMaterialTextureSet
-    # haben, sonst rendert BeamNG die "warning texture" (grauer Boden).
+    # Detail textures must have exactly the detailTexSize of the TerrainMaterialTextureSet,
+    # otherwise BeamNG renders the "warning texture" (gray ground).
     mappings, beamng_dir, textures_dir = _sized_fixture(tmp_path, 512)
 
     result = ensure_landuse_detail_textures_sized(mappings, 1024, beamng_dir, textures_dir, "world_to_beamng")
@@ -389,14 +389,14 @@ def test_mark_padding_as_holes_only_touches_cells_beyond_the_data():
     from world_to_beamng.terrain.terrain_materials import mark_padding_as_holes
     from world_to_beamng.terrain.ter_writer import EMPTY_LAYER_VALUE
 
-    layer_map = np.full((8, 8), 3, dtype=np.uint8)  # 8x8-Terrain, Daten nur 5 Spalten x 6 Zeilen
+    layer_map = np.full((8, 8), 3, dtype=np.uint8)  # 8x8 terrain, data only 5 columns x 6 rows
 
     result = mark_padding_as_holes(layer_map, data_cols=5, data_rows=6)
 
-    assert (result[:6, :5] == 3).all()  # echte Daten bleiben unberührt
-    assert (result[:, 5:] == EMPTY_LAYER_VALUE).all()  # Spalten jenseits der Daten
-    assert (result[6:, :] == EMPTY_LAYER_VALUE).all()  # Zeilen jenseits der Daten
-    assert (layer_map == 3).all()  # Eingabe wird nicht verändert
+    assert (result[:6, :5] == 3).all()  # real data stays untouched
+    assert (result[:, 5:] == EMPTY_LAYER_VALUE).all()  # columns beyond the data
+    assert (result[6:, :] == EMPTY_LAYER_VALUE).all()  # rows beyond the data
+    assert (layer_map == 3).all()  # input is not modified
 
 
 def test_mark_padding_as_holes_without_padding_is_a_noop():
@@ -407,7 +407,7 @@ def test_mark_padding_as_holes_without_padding_is_a_noop():
     assert (mark_padding_as_holes(layer_map, data_cols=4, data_rows=4) == 1).all()
 
 
-# --- Vier-Bilder-Modus: ein Foto und je Kachel eine Variante jeder Landnutzungs-Schicht ---------------
+# --- Four-image mode: one photo and one variant of each land use layer per tile ----------------------
 
 
 def _tile_entries():
@@ -432,7 +432,7 @@ def test_each_tile_photo_is_its_own_material_with_the_tile_extent():
         photo = entries[f"aerial_photo_{k}"]
         assert photo["internalName"] == f"aerial_photo_{k}"
         assert photo["baseColorBaseTex"] == f"/levels/world_to_beamng/art/shapes/textures/aerial_photo_{k}.png"
-        assert photo["baseColorBaseTexSize"] == 2000.0  # Kachel, nicht die ganze Fläche (4096)
+        assert photo["baseColorBaseTexSize"] == 2000.0  # tile, not the whole area (4096)
 
 
 def test_landuse_variants_use_the_photo_of_their_own_tile_and_keep_the_detail_texture():
@@ -443,7 +443,7 @@ def test_landuse_variants_use_the_photo_of_their_own_tile_and_keep_the_detail_te
     assert forest["baseColorBaseTex"].endswith("/aerial_photo_0.png")
     assert grass["baseColorBaseTex"].endswith("/aerial_photo_1.png")
     assert forest["baseColorBaseTexSize"] == grass["baseColorBaseTexSize"] == 2000.0
-    assert forest["baseColorDetailTex"] == "a/forest_b.png"  # Detail kommt aus der Schicht, nicht aus dem Namen
+    assert forest["baseColorDetailTex"] == "a/forest_b.png"  # detail comes from the layer, not from the name
     assert grass["baseColorDetailTex"] == "a/grass_b.png"
     assert forest["groundmodelName"] == "GRASS"
 
@@ -467,7 +467,7 @@ def test_single_photo_mode_is_unchanged_without_variants():
 
 
 def test_photo_materials_have_an_explicit_ground_model():
-    # Ohne Boden-Modell loggt BeamNG "ground model not found for collision: 'AERIAL_PHOTO_0' - using asphalt"
+    # Without a ground model BeamNG logs "ground model not found for collision: 'AERIAL_PHOTO_0' - using asphalt"
     entries = build_terrain_material_entries(
         ["aerial_photo_0", "aerial_photo_1"], ["aerial_photo_0", "aerial_photo_1"], LANDUSE_MAPPINGS_FIXTURE,
         "world_to_beamng", 4096.0, _FAKE_PLACEHOLDERS,
@@ -477,7 +477,7 @@ def test_photo_materials_have_an_explicit_ground_model():
 
 
 def _reference_paint(layer_map, size, origin_x, origin_y, square_size, shapes):
-    """Bisheriges Verfahren: jedes Polygon über die volle Karte rasterisieren."""
+    """Previous method: rasterize every polygon over the full map."""
     from affine import Affine
     from rasterio.features import rasterize
 
@@ -493,16 +493,16 @@ def _reference_paint(layer_map, size, origin_x, origin_y, square_size, shapes):
 def test_paint_landuse_matches_full_grid_rasterization_for_windowed_burning():
     from shapely.geometry import MultiPolygon, box
 
-    size, origin_x, origin_y, square_size = 64, -30.0, 12.5, 2.0  # Karte deckt x -30..98, y 12.5..140.5
+    size, origin_x, origin_y, square_size = 64, -30.0, 12.5, 2.0  # map covers x -30..98, y 12.5..140.5
     rng = np.random.RandomState(4)
     geometries = [
         box(0, 20, 40, 60),
-        box(-60, -40, -10, 30),  # ragt links/unten über die Karte hinaus
-        box(80, 120, 200, 300),  # ragt rechts/oben hinaus
-        box(500, 500, 520, 520),  # komplett außerhalb
+        box(-60, -40, -10, 30),  # extends beyond the map on the left/bottom
+        box(80, 120, 200, 300),  # extends beyond on the right/top
+        box(500, 500, 520, 520),  # completely outside
         Polygon([(10, 30), (70, 40), (50, 100)], holes=[[(30, 45), (45, 48), (38, 60)]]),
         MultiPolygon([box(-20, 60, 0, 80), box(60, 60, 90, 90)]),
-        box(20.3, 33.7, 20.9, 34.1),  # kleiner als eine Zelle
+        box(20.3, 33.7, 20.9, 34.1),  # smaller than one cell
     ]
     for _ in range(12):
         x, y = rng.uniform(-40, 100), rng.uniform(0, 150)
@@ -534,8 +534,8 @@ def test_paint_landuse_matches_full_grid_rasterization_for_windowed_burning():
 
 
 def test_paint_landuse_without_background_category_leaves_unmapped_area_as_photo():
-    # Bisheriges Verhalten (kein background_category übergeben): Flächen ganz ohne Landnutzungs-Polygon
-    # bleiben beim Luftbild - das ist genau die vom Nutzer gemeldete Lücke, die background_category schließt.
+    # Previous behavior (no background_category passed): areas without any land use polygon
+    # stay with the aerial photo - this is exactly the gap reported by the user that background_category closes.
     size = 20
     layer_map, names = build_photo_fallback_layer(size=size)
     forest_polygon = Polygon([(5, 5), (10, 5), (10, 10), (5, 10)])
@@ -545,14 +545,14 @@ def test_paint_landuse_without_background_category_leaves_unmapped_area_as_photo
         layer_map, names, size, 0.0, 0.0, 1.0, landuse_polygons, LANDUSE_MAPPINGS_FIXTURE
     )
 
-    assert new_layer_map[18, 18] == 0  # weit weg vom Wald-Polygon: bleibt Luftbild, kein Gras
+    assert new_layer_map[18, 18] == 0  # far from the forest polygon: stays aerial photo, no grass
 
 
 def test_paint_landuse_background_category_fills_unmapped_area_with_meadow():
-    # Regression: Flächen OHNE jedes Landnutzungs-Polygon (kein OSM-Element deckt sie ab) bekamen bisher nie
-    # Gras - DEFAULT_LANDUSE_CATEGORY (get_landuse_category()) greift nur bei einem VORHANDENEN, aber
-    # unbekannten landuse-Tag-WERT, nicht wenn gar kein Element existiert. background_category füllt die
-    # GESAMTE Fläche zuerst mit der gegebenen Kategorie, bevor echte Polygone obendrauf gebrannt werden.
+    # Regression: areas WITHOUT any land use polygon (no OSM element covers them) never used to get
+    # grass - DEFAULT_LANDUSE_CATEGORY (get_landuse_category()) only applies to an EXISTING but
+    # unknown landuse tag VALUE, not when no element exists at all. background_category first fills the
+    # ENTIRE area with the given category, before real polygons are burned in on top.
     size = 20
     layer_map, names = build_photo_fallback_layer(size=size)
     forest_polygon = Polygon([(5, 5), (10, 5), (10, 10), (5, 10)])
@@ -564,13 +564,13 @@ def test_paint_landuse_background_category_fills_unmapped_area_with_meadow():
     )
 
     assert "mat_grass" in new_names
-    assert new_layer_map[18, 18] == new_names.index("mat_grass")  # weit weg vom Wald: jetzt Wiese statt Foto
-    assert new_layer_map[7, 7] == new_names.index("mat_forest")  # Wald-Polygon überdeckt den Hintergrund weiterhin
+    assert new_layer_map[18, 18] == new_names.index("mat_grass")  # far from the forest: now meadow instead of photo
+    assert new_layer_map[7, 7] == new_names.index("mat_forest")  # forest polygon still covers the background
 
 
 def test_paint_landuse_background_category_is_overridden_by_any_real_polygon_regardless_of_priority():
-    # Der Hintergrund wird VOR der Prioritäts-sortierten Schleife gemalt, nicht als Teilnehmer daran - ein
-    # niedrig priorisiertes reales Polygon (residential, priority 3 < meadow 4) muss ihn trotzdem überdecken.
+    # The background is painted BEFORE the priority-sorted loop, not as a participant in it - a
+    # low-priority real polygon (residential, priority 3 < meadow 4) must still cover it.
     size = 20
     layer_map, names = build_photo_fallback_layer(size=size)
     residential = Polygon([(5, 5), (15, 5), (15, 15), (5, 15)])
@@ -581,8 +581,8 @@ def test_paint_landuse_background_category_is_overridden_by_any_real_polygon_reg
         background_category="meadow",
     )
 
-    assert new_layer_map[10, 10] == 0  # Wohngebiet (keep_photo) gewinnt trotz niedrigerer Priorität als meadow
-    assert new_layer_map[1, 1] == new_names.index("mat_grass")  # außerhalb: Hintergrund-Wiese
+    assert new_layer_map[10, 10] == 0  # residential area (keep_photo) wins despite lower priority than meadow
+    assert new_layer_map[1, 1] == new_names.index("mat_grass")  # outside: background meadow
 
 
 def test_paint_landuse_background_category_with_keep_photo_is_a_noop():
@@ -623,6 +623,6 @@ def test_ground_under_water_is_meadow_even_inside_a_forest():
         layer_map, names, size, 0.0, 0.0, 1.0, landuse_polygons, LANDUSE_MAPPINGS_FIXTURE
     )
 
-    assert new_layer_map[10, 10] == new_names.index("mat_grass")  # unter dem Wasser: Wiese, nicht Wald oder Luftbild
+    assert new_layer_map[10, 10] == new_names.index("mat_grass")  # under the water: meadow, not forest or aerial photo
     assert new_layer_map[1, 1] == new_names.index("mat_forest")
-    assert "mat_water" not in new_names and len(new_names) == 3  # kein eigenes Wasser-Material
+    assert "mat_water" not in new_names and len(new_names) == 3  # no water material of its own

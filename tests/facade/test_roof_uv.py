@@ -1,8 +1,8 @@
 """
-Tests für das metrische Dach-UV-Mapping.
+Tests for the metric roof UV mapping.
 
-Kerninvariante: Die Abbildung Dachebene -> UV ist längentreu (Isometrie bis auf den Faktor ROOF_REPEAT_M).
-Damit ist ein Biberschwanz-Ziegel immer ROOF_TILE_WIDTH_M breit, egal wie steil das Dach ist.
+Core invariant: the mapping roof plane -> UV is length-preserving (isometry up to the factor ROOF_REPEAT_M).
+Thus a beaver-tail tile is always ROOF_TILE_WIDTH_M wide, no matter how steep the roof is.
 """
 
 import sys
@@ -19,11 +19,11 @@ from world_to_beamng.facade.roof_uv import RoofUvMapper
 SLOPES_DEG = [0.0, 30.0, 45.0, 60.0, 75.0]
 
 RECTANGLE = [(0.0, 0.0), (12.0, 0.0), (12.0, 7.0), (0.0, 7.0)]
-L_SHAPE = [(0.0, 0.0), (12.0, 0.0), (12.0, 4.0), (5.0, 4.0), (5.0, 9.0), (0.0, 9.0)]  # konkav
+L_SHAPE = [(0.0, 0.0), (12.0, 0.0), (12.0, 4.0), (5.0, 4.0), (5.0, 9.0), (0.0, 9.0)]  # concave
 
 
 def _roof(outline, slope_deg, azimuth_deg=37.0, origin=(1000.0, 2000.0, 300.0)):
-    """Dachpolygon im Raum: a läuft entlang der Traufe, b die Neigung hinauf (b = Länge IN der Dachebene)."""
+    """Roof polygon in space: a runs along the eave, b up the slope (b = length IN the roof plane)."""
     slope = np.radians(slope_deg)
     azimuth = np.radians(azimuth_deg)
     eave = np.array([np.cos(azimuth), np.sin(azimuth), 0.0])
@@ -33,7 +33,7 @@ def _roof(outline, slope_deg, azimuth_deg=37.0, origin=(1000.0, 2000.0, 300.0)):
 
 
 def _closed(verts):
-    """Wie im CityGML-Ring: letzter Punkt = erster Punkt."""
+    """As in the CityGML ring: last point = first point."""
     return np.vstack([verts, verts[:1]])
 
 
@@ -56,7 +56,7 @@ def test_uv_distance_equals_world_distance(slope, outline):
 
 
 def test_steep_roof_is_not_stretched_along_the_slope():
-    # Regression: 45°-Dach, 10 m in der Dachebene -> die alte Grundriss-Projektion lieferte nur 7,07 m
+    # Regression: 45° roof, 10 m in the roof plane -> the old footprint projection yielded only 7.07 m
     verts = _roof([(0.0, 0.0), (6.0, 0.0), (6.0, 10.0), (0.0, 10.0)], 45.0)
 
     uvs = RoofUvMapper().map_polygon(verts)
@@ -65,7 +65,7 @@ def test_steep_roof_is_not_stretched_along_the_slope():
 
 
 def test_one_tile_is_always_the_configured_width():
-    # 0,20 m entlang der Traufe = genau ein Ziegel = 1/ROOF_TILES_PER_REPEAT der Textur
+    # 0.20 m along the eave = exactly one tile = 1/ROOF_TILES_PER_REPEAT of the texture
     verts = _roof([(0.0, 0.0), (config.ROOF_TILE_WIDTH_M, 0.0), (config.ROOF_TILE_WIDTH_M, 3.0), (0.0, 3.0)], 60.0)
 
     uvs = RoofUvMapper().map_polygon(verts)
@@ -73,13 +73,13 @@ def test_one_tile_is_always_the_configured_width():
     assert uvs[1, 0] - uvs[0, 0] == pytest.approx(1.0 / config.ROOF_TILES_PER_REPEAT)
 
 
-@pytest.mark.parametrize("slope", [s for s in SLOPES_DEG if s > 0])  # Flachdächer haben keine Traufrichtung
+@pytest.mark.parametrize("slope", [s for s in SLOPES_DEG if s > 0])  # flat roofs have no eave direction
 def test_tile_rows_run_parallel_to_the_eave(slope):
     verts = _roof(RECTANGLE, slope)
 
     uvs = RoofUvMapper().map_polygon(verts)
 
-    # Traufe = Kante 0->1 (a-Richtung): gleiche V, ihre Länge läuft in U
+    # Eave = edge 0->1 (a direction): same V, its length runs along U
     assert uvs[0, 1] == pytest.approx(uvs[1, 1])
     assert uvs[1, 0] - uvs[0, 0] == pytest.approx(12.0 / config.ROOF_REPEAT_M)
 

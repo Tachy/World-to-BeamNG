@@ -1,7 +1,7 @@
 """
-Tests für world_to_beamng.utils.tile_scanner.scan_elevation_tiles() - erkennt Höhendaten-Kacheln
-(ASCII-XYZ in ZIP, lose GeoTIFF, GeoTIFF in ZIP) unabhängig vom Dateinamen, sowie
-resolve_source_crs_epsg() und compute_global_bbox()/compute_global_center().
+Tests for world_to_beamng.utils.tile_scanner.scan_elevation_tiles() - detects elevation data tiles
+(ASCII XYZ in ZIP, loose GeoTIFF, GeoTIFF in ZIP) regardless of the file name, as well as
+resolve_source_crs_epsg() and compute_global_bbox()/compute_global_center().
 """
 
 import sys
@@ -24,7 +24,7 @@ from world_to_beamng.utils.tile_scanner import (
 
 
 def _xyz_zip(path, x0, y0):
-    """ZIP mit einer XYZ-Punktdatei, beliebiger Dateiname (kein LGL-Schema nötig)."""
+    """ZIP with an XYZ point file, arbitrary file name (no LGL naming scheme needed)."""
     rows = [(x0, y0, 10.0), (x0 + 1.0, y0, 10.5), (x0, y0 + 1.0, 11.0)]
     text = "\n".join(f"{x} {y} {z}" for x, y, z in rows)
     with zipfile.ZipFile(path, "w") as zf:
@@ -59,20 +59,20 @@ def test_scans_xyz_zip_with_arbitrary_filename(tmp_path):
 
     assert len(tiles) == 1
     assert tiles[0]["crs_epsg"] is None
-    # aus den echten Daten, nicht dem Dateinamen; Punkte bei 0.0/1.0 im 1m-Gitter -> Abdeckung
-    # reicht 0.5m ueber die aeusseren Punkte hinaus (Zellmittelpunkte, siehe elevation_io)
+    # from the real data, not the file name; points at 0.0/1.0 on the 1 m grid -> coverage
+    # extends 0.5 m beyond the outer points (cell centers, see elevation_io)
     assert tiles[0]["bbox_utm"] == pytest.approx((-0.5, 1.5, -0.5, 1.5))
 
 
 def test_scans_loose_geotiff_with_lgl_like_filename(tmp_path):
-    # Absichtlich ein Dateiname im LGL-Schema, obwohl es ein GeoTIFF ist - Dateiname darf keine Rolle spielen
+    # Deliberately a file name in the LGL scheme although it is a GeoTIFF - the file name must not matter
     _geotiff(tmp_path / "dgm1_32_399_5296_2_bw.tif", bounds=(0.0, 0.0, 4.0, 4.0), crs="EPSG:25832")
 
     tiles = scan_elevation_tiles(tmp_path, cache_dir=tmp_path / "cache")
 
     assert len(tiles) == 1
     assert tiles[0]["crs_epsg"] == 25832
-    # bbox_utm ist die ECHTE Rasterabdeckung (0..4), nicht aus Pixel-Mittelpunkten abgeleitet
+    # bbox_utm is the REAL raster coverage (0..4), not derived from pixel centers
     assert tiles[0]["bbox_utm"] == pytest.approx((0.0, 4.0, 0.0, 4.0))
 
 
@@ -122,7 +122,7 @@ def test_resolve_raises_on_conflicting_crs():
 def test_compute_global_bbox_handles_non_square_tiles():
     tiles = [
         {"bbox_utm": (0.0, 10.0, 0.0, 20.0)},   # 10x20
-        {"bbox_utm": (10.0, 15.0, 0.0, 5.0)},   # 5x5, versetzt
+        {"bbox_utm": (10.0, 15.0, 0.0, 5.0)},   # 5x5, offset
     ]
 
     assert compute_global_bbox(tiles) == (0.0, 15.0, 0.0, 20.0)

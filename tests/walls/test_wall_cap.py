@@ -1,4 +1,4 @@
-"""Tests für die Abdeckplatten der Mauern (walls/wall_cap.py): Steinplatten oben auf der Mauer mit Überstand."""
+"""Tests for the cap slabs of the walls (walls/wall_cap.py): stone slabs on top of the wall with overhang."""
 
 import sys
 from pathlib import Path
@@ -26,7 +26,7 @@ def _mesh(coords, **kwargs):
 
 
 def _top_face_vertices(mesh):
-    """Eckpunkte der Plattenoberseiten: auf Plattenhöhe und mit Normale nach oben."""
+    """Corner points of the slab tops: at slab height and with an upward normal."""
     v, n = mesh["vertices"], mesh["normals"]
     return v[(np.abs(v[:, 2] - CAP_TOP) < 1e-9) & (n[:, 2] > 0.99)]
 
@@ -36,11 +36,11 @@ def _top_face_vertices(mesh):
 
 def test_config_has_the_agreed_cap_dimensions():
     assert config.WALL_CAP_THICKNESS == pytest.approx(0.05)
-    assert 0.02 <= config.WALL_CAP_OVERHANG <= 0.06  # "ein paar Zentimeter"
+    assert 0.02 <= config.WALL_CAP_OVERHANG <= 0.06  # "a few centimeters"
     assert config.WALL_CAP_PLATE_LENGTH > 0.3 and 0 < config.WALL_CAP_JOINT < 0.03
 
 
-# --- Plattenaufteilung ----------------------------------------------------------------------------------------------
+# --- Slab layout ----------------------------------------------------------------------------------------------
 
 
 def test_plate_spans_fill_the_range_with_joints_and_varying_lengths():
@@ -50,7 +50,7 @@ def test_plate_spans_fill_the_range_with_joints_and_varying_lengths():
     for (_, end), (start, _) in zip(spans[:-1], spans[1:]):
         assert start - end == pytest.approx(0.01)
     lengths = [end - start for start, end in spans]
-    assert max(lengths) - min(lengths) > 0.05  # nicht alle gleich lang
+    assert max(lengths) - min(lengths) > 0.05  # not all the same length
     assert all(0.2 < length < 1.3 for length in lengths)
 
 
@@ -62,29 +62,29 @@ def test_plate_spans_never_end_with_a_sliver():
 
 def test_plate_spans_are_deterministic_and_handle_short_runs():
     assert plate_spans(0.0, 5.0, 0.8, 0.01, np.random.default_rng(7)) == plate_spans(0.0, 5.0, 0.8, 0.01, np.random.default_rng(7))
-    assert plate_spans(2.0, 2.2, 0.8, 0.01, np.random.default_rng(0)) == [(2.0, 2.2)]  # kürzer als eine Platte: eine kleine Platte
+    assert plate_spans(2.0, 2.2, 0.8, 0.01, np.random.default_rng(0)) == [(2.0, 2.2)]  # shorter than one slab: one small slab
     assert plate_spans(2.0, 2.0, 0.8, 0.01, np.random.default_rng(0)) == []
 
 
-# --- Ecken ----------------------------------------------------------------------------------------------------------
+# --- Corners ----------------------------------------------------------------------------------------------------------
 
 
 def test_corners_are_found_where_the_wall_turns():
-    points = np.array([[0.0, 0.0], [5.0, 0.0], [10.0, 0.0], [10.0, 8.0]])  # Knick am dritten Punkt, Punkt 2 liegt auf der Geraden
+    points = np.array([[0.0, 0.0], [5.0, 0.0], [10.0, 0.0], [10.0, 8.0]])  # bend at the third point, point 2 lies on the straight line
     arc = np.array([0.0, 5.0, 10.0, 18.0])
 
     assert corner_arcs(points, closed=False, arc=arc) == [pytest.approx(10.0)]
 
 
 def test_a_gentle_bend_is_not_a_corner_but_a_ring_has_four():
-    gentle = np.array([[0.0, 0.0], [5.0, 0.0], [10.0, 0.5]])  # ca. 6 Grad
+    gentle = np.array([[0.0, 0.0], [5.0, 0.0], [10.0, 0.5]])  # approx. 6 degrees
     square = np.array([[0.0, 0.0], [10.0, 0.0], [10.0, 10.0], [0.0, 10.0]])
 
     assert corner_arcs(gentle, closed=False, arc=np.array([0.0, 5.0, 10.0])) == []
     assert len(corner_arcs(square, closed=True, arc=np.array([0.0, 10.0, 20.0, 30.0, 40.0]))) == 4
 
 
-# --- Geometrie ------------------------------------------------------------------------------------------------------
+# --- Geometry ------------------------------------------------------------------------------------------------------
 
 
 def test_the_wall_keeps_its_height_with_the_cap_on_top_and_the_body_below_it():
@@ -93,14 +93,14 @@ def test_the_wall_keeps_its_height_with_the_cap_on_top_and_the_body_below_it():
     z = mesh["vertices"][:, 2]
     assert z.max() == pytest.approx(CAP_TOP)
     body_top_faces = (np.abs(z - (CAP_TOP - CAP_T)) < 1e-9) & (mesh["normals"][:, 2] > 0.99)
-    assert body_top_faces.any()  # zwischen den Fugen bleibt der Mauerkörper sichtbar
+    assert body_top_faces.any()  # the wall body stays visible between the joints
 
 
 def test_the_plates_overhang_the_wall_by_a_few_centimetres_on_all_open_sides():
     top = _top_face_vertices(_mesh([(0, 0), (10, 0)]))
 
     assert np.abs(top[:, 1]).max() == pytest.approx(THICKNESS / 2 + OVERHANG)
-    assert top[:, 0].min() == pytest.approx(-OVERHANG) and top[:, 0].max() == pytest.approx(10.0 + OVERHANG)  # auch an den Stirnseiten
+    assert top[:, 0].min() == pytest.approx(-OVERHANG) and top[:, 0].max() == pytest.approx(10.0 + OVERHANG)  # also at the end faces
 
 
 def test_the_plates_are_separated_by_joints():
@@ -108,7 +108,7 @@ def test_the_plates_are_separated_by_joints():
 
     xs = np.unique(np.round(top[:, 0], 6))
     joints = np.isclose(np.diff(xs), config.WALL_CAP_JOINT, atol=1e-6).sum()
-    assert 8 <= joints <= 14  # 10 m mit ca. 0,8 m langen Platten
+    assert 8 <= joints <= 14  # 10 m with approx. 0.8 m long slabs
 
 
 def test_an_underside_makes_the_overhang_solid():
@@ -126,8 +126,8 @@ def test_plates_are_mitred_at_a_corner_and_do_not_bend_around_it():
     def has(x, y):
         return bool((np.hypot(top[:, 0] - x, top[:, 1] - y) < 1e-6).any())
 
-    assert has(10 + half, -half) and has(10 - half, half)  # Gehrungspunkte außen und innen
-    assert top[:, 0].max() == pytest.approx(10 + half) and top[:, 1].min() == pytest.approx(-half)  # nichts steht darüber hinaus
+    assert has(10 + half, -half) and has(10 - half, half)  # miter points outside and inside
+    assert top[:, 0].max() == pytest.approx(10 + half) and top[:, 1].min() == pytest.approx(-half)  # nothing protrudes beyond that
 
 
 def test_a_closed_wall_is_covered_all_around_without_overlap_at_the_start():
@@ -136,7 +136,7 @@ def test_a_closed_wall_is_covered_all_around_without_overlap_at_the_start():
 
     top = _top_face_vertices(mesh)
     half = THICKNESS / 2 + OVERHANG
-    assert top[:, 0].min() == pytest.approx(-half) and top[:, 0].max() == pytest.approx(10 + half)  # nur Überstand, keine Verlängerung
+    assert top[:, 0].min() == pytest.approx(-half) and top[:, 0].max() == pytest.approx(10 + half)  # overhang only, no extension
     assert top[:, 1].min() == pytest.approx(-half) and top[:, 1].max() == pytest.approx(10 + half)
 
 

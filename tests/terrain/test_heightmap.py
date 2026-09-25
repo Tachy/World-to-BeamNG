@@ -1,4 +1,4 @@
-"""Tests für world_to_beamng.terrain.heightmap."""
+"""Tests for world_to_beamng.terrain.heightmap."""
 
 import sys
 from pathlib import Path
@@ -26,12 +26,12 @@ def test_next_power_of_two_size_exceeds_max():
 
 
 def _make_regular_grid(nx, ny, spacing, base_height=100.0):
-    """Baut ein synthetisches Grid wie terrain.grid.create_terrain_grid() es liefert."""
+    """Builds a synthetic grid like terrain.grid.create_terrain_grid() returns it."""
     x_coords = np.arange(nx) * spacing
     y_coords = np.arange(ny) * spacing
     grid_x, grid_y = np.meshgrid(x_coords, y_coords)  # shape (ny, nx)
     grid_points = np.column_stack([grid_x.ravel(), grid_y.ravel()])
-    # Höhe = base_height + x*0.1 (linearer Gradient, um Reshape-Reihenfolge zu prüfen)
+    # Height = base_height + x*0.1 (linear gradient, to check the reshape order)
     grid_elevations = base_height + grid_x.ravel() * 0.1
     return grid_points, grid_elevations, nx, ny
 
@@ -47,7 +47,7 @@ def test_build_heightmap_preserves_real_data():
     assert result["origin_x"] == 0.0
     assert result["origin_y"] == 0.0
 
-    # Echte Daten im Bereich [0:ny, 0:nx] müssen exakt erhalten bleiben
+    # Real data in the range [0:ny, 0:nx] must be preserved exactly
     expected = grid_elevations.reshape(ny, nx)
     assert np.allclose(result["heights"][:ny, :nx], expected)
 
@@ -59,8 +59,8 @@ def test_build_heightmap_pads_edges_without_cliff():
     result = build_heightmap(grid_points, grid_elevations, nx, ny, square_size=spacing)
     heights = result["heights"]
 
-    # Padding-Bereich (rechts von Spalte nx-1) muss die letzte echte Spalte fortsetzen,
-    # nicht auf 0 springen (das wäre eine sichtbare Kante, siehe Spec Abschnitt 8)
+    # Padding area (right of column nx-1) must continue the last real column,
+    # not jump to 0 (that would be a visible edge, see spec section 8)
     last_real_col = heights[:ny, nx - 1]
     first_padded_col = heights[:ny, nx]
     assert np.allclose(last_real_col, first_padded_col)
@@ -72,7 +72,7 @@ def test_build_heightmap_rejects_mismatched_square_size():
 
     try:
         build_heightmap(grid_points, grid_elevations, nx, ny, square_size=5.0)  # wrong, doesn't match spacing=2.0
-        assert False, "sollte ValueError werfen (square_size != tatsächlicher Grid-Abstand)"
+        assert False, "should raise ValueError (square_size != actual grid spacing)"
     except ValueError as e:
         assert "square_size" in str(e)
 

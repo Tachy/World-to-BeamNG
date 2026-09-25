@@ -1,4 +1,4 @@
-"""Tests für extract_roads_from_osm(): welche highway-Ways als Straße exportiert werden."""
+"""Tests for extract_roads_from_osm(): which highway ways are exported as a road."""
 
 import sys
 from pathlib import Path
@@ -26,7 +26,7 @@ def test_area_ways_are_dropped():
 
 @pytest.mark.parametrize("lifecycle", ["construction", "proposed", "planned", "abandoned", "disused", "razed", "demolished"])
 def test_lifecycle_highways_are_dropped(lifecycle):
-    # z.B. die im Bau befindliche 2. Gotthardröhre: highway=construction + construction=trunk + tunnel=yes
+    # e.g. the 2nd Gotthard tube under construction: highway=construction + construction=trunk + tunnel=yes
     elements = [_way(1, highway=lifecycle, construction="trunk", tunnel="yes"), _way(2, highway="secondary")]
 
     assert [w["id"] for w in extract_roads_from_osm(elements)] == [2]

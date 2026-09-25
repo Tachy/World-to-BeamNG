@@ -1,7 +1,7 @@
 """
-Tests: Die fertigen Baum-Instanzen (Poisson-Disk-Sampling + Höhen-Interpolation +
-Instanz-Generierung, der teuerste Teil von ForestWorkflow.process_tile()) werden pro
-Gebiet/Höhendaten-Stand gecacht - siehe forest_workflow.py::_forest_cache_key() & Co.
+Tests: The finished tree instances (Poisson disk sampling + elevation interpolation +
+instance generation, the most expensive part of ForestWorkflow.process_tile()) are cached per
+area/elevation data version - see forest_workflow.py::_forest_cache_key() & co.
 """
 
 import sys
@@ -39,10 +39,10 @@ def test_cache_key_is_stable_for_identical_inputs():
 
 
 def test_cache_key_keeps_height_hash_visible_as_a_prefix():
-    """height_hash muss lesbar im Schlüssel/Dateinamen auftauchen, wie überall sonst in dieser
-    Pipeline (osm_all_<height_hash>.json, grid_v3_grid_<height_hash>_..., dgm30_horizon_<tile_hash>_...)
-    - macht zusammengehörige Cache-Dateien eines Laufs auf einen Blick erkennbar, statt alles in
-    einem einzigen opaken Hash zu verstecken."""
+    """height_hash must appear readably in the key/file name, like everywhere else in this
+    pipeline (osm_all_<height_hash>.json, grid_v3_grid_<height_hash>_..., dgm30_horizon_<tile_hash>_...)
+    - it makes the related cache files of a run recognizable at a glance, instead of hiding everything in
+    a single opaque hash."""
     workflow = _workflow()
     key = workflow._forest_cache_key(TILE_BOUNDS, OFFSET, height_hash="4113e78937c1")
     assert key.startswith("4113e78937c1_")
@@ -52,7 +52,7 @@ def test_cache_key_changes_when_height_hash_changes():
     workflow = _workflow()
     key_a = workflow._forest_cache_key(TILE_BOUNDS, OFFSET, height_hash="abc123")
     key_b = workflow._forest_cache_key(TILE_BOUNDS, OFFSET, height_hash="xyz789")
-    assert key_a != key_b  # z.B. Wechsel zwischen zwei Testregionen (BaWue <-> Schweiz)
+    assert key_a != key_b  # e.g. switching between two test regions (BaWue <-> Switzerland)
 
 
 def test_cache_key_changes_when_tile_bounds_change():
@@ -82,7 +82,7 @@ def test_save_and_load_cached_tree_instances_roundtrip(tmp_path, monkeypatch):
         {"type": "oak", "pos": [1.0, 2.0, 3.0], "rotationMatrix": [1, 0, 0, 0, 1, 0, 0, 0, 1], "scale": 1.1}
     ]
 
-    assert workflow._load_cached_tree_instances(cache_key) is None  # noch kein Cache
+    assert workflow._load_cached_tree_instances(cache_key) is None  # no cache yet
 
     workflow._save_cached_tree_instances(cache_key, instances, forests_count=3)
     loaded_instances, loaded_forests_count = workflow._load_cached_tree_instances(cache_key)
@@ -102,7 +102,7 @@ def test_save_cached_tree_instances_is_a_noop_without_a_cache_key(tmp_path, monk
 
     workflow._save_cached_tree_instances(None, [{"type": "oak"}], forests_count=1)
 
-    assert not (tmp_path / "cache").exists()  # nichts geschrieben, kein Absturz
+    assert not (tmp_path / "cache").exists()  # nothing written, no crash
 
 
 def test_corrupt_cache_file_is_ignored_not_fatal(tmp_path, monkeypatch):
@@ -116,17 +116,17 @@ def test_corrupt_cache_file_is_ignored_not_fatal(tmp_path, monkeypatch):
     assert workflow._load_cached_tree_instances(cache_key) is None
 
 
-# ------------------------------------------------------- process_tile() Cache-Kurzschluss
+# ------------------------------------------------------- process_tile() cache short-circuit
 
 
 def test_process_tile_uses_cached_tree_instances_and_skips_osm_load(tmp_path, monkeypatch):
-    """Regression: ein Cache-Treffer darf nicht mal die OSM-Daten laden (die selbst schon
-    gecacht sind, aber trotzdem ein spürbarer Umweg wären) - process_tile() muss direkt mit den
-    gecachten Baum-Instanzen zurückkehren."""
+    """Regression: a cache hit must not even load the OSM data (which is itself already
+    cached, but would still be a noticeable detour) - process_tile() must return directly with the
+    cached tree instances."""
     monkeypatch.setattr(config, "CACHE_DIR", tmp_path / "cache")
     workflow = _workflow()
-    # set_forest_config() nicht nötig für den Cache-Kurzschluss - nur die beiden Objekt-Checks
-    # am Anfang von process_tile() müssen truthy sein.
+    # set_forest_config() is not needed for the cache short-circuit - only the two object checks
+    # at the start of process_tile() must be truthy.
     workflow.normalizer = object()
     workflow.instance_generator = object()
 
@@ -145,9 +145,9 @@ def test_process_tile_uses_cached_tree_instances_and_skips_osm_load(tmp_path, mo
             global_offset=OFFSET,
         )
 
-    mock_get_osm.assert_not_called()  # Cache-Treffer -> OSM-Laden komplett übersprungen
+    mock_get_osm.assert_not_called()  # cache hit -> OSM loading skipped entirely
     assert result["status"] == "success"
     assert result["tree_count"] == 2
     assert result["forests_count"] == 5
     assert result["tree_instances"] == cached_instances
-    assert workflow.all_tree_instances == cached_instances  # für die spätere forest.forest4.json-Finalisierung
+    assert workflow.all_tree_instances == cached_instances  # for the later forest.forest4.json finalization

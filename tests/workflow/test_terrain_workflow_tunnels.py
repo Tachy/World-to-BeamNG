@@ -1,5 +1,5 @@
-"""Tests für TerrainWorkflow._build_tunnels() und export_tunnels(): Tunnel (Röhre+Portale) und Galerien
-(Dach+Stützen) als eine gemeinsame DAE mit einem TSStatic."""
+"""Tests for TerrainWorkflow._build_tunnels() and export_tunnels(): tunnels (tube + portals) and galleries
+(roof + supports) as one shared DAE with one TSStatic."""
 
 import sys
 from pathlib import Path
@@ -184,7 +184,7 @@ def test_gallery_at_a_transition_keeps_its_end_cap_in_the_workflow():
     v, n = gallery["vertices"], gallery["normals"]
     faces = [f for fs in gallery["faces"].values() for f in fs]
     at_portal = [f for f in faces if np.allclose(v[f][:, 0], 0.0) and np.allclose(n[f[0]], [1.0, 0.0, 0.0])]
-    assert at_portal  # kein Portalquader mehr: die Galerie schließt ihren Querschnitt selbst
+    assert at_portal  # no portal block anymore: the gallery closes its cross-section itself
     assert any(m["id"] == "tunnel_1_portal_start" for m in meshes)
 
 
@@ -192,7 +192,7 @@ def test_roadblocks_are_placed_on_the_ground_and_exported_as_barrier_statics():
     from world_to_beamng import config
     from world_to_beamng.workflow.terrain_workflow import _roadblock_items
 
-    roads = [_structure(1, [(100.0, 0.0, 500.0), (400.0, 0.0, 500.0)], tunnel="yes")]  # Ende außerhalb der Karte
+    roads = [_structure(1, [(100.0, 0.0, 500.0), (400.0, 0.0, 500.0)], tunnel="yes")]  # end outside the map
     plans = _plan_tunnels(roads)
     heights = np.full((300, 300), 512.0)
     bounds = (-150.0, 149.0, -150.0, 149.0)
@@ -220,7 +220,7 @@ def test_tunnel_zones_are_planned_from_the_config_and_exported_as_zone_objects()
     plans = _plan_tunnels(_tunnel_and_gallery())
     zones = _tunnel_zone_items(plans)
 
-    assert zones and all(z["name"].startswith(("tunnel_zone_1_", "tunnel_zone_portal_1_")) for z in zones)  # nur der Tunnel
+    assert zones and all(z["name"].startswith(("tunnel_zone_1_", "tunnel_zone_portal_1_")) for z in zones)  # only the tunnel
 
     added = {}
     stub = SimpleNamespace(items=SimpleNamespace(add_item=lambda name, **kw: added.__setitem__(name, kw)))
@@ -241,22 +241,22 @@ def test_untagged_gallery_embankment_uses_the_terrain_valley_side():
     from world_to_beamng.workflow.terrain_workflow import _gallery_embedding
 
     road = _structure(2, [(-50.0, 0.0, 500.0), (0.0, 0.0, 500.0)], covered="yes", layer="-1")
-    ground_at = lambda x, y: 500.0 + 1.0 * np.asarray(y, float)  # Laufrichtung +x: rechts (-y) ist das Tal
+    ground_at = lambda x, y: 500.0 + 1.0 * np.asarray(y, float)  # travel direction +x: valley on the right (-y)
 
     override, flat_sides = _gallery_embedding(road, ground_at)
 
     assert road["open_side"] == "right"
     assert set(override) == {"left", "right"}
-    assert np.allclose(override["right"], config.GALLERY_VALLEY_SLOPE_WIDTH)  # echtes Gelände schon an Kante + 5 m
+    assert np.allclose(override["right"], config.GALLERY_VALLEY_SLOPE_WIDTH)  # real terrain already at edge + 5 m
     assert override["left"] == config.GALLERY_MOUNTAIN_EMBED_MARGIN
     assert flat_sides == {"left"}
-    assert _structure_items([road], "gallery")[0]["open_side"] == "right"  # dieselbe Seite für das Galerie-Mesh
+    assert _structure_items([road], "gallery")[0]["open_side"] == "right"  # same side for the gallery mesh
 
 
 def test_gallery_valley_embankment_reaches_past_the_roof_the_dgm_still_shows():
-    # Das DGM zeigt über der Galerie deren Dach (~5 m über der Fahrbahn) bis ~9 m neben die Achse. Eine feste
-    # Referenz 5 m hinter der Kante (8,25 m) läge noch auf dem Dach -> Geländespitze talwärts (lange Galerie Nuova
-    # strada). Die Referenz wird talwärts gesucht, bis das DGM unter das Dachniveau fällt.
+    # Above the gallery the DGM shows its roof (~5 m above the road surface) up to ~9 m beside the axis. A fixed
+    # reference 5 m behind the edge (8.25 m) would still lie on the roof -> terrain spike downhill (long gallery
+    # Nuova strada). The reference is searched downhill until the DGM drops below the roof level.
     from world_to_beamng import config
     from world_to_beamng.workflow.terrain_workflow import _gallery_embedding
 
@@ -265,14 +265,14 @@ def test_gallery_valley_embankment_reaches_past_the_roof_the_dgm_still_shows():
 
     def ground_at(x, y):
         y = np.asarray(y, float)
-        valley = 500.0 - 5.0 + 0.5 * y  # Tal rechts (-y), bergseits (+y) steigend
-        return np.where((y < 0.0) & (y > -9.0), 505.0, valley)  # Dach der Galerie im DGM bis 9 m talseits
+        valley = 500.0 - 5.0 + 0.5 * y  # valley on the right (-y), rising on the uphill side (+y)
+        return np.where((y < 0.0) & (y > -9.0), 505.0, valley)  # gallery roof in the DGM up to 9 m on the valley side
 
     override, _ = _gallery_embedding(road, ground_at)
 
     widths = np.asarray(override["right"])
-    assert np.all(half + widths > 9.0)  # Referenzpunkt jenseits des Dachs
-    # erster Suchpunkt mit tieferem Gelände (Suchschritt 0,5 m) wird direkt genommen, kein Zuschlag
+    assert np.all(half + widths > 9.0)  # reference point beyond the roof
+    # first search point with lower terrain (search step 0.5 m) is taken directly, no surcharge
     assert np.all(half + widths <= 9.0 + config.GALLERY_VALLEY_SEARCH_STEP)
 
 
@@ -281,7 +281,7 @@ def test_gallery_valley_embankment_keeps_the_minimum_width_when_the_valley_side_
     from world_to_beamng.workflow.terrain_workflow import _gallery_embedding
 
     road = _structure(2, [(-50.0, 0.0, 500.0), (0.0, 0.0, 500.0)], covered="yes", layer="-1")
-    ground_at = lambda x, y: 500.0 + 30.0 + 0.1 * np.asarray(y, float)  # alles weit über der Fahrbahn
+    ground_at = lambda x, y: 500.0 + 30.0 + 0.1 * np.asarray(y, float)  # everything far above the road surface
 
     override, _ = _gallery_embedding(road, ground_at)
 
@@ -290,7 +290,7 @@ def test_gallery_valley_embankment_keeps_the_minimum_width_when_the_valley_side_
 
 @pytest.mark.parametrize("highway", ["path", "footway", "steps", "bridleway", "pedestrian", "construction"])
 def test_tunnels_of_footpaths_and_non_roads_are_not_built(highway):
-    # In den Bergen gibt es "Tunnel" für Pfade (Festungsstollen) - nur Straßen und Radwege bekommen einen Tunnelbau
+    # In the mountains there are "tunnels" for paths (fortress galleries) - only roads and cycleways get a tunnel
     from world_to_beamng.workflow.terrain_workflow import _plan_tunnels
 
     roads = [_structure(1, [(0.0, 0.0, 500.0), (100.0, 0.0, 500.0)], tunnel="yes", highway=highway)]

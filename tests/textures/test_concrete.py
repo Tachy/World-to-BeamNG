@@ -1,4 +1,4 @@
-"""Tests für world_to_beamng.textures.concrete: prozedurale Beton-Textur für Brücken/Tunnel/Galerien."""
+"""Tests for world_to_beamng.textures.concrete: procedural concrete texture for bridges/tunnels/galleries."""
 
 import sys
 from pathlib import Path

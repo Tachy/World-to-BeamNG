@@ -1,4 +1,4 @@
-"""Tests für ItemManager.add_ground_cover()."""
+"""Tests for ItemManager.add_ground_cover()."""
 
 import sys
 from pathlib import Path

@@ -1,7 +1,7 @@
 """
-Tests: generische Bilderkennung in io/aerial.py - eingebettete GeoTIFF-Georeferenz (lose Datei
-und in ZIP, ohne .tfw), .tfw-Fallback, lose Rasterdateien in der Cache-Signatur, Reprojektion bei
-abweichendem CRS.
+Tests: generic image detection in io/aerial.py - embedded GeoTIFF georeference (loose file
+and in ZIP, without .tfw), .tfw fallback, loose raster files in the cache signature, reprojection
+for a differing CRS.
 """
 
 import sys
@@ -42,7 +42,7 @@ def _write_tfw(path, pixel_size, x_origin, y_origin):
     path.write_text(f"{pixel_size}\n0.0\n0.0\n{-pixel_size}\n{x_origin}\n{y_origin}\n")
 
 
-# ---------------------------------------------------------------- lose Dateien
+# ---------------------------------------------------------------- loose files
 
 
 def test_loose_geotiff_with_embedded_crs_is_recognised_without_tfw(tmp_path):
@@ -59,9 +59,9 @@ def test_loose_geotiff_with_embedded_crs_is_recognised_without_tfw(tmp_path):
 
 
 def test_loose_tiff_without_embedded_crs_falls_back_to_tfw(tmp_path):
-    # Plain TIFF ohne CRS (write_bytes eines Platzhalters wäre kein gültiges TIFF - stattdessen ein
-    # GeoTIFF ohne crs schreiben, das hat ebenfalls keine "echte" Geotransform -> world_info None
-    # -> .tfw-Fallback greift)
+    # Plain TIFF without CRS (write_bytes of a placeholder would not be a valid TIFF - write a
+    # GeoTIFF without crs instead, which likewise has no "real" geotransform -> world_info None
+    # -> .tfw fallback applies)
     path = tmp_path / "plain.tif"
     with rasterio.open(path, "w", driver="GTiff", width=2, height=2, count=3, dtype="uint8") as dst:
         dst.write(np.zeros((3, 2, 2), dtype="uint8"))
@@ -71,7 +71,7 @@ def test_loose_tiff_without_embedded_crs_falls_back_to_tfw(tmp_path):
 
     assert len(images) == 1
     _, _, world_info = images[0]
-    assert world_info["crs_epsg"] is None  # .tfw kennt kein CRS - Quell-CRS wird angenommen
+    assert world_info["crs_epsg"] is None  # .tfw has no CRS - source CRS is assumed
     assert world_info["x_origin"] == pytest.approx(399000.0)
 
 
@@ -80,7 +80,7 @@ def test_empty_directory_yields_no_images(tmp_path):
     assert extract_loose_images(tmp_path / "does_not_exist") == []
 
 
-# ---------------------------------------------------------------- GeoTIFF in ZIP ohne .tfw
+# ---------------------------------------------------------------- GeoTIFF in ZIP without .tfw
 
 
 def test_geotiff_in_zip_without_tfw_is_recognised_via_embedded_crs(tmp_path):
@@ -88,7 +88,7 @@ def test_geotiff_in_zip_without_tfw_is_recognised_via_embedded_crs(tmp_path):
     _write_geotiff(tif_path, (399000.0, 5296000.0, 399004.0, 5296004.0), crs="EPSG:25832")
     zip_path = tmp_path / "dop.zip"
     with zipfile.ZipFile(zip_path, "w") as zf:
-        zf.write(tif_path, arcname="inner.tif")  # bewusst KEINE .tfw daneben
+        zf.write(tif_path, arcname="inner.tif")  # deliberately NO .tfw next to it
 
     images = extract_images_from_zips(tmp_path)
 
@@ -111,7 +111,7 @@ def test_extract_georeferenced_images_combines_zip_and_loose_sources(tmp_path):
     assert {name for name, _, _ in images} == {"inner.tif", "loose.tif"}
 
 
-# ---------------------------------------------------------------- Cache-Signatur (lose Rasterdateien)
+# ---------------------------------------------------------------- cache signature (loose raster files)
 
 
 def test_aerial_source_files_includes_loose_rasters_not_only_zips(tmp_path):
@@ -124,8 +124,8 @@ def test_aerial_source_files_includes_loose_rasters_not_only_zips(tmp_path):
 
 
 def test_ensure_aerial_photos_does_not_report_none_for_a_directory_with_only_loose_geotiffs(tmp_path):
-    # Regressionstest: vorher wurde nur nach *.zip gesucht - ein Verzeichnis mit AUSSCHLIESSLICH
-    # losen GeoTIFFs galt faelschlich als "keine Quellbilder" ("none").
+    # Regression test: previously only *.zip was searched - a directory with ONLY
+    # loose GeoTIFFs was wrongly treated as "no source images" ("none").
     aerial_dir = tmp_path / "satellite"
     aerial_dir.mkdir()
     _write_geotiff(aerial_dir / "ortho.tif", (0.0, 0.0, 4.0, 4.0))
@@ -139,19 +139,19 @@ def test_ensure_aerial_photos_does_not_report_none_for_a_directory_with_only_loo
     assert status != "none"
 
 
-# ---------------------------------------------------------------- Reprojektion
+# ---------------------------------------------------------------- reprojection
 
 
 def test_reproject_image_to_source_crs_changes_crs_and_pixel_scale(tmp_path):
-    # WGS84 (Grad) -> EPSG:25832 (Meter): Pixelgroesse muss danach im Meter-Maßstab liegen, nicht
-    # mehr im Grad-Maßstab (mehrere Größenordnungen Unterschied - ein grober, aber robuster Check)
+    # WGS84 (degrees) -> EPSG:25832 (meters): pixel size must then be on the meter scale, no
+    # longer on the degree scale (several orders of magnitude apart - a coarse but robust check)
     path = tmp_path / "wgs84.tif"
     _write_geotiff(path, (7.60, 47.80, 7.61, 47.81), crs="EPSG:4326", size=(20, 20))
 
     image, world_info = _reproject_image_to_source_crs(path, dst_epsg=25832)
 
     assert world_info["crs_epsg"] == 25832
-    assert abs(world_info["pixel_size_x"]) > 0.01  # Meter, nicht mehr Bruchteile eines Grads
+    assert abs(world_info["pixel_size_x"]) > 0.01  # meters, no longer fractions of a degree
     assert image.mode == "RGB"
     assert image.width > 0 and image.height > 0
 

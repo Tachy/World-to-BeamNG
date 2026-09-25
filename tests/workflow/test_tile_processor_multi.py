@@ -1,4 +1,4 @@
-"""Tests für world_to_beamng.workflow.tile_processor.TileProcessor.load_height_data_multi()."""
+"""Tests for world_to_beamng.workflow.tile_processor.TileProcessor.load_height_data_multi()."""
 
 import sys
 from pathlib import Path

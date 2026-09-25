@@ -1,14 +1,14 @@
 """
-Extract Water Templates: Übernimmt erprobte Wasser-Objekte (`River` für Bäche, `WaterBlock` für
-Teiche/Seen) aus BeamNGs eigenen Levels nach data/water_templates.json.
+Extract Water Templates: takes over proven water objects (`River` for streams, `WaterBlock` for
+ponds/lakes) from BeamNG's own levels into data/water_templates.json.
 
-Hintergrund: Echtes Wasser (Wellen, Fresnel, Unterwasser-Nebel, Auftrieb für Fahrzeuge) sind in
-BeamNG eigene Objekte - das Luftbild allein reicht nicht. Die vielen Render-Parameter (Wellen,
-Ripples, Schaum, Farbe, Nebel) sind von Hand nicht sinnvoll zu erfinden, deshalb werden sie aus
-Original-Objekten kopiert, die ausschließlich `core/`-Texturen nutzen (immer vorhanden, nichts zu
-vendoren). Ortsabhängiges (Name, Position, Knoten, Skalierung, Rotation, persistentId) entfällt.
+Background: real water (waves, Fresnel, underwater fog, buoyancy for vehicles) consists of dedicated
+objects in BeamNG - the aerial photo alone is not enough. The many render parameters (waves,
+ripples, foam, color, fog) cannot sensibly be invented by hand, so they are copied from original
+objects that use only `core/` textures (always present, nothing to vendor). Location-dependent data
+(name, position, nodes, scale, rotation, persistentId) is dropped.
 
-Aufruf: python tools/extract_water_templates.py
+Usage: python tools/extract_water_templates.py
 """
 
 import json
@@ -26,7 +26,7 @@ OUTPUT_PATH = Path(__file__).parent.parent / "data" / "water_templates.json"
 SOURCE_LEVEL = "east_coast_usa"
 TEXTURE_KEYS = ("rippleTex", "foamTex", "depthGradientTex")
 
-# Ortsabhängige Felder gehören zum Original-Level
+# Location-dependent fields belong to the original level
 LOCATION_FIELDS = ("name", "persistentId", "__parent", "position", "nodes", "rotationMatrix", "rotation", "scale")
 
 
@@ -50,7 +50,7 @@ def _iter_objects(zip_file: zipfile.ZipFile, class_name: str):
 
 
 def _pick_stream(zip_file: zipfile.ZipFile) -> dict:
-    """Kleiner Bach: `River` mit vielen Knoten, 2-3 m breit, 1 m tief, nur core-Texturen."""
+    """Small stream: `River` with many nodes, 2-3 m wide, 1 m deep, core textures only."""
     for obj in _iter_objects(zip_file, "River"):
         nodes = obj.get("nodes") or []
         if len(nodes) < 10 or not _core_textures_only(obj):
@@ -59,15 +59,15 @@ def _pick_stream(zip_file: zipfile.ZipFile) -> dict:
         depths = [n[4] for n in nodes]
         if max(widths) <= 3.0 and max(depths) <= 1.0:
             return obj
-    raise LookupError("Kein passender Bach-River gefunden")
+    raise LookupError("No suitable stream River found")
 
 
 def _pick_pond(zip_file: zipfile.ZipFile) -> dict:
-    """Stillgewässer: das `WaterBlock` 'creek2' (core-Texturen, ruhig, grünlich-braun)."""
+    """Still water: the `WaterBlock` 'creek2' (core textures, calm, greenish-brown)."""
     for obj in _iter_objects(zip_file, "WaterBlock"):
         if obj.get("name") == "creek2" and _core_textures_only(obj):
             return obj
-    raise LookupError("WaterBlock 'creek2' nicht gefunden")
+    raise LookupError("WaterBlock 'creek2' not found")
 
 
 def _template(obj: dict, source: str) -> dict:
@@ -82,12 +82,12 @@ def main():
         pond = _pick_pond(zip_file)
 
     data = {
-        "stream": _template(stream, f"{SOURCE_LEVEL}/River (Bach, {len(stream['nodes'])} Knoten)"),
+        "stream": _template(stream, f"{SOURCE_LEVEL}/River (stream, {len(stream['nodes'])} nodes)"),
         "pond": _template(pond, f"{SOURCE_LEVEL}/WaterBlock creek2"),
     }
     OUTPUT_PATH.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     for key, template in data.items():
-        print(f"[OK] {key}: {template['source']} -> {template['class']}, {len(template['fields'])} Felder")
+        print(f"[OK] {key}: {template['source']} -> {template['class']}, {len(template['fields'])} fields")
     print(f"[DONE] {OUTPUT_PATH}")
 
 

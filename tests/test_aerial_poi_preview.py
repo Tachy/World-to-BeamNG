@@ -1,7 +1,7 @@
 """
-Tests für das POI-Spawn-Vorschaubild (io/aerial.py::build_poi_preview_image()): schneidet einen Ausschnitt
-um den POI aus dem bereits gebauten Luftbild aus - baut kein Mosaik/keine Quellbilder neu (wie
-test_aerial_minimap.py für die Minimap).
+Tests for the POI spawn preview image (io/aerial.py::build_poi_preview_image()): crops a section
+around the POI from the already built aerial photo - does not rebuild any mosaic/source images (like
+test_aerial_minimap.py for the minimap).
 """
 
 import sys
@@ -55,7 +55,7 @@ def test_picks_the_photo_tile_containing_the_poi(tmp_path):
     build_poi_preview_image(textures, out, photos, position_xy=(300.0, 100.0), crop_size_m=40.0, target_pixel_size=32)
 
     means = _dominant_color(out)
-    assert means[2] > 150 and means[0] < 60  # aus der östlichen (blauen) Kachel geschnitten
+    assert means[2] > 150 and means[0] < 60  # cropped from the eastern (blue) tile
 
 
 def test_poi_near_the_tile_edge_is_clamped_instead_of_failing(tmp_path):
@@ -64,7 +64,7 @@ def test_poi_near_the_tile_edge_is_clamped_instead_of_failing(tmp_path):
     _photo(textures, "aerial_photo", (250, 20, 20), size=200)
     out = tmp_path / "preview.jpg"
 
-    # POI direkt am Bildrand - der volle 40m-Ausschnitt würde über den Bildrand hinausragen.
+    # POI directly at the image edge - the full 40 m crop would extend beyond the image edge.
     ok = build_poi_preview_image(
         textures, out, [{"name": "aerial_photo", "bounds": (0.0, 200.0, 0.0, 200.0)}],
         position_xy=(2.0, 2.0), crop_size_m=40.0, target_pixel_size=32,
@@ -98,10 +98,10 @@ def test_no_matching_photo_tile_returns_false(tmp_path):
 
 
 def test_image_cache_is_populated_and_reused_across_calls(tmp_path):
-    """Mehrere POIs auf derselben Foto-Kachel: das dekodierte Bild landet im Cache und wird
-    wiederverwendet statt erneut von der Platte gelesen/dekodiert zu werden (siehe
-    io/aerial.py::_load_rgb_photo()-Docstring - bei ~140-MB-Luftbildern sonst der Hauptzeitfresser
-    beim Export)."""
+    """Several POIs on the same photo tile: the decoded image ends up in the cache and is
+    reused instead of being read from disk/decoded again (see the
+    io/aerial.py::_load_rgb_photo() docstring - with ~140 MB aerial photos otherwise the main time sink
+    during export)."""
     textures = tmp_path / "textures"
     textures.mkdir()
     _photo(textures, "aerial_photo", (250, 20, 20), size=200)
@@ -118,7 +118,7 @@ def test_image_cache_is_populated_and_reused_across_calls(tmp_path):
     )
 
     assert ok1 is True and ok2 is True
-    assert len(cache) == 1  # dieselbe Foto-Kachel, nur einmal im Cache
+    assert len(cache) == 1  # same photo tile, only once in the cache
     assert Image.open(tmp_path / "a.jpg").size == (32, 32)
     assert Image.open(tmp_path / "b.jpg").size == (32, 32)
 
@@ -150,11 +150,11 @@ def test_image_cache_avoids_reopening_the_source_file_a_second_time(tmp_path, mo
         crop_size_m=40.0, target_pixel_size=32, image_cache=cache,
     )
 
-    assert len(opened_paths) == 1  # zweiter Aufruf bedient sich aus dem Cache
+    assert len(opened_paths) == 1  # second call is served from the cache
 
 
 def test_without_a_cache_behaviour_is_unchanged(tmp_path):
-    """image_cache=None (Default) - Rückwärtskompatibilität, jeder Aufruf dekodiert frisch."""
+    """image_cache=None (default) - backward compatibility, every call decodes afresh."""
     textures = tmp_path / "textures"
     textures.mkdir()
     _photo(textures, "aerial_photo", (250, 20, 20), size=200)
@@ -237,7 +237,7 @@ def test_preview_builder_rebuilds_after_the_aerial_photo_changed(tmp_path):
 
     assert second.built == 1
     means = _dominant_color(level / path)
-    assert means[2] > 150 and means[0] < 60  # neues (blaues) Foto
+    assert means[2] > 150 and means[0] < 60  # new (blue) photo
 
 
 def test_preview_builder_rebuilds_a_deleted_preview(tmp_path):

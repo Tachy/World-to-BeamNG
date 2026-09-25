@@ -1,7 +1,7 @@
-"""Tests für world_to_beamng.textures.registry: Vorab-Prüfung aller Texturen, die der Export braucht.
+"""Tests for world_to_beamng.textures.registry: pre-flight check of all textures the export needs.
 
-Prozedurale Texturen (Kies) werden bei Bedarf einmalig erzeugt, Foto-Texturen (Bruchsteinmauer) kann die Pipeline nicht
-erzeugen: fehlt eine, bricht der Export ab.
+Procedural textures (gravel) are generated once on demand; the pipeline cannot generate photo textures (rubble stone
+wall): if one is missing, the export aborts.
 """
 
 import json
@@ -27,7 +27,7 @@ def _maps(value=100):
 
 @pytest.fixture
 def dds(monkeypatch):
-    """Ersetzt texconv; merkt sich die geschriebenen DDS-Namen."""
+    """Replaces texconv; records the written DDS names."""
     names = []
 
     def fake_write_dds(pixels, output_dir, name, dds_format, max_mip_levels):
@@ -48,20 +48,20 @@ def dirs(tmp_path):
 def _procedural(calls):
     def generate(library_dir):
         calls.append(library_dir)
-        library.store_texture("procedural_tex", _maps(), 2.0, "prozedural", library_dir)
+        library.store_texture("procedural_tex", _maps(), 2.0, "procedural", library_dir)
 
-    return TextureSpec("procedural_tex", "Testobjekt A", lambda: True, generate=generate)
+    return TextureSpec("procedural_tex", "Test object A", lambda: True, generate=generate)
 
 
 def _photo(required=lambda: True):
-    return TextureSpec("photo_tex", "Testobjekt B", required, generate=None, hint="tools/make_seamless_texture.py <Foto> --name photo_tex --width-m <Meter>")
+    return TextureSpec("photo_tex", "Test object B", required, generate=None, hint="tools/make_seamless_texture.py <photo> --name photo_tex --width-m <meters>")
 
 
 def test_present_textures_are_converted_and_nothing_is_generated(dirs, dds):
     lib, out = dirs
     calls = []
     library.store_texture("procedural_tex", _maps(), 2.0, "vorhanden", lib)
-    library.store_texture("photo_tex", _maps(), 1.5, "Foto", lib)
+    library.store_texture("photo_tex", _maps(), 1.5, "photo", lib)
 
     paths = registry.prepare_textures(out, lib, (_procedural(calls), _photo()))
 
@@ -73,15 +73,15 @@ def test_present_textures_are_converted_and_nothing_is_generated(dirs, dds):
 def test_a_missing_procedural_texture_is_generated_once_and_then_used(dirs, dds, caplog):
     lib, out = dirs
     calls = []
-    library.store_texture("photo_tex", _maps(), 1.5, "Foto", lib)
+    library.store_texture("photo_tex", _maps(), 1.5, "photo", lib)
 
     with caplog.at_level("INFO", logger="world_to_beamng"):
         paths = registry.prepare_textures(out, lib, (_procedural(calls), _photo()))
-        registry.prepare_textures(out, lib, (_procedural(calls), _photo()))  # zweiter Lauf: liegt jetzt vor
+        registry.prepare_textures(out, lib, (_procedural(calls), _photo()))  # second run: it exists now
 
-    assert calls == [lib]  # genau einmal erzeugt
+    assert calls == [lib]  # generated exactly once
     assert "procedural_tex" in paths and (lib / "procedural_tex" / "color.png").exists()
-    assert "procedural_tex" in caplog.text and "check it in" in caplog.text  # Hinweis: gehört ins Repository
+    assert "procedural_tex" in caplog.text and "check it in" in caplog.text  # note: belongs in the repository
 
 
 def test_a_missing_photo_texture_aborts_and_says_what_to_do(dirs, dds):
@@ -92,15 +92,15 @@ def test_a_missing_photo_texture_aborts_and_says_what_to_do(dirs, dds):
         registry.prepare_textures(out, lib, (_procedural(calls), _photo()))
 
     message = str(error.value)
-    assert "photo_tex" in message and "Testobjekt B" in message
-    assert str(lib / "photo_tex") in message  # wo die Dateien liegen müssen
+    assert "photo_tex" in message and "Test object B" in message
+    assert str(lib / "photo_tex") in message  # where the files have to be located
     assert "make_seamless_texture.py" in message and "--width-m" in message
-    assert dds == []  # abgebrochen, bevor etwas ins Level geschrieben wurde
+    assert dds == []  # aborted before anything was written to the level
 
 
 def test_all_missing_photo_textures_are_reported_together(dirs, dds):
     lib, out = dirs
-    other = TextureSpec("second_photo", "Testobjekt C", lambda: True, hint="Foto verarbeiten")
+    other = TextureSpec("second_photo", "Test object C", lambda: True, hint="process the photo")
 
     with pytest.raises(MissingTexturesError) as error:
         registry.prepare_textures(out, lib, (_photo(), other))
@@ -110,7 +110,7 @@ def test_all_missing_photo_textures_are_reported_together(dirs, dds):
 
 def test_a_photo_texture_with_a_missing_channel_counts_as_missing(dirs, dds):
     lib, out = dirs
-    library.store_texture("photo_tex", _maps(), 1.5, "Foto", lib)
+    library.store_texture("photo_tex", _maps(), 1.5, "photo", lib)
     (lib / "photo_tex" / "normal.png").unlink()
 
     with pytest.raises(MissingTexturesError) as error:
@@ -129,18 +129,18 @@ def test_a_texture_that_is_not_needed_is_neither_required_nor_converted(dirs, dd
 
 def test_prepared_textures_are_computed_once_and_refreshed_by_prepare(dirs, dds, monkeypatch):
     lib, out = dirs
-    library.store_texture("photo_tex", _maps(), 1.5, "Foto", lib)
+    library.store_texture("photo_tex", _maps(), 1.5, "photo", lib)
     monkeypatch.setattr(config, "TEXTURE_LIBRARY_DIR", lib)
     monkeypatch.setattr(config, "BEAMNG_DIR_TEXTURES", out)
     monkeypatch.setattr(registry, "REGISTRY", (_photo(),))
     registry.reset_cache()
 
     first = registry.prepared_textures()
-    assert registry.prepared_textures() is first  # gecacht
+    assert registry.prepared_textures() is first  # cached
 
     library.store_texture("photo_tex", _maps(200), 1.5, "neu", lib)
     registry.prepare_textures()
-    assert registry.prepared_textures() is not first  # neuer Export: frisch geprüft
+    assert registry.prepared_textures() is not first  # new export: freshly checked
     registry.reset_cache()
 
 
@@ -156,7 +156,7 @@ def test_prepared_textures_abort_too_when_nobody_ran_the_check_first(dirs, dds, 
     registry.reset_cache()
 
 
-# --- die echte Registry -----------------------------------------------------------------------------------------------
+# --- the real registry -----------------------------------------------------------------------------------------------
 
 
 def test_the_real_registry_defines_gravel_as_procedural_and_the_wall_as_a_photo_texture():
@@ -180,7 +180,7 @@ def test_the_committed_gravel_is_complete_so_a_fresh_checkout_needs_no_generatio
     assert library.is_complete(config.FLAT_ROOF_GRAVEL_TEXTURE)
 
 
-# --- Bibliothek: Vollständigkeit ---------------------------------------------------------------------------------------
+# --- Library: completeness ---------------------------------------------------------------------------------------
 
 
 def test_is_complete_needs_a_manifest_entry_and_all_three_pngs(tmp_path):
@@ -194,9 +194,9 @@ def test_is_complete_needs_a_manifest_entry_and_all_three_pngs(tmp_path):
     assert not library.is_complete("x", lib)
     assert library.missing_files("x", lib) == ["roughness.png"]
 
-    library.store_texture("x", _maps(), 1.0, "t", lib)  # wieder vollständig ...
+    library.store_texture("x", _maps(), 1.0, "t", lib)  # complete again ...
     manifest = json.loads((lib / "manifest.json").read_text(encoding="utf-8"))
-    manifest["textures"].pop("x")  # ... aber ohne Manifest-Eintrag
+    manifest["textures"].pop("x")  # ... but without a manifest entry
     (lib / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
     assert not library.is_complete("x", lib)
 
@@ -205,8 +205,8 @@ def test_concrete_texture_is_registered_when_bridges_or_tunnels_are_enabled(monk
     from world_to_beamng import config
     from world_to_beamng.textures import registry
 
-    # raising=False: TUNNELS_ENABLED existiert erst ab Task 11 (Task 10 läuft vorher) - monkeypatch legt das
-    # Attribut dann testlokal an und macht es am Testende wieder rückgängig, statt AttributeError zu werfen.
+    # raising=False: TUNNELS_ENABLED only exists from Task 11 on (Task 10 runs before) - monkeypatch then creates
+    # the attribute locally for the test and reverts it at the end of the test instead of raising AttributeError.
     monkeypatch.setattr(config, "BRIDGES_ENABLED", True)
     monkeypatch.setattr(config, "TUNNELS_ENABLED", False, raising=False)
     assert any(spec.name == config.CONCRETE_TEXTURE_NAME for spec in registry.REGISTRY if spec.required())

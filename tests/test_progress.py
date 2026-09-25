@@ -1,4 +1,4 @@
-"""Tests für world_to_beamng/progress.py: Pipeline/PipelineTask/Subtask."""
+"""Tests for world_to_beamng/progress.py: Pipeline/PipelineTask/Subtask."""
 
 import io
 import sys
@@ -23,75 +23,75 @@ def buffer(monkeypatch):
 
 def test_task_prints_start_and_done_summary(buffer):
     pipeline = Pipeline()
-    with pipeline.task("Texturen") as task:
-        task.done("5 Texturen geprüft")
+    with pipeline.task("Textures") as task:
+        task.done("5 textures checked")
 
     output = buffer.getvalue()
-    assert "Texturen" in output
+    assert "Textures" in output
     assert "✓" in output
-    assert "5 Texturen geprüft" in output
+    assert "5 textures checked" in output
 
 
 def test_task_auto_finishes_without_explicit_done(buffer):
     pipeline = Pipeline()
-    with pipeline.task("Vorbereitung"):
+    with pipeline.task("Preparation"):
         pass
 
     output = buffer.getvalue()
-    assert "✓ Vorbereitung" in output
+    assert "✓ Preparation" in output
 
 
 def test_task_failure_marks_red_cross_and_reraises(buffer):
     pipeline = Pipeline()
     with pytest.raises(ValueError):
-        with pipeline.task("Terrain + Straßen") as task:
-            raise ValueError("kaputt")
+        with pipeline.task("Terrain + roads") as task:
+            raise ValueError("broken")
 
     output = buffer.getvalue()
     assert "✗" in output
-    assert "kaputt" in output
+    assert "broken" in output
 
 
 def test_subtask_with_total_reaches_100_percent(buffer):
     pipeline = Pipeline()
-    with pipeline.task("Terrain + Straßen") as task:
-        with task.subtask("Bäume platzieren", total=3) as sub:
+    with pipeline.task("Terrain + roads") as task:
+        with task.subtask("Place trees", total=3) as sub:
             for _ in range(3):
                 sub.advance()
 
     output = buffer.getvalue()
-    assert "✓ Bäume platzieren" in output
+    assert "✓ Place trees" in output
 
 
 def test_subtask_without_total_is_indeterminate(buffer):
     pipeline = Pipeline()
-    with pipeline.task("Terrain + Straßen") as task:
-        with task.subtask("OSM-Daten laden"):
+    with pipeline.task("Terrain + roads") as task:
+        with task.subtask("Load OSM data"):
             pass
 
     output = buffer.getvalue()
-    assert "✓ OSM-Daten laden" in output
+    assert "✓ Load OSM data" in output
 
 
 def test_begin_subtask_flat_style_allows_custom_finish_summary(buffer):
     pipeline = Pipeline()
-    with pipeline.task("Terrain + Straßen") as task:
-        sub = task.begin_subtask("Brücken")
-        sub.finish("3 Brücken")
+    with pipeline.task("Terrain + roads") as task:
+        sub = task.begin_subtask("Bridges")
+        sub.finish("3 bridges")
 
     output = buffer.getvalue()
-    assert "✓ Brücken - 3 Brücken" in output
+    assert "✓ Bridges - 3 bridges" in output
 
 
 def test_subtask_failure_marks_red_cross_and_reraises(buffer):
     pipeline = Pipeline()
     with pytest.raises(RuntimeError):
-        with pipeline.task("Terrain + Straßen") as task:
-            with task.subtask("Wasser"):
+        with pipeline.task("Terrain + roads") as task:
+            with task.subtask("Water"):
                 raise RuntimeError("boom")
 
     output = buffer.getvalue()
-    assert "✗ Wasser" in output
+    assert "✗ Water" in output
     assert "boom" in output
 
 
@@ -115,35 +115,35 @@ def test_pipeline_banner_prints_bold_text_outside_any_task(buffer):
 
 def test_task_warn_prints_yellow_marker(buffer):
     pipeline = Pipeline()
-    with pipeline.task("Wasser") as task:
-        task.warn("keine Quellen gefunden")
+    with pipeline.task("Water") as task:
+        task.warn("no sources found")
 
     output = buffer.getvalue()
     assert "⚠" in output
-    assert "Wasser" in output
-    assert "keine Quellen gefunden" in output
+    assert "Water" in output
+    assert "no sources found" in output
 
 
 def test_subtask_warn_prints_yellow_marker(buffer):
     pipeline = Pipeline()
-    with pipeline.task("Terrain + Straßen") as task:
-        sub = task.begin_subtask("Brücken")
-        sub.warn("Geometrie unplausibel")
+    with pipeline.task("Terrain + roads") as task:
+        sub = task.begin_subtask("Bridges")
+        sub.warn("geometry implausible")
 
     output = buffer.getvalue()
     assert "⚠" in output
-    assert "Brücken" in output
-    assert "Geometrie unplausibel" in output
+    assert "Bridges" in output
+    assert "geometry implausible" in output
 
 
 def test_task_fail_with_brackets_in_summary_prints_literally_and_does_not_raise(buffer):
-    """Regression: summary strings (z.B. str(exc)) können literale eckige Klammern
-    enthalten (Dateipfade, Fehlermeldungen) - die dürfen nicht als rich-Markup geparst
-    werden und weder verschluckt werden noch eine MarkupError auslösen."""
+    """Regression: summary strings (e.g. str(exc)) can contain literal square brackets
+    (file paths, error messages) - they must not be parsed as rich markup
+    and must neither be swallowed nor raise a MarkupError."""
     pipeline = Pipeline()
     with pytest.raises(RuntimeError):
-        with pipeline.task("Terrain + Straßen") as task:
-            raise RuntimeError("Pfad nicht gefunden: [/tmp/missing]")
+        with pipeline.task("Terrain + roads") as task:
+            raise RuntimeError("Path not found: [/tmp/missing]")
 
     output = buffer.getvalue()
     assert "[/tmp/missing]" in output
@@ -151,37 +151,37 @@ def test_task_fail_with_brackets_in_summary_prints_literally_and_does_not_raise(
 
 def test_task_done_with_brackets_in_summary_prints_literally(buffer):
     pipeline = Pipeline()
-    with pipeline.task("Texturen") as task:
-        task.done("geladen aus [cache]")
+    with pipeline.task("Textures") as task:
+        task.done("loaded from [cache]")
 
     output = buffer.getvalue()
-    assert "geladen aus [cache]" in output
+    assert "loaded from [cache]" in output
 
 
 def test_task_warn_with_brackets_in_summary_prints_literally(buffer):
     pipeline = Pipeline()
-    with pipeline.task("Wasser") as task:
-        task.warn("unbekanntes Tag [waterway=weird]")
+    with pipeline.task("Water") as task:
+        task.warn("unknown tag [waterway=weird]")
 
     output = buffer.getvalue()
-    assert "unbekanntes Tag [waterway=weird]" in output
+    assert "unknown tag [waterway=weird]" in output
 
 
 def test_subtask_finish_with_brackets_in_summary_prints_literally(buffer):
     pipeline = Pipeline()
-    with pipeline.task("Terrain + Straßen") as task:
-        sub = task.begin_subtask("Brücken")
-        sub.finish("Textur [/data/textures/x.png] geladen")
+    with pipeline.task("Terrain + roads") as task:
+        sub = task.begin_subtask("Bridges")
+        sub.finish("Texture [/data/textures/x.png] loaded")
 
     output = buffer.getvalue()
-    assert "Textur [/data/textures/x.png] geladen" in output
+    assert "Texture [/data/textures/x.png] loaded" in output
 
 
 def test_subtask_fail_with_brackets_in_summary_prints_literally_and_does_not_raise(buffer):
     pipeline = Pipeline()
     with pytest.raises(RuntimeError):
-        with pipeline.task("Terrain + Straßen") as task:
-            with task.subtask("Wasser"):
+        with pipeline.task("Terrain + roads") as task:
+            with task.subtask("Water"):
                 raise RuntimeError("boom [x]")
 
     output = buffer.getvalue()
@@ -198,13 +198,13 @@ def test_task_name_with_brackets_is_escaped_and_does_not_raise(buffer):
 
 
 def test_task_exit_without_message_uses_exception_type_name(buffer):
-    """Ein Fehler ohne Nachricht (z.B. ein bloßes assert - str(exc) == "") darf nicht
-    zu einer Zeile führen, die nach dem Trennstrich einfach nichts mehr zeigt.
-    (AssertionError() direkt konstruiert statt `assert False`, damit pytests
-    Assertion-Rewriting hier keine Nachricht in die Exception einfügt.)"""
+    """An error without a message (e.g. a bare assert - str(exc) == "") must not
+    lead to a line that simply shows nothing after the separator dash.
+    (AssertionError() constructed directly instead of `assert False`, so that pytest's
+    assertion rewriting does not insert a message into the exception here.)"""
     pipeline = Pipeline()
     with pytest.raises(AssertionError):
-        with pipeline.task("Terrain + Straßen") as task:
+        with pipeline.task("Terrain + roads") as task:
             raise AssertionError()
 
     output = buffer.getvalue()
@@ -214,13 +214,13 @@ def test_task_exit_without_message_uses_exception_type_name(buffer):
 
 
 def test_task_exit_does_not_double_report_after_explicit_done(buffer):
-    """Wenn done()/warn() bereits im with-Block aufgerufen wurde, darf eine
-    anschließend durchgereichte Exception die Zeile nicht nochmal (als fail) drucken."""
+    """If done()/warn() was already called inside the with block, an exception
+    propagated afterwards must not print the line again (as fail)."""
     pipeline = Pipeline()
     with pytest.raises(RuntimeError):
-        with pipeline.task("Terrain + Straßen") as task:
-            task.warn("teilweise fertig")
-            raise RuntimeError("boom danach")
+        with pipeline.task("Terrain + roads") as task:
+            task.warn("partially done")
+            raise RuntimeError("boom afterwards")
 
     output = buffer.getvalue()
     assert output.count("⚠") == 1
@@ -229,16 +229,16 @@ def test_task_exit_does_not_double_report_after_explicit_done(buffer):
 
 def test_task_and_subtask_report_elapsed_seconds(buffer):
     pipeline = Pipeline()
-    with pipeline.task("Texturen") as task:
-        with task.subtask("Laden") as sub:
+    with pipeline.task("Textures") as task:
+        with task.subtask("Loading") as sub:
             sub.finish("ok")
-        task.done("fertig")
+        task.done("done")
 
     output = buffer.getvalue()
     import re
 
-    assert re.search(r"Laden.*\(\d+\.\d+s\)", output)
-    assert re.search(r"Texturen.*\(\d+\.\d+s\)", output)
+    assert re.search(r"Loading.*\(\d+\.\d+s\)", output)
+    assert re.search(r"Textures.*\(\d+\.\d+s\)", output)
 
 
 class _FakeClock:
@@ -257,51 +257,51 @@ def clock(monkeypatch):
 
 
 def test_time_outside_subtasks_is_reported_as_unassigned(buffer, clock):
-    # Die Einzelzeiten müssen sich zur Gesamtzeit summieren - ungemessene Arbeit wird sichtbar gemacht
+    # The individual times must add up to the total time - unmeasured work is made visible
     pipeline = Pipeline()
-    with pipeline.task("Terrain + Straßen") as task:
+    with pipeline.task("Terrain + roads") as task:
         with task.subtask("DecalRoads"):
             clock.now += 2.0
-        clock.now += 7.0  # Arbeit ohne Teilaufgabe (z.B. früher das Minimap-Bild)
+        clock.now += 7.0  # work without a subtask (e.g. formerly the minimap image)
 
     output = buffer.getvalue()
     assert "unassigned (7.0s)" in output
-    assert "✓ Terrain + Straßen (9.0s)" in output
+    assert "✓ Terrain + roads (9.0s)" in output
 
 
 def test_seamless_subtasks_report_no_unassigned_time(buffer, clock):
     pipeline = Pipeline()
-    with pipeline.task("Finalisierung") as task:
+    with pipeline.task("Finalization") as task:
         with task.subtask("Materials"):
             clock.now += 1.0
         with task.subtask("Items"):
             clock.now += 2.0
-        clock.now += 0.05  # Kleinkram unter der Meldeschwelle
+        clock.now += 0.05  # small stuff below the reporting threshold
 
     assert "unassigned" not in buffer.getvalue()
 
 
 def test_task_without_subtasks_reports_no_unassigned_time(buffer, clock):
     pipeline = Pipeline()
-    with pipeline.task("Texturen"):
+    with pipeline.task("Textures"):
         clock.now += 3.0
 
     assert "unassigned" not in buffer.getvalue()
 
 
 def test_subtasks_are_contiguous_so_preparation_time_counts_to_the_next_subtask(buffer, clock):
-    # Nahtlos: die Zeit zwischen zwei Teilaufgaben (Imports, Übergaben) gehört zur folgenden Teilaufgabe
+    # Seamless: the time between two subtasks (imports, hand-offs) belongs to the following subtask
     pipeline = Pipeline()
-    with pipeline.task("Terrain + Straßen") as task:
-        clock.now += 0.5  # Imports vor der ersten Teilaufgabe
-        with task.subtask("OSM-Daten laden"):
+    with pipeline.task("Terrain + roads") as task:
+        clock.now += 0.5  # imports before the first subtask
+        with task.subtask("Load OSM data"):
             clock.now += 2.0
-        clock.now += 0.5  # Übergabe an den Exporter
+        clock.now += 0.5  # hand-off to the exporter
         with task.subtask("DecalRoads"):
             clock.now += 1.0
 
     output = buffer.getvalue()
-    assert "OSM-Daten laden (2.5s)" in output
+    assert "Load OSM data (2.5s)" in output
     assert "DecalRoads (1.5s)" in output
-    assert "✓ Terrain + Straßen (4.0s)" in output
+    assert "✓ Terrain + roads (4.0s)" in output
     assert "unassigned" not in output

@@ -1,8 +1,8 @@
-"""ItemManager: kein Feld "rotation" in den Level-Objekten.
+"""ItemManager: no "rotation" field in the level objects.
 
-Hintergrund: BeamNG liest die Ausrichtung eines Objekts nur aus "rotationMatrix" (in den offiziellen Leveln steht bei
-77.678 TSStatic-Einträgen nie "rotation"). Unser früheres "rotation": [0, 0, 1, 0] hat jedes DAE-Objekt um ca. -0,04 Grad
-um die x-Achse durch den Ursprung gekippt: bei y = 1660 saß eine Mauer 1,15 m zu tief, im Süden (y = -2000) 1,4 m zu hoch.
+Background: BeamNG reads an object's orientation only from "rotationMatrix" (in the official levels, 77,678 TSStatic
+entries never contain "rotation"). Our earlier "rotation": [0, 0, 1, 0] tilted every DAE object by about -0.04 degrees
+around the x axis through the origin: at y = 1660 a wall sat 1.15 m too low, in the south (y = -2000) 1.4 m too high.
 """
 
 import json
@@ -30,7 +30,7 @@ def test_a_plain_item_has_no_rotation_field(manager):
     manager.add_item("walls", item_class="TSStatic", shape_name="levels/x/walls.dae", position=(0, 0, 0))
 
     item = manager.items["walls"]
-    assert "rotation" not in item and "rotationMatrix" not in item  # Ausrichtung = BeamNG-Standard (keine Drehung)
+    assert "rotation" not in item and "rotationMatrix" not in item  # orientation = BeamNG default (no rotation)
     assert item["position"] == [0, 0, 0] and item["scale"] == [1, 1, 1]
 
 
@@ -65,12 +65,12 @@ def test_the_saved_level_has_no_rotation_field_in_any_object(manager, tmp_path):
     manager.save(road_polygons=None)
 
     saved = list((tmp_path / "main").rglob("items.level.json"))
-    assert len(saved) >= 3  # Wurzel, MissionGroup, PlayerDropPoints
+    assert len(saved) >= 3  # root, MissionGroup, PlayerDropPoints
     objects = [json.loads(line) for path in saved for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
     assert len(objects) >= 5
     assert [o.get("name") for o in objects if "rotation" in o] == []
     pond = next(o for o in objects if o.get("name") == "pond_0_0")
-    assert pond["rotationMatrix"] == IDENTITY and pond["scale"] == [4, 2, 3]  # Wasserblöcke behalten Ausrichtung und Größe
+    assert pond["rotationMatrix"] == IDENTITY and pond["scale"] == [4, 2, 3]  # water blocks keep orientation and size
 
 
 def test_the_spawn_sphere_has_no_rotation_field():

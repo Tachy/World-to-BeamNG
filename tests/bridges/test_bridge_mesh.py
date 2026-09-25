@@ -1,4 +1,4 @@
-"""Tests für world_to_beamng.bridges.bridge_mesh: Brücken-Deck (Fahrbahn+Bordstein+Geländer) + Stützpfeiler."""
+"""Tests for world_to_beamng.bridges.bridge_mesh: bridge deck (carriageway + curb + railing) + support piers."""
 
 import sys
 from pathlib import Path
@@ -27,17 +27,17 @@ def _zs(mesh, material):
 
 
 def test_deck_top_is_flat_at_the_given_height_and_carriageway_width():
-    # pier_spacing groesser als die Spannweite: isoliert den Test auf die reine Deck-Geometrie (kein Pfeiler-Vertex
-    # in "vertices", der die min()-Annahme unten verfaelschen wuerde - siehe test_piers_reach_down_... fuer die
-    # Pfeiler-Faelle mit dem Standard-pier_spacing).
+    # pier_spacing larger than the span: isolates the test to the pure deck geometry (no pier vertex in
+    # "vertices" that would falsify the min() assumption below - see test_piers_reach_down_... for the pier
+    # cases with the default pier_spacing).
     mesh = build_bridge_mesh(
         _coords(z=200.0), width=8.0, ground_at=_flat_ground(150.0), deck_material=DECK, pier_material=PIER,
         railing_material=RAIL, deck_thickness=0.6, pier_spacing=1000.0,
     )
     deck_zs = _zs(mesh, DECK)
 
-    assert deck_zs.max() == pytest.approx(200.0)  # Fahrbahn-Oberkante = Höhenprofil, folgt NICHT dem Gelände
-    assert deck_zs.min() == pytest.approx(200.0 - 0.6)  # Deck-Unterkante
+    assert deck_zs.max() == pytest.approx(200.0)  # carriageway top edge = elevation profile, does NOT follow the terrain
+    assert deck_zs.min() == pytest.approx(200.0 - 0.6)  # deck bottom edge
 
 
 def test_deck_faces_use_the_road_material_not_the_pier_material():
@@ -53,13 +53,13 @@ def test_curb_sits_on_top_of_the_deck_and_narrows_the_carriageway():
     )
     deck_zs, pier_zs = _zs(mesh, DECK), _zs(mesh, PIER)
 
-    assert deck_zs.max() == pytest.approx(200.0)  # Fahrbahn bleibt auf Deck-Niveau
-    assert pier_zs.max() == pytest.approx(200.0 + 0.15)  # Bordstein-Oberkante = Deck + curb_height
-    # Bordstein-Vertices liegen ausserhalb der halben Fahrbahnbreite (8/2 - 0.25 = 3.75 m von der Achse)
+    assert deck_zs.max() == pytest.approx(200.0)  # carriageway stays at deck level
+    assert pier_zs.max() == pytest.approx(200.0 + 0.15)  # curb top edge = deck + curb_height
+    # Curb vertices lie outside half the carriageway width (8/2 - 0.25 = 3.75 m from the axis)
     xy_at_curb_top = np.array(
         [mesh["vertices"][i][1] for face in mesh["faces"][PIER] for i in face if mesh["vertices"][i][2] == pytest.approx(200.0 + 0.15)]
     )
-    assert np.any(np.abs(np.abs(xy_at_curb_top - 5.0) - 4.0) < 1e-6)  # äußere Bordsteinkante bei voller Breite (4 m)
+    assert np.any(np.abs(np.abs(xy_at_curb_top - 5.0) - 4.0) < 1e-6)  # outer curb edge at full width (4 m)
 
 
 def test_railing_posts_and_handrail_sit_above_the_curb():
@@ -70,21 +70,21 @@ def test_railing_posts_and_handrail_sit_above_the_curb():
 
     assert RAIL in mesh["faces"] and len(mesh["faces"][RAIL]) > 0
     rail_zs = _zs(mesh, RAIL)
-    assert rail_zs.min() == pytest.approx(200.0 + 0.15)  # Pfosten beginnen auf der Bordstein-Oberkante
-    assert rail_zs.max() == pytest.approx(200.0 + 0.15 + 0.9 + 0.08 / 2.0)  # Handlauf-Oberkante
+    assert rail_zs.min() == pytest.approx(200.0 + 0.15)  # posts start at the curb top edge
+    assert rail_zs.max() == pytest.approx(200.0 + 0.15 + 0.9 + 0.08 / 2.0)  # handrail top edge
 
 
 def test_piers_reach_down_to_the_natural_ground_below_a_deep_span():
     mesh = build_bridge_mesh(_coords(length=60.0, z=200.0), width=8.0, ground_at=_flat_ground(150.0), deck_material=DECK, pier_material=PIER, railing_material=RAIL, pier_spacing=25.0)
 
     assert len(mesh["faces"][PIER]) > 0
-    assert _zs(mesh, PIER).min() == pytest.approx(150.0)  # (mindestens) ein Pfeiler reicht bis zum natürlichen Gelände
+    assert _zs(mesh, PIER).min() == pytest.approx(150.0)  # (at least) one pier reaches down to the natural ground
 
 
 def test_no_piers_when_clearance_is_too_small():
     mesh = build_bridge_mesh(_coords(length=60.0, z=151.0), width=8.0, ground_at=_flat_ground(150.0), deck_material=DECK, pier_material=PIER, railing_material=RAIL, deck_thickness=0.2, min_pier_clearance=1.0)
 
-    # PIER-Material enthält noch die Bordstein-Flächen, aber keinen Pfeiler, der das Gelände erreicht
+    # PIER material still contains the curb faces, but no pier that reaches the terrain
     assert _zs(mesh, PIER).min() == pytest.approx(151.0)
 
 

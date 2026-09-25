@@ -1,5 +1,5 @@
-"""Tests für die Markierungs-Linienmaterialien (data/osm_to_beamng.json -> road_markings) und ihren
-materials.json-Eintrag. Vorbild: BeamNGs eigene line_white / line_dashed_long
+"""Tests for the marking line materials (data/osm_to_beamng.json -> road_markings) and their
+materials.json entry. Model: BeamNG's own line_white / line_dashed_long
 (west_coast_usa/art/road/main.materials.json)."""
 
 import sys
@@ -31,12 +31,12 @@ def test_marking_materials_use_vanilla_line_textures(mapper):
     divider = mapper.road_markings[config.ROAD_MARKING_DIVIDER_MATERIAL]
 
     assert edge["textures"]["opacityMap"] == LINES_PREFIX + "line_white/t_line_white_o.data.dds"
-    # line_white_dashed: Strich durchgehend weiß (line_dashed_long ist innerhalb des Strichs halb grau, halb weiß -
-    # im Spiel sichtbar), zwei Striche je Kachel, Strich:Lücke 1:1
+    # line_white_dashed: dash is solid white throughout (line_dashed_long is half gray, half white within the dash -
+    # visible in game), two dashes per tile, dash:gap 1:1
     assert divider["textures"]["baseColorMap"] == LINES_PREFIX + "line_white_dashed/t_line_white_dashed_b.color.dds"
     assert divider["textures"]["opacityMap"] == LINES_PREFIX + "line_white_dashed/t_line_white_dashed_o.data.dds"
     assert divider["textures"]["normalMap"] == LINES_PREFIX + "line_dashed_short/t_line_white_dashed_nm.normal.dds"
-    assert divider["textureLength"] == pytest.approx(24.0)  # 6 m Strich, 6 m Lücke
+    assert divider["textureLength"] == pytest.approx(24.0)  # 6 m dash, 6 m gap
     for marking in (edge, divider):
         assert set(marking["textures"]) == {"baseColorMap", "normalMap", "opacityMap"}
         assert marking["textureLength"] > 0
@@ -68,8 +68,8 @@ def test_marking_material_entries_get_unique_persistent_ids(mapper):
 
 
 def test_markings_are_drawn_after_every_road_surface(mapper):
-    # DecalRoads werden in ABSTEIGENDER renderPriority gezeichnet (kleinster Wert zuletzt = oben) - im Spiel lagen
-    # Linien mit 20 unter dem Asphalt mit 8.
+    # DecalRoads are drawn in DESCENDING renderPriority (smallest value last = on top) - in game, lines with 20
+    # ended up below the asphalt with 8.
     road_priorities = [config.ROAD_RENDER_PRIORITY_BASE - s["priority"] for s in mapper.surface_types.values()]
     assert all(config.ROAD_MARKING_RENDER_PRIORITY < p for p in road_priorities)
     assert config.ROAD_MARKING_RENDER_PRIORITY >= 1

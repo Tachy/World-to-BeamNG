@@ -1,5 +1,5 @@
-"""Tests für den DecalRoad-Export mit weichen Breitenübergängen und Markierungslinien
-(TerrainWorkflow.export_decal_roads(), siehe docs/superpowers/plans/2026-09-24-road-markings-width-transitions.md)."""
+"""Tests for the DecalRoad export with smooth width transitions and marking lines
+(TerrainWorkflow.export_decal_roads(), see docs/superpowers/plans/2026-09-24-road-markings-width-transitions.md)."""
 
 import sys
 from pathlib import Path
@@ -40,13 +40,13 @@ def _markings(roads):
 def test_two_lane_primary_gets_two_edge_lines_and_a_dashed_divider():
     count, roads, materials = _export([_poly(1, [(0, 0), (10, 0), (20, 0), (30, 0)], highway="primary", lanes="2")])
 
-    assert count == 1  # Rückgabe zählt weiterhin nur Fahrbahnen
+    assert count == 1  # the return value still counts only carriageways
     markings = _markings(roads)
     assert sorted(markings) == ["marking_1_0_0", "marking_1_1_0", "marking_1_2_0"]
     left, right, divider = markings["marking_1_0_0"], markings["marking_1_1_0"], markings["marking_1_2_0"]
     assert left["material"] == right["material"] == config.ROAD_MARKING_EDGE_MATERIAL
     assert divider["material"] == config.ROAD_MARKING_DIVIDER_MATERIAL
-    assert [n[1] for n in left["nodes"]] == pytest.approx([3.0] * 4)  # 6,5 m / 2 - 0,25 m
+    assert [n[1] for n in left["nodes"]] == pytest.approx([3.0] * 4)  # 6.5 m / 2 - 0.25 m
     assert [n[1] for n in right["nodes"]] == pytest.approx([-3.0] * 4)
     assert [n[1] for n in divider["nodes"]] == pytest.approx([0.0] * 4)
     assert all(n[3] == config.ROAD_MARKING_LINE_WIDTH for n in left["nodes"])
@@ -94,7 +94,7 @@ def test_width_transition_is_applied_to_road_and_followed_by_edge_line():
     ]
     _, roads, _ = _export(polys)
 
-    assert roads["road_1"]["nodes"][-1][3] == pytest.approx(8.125)  # Mittel aus 6,5 und 9,75 m
+    assert roads["road_1"]["nodes"][-1][3] == pytest.approx(8.125)  # mean of 6.5 and 9.75 m
     assert roads["road_1"]["nodes"][0][3] == pytest.approx(6.5)
     assert roads["road_2"]["nodes"][0][3] == pytest.approx(8.125)
     assert roads["marking_1_0_0"]["nodes"][-1][1] == pytest.approx(8.125 / 2 - 0.25)
@@ -118,14 +118,14 @@ def test_side_road_interrupts_main_edge_line_but_not_divider():
     ]
     _, roads, _ = _export(polys)
 
-    clearance = 6.5 / 2 + config.ROAD_MARKING_JUNCTION_CLEARANCE  # 3,75 m
-    assert roads["marking_1_0_0"]["nodes"][-1][0] == pytest.approx(-clearance, abs=0.02)  # links endet vor der Einmündung
+    clearance = 6.5 / 2 + config.ROAD_MARKING_JUNCTION_CLEARANCE  # 3.75 m
+    assert roads["marking_1_0_0"]["nodes"][-1][0] == pytest.approx(-clearance, abs=0.02)  # left ends before the T-junction
     assert "marking_1_0_1" not in roads
-    assert roads["marking_1_1_0"]["nodes"][-1][0] == pytest.approx(0.0)  # rechte Randlinie läuft durch
-    assert roads["marking_1_2_0"]["nodes"][-1][0] == pytest.approx(0.0)  # Leitlinie läuft durch
+    assert roads["marking_1_1_0"]["nodes"][-1][0] == pytest.approx(0.0)  # right edge line runs through
+    assert roads["marking_1_2_0"]["nodes"][-1][0] == pytest.approx(0.0)  # guide line runs through
     assert roads["marking_2_0_0"]["nodes"][0][0] == pytest.approx(clearance, abs=0.02)
     for side_edge in ("marking_3_0_0", "marking_3_1_0"):
-        assert roads[side_edge]["nodes"][0][1] == pytest.approx(clearance, abs=0.02)  # Nebenstraße beginnt am Rand
+        assert roads[side_edge]["nodes"][0][1] == pytest.approx(clearance, abs=0.02)  # side road starts at the edge
 
 
 def test_track_junction_does_not_interrupt_edge_line():
@@ -165,11 +165,11 @@ def test_oblique_side_road_does_not_cut_divider():
     assert roads["marking_1_2_0"]["nodes"][-1][0] == pytest.approx(0.0)
     assert roads["marking_2_2_0"]["nodes"][0][0] == pytest.approx(0.0)
     assert "marking_2_2_1" not in roads
-    assert "marking_2_1_1" not in roads  # rechte (gegenüberliegende) Randlinie durchgehend
+    assert "marking_2_1_1" not in roads  # right (opposite) edge line continuous
 
 
 def test_markings_and_better_surfaces_are_drawn_on_top():
-    # DecalRoads werden in absteigender renderPriority gezeichnet: kleinerer Wert = später = oben
+    # DecalRoads are drawn in descending renderPriority: smaller value = later = on top
     polys = [
         _poly(1, [(0, 0), (10, 0), (20, 0)], highway="primary", lanes="2"),
         _poly(2, [(0, 20), (10, 20), (20, 20)], highway="track"),
@@ -177,12 +177,12 @@ def test_markings_and_better_surfaces_are_drawn_on_top():
     _, roads, _ = _export(polys)
 
     asphalt, dirt = roads["road_1"]["renderPriority"], roads["road_2"]["renderPriority"]
-    assert asphalt < dirt  # Asphalt über Erdweg (an Einmündungen überlappen die Enden)
-    assert roads["marking_1_0_0"]["renderPriority"] < asphalt  # Linien über dem Asphalt
+    assert asphalt < dirt  # asphalt above dirt track (at T-junctions the ends overlap)
+    assert roads["marking_1_0_0"]["renderPriority"] < asphalt  # lines above the asphalt
 
 
 def test_long_road_decal_is_split_into_chunks_within_the_area_budget():
-    # BeamNG zeichnet pro DecalRoad nur begrenzt viel Geometrie (siehe geometry/decal_chunks.py)
+    # BeamNG draws only a limited amount of geometry per DecalRoad (see geometry/decal_chunks.py)
     xs = [float(x) for x in range(0, 201, 1)]
     count, roads, _ = _export([_poly(1, [(x, 0) for x in xs], highway="primary", lanes="2")])
 
@@ -196,7 +196,7 @@ def test_long_road_decal_is_split_into_chunks_within_the_area_budget():
     for first, second in zip(chunks, chunks[1:]):
         assert roads[first]["nodes"][-1] == roads[second]["nodes"][0]
     assert roads[chunks[0]]["nodes"][0][0] == 0.0 and roads[chunks[-1]]["nodes"][-1][0] == 200.0
-    assert roads["marking_1_0_0"]["nodes"][-1][0] == pytest.approx(200.0)  # Linien bleiben ein Stück
+    assert roads["marking_1_0_0"]["nodes"][-1][0] == pytest.approx(200.0)  # lines stay in one piece
 
 
 def test_short_road_keeps_its_single_decal_name():
@@ -214,5 +214,5 @@ def test_road_decals_overlap_at_kinked_continuation_but_markings_still_meet():
     _, roads, _ = _export(polys)
 
     road_1 = sorted(name for name in roads if name == "road_1" or name.startswith("road_1_"))
-    assert roads[road_1[-1]]["nodes"][-1][0] > 0.5  # über den Stoßpunkt hinaus verlängert (schließt den Außenkeil)
+    assert roads[road_1[-1]]["nodes"][-1][0] > 0.5  # extended beyond the joint point (closes the outer wedge)
     assert roads["marking_1_0_0"]["nodes"][-1][:2] == pytest.approx(roads["marking_2_0_0"]["nodes"][0][:2], abs=1e-6)

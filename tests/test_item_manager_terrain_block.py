@@ -1,4 +1,4 @@
-"""Tests für ItemManager.add_terrain_block()."""
+"""Tests for ItemManager.add_terrain_block()."""
 
 import sys
 from pathlib import Path
