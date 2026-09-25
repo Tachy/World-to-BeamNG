@@ -1,5 +1,5 @@
 """
-Terrain-Grid Generierung.
+Terrain grid generation.
 """
 
 import numpy as np
@@ -12,23 +12,23 @@ logger = LoggerConfig.get_logger()
 
 
 def create_terrain_grid(height_points, height_elevations, grid_spacing=10.0, tile_hash=None):
-    """Erstellt ein reguläres Grid aus den Hoehendaten (OPTIMIERT mit Caching).
+    """Creates a regular grid from the elevation data (OPTIMIZED with caching).
 
     Args:
-        height_points: XY-Koordinaten (lokale Koordinaten)
-        height_elevations: Z-Werte
-        grid_spacing: Gitter-Abstand in Metern
-        tile_hash: Optional - tile_hash für Cache-Konsistenz (Multi-Tile-Mode)
+        height_points: XY coordinates (local coordinates)
+        height_elevations: Z values
+        grid_spacing: Grid spacing in meters
+        tile_hash: Optional - tile_hash for cache consistency (multi-tile mode)
     """
     logger.info(f"  Creating terrain grid (spacing: {grid_spacing}m)...")
 
-    # Grid-Bounds wurden bereits in world_to_beamng.py gesetzt (aus height_points)
-    # Hier nur für interne Berechnungen ermitteln
+    # Grid bounds were already set in world_to_beamng.py (from height_points)
+    # Only determined here for internal calculations
     min_x, max_x = height_points[:, 0].min(), height_points[:, 0].max()
     min_y, max_y = height_points[:, 1].min(), height_points[:, 1].max()
 
-    # Pruefe ob gecachtes Grid existiert (Version 3 mit korrekten Bounds!)
-    # Verwende übergebenes tile_hash oder fallback auf global hash
+    # Check whether a cached grid exists (version 3 with correct bounds!)
+    # Use the passed tile_hash or fall back to the global hash
     effective_hash = tile_hash or get_height_data_hash()
     if effective_hash:
         cache_file = config.CACHE_DIR / f"grid_v3_{effective_hash}_spacing{grid_spacing:.1f}m.npz"
@@ -41,25 +41,25 @@ def create_terrain_grid(height_points, height_elevations, grid_spacing=10.0, til
             nx = int(data["nx"])
             ny = int(data["ny"])
             logger.info(f"  [OK] Grid loaded from cache: {nx} x {ny} = {len(grid_points)} vertices")
-            # WICHTIG: Grid wurde in UTM gecacht, transformiere zu lokal!
-            # (height_points wurden bereits transformiert, min_x/min_y sind lokal)
-            # Wir muessen hier nichts tun - grid_points sind schon im gleichen System wie height_points
+            # IMPORTANT: the grid was cached in UTM, transform to local!
+            # (height_points were already transformed, min_x/min_y are local)
+            # Nothing to do here - grid_points are already in the same system as height_points
             return grid_points, grid_elevations, nx, ny
 
-    # Erstelle Grid-Punkte (inklusiv max_x und max_y!)
-    # WICHTIG: np.arange schließt max nicht ein, daher + grid_spacing
+    # Create grid points (inclusive of max_x and max_y!)
+    # IMPORTANT: np.arange does not include max, hence + grid_spacing
     x_coords = np.arange(min_x, max_x + grid_spacing * 0.5, grid_spacing)
     y_coords = np.arange(min_y, max_y + grid_spacing * 0.5, grid_spacing)
 
     grid_x, grid_y = np.meshgrid(x_coords, y_coords)
     grid_points = np.column_stack([grid_x.ravel(), grid_y.ravel()])
 
-    # Interpoliere Hoehen fuer Grid-Punkte (CHUNKED fuer bessere Performance)
+    # Interpolate heights for grid points (CHUNKED for better performance)
     logger.info(f"  Creating interpolator...")
     interpolator = NearestNDInterpolator(height_points, height_elevations)
 
     logger.info(f"  Interpolating {len(grid_points)} grid points (in chunks)...")
-    chunk_size = 500000  # 500k Punkte pro Chunk
+    chunk_size = 500000  # 500k points per chunk
     grid_elevations = np.empty(len(grid_points), dtype=np.float64)
 
     num_chunks = (len(grid_points) + chunk_size - 1) // chunk_size
@@ -76,7 +76,7 @@ def create_terrain_grid(height_points, height_elevations, grid_spacing=10.0, til
     ny = len(y_coords)
     logger.info(f"  Grid: {nx} x {ny} = {len(grid_points)} vertices")
 
-    # Cache das Grid fuer zukuenftige Verwendung (Version 3 mit korrekten Bounds!)
+    # Cache the grid for future use (version 3 with correct bounds!)
     if effective_hash:
         cache_file = config.CACHE_DIR / f"grid_v3_{effective_hash}_spacing{grid_spacing:.1f}m.npz"
         logger.info(f"  Saving grid cache: {cache_file.name}")

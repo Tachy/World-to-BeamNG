@@ -1,8 +1,8 @@
 """
-Prozedurale, kachelbare Kies-Textur für Flachdächer - wird einmalig erzeugt und in data/textures abgelegt (nicht bei
-jedem Export): automatisch, falls sie fehlt (textures/registry.py), oder gezielt per tools/generate_gravel_texture.py.
+Procedural, tileable gravel texture for flat roofs - generated once and stored in data/textures (not on every
+export): automatically if it is missing (textures/registry.py), or explicitly via tools/generate_gravel_texture.py.
 
-Periodisches Voronoi-Muster: jede Zelle ist ein Kieselstein (Kuppel), die Fugen dazwischen sind dunkel.
+Periodic Voronoi pattern: each cell is a pebble (dome), the joints in between are dark.
 """
 
 from pathlib import Path
@@ -15,13 +15,13 @@ from .. import config
 from ..facade.texture_utils import fbm, gray_to_rgb, normal_from_height, to_uint8
 from . import library
 
-_PEBBLE_SIZE_M = 0.014  # mittlerer Korndurchmesser (Kies 8-16 mm)
+_PEBBLE_SIZE_M = 0.014  # mean grain diameter (gravel 8-16 mm)
 _PALETTE = ((150, 146, 138), (128, 124, 118), (170, 164, 152), (140, 134, 122), (112, 110, 106), (160, 150, 132))
 _RELIEF_PX = 3.0
 
 
 class GravelTextureGenerator:
-    """Erzeugt Albedo, Normalmap und Roughness einer kachelbaren Kiesfläche."""
+    """Generates albedo, normal map and roughness of a tileable gravel surface."""
 
     def __init__(self, size_px: int = config.FLAT_ROOF_GRAVEL_TEXTURE_PX, repeat_m: float = config.FLAT_ROOF_GRAVEL_REPEAT_M):
         self._size = size_px
@@ -30,14 +30,14 @@ class GravelTextureGenerator:
     def generate(self, seed: Optional[int] = 4242) -> Dict[str, np.ndarray]:
         """
         Returns:
-            {"albedo", "normal", "roughness"}: uint8-RGB-Bilder (size_px x size_px x 3)
+            {"albedo", "normal", "roughness"}: uint8 RGB images (size_px x size_px x 3)
         """
         rng = np.random.default_rng(seed)
         n, size = self._pebbles_per_side, self._size
 
         grid = np.stack(np.meshgrid(np.arange(n), np.arange(n), indexing="ij"), axis=-1).reshape(-1, 2)
         centres = ((grid + rng.random(grid.shape)) / n) % 1.0
-        tree = cKDTree(centres, boxsize=1.0)  # periodische Nachbarschaft = nahtlose Kachel
+        tree = cKDTree(centres, boxsize=1.0)  # periodic neighborhood = seamless tile
 
         coords = (np.arange(size) + 0.5) / size
         pixels = np.stack(np.meshgrid(coords, coords, indexing="ij"), axis=-1).reshape(-1, 2)
@@ -60,10 +60,10 @@ class GravelTextureGenerator:
 
 def generate_gravel_texture(library_dir: Optional[Path] = None, seed: int = 4242) -> Path:
     """
-    Erzeugt die Kies-Textur und legt sie in der Textur-Bibliothek ab (data/textures/roof_gravel).
+    Generates the gravel texture and stores it in the texture library (data/textures/roof_gravel).
 
     Returns:
-        Ordner der Textur
+        Folder of the texture
     """
     generated = GravelTextureGenerator().generate(seed=seed)
     maps = {"color": generated["albedo"], "normal": generated["normal"], "roughness": generated["roughness"]}
@@ -71,6 +71,6 @@ def generate_gravel_texture(library_dir: Optional[Path] = None, seed: int = 4242
         config.FLAT_ROOF_GRAVEL_TEXTURE,
         maps,
         tile_m=config.FLAT_ROOF_GRAVEL_REPEAT_M,
-        source=f"prozedural (textures/gravel.py), Seed {seed}, {config.FLAT_ROOF_GRAVEL_TEXTURE_PX} px",
+        source=f"procedural (textures/gravel.py), seed {seed}, {config.FLAT_ROOF_GRAVEL_TEXTURE_PX} px",
         library_dir=library_dir,
     )

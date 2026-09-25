@@ -1,16 +1,16 @@
 """
-Automatischer Download fehlender Copernicus-DEM-GLO-30-Kacheln (30 m Höhendaten für den
-Horizont-Hintergrund) von der öffentlichen, unauthentifizierten AWS-S3-Bucket
+Automatic download of missing Copernicus DEM GLO-30 tiles (30 m elevation data for the
+horizon background) from the public, unauthenticated AWS S3 bucket
 (`config.DGM30_S3_BUCKET`).
 
-Analog zum bestehenden automatischen OSM-Overpass-Download in `world_to_beamng/osm/downloader.py`
-(Retry mit exponentiellem Backoff, gestreamtes Fortschritts-Logging) - der Ansatz ist hier
-bewusst lokal dupliziert statt in einen gemeinsamen Helfer ausgelagert (kleinerer, risikoärmerer
-Schritt, siehe SDD-Plan).
+Analogous to the existing automatic OSM Overpass download in `world_to_beamng/osm/downloader.py`
+(retry with exponential backoff, streamed progress logging) - the approach is deliberately
+duplicated locally here instead of being factored out into a shared helper (smaller, lower-risk
+step, see SDD plan).
 
-Die Kacheln sind nach einem 1°x1°-Grad-Gitter benannt (Südwest-Ecke), z. B.
-`Copernicus_DSM_COG_10_N47_00_E007_00_DEM`. `horizon_area_wgs84()` in horizon_image.py liefert
-die BBox in WGS84, die dieses Modul zur Kachelauswahl braucht.
+The tiles are named after a 1°x1° degree grid (southwest corner), e.g.
+`Copernicus_DSM_COG_10_N47_00_E007_00_DEM`. `horizon_area_wgs84()` in horizon_image.py provides
+the BBox in WGS84 that this module needs for tile selection.
 """
 
 import json
@@ -32,11 +32,11 @@ _NOT_FOUND_CACHE_FILENAME = ".not_found_cache.json"
 
 def copernicus_tile_id(lat_deg: int, lon_deg: int) -> str:
     """
-    Copernicus-DEM-GLO-30-Kachel-ID für die Kachel mit Südwest-Eckpunkt (lat_deg, lon_deg).
+    Copernicus DEM GLO-30 tile ID for the tile with southwest corner point (lat_deg, lon_deg).
 
     Args:
-        lat_deg: Ganzzahlige Breite der Südwest-Ecke (z. B. 47; negativ = südlich des Äquators)
-        lon_deg: Ganzzahlige Länge der Südwest-Ecke (z. B. 7; negativ = westlich von Null)
+        lat_deg: Integer latitude of the southwest corner (e.g. 47; negative = south of the equator)
+        lon_deg: Integer longitude of the southwest corner (e.g. 7; negative = west of zero)
     """
     ns = "N" if lat_deg >= 0 else "S"
     ew = "E" if lon_deg >= 0 else "W"
@@ -45,10 +45,10 @@ def copernicus_tile_id(lat_deg: int, lon_deg: int) -> str:
 
 def required_tile_ids(bbox_wgs84) -> list:
     """
-    Alle 1°x1°-Kacheln, die die BBox schneiden. Reine Geometrie, kein I/O.
+    All 1°x1° tiles that intersect the BBox. Pure geometry, no I/O.
 
     Args:
-        bbox_wgs84: (lon_min, lat_min, lon_max, lat_max), siehe horizon_image.horizon_area_wgs84()
+        bbox_wgs84: (lon_min, lat_min, lon_max, lat_max), see horizon_image.horizon_area_wgs84()
     """
     lon_min, lat_min, lon_max, lat_max = bbox_wgs84
     lat_start, lat_stop = math.floor(lat_min), math.ceil(lat_max)
@@ -61,9 +61,9 @@ def required_tile_ids(bbox_wgs84) -> list:
 
 
 def _not_found_entry_is_recent(timestamp_iso: str, cutoff: datetime) -> bool:
-    """True, wenn der Not-Found-Cache-Eintrag noch innerhalb der TTL liegt. Ein kaputter/
-    unlesbarer Zeitstempel zählt NICHT als kürzlich bestätigt - die Kachel wird dann erneut
-    versucht statt dauerhaft übersprungen zu werden."""
+    """True if the not-found cache entry is still within the TTL. A broken/
+    unreadable timestamp does NOT count as recently confirmed - the tile is then retried
+    instead of being skipped permanently."""
     try:
         timestamp = datetime.fromisoformat(timestamp_iso)
     except (TypeError, ValueError):
@@ -73,13 +73,13 @@ def _not_found_entry_is_recent(timestamp_iso: str, cutoff: datetime) -> bool:
 
 def missing_tile_ids(bbox_wgs84, dgm30_dir, not_found_cache: dict) -> list:
     """
-    `required_tile_ids(bbox_wgs84)` abzüglich bereits vorhandener .tif-Dateien in `dgm30_dir` und
-    Kacheln, die kürzlich (innerhalb config.DGM30_NOT_FOUND_CACHE_TTL_DAYS) als "nicht gefunden"
-    bestätigt wurden. Reine Funktion, außer dem Directory-Listing von `dgm30_dir` kein I/O.
+    `required_tile_ids(bbox_wgs84)` minus already existing .tif files in `dgm30_dir` and
+    tiles that were recently (within config.DGM30_NOT_FOUND_CACHE_TTL_DAYS) confirmed as "not found".
+    Pure function; apart from the directory listing of `dgm30_dir` there is no I/O.
 
     Args:
         bbox_wgs84: (lon_min, lat_min, lon_max, lat_max)
-        dgm30_dir: Verzeichnis mit bereits vorhandenen Kacheln (muss nicht existieren)
+        dgm30_dir: Directory with already existing tiles (does not have to exist)
         not_found_cache: {tile_id: iso8601_timestamp_str}
     """
     dgm30_dir = Path(dgm30_dir)
@@ -104,8 +104,8 @@ def _cache_path(dgm30_dir: Path) -> Path:
 
 
 def _load_not_found_cache(dgm30_dir: Path) -> dict:
-    """Lädt den Not-Found-Cache; eine fehlende oder kaputte Datei führt nie zum Absturz, nur zu
-    einem leeren Cache (mit Log-Hinweis bei kaputter Datei)."""
+    """Loads the not-found cache; a missing or broken file never causes a crash, only
+    an empty cache (with a log message if the file is broken)."""
     path = _cache_path(dgm30_dir)
     if not path.exists():
         return {}
@@ -117,8 +117,8 @@ def _load_not_found_cache(dgm30_dir: Path) -> dict:
 
 
 def _save_not_found_cache(dgm30_dir: Path, not_found_cache: dict) -> None:
-    """Speichert den Not-Found-Cache atomar (Part-Datei + os.replace), damit ein Absturz beim
-    nächsten Kachel-Download nicht bereits bestätigte 404s verliert."""
+    """Saves the not-found cache atomically (part file + os.replace) so that a crash during the
+    next tile download does not lose already confirmed 404s."""
     path = _cache_path(dgm30_dir)
     part_path = path.with_name(path.name + ".part")
     part_path.write_text(json.dumps(not_found_cache, indent=2), encoding="utf-8")
@@ -126,9 +126,9 @@ def _save_not_found_cache(dgm30_dir: Path, not_found_cache: dict) -> None:
 
 
 def _write_with_progress(response, part_path: Path, log_every_bytes: int = 2 * 1024 * 1024) -> None:
-    """Schreibt eine gestreamte Response Chunk für Chunk in `part_path` und loggt den Fortschritt
-    alle `log_every_bytes` (analog osm/downloader._download_with_progress(), hier einfacher weil
-    direkt in eine Datei statt in den Speicher geschrieben wird)."""
+    """Writes a streamed response chunk by chunk to `part_path` and logs the progress
+    every `log_every_bytes` (analogous to osm/downloader._download_with_progress(), simpler here because
+    it writes directly to a file instead of into memory)."""
     downloaded = 0
     next_log_at = log_every_bytes
     with open(part_path, "wb") as f:
@@ -143,8 +143,8 @@ def _write_with_progress(response, part_path: Path, log_every_bytes: int = 2 * 1
 
 
 def _download_one_tile(tile_id: str, url: str, dgm30_dir: Path) -> str:
-    """Lädt eine einzelne Kachel mit Retry + exponentiellem Backoff (analog get_osm_data() in
-    osm/downloader.py). Rückgabe: "downloaded", "not_found" oder "failed"."""
+    """Downloads a single tile with retry + exponential backoff (analogous to get_osm_data() in
+    osm/downloader.py). Returns: "downloaded", "not_found" or "failed"."""
     part_path = dgm30_dir / f"{tile_id}.tif.part"
     final_path = dgm30_dir / f"{tile_id}.tif"
 
@@ -153,14 +153,14 @@ def _download_one_tile(tile_id: str, url: str, dgm30_dir: Path) -> str:
             response = requests.get(url, stream=True, timeout=config.DGM30_FETCH_TIMEOUT_S)
 
             if response.status_code == 404:
-                # Erwartetes Verhalten für Meereskacheln (keine Landfläche = keine DEM-Kachel) -
-                # kein Retry, kein error-Log.
+                # Expected behavior for sea tiles (no land area = no DEM tile) -
+                # no retry, no error log.
                 logger.info(f"  [i] {tile_id}: no data on S3 (404, probably a sea tile)")
                 return "not_found"
 
             response.raise_for_status()
             _write_with_progress(response, part_path)
-            os.replace(part_path, final_path)  # atomar: ein Absturz mittendrin hinterlässt nie eine .tif
+            os.replace(part_path, final_path)  # atomic: a crash midway never leaves a .tif
             logger.info(f"  [OK] {tile_id} downloaded")
             return "downloaded"
 
@@ -172,28 +172,28 @@ def _download_one_tile(tile_id: str, url: str, dgm30_dir: Path) -> str:
             logger.info(f"  [x] {tile_id}: error {e} (attempt {attempt + 1}/{config.DGM30_FETCH_MAX_RETRIES})")
 
         if attempt < config.DGM30_FETCH_MAX_RETRIES - 1:
-            wait_time = 2**attempt  # Exponentielles Backoff: 1s, 2s, 4s, ...
+            wait_time = 2**attempt  # Exponential backoff: 1s, 2s, 4s, ...
             logger.info(f"  Waiting {wait_time}s before retrying...")
             time.sleep(wait_time)
 
     logger.error(f"  [x] {tile_id}: all {config.DGM30_FETCH_MAX_RETRIES} attempts failed")
-    # Ein abgebrochener Stream kann eine .tif.part hinterlassen haben - aufräumen (analog zum
-    # totalen Fehlschlag in sentinel2_fetch.fetch_eox_mosaic()).
+    # An aborted stream may have left a .tif.part behind - clean up (analogous to the
+    # total failure in sentinel2_fetch.fetch_eox_mosaic()).
     part_path.unlink(missing_ok=True)
     return "failed"
 
 
 def download_dgm30_tiles(bbox_wgs84, dgm30_dir) -> dict:
     """
-    Lädt alle für `bbox_wgs84` fehlenden Copernicus-DEM-Kacheln von S3 herunter (siehe
+    Downloads all Copernicus DEM tiles missing for `bbox_wgs84` from S3 (see
     missing_tile_ids()).
 
     Args:
         bbox_wgs84: (lon_min, lat_min, lon_max, lat_max)
-        dgm30_dir: Zielverzeichnis für die .tif-Kacheln (wird bei Bedarf angelegt)
+        dgm30_dir: Target directory for the .tif tiles (created if needed)
 
     Returns:
-        {"downloaded": [...], "not_found": [...], "failed": [...]} (Kachel-IDs je Kategorie)
+        {"downloaded": [...], "not_found": [...], "failed": [...]} (tile IDs per category)
     """
     dgm30_dir = Path(dgm30_dir)
     dgm30_dir.mkdir(parents=True, exist_ok=True)
@@ -214,11 +214,11 @@ def download_dgm30_tiles(bbox_wgs84, dgm30_dir) -> dict:
         if outcome == "not_found":
             not_found_cache[tile_id] = datetime.now(timezone.utc).isoformat()
             try:
-                _save_not_found_cache(dgm30_dir, not_found_cache)  # sofort speichern: übersteht einen Absturz im nächsten Tile
+                _save_not_found_cache(dgm30_dir, not_found_cache)  # save immediately: survives a crash on the next tile
             except OSError as e:
-                # Ein einzelner fehlgeschlagener Cache-Schreibversuch (voll, keine Rechte, ...) soll
-                # nicht den Rest des Batches abbrechen - nur diese Kachel wird beim nächsten Lauf
-                # erneut als 404 erkannt statt gecacht zu bleiben.
+                # A single failed cache write attempt (disk full, no permissions, ...) should
+                # not abort the rest of the batch - only this tile is detected as a 404
+                # again on the next run instead of staying cached.
                 logger.warning(f"  [!] Not-found cache could not be saved ({e}) - {tile_id} stays uncached")
 
         result[outcome].append(tile_id)
@@ -228,14 +228,14 @@ def download_dgm30_tiles(bbox_wgs84, dgm30_dir) -> dict:
 
 def ensure_dgm30_coverage(bbox_wgs84, dgm30_dir=config.DGM30_CACHE_DIR) -> dict:
     """
-    Öffentlicher Einstiegspunkt für horizon_workflow.py: stellt sicher, dass alle für `bbox_wgs84`
-    benötigten DGM30-Kacheln lokal vorhanden sind (lädt fehlende nach). Wirft NIE - Netzwerk-/DNS-
-    Fehler o.ä. werden abgefangen und geloggt, damit die Pipeline immer weiterläuft (der
-    bestehende Fallback bei weiterhin fehlenden Kacheln greift danach ohnehin).
+    Public entry point for horizon_workflow.py: ensures that all DGM30 tiles needed for `bbox_wgs84`
+    are available locally (downloads missing ones). NEVER raises - network/DNS
+    errors etc. are caught and logged so that the pipeline always keeps running (the
+    existing fallback for tiles that are still missing applies afterwards anyway).
 
     Args:
         bbox_wgs84: (lon_min, lat_min, lon_max, lat_max)
-        dgm30_dir: Zielverzeichnis; Default config.DGM30_CACHE_DIR
+        dgm30_dir: Target directory; default config.DGM30_CACHE_DIR
 
     Returns:
         {"downloaded": [...], "not_found": [...], "failed": [...]}

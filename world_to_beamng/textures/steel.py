@@ -1,9 +1,9 @@
 """
-Prozedurale, kachelbare Stahl-Textur für Brücken-Geländer (Pfosten + Handlauf) - wird einmalig erzeugt und in
-data/textures abgelegt (nicht bei jedem Export), automatisch falls sie fehlt (textures/registry.py).
+Procedural, tileable steel texture for bridge railings (posts + handrail) - generated once and stored in
+data/textures (not on every export), automatically if it is missing (textures/registry.py).
 
-Verzinkter/lackierter Stahl: mittleres Grau mit feinem, grob gebürstetem Schliff und geringerer Rauheit als
-Beton (glänzender).
+Galvanized/painted steel: medium gray with a fine, coarsely brushed finish and lower roughness than
+concrete (glossier).
 """
 
 from pathlib import Path
@@ -17,7 +17,7 @@ from . import library
 
 
 class RailingTextureGenerator:
-    """Erzeugt Albedo, Normalmap und Roughness einer verzinkten Stahlfläche (Brücken-Geländer)."""
+    """Generates albedo, normal map and roughness of a galvanized steel surface (bridge railing)."""
 
     def __init__(self, size_px: int = config.RAILING_TEXTURE_PX, repeat_m: float = config.RAILING_TEXTURE_TILE_M):
         self._size = size_px
@@ -26,30 +26,30 @@ class RailingTextureGenerator:
     def generate(self, seed: Optional[int] = 3131) -> Dict[str, np.ndarray]:
         """
         Returns:
-            {"albedo", "normal", "roughness"}: uint8-RGB-Bilder (size_px x size_px x 3)
+            {"albedo", "normal", "roughness"}: uint8 RGB images (size_px x size_px x 3)
         """
         rng = np.random.default_rng(seed)
         size = self._size
 
         base_gray = 0.5 + 0.04 * fbm(size, size, rng, betas=(1.5, 2.5, 4.0), weights=(0.4, 0.35, 0.25))
-        streaks = 0.03 * periodic_noise(size, size, rng, beta=1.0)  # grober gebürsteter Schliff
+        streaks = 0.03 * periodic_noise(size, size, rng, beta=1.0)  # coarse brushed finish
         gray = np.clip(base_gray + streaks, 0.0, 1.0)
 
         albedo = gray_to_rgb(gray).astype(np.float64) / 255.0
-        albedo = albedo * (0.95 + 0.05 * fbm(size, size, rng, betas=(5.0,), weights=(1.0,)))[..., None]  # feine Körnung
+        albedo = albedo * (0.95 + 0.05 * fbm(size, size, rng, betas=(5.0,), weights=(1.0,)))[..., None]  # fine grain
 
-        height = 0.15 * periodic_noise(size, size, rng, beta=4.0)  # feiner Schliff in der Normalmap
-        roughness = np.full((size, size), 0.45)  # glänzender als Beton
+        height = 0.15 * periodic_noise(size, size, rng, beta=4.0)  # fine finish in the normal map
+        roughness = np.full((size, size), 0.45)  # glossier than concrete
 
         return {"albedo": to_uint8(albedo), "normal": normal_from_height(height, 0.3), "roughness": gray_to_rgb(roughness)}
 
 
 def generate_railing_texture(library_dir: Optional[Path] = None, seed: int = 3131) -> Path:
     """
-    Erzeugt die Stahl-Textur und legt sie in der Textur-Bibliothek ab (data/textures/bridge_railing).
+    Generates the steel texture and stores it in the texture library (data/textures/bridge_railing).
 
     Returns:
-        Ordner der Textur
+        Folder of the texture
     """
     generated = RailingTextureGenerator().generate(seed=seed)
     maps = {"color": generated["albedo"], "normal": generated["normal"], "roughness": generated["roughness"]}
@@ -57,6 +57,6 @@ def generate_railing_texture(library_dir: Optional[Path] = None, seed: int = 313
         config.RAILING_TEXTURE_NAME,
         maps,
         tile_m=config.RAILING_TEXTURE_TILE_M,
-        source=f"prozedural (textures/steel.py), Seed {seed}, {config.RAILING_TEXTURE_PX} px",
+        source=f"procedural (textures/steel.py), seed {seed}, {config.RAILING_TEXTURE_PX} px",
         library_dir=library_dir,
     )

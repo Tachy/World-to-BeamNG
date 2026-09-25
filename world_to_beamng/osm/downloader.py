@@ -1,5 +1,5 @@
 """
-OSM Daten Download via Overpass API.
+OSM data download via the Overpass API.
 """
 
 import json
@@ -15,11 +15,10 @@ logger = LoggerConfig.get_logger()
 
 def _log_waiting_heartbeat(stop_event, endpoint_label, interval=10):
     """
-    Läuft in einem Hintergrund-Thread, während auf die Antwort-Header eines
-    Overpass-Requests gewartet wird. Overpass liefert selbst keinen
-    Fortschritt für die serverseitige Abfrageausführung - das hier ist nur
-    ein "läuft noch"-Lebenszeichen, damit ein langsamer Server nicht wie ein
-    Hänger aussieht.
+    Runs in a background thread while waiting for the response headers of an
+    Overpass request. Overpass itself reports no progress for the
+    server-side query execution - this is only a "still running" sign of life
+    so that a slow server does not look like a hang.
     """
     waited = 0
     while not stop_event.wait(interval):
@@ -29,10 +28,10 @@ def _log_waiting_heartbeat(stop_event, endpoint_label, interval=10):
 
 def _download_with_progress(response, log_every_bytes=2 * 1024 * 1024):
     """
-    Liest eine gestreamte Response in Chunks und loggt den Fortschritt in MB
-    (mit Prozentanzeige, falls der Server Content-Length sendet). Overpass
-    nutzt teils Chunked-Transfer-Encoding ohne Content-Length - dann wird nur
-    die kumulierte Menge geloggt.
+    Reads a streamed response in chunks and logs the progress in MB
+    (with a percentage if the server sends Content-Length). Overpass
+    sometimes uses chunked transfer encoding without Content-Length - in that case only
+    the cumulative amount is logged.
     """
     total_bytes = response.headers.get("Content-Length")
     total_bytes = int(total_bytes) if total_bytes else None
@@ -60,13 +59,13 @@ def _download_with_progress(response, log_every_bytes=2 * 1024 * 1024):
 
 
 def get_osm_data(bbox, height_hash=None):
-    """Holt ALLE OSM-Daten fuer eine BBox von der Overpass API oder aus dem Cache.
+    """Fetches ALL OSM data for a BBox from the Overpass API or from the cache.
 
     Args:
-        bbox: (lat_min, lon_min, lat_max, lon_max) Bounding Box
-        height_hash: Optional - tile_hash für Cache-Konsistenz
+        bbox: (lat_min, lon_min, lat_max, lon_max) bounding box
+        height_hash: Optional - tile_hash for cache consistency
     """
-    # Pruefe Cache zuerst
+    # Check the cache first
     cached_data = load_from_cache(bbox, "osm_all", height_hash=height_hash)
     if cached_data is not None:
         return cached_data
@@ -82,14 +81,14 @@ def get_osm_data(bbox, height_hash=None):
     out geom;
     """
 
-    # Mehrere Overpass-Server lehnen Anfragen ohne aussagekräftigen User-Agent
-    # ab (406 Not Acceptable) oder drosseln sie eher (429) - siehe config.OVERPASS_USER_AGENT.
+    # Several Overpass servers reject requests without a meaningful User-Agent
+    # (406 Not Acceptable) or are more likely to throttle them (429) - see config.OVERPASS_USER_AGENT.
     headers = {
         "User-Agent": config.OVERPASS_USER_AGENT,
         "Accept": "application/json",
     }
 
-    # Versuche alle Endpoints mit Retry-Logik
+    # Try all endpoints with retry logic
     for endpoint_idx, overpass_url in enumerate(config.OVERPASS_ENDPOINTS):
         max_retries = 3
         for attempt in range(max_retries):
@@ -97,9 +96,9 @@ def get_osm_data(bbox, height_hash=None):
                 endpoint_label = f"Server {endpoint_idx + 1}/{len(config.OVERPASS_ENDPOINTS)}"
                 logger.info(f"  Attempt {attempt + 1}/{max_retries} with {endpoint_label}...")
 
-                # Heartbeat, solange auf die Antwort-Header gewartet wird (die
-                # eigentliche Overpass-Abfrageausführung liefert selbst keinen
-                # Fortschritt - siehe _log_waiting_heartbeat()-Docstring).
+                # Heartbeat while waiting for the response headers (the
+                # actual Overpass query execution reports no progress
+                # itself - see the _log_waiting_heartbeat() docstring).
                 stop_heartbeat = threading.Event()
                 heartbeat = threading.Thread(
                     target=_log_waiting_heartbeat, args=(stop_heartbeat, endpoint_label), daemon=True
@@ -119,10 +118,10 @@ def get_osm_data(bbox, height_hash=None):
                 logger.info(f"  [OK] Success! {len(elements)} OSM elements found.")
 
                 if not elements:
-                    # Ein "erfolgreiches" 0-Elemente-Ergebnis ist für ein besiedeltes
-                    # Gebiet höchst verdächtig (eher ein stilles Server-Problem als ein
-                    # wirklich leeres Gebiet) - NICHT cachen, sonst bleibt der Fehler
-                    # dauerhaft im Cache hängen und wird bei jedem Lauf wiederholt.
+                    # A "successful" 0-element result is highly suspicious for a populated
+                    # area (more likely a silent server problem than a truly empty
+                    # area) - do NOT cache it, otherwise the error stays in the cache
+                    # permanently and is repeated on every run.
                     logger.warning(
                         f"  [!] Server returned 0 elements for bbox {bbox} - NOT "
                         f"cached (probably a transient server problem rather than "
@@ -130,20 +129,20 @@ def get_osm_data(bbox, height_hash=None):
                     )
                     return elements
 
-                # Im Cache speichern
+                # Save to the cache
                 save_to_cache(bbox, "osm_all", elements, height_hash=height_hash)
                 return elements
 
             except requests.exceptions.Timeout:
                 logger.info(f"  [x] Timeout at server {endpoint_idx + 1}")
                 if attempt < max_retries - 1:
-                    wait_time = 2**attempt  # Exponentielles Backoff: 1s, 2s, 4s
+                    wait_time = 2**attempt  # Exponential backoff: 1s, 2s, 4s
                     logger.info(f"  Waiting {wait_time}s before retrying...")
                     time.sleep(wait_time)
 
             except requests.exceptions.HTTPError as e:
                 logger.error(f"  [x] HTTP error: {e}")
-                break  # Bei HTTP-Fehler zum nächsten Server wechseln
+                break  # On an HTTP error, switch to the next server
 
             except Exception as e:
                 logger.error(f"  [x] Error: {e}")

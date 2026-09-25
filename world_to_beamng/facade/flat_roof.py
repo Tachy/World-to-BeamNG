@@ -1,8 +1,8 @@
 """
-Flachdächer: Erkennung und umlaufender Blechrand als Geometrie.
+Flat roofs: detection and the surrounding sheet-metal rim as geometry.
 
-Die Kiesfläche selbst ist ein normales Dachpolygon (anderes Material, siehe RoofUvMapper); hier entsteht nur der
-Blechrand: je Dachkante ein schmales Prisma aus Außen-, Innen- und Oberseite.
+The gravel surface itself is a normal roof polygon (different material, see RoofUvMapper); only the sheet-metal
+rim is created here: one narrow prism per roof edge, made of outer, inner and top faces.
 """
 
 import math
@@ -18,7 +18,7 @@ from .ring_geometry import newell_normal, open_ring, unit_or_none
 
 @dataclass
 class RimMesh:
-    """Blechrand-Geometrie (untexturiert, UVs = 0)."""
+    """Sheet-metal rim geometry (untextured, UVs = 0)."""
 
     vertices: np.ndarray  # (N, 3)
     uvs: np.ndarray  # (N, 2)
@@ -30,7 +30,7 @@ class RimMesh:
 
 
 def is_flat_roof(verts: np.ndarray, max_slope_deg: float = config.FLAT_ROOF_MAX_SLOPE_DEG) -> bool:
-    """Neigung des Dachpolygons höchstens `max_slope_deg` Grad."""
+    """Slope of the roof polygon is at most `max_slope_deg` degrees."""
     normal = unit_or_none(newell_normal(open_ring(verts)))
     if normal is None:
         return False
@@ -39,7 +39,7 @@ def is_flat_roof(verts: np.ndarray, max_slope_deg: float = config.FLAT_ROOF_MAX_
 
 
 class FlatRoofRimBuilder:
-    """Baut den Blechrand aller Flachdächer eines Gebäudes (nur an Kanten, die außen über einer Wand liegen)."""
+    """Builds the sheet-metal rim of all flat roofs of a building (only on edges on the outside above a wall)."""
 
     def __init__(
         self,
@@ -78,10 +78,10 @@ class FlatRoofRimBuilder:
 
     def _prism(self, a: np.ndarray, b: np.ndarray):
         """
-        Prisma über der Kante a->b (Außenseite rechts). Enden um die Stärke verlängert, damit Ecken schließen.
+        Prism over the edge a->b (outer side on the right). Ends extended by the thickness so that corners close.
 
         Returns:
-            (12, 3) Vertices (je Fläche eigene: flach schattiert) und 6 Dreiecke, alle Normalen nach außen
+            (12, 3) vertices (own ones per face: flat shaded) and 6 triangles, all normals pointing outward
         """
         direction = unit_or_none(np.array([b[0] - a[0], b[1] - a[1], 0.0]))
         if direction is None:

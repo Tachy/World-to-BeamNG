@@ -1,5 +1,5 @@
 """
-Triangulierung einfacher (auch konkaver) Polygone.
+Triangulation of simple (also concave) polygons.
 """
 
 from typing import List
@@ -10,13 +10,13 @@ import numpy as np
 
 def triangulate_ccw(points: np.ndarray) -> List[List[int]]:
     """
-    Dreiecke eines einfachen Polygons als Indizes in `points`, jedes gegen den Uhrzeigersinn.
+    Triangles of a simple polygon as indices into `points`, each counter-clockwise.
 
     Args:
-        points: (N, 2) Ring ohne Schlusspunkt
+        points: (N, 2) ring without closing point
 
     Returns:
-        Liste von [a, b, c]; entartete (flächenlose) Dreiecke fehlen. Leer bei weniger als 3 Punkten.
+        List of [a, b, c]; degenerate (zero-area) triangles are omitted. Empty for fewer than 3 points.
     """
     if len(points) < 3:
         return []

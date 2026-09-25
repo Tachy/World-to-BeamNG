@@ -1,7 +1,7 @@
 """
-Forest JSON Writer: Schreibt forest.forest4.json für BeamNG.
+Forest JSON Writer: writes forest.forest4.json for BeamNG.
 
-Exportiert alle gesammelten Tree-Instances in BeamNG's forest.forest4.json Format.
+Exports all collected tree instances in BeamNG's forest.forest4.json format.
 """
 
 import json
@@ -11,14 +11,14 @@ from typing import List, Dict, Optional
 
 logger = logging.getLogger(__name__)
 
-WRITE_BLOCK = 20000  # Instanzen je Schreibblock
+WRITE_BLOCK = 20000  # instances per write block
 
 
 class ForestJSONWriter:
     """
-    Schreibt forest.forest4.json mit allen Baum-Instanzen.
+    Writes forest.forest4.json with all tree instances.
 
-    Format: JSONL (newline-delimited JSON) - jede Instanz auf separater Zeile
+    Format: JSONL (newline-delimited JSON) - each instance on a separate line
     {"type": "oak", "pos": [145.2, 330.5, 42.12], "rotationMatrix": [1,0,0,0,1,0,0,0,1], "scale": 1.15, "ctxid": 0}
     {"type": "birch", "pos": [150.1, 332.2, 43.5], "rotationMatrix": [1,0,0,0,1,0,0,0,1], "scale": 1.2, "ctxid": 0}
     ...
@@ -27,21 +27,21 @@ class ForestJSONWriter:
     def __init__(self, output_dir: Path):
         """
         Args:
-            output_dir: Verzeichnis für forest.forest4.json (z.B. levels/world_to_beamng/main/)
+            output_dir: directory for forest.forest4.json (e.g. levels/world_to_beamng/main/)
         """
         self.output_dir = Path(output_dir)
 
     def write_forest_json(self, tree_instances: List[Dict], filename: str = "forest.forest4.json") -> Dict:
         """
-        Schreibe forest.forest4.json im JSONL-Format (newline-delimited JSON).
+        Write forest.forest4.json in JSONL format (newline-delimited JSON).
 
-        Jede Bauminstanz wird auf einer separaten Zeile geschrieben - das ist das
-        Format, das BeamNG für forest.forest4.json erwartet.
+        Each tree instance is written on a separate line - this is the
+        format BeamNG expects for forest.forest4.json.
 
         Args:
-            tree_instances: Liste von Baum-Instance-Dicts
-                           (mit "type", "pos", "rotationMatrix", "scale")
-            filename: Optional - Dateiname (default: "forest.forest4.json")
+            tree_instances: list of tree instance dicts
+                           (with "type", "pos", "rotationMatrix", "scale")
+            filename: optional - file name (default: "forest.forest4.json")
 
         Returns:
             {
@@ -52,23 +52,23 @@ class ForestJSONWriter:
             }
         """
         try:
-            # Erstelle Verzeichnis falls nicht vorhanden
+            # Create the directory if it does not exist
             self.output_dir.mkdir(parents=True, exist_ok=True)
 
             filepath = self.output_dir / filename
 
-            # Schreibe im JSONL-Format: jede Instanz als separate Zeile
-            # json.dumps nutzt den C-Encoder (json.dump auf einer Datei dagegen den reinen Python-Encoder, ~5x
-            # langsamer); die Zeilen werden blockweise gesammelt und geschrieben.
+            # Write in JSONL format: each instance as a separate line
+            # json.dumps uses the C encoder (json.dump on a file, by contrast, uses the pure-Python encoder, ~5x
+            # slower); the lines are collected and written in blocks.
             encode = json.JSONEncoder(separators=(",", ":"), ensure_ascii=False).encode
             with open(filepath, "w", encoding="utf-8") as f:
                 for start in range(0, len(tree_instances), WRITE_BLOCK):
                     lines = []
                     for instance in tree_instances[start : start + WRITE_BLOCK]:
-                        # Füge ctxid:0 hinzu (BeamNG-Feld für Forest-Context)
+                        # Add ctxid:0 (BeamNG field for the forest context)
                         instance["ctxid"] = 0
                         lines.append(encode(instance))
-                    # Zeilentrennung nach jedem Objekt
+                    # Line separator after each object
                     f.write("\n".join(lines) + "\n")
 
             logger.info(f"✓ forest.forest4.json (JSONL format) written: {filepath} ({len(tree_instances)} trees)")
@@ -81,18 +81,18 @@ class ForestJSONWriter:
 
     def get_statistics(self, tree_instances: List[Dict]) -> Dict:
         """
-        Berechne Statistiken über Baum-Instanzen.
+        Compute statistics about tree instances.
 
         Args:
-            tree_instances: Liste von Instanzen
+            tree_instances: list of instances
 
         Returns:
-            Dict mit Statistiken
+            Dict with statistics
         """
         if not tree_instances:
             return {"total_trees": 0, "types": {}, "avg_scale": 0.0, "min_height": 0.0, "max_height": 0.0}
 
-        # Zähle Tree-Types
+        # Count tree types
         type_counts = {}
         scales = []
         heights = []

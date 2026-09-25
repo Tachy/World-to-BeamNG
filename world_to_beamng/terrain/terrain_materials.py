@@ -1,12 +1,12 @@
 """
-Baut die .ter-Layer-Map (Material-Index pro Rasterzelle) aus zwei Quellen:
+Builds the .ter layer map (material index per raster cell) from two sources:
 
-1. Luftbild-Fallback: EIN Foto-Material (AERIAL_PHOTO_MATERIAL_NAME) für die
-   gesamte Fläche - io/aerial.py setzt das Gesamtfoto selbst aus allen
-   DOP20-Quellbildern zusammen (siehe Recherche 2026-09-18: viele einzigartige
-   500m-Kachel-Materialien überfordern BeamNGs Terrain-Atlas-Packer).
-2. OSM-Landnutzung: Polygone aus data/osm_to_beamng.json["landuse_mappings"]
-   werden priorisiert in die Layer-Map gebrannt (Spec Abschnitt 6).
+1. Aerial photo fallback: ONE photo material (AERIAL_PHOTO_MATERIAL_NAME) for the
+   whole area - io/aerial.py assembles the overall photo itself from all
+   DOP20 source images (see research 2026-09-18: many unique
+   500m-tile materials overwhelm BeamNG's terrain atlas packer).
+2. OSM land use: polygons from data/osm_to_beamng.json["landuse_mappings"]
+   are burned into the layer map by priority (spec section 6).
 """
 
 from pathlib import Path
@@ -20,11 +20,11 @@ from rasterio.features import rasterize
 
 from ..osm.landuse_polygons import AREA_TAG_KEYS
 
-# Flache Platzhalter für die Pflicht-Texturslots, die BeamNGs v1.5-Terrain-
-# Material-System für JEDEN Layer verlangt (siehe ensure_flat_pbr_placeholders()).
-# Werte sind die PBR-"neutral"-Konvention: Normal zeigt gerade nach oben,
-# Roughness/Height sind mittelgrau (neutral), AO ist weiß (keine zusätzliche
-# Verschattung), baseColor ist beliebig (wird immer mit Strength=0 benutzt).
+# Flat placeholders for the mandatory texture slots that BeamNG's v1.5 terrain
+# material system requires for EVERY layer (see ensure_flat_pbr_placeholders()).
+# Values follow the PBR "neutral" convention: normal points straight up,
+# roughness/height are mid-gray (neutral), AO is white (no additional
+# shading), baseColor is arbitrary (always used with Strength=0).
 _FLAT_PLACEHOLDER_COLORS = {
     "baseColor": (128, 128, 128),
     "normal": (128, 128, 255),
@@ -33,42 +33,42 @@ _FLAT_PLACEHOLDER_COLORS = {
     "height": (128, 128, 128),
 }
 
-# Pixelgröße der Detail-Texturen: muss exakt der detailTexSize der
-# TerrainMaterialTextureSet entsprechen (siehe build_terrain_material_texture_set()).
+# Pixel size of the detail textures: must exactly match the detailTexSize of the
+# TerrainMaterialTextureSet (see build_terrain_material_texture_set()).
 DETAIL_TEX_SIZE = 1024
 
-# Stärke, mit der die graue Detail-Textur über das Luftbild gelegt wird
-# (BeamNGs eigene Gras-Materialien nutzen 0.15-0.2, siehe east_coast_usa).
+# Strength with which the gray detail texture is laid over the aerial photo
+# (BeamNG's own grass materials use 0.15-0.2, see east_coast_usa).
 DEFAULT_DETAIL_STRENGTH = 0.25
 
 EMPTY_RASTER_VALUE = 255
 
-# Fallback für Flächen, die zwar ein landuse/natural/leisure-Tag haben, aber keine (aktive) Kategorie passt:
-# generisches Gras statt unbemalter Foto-Rest (siehe get_landuse_category()). Kategorien mit "active": false
-# (z.B. Regionen wie natural=mountain_range, die keine echte Bodenfläche sind) sind davon ausgenommen - sie
-# sind bewusst bekannt, aber nie ein Terrain-Layer, auch nicht der generische Default.
+# Fallback for areas that do have a landuse/natural/leisure tag but match no (active) category:
+# generic grass instead of an unpainted photo remainder (see get_landuse_category()). Categories with
+# "active": false (e.g. regions like natural=mountain_range, which are not a real ground surface) are
+# excluded - they are deliberately known, but never a terrain layer, not even the generic default.
 DEFAULT_LANDUSE_CATEGORY = "meadow"
 
 
 def get_landuse_category(osm_tags: Dict, landuse_mappings: Dict) -> Optional[str]:
     """
-    Ermittelt die landuse_mappings-Kategorie für ein OSM-Element.
+    Determines the landuse_mappings category for an OSM element.
 
-    Jede Kategorie listet unter "osm_tags" ihre zugehörigen Tag-Werte, z.B.
-    {"landuse": ["meadow", "grass"], "natural": ["grassland"]}. Passen mehrere
-    Kategorien (z.B. landuse=meadow + natural=wood), gewinnt die mit der
-    höchsten "priority". Kategorien ohne "osm_tags" (z.B. der "base"-
-    Fallback-Eintrag) werden nie zugeordnet. "osm_exclude_tags" (gleiches
-    Format) schließt Elemente wieder aus, z.B. Wasser ohne die trockenen
-    Rückhaltebecken (basin=detention).
+    Each category lists its associated tag values under "osm_tags", e.g.
+    {"landuse": ["meadow", "grass"], "natural": ["grassland"]}. If several
+    categories match (e.g. landuse=meadow + natural=wood), the one with the
+    highest "priority" wins. Categories without "osm_tags" (e.g. the "base"
+    fallback entry) are never assigned. "osm_exclude_tags" (same format)
+    excludes elements again, e.g. water without the dry retention
+    basins (basin=detention).
 
-    Passt keine aktive Kategorie, aber der Tag-Wert ist auch nirgends explizit
-    (auch nicht als "active": false) gelistet, greift DEFAULT_LANDUSE_CATEGORY
-    (siehe dort) - eine Fläche mit unbekanntem landuse-artigem Tag wird so zu
-    generischem Gras statt einfach unbemalt (Foto-Rest) zu bleiben.
+    If no active category matches, but the tag value is also not listed explicitly
+    anywhere (not even as "active": false), DEFAULT_LANDUSE_CATEGORY applies
+    (see there) - an area with an unknown landuse-like tag thus becomes
+    generic grass instead of simply staying unpainted (photo remainder).
 
     Returns:
-        Kategoriename oder None, falls kein Treffer (bzw. explizit ausgeschlossen)
+        Category name or None if there is no match (or explicitly excluded)
     """
     best_category = None
     best_priority = None
@@ -94,27 +94,26 @@ def get_landuse_category(osm_tags: Dict, landuse_mappings: Dict) -> Optional[str
 
 
 AERIAL_PHOTO_MATERIAL_NAME = "aerial_photo"
-PHOTO_GROUND_MODEL = "ASPHALT"  # groundmodels.json kennt nur GROSSGESCHRIEBENE Namen; entspricht dem bisherigen Engine-Fallback
+PHOTO_GROUND_MODEL = "ASPHALT"  # groundmodels.json only knows UPPERCASE names; matches the previous engine fallback
 
 
 def build_photo_fallback_layer(size: int) -> Tuple[np.ndarray, List[str]]:
     """
-    Baut die Basis-Layer-Map: die GESAMTE Fläche bekommt EIN einziges
-    Luftbild-Material (AERIAL_PHOTO_MATERIAL_NAME), nicht mehr ein eigenes
-    Material pro 500m-Kachel.
+    Builds the base layer map: the ENTIRE area gets ONE single aerial photo
+    material (AERIAL_PHOTO_MATERIAL_NAME), no longer a separate material
+    per 500m tile.
 
-    Hintergrund (Recherche 2026-09-18): BeamNGs v1.5-Terrain-Material-System
-    ist für eine kleine Anzahl wiederholender Materialien ausgelegt, nicht für
-    viele (16-25) einzigartige 4096px-Texturen - der Atlas-Packer hat dabei
-    einzelne Kacheln sichtbar verdreht dargestellt, obwohl die Quelldateien
-    nachweislich korrekt waren. io/aerial.py setzt das Luftbild jetzt selbst
-    zu EINEM Gesamtfoto zusammen (siehe process_aerial_images()); die
-    Layer-Map muss daher nur noch überall auf denselben Material-Index (0)
-    zeigen.
+    Background (research 2026-09-18): BeamNG's v1.5 terrain material system
+    is designed for a small number of repeating materials, not for
+    many (16-25) unique 4096px textures - the atlas packer displayed
+    individual tiles visibly rotated, even though the source files
+    were demonstrably correct. io/aerial.py now assembles the aerial photo itself
+    into ONE overall photo (see process_aerial_images()); the
+    layer map therefore only has to point everywhere to the same material index (0).
 
     Returns:
-        (layer_map, material_names) - layer_map ist (size, size) uint8 mit
-        lauter Nullen, material_names = [AERIAL_PHOTO_MATERIAL_NAME]
+        (layer_map, material_names) - layer_map is (size, size) uint8 filled
+        with zeros, material_names = [AERIAL_PHOTO_MATERIAL_NAME]
     """
     layer_map = np.zeros((size, size), dtype=np.uint8)
     return layer_map, [AERIAL_PHOTO_MATERIAL_NAME]
@@ -132,28 +131,28 @@ def paint_landuse_materials(
     background_category: Optional[str] = None,
 ) -> Tuple[np.ndarray, List[str]]:
     """
-    Brennt OSM-Landnutzungs-Polygone in die Layer-Map, priorisiert nach
-    landuse_mappings[category]["priority"] (höhere Priorität gewinnt bei
-    Überlappung, siehe Spec Abschnitt 6/8).
+    Burns OSM land use polygons into the layer map, prioritized by
+    landuse_mappings[category]["priority"] (higher priority wins on
+    overlap, see spec section 6/8).
 
     Args:
-        layer_map: (size, size) uint8, wird NICHT verändert (Kopie wird zurückgegeben)
-        material_names: bisherige Materialliste (Foto-Fallback-Namen)
-        landuse_polygons: Liste von {"osm_tags": Dict, "geometry": shapely.Polygon}
-                          in lokalen (Grid-)Koordinaten
+        layer_map: (size, size) uint8, is NOT modified (a copy is returned)
+        material_names: existing material list (photo fallback names)
+        landuse_polygons: List of {"osm_tags": Dict, "geometry": shapely.Polygon}
+                          in local (grid) coordinates
         landuse_mappings: data/osm_to_beamng.json["landuse_mappings"]
-        background_category: optional - Kategorie-Name aus landuse_mappings, mit dem die GESAMTE Fläche
-            zuerst gefüllt wird, BEVOR die Polygone gebrannt werden (unabhängig von deren priority - der
-            Hintergrund ist kein Teilnehmer der Prioritäts-Sortierung, jedes echte Polygon überdeckt ihn).
-            Schließt die Lücke, die get_landuse_category()s DEFAULT_LANDUSE_CATEGORY-Fallback offen lässt:
-            der greift nur bei einem VORHANDENEN, aber unbekannten landuse-Tag-Wert - Flächen ganz OHNE
-            Landnutzungs-Polygon (kein OSM-Element deckt sie ab) bleiben sonst für immer beim Foto-Fallback
-            stehen, auch wenn DEFAULT_LANDUSE_CATEGORY="meadow" eigentlich genau das verhindern soll. None
-            (Standard) = bisheriges Verhalten, keine Änderung. Eine "keep_photo"-Kategorie oder ein in
-            landuse_mappings unbekannter Name ist ein No-op (es gibt kein Material, das man malen könnte).
+        background_category: optional - category name from landuse_mappings with which the ENTIRE area
+            is filled first, BEFORE the polygons are burned (independent of their priority - the
+            background does not take part in the priority sorting, every real polygon covers it).
+            Closes the gap that get_landuse_category()'s DEFAULT_LANDUSE_CATEGORY fallback leaves open:
+            that only applies to an EXISTING but unknown landuse tag value - areas with NO
+            land use polygon at all (no OSM element covers them) would otherwise stay on the photo
+            fallback forever, even though DEFAULT_LANDUSE_CATEGORY="meadow" is meant to prevent exactly
+            that. None (default) = previous behavior, no change. A "keep_photo" category or a name
+            unknown in landuse_mappings is a no-op (there is no material that could be painted).
 
     Returns:
-        (neue layer_map, erweiterte material_names)
+        (new layer_map, extended material_names)
     """
     result = layer_map.copy()
     names = list(material_names)
@@ -174,10 +173,10 @@ def paint_landuse_materials(
         if category is None:
             continue
         category_data = landuse_mappings[category]
-        # keep_photo-Kategorien (Gewerbegebiete) haben kein eigenes Material: sie stellen
-        # das Luftbild (Index 0) über darunterliegenden Layern wieder her.
-        # use_material_of (Wasser): eigener Bereich mit eigener Priorität, aber das Material
-        # einer anderen Kategorie (Wiesenboden unter dem Wasser).
+        # keep_photo categories (commercial areas) have no material of their own: they restore
+        # the aerial photo (index 0) over the layers beneath.
+        # use_material_of (water): own area with its own priority, but the material
+        # of another category (meadow ground beneath the water).
         if category_data.get("keep_photo"):
             internal_name = None
         else:
@@ -185,7 +184,7 @@ def paint_landuse_materials(
             internal_name = material_source["internal_name"]
         scored.append((category_data.get("priority", 0), poly["geometry"], internal_name))
 
-    # Aufsteigend nach Priorität sortieren -> hohe Priorität wird zuletzt (obenauf) gebrannt
+    # Sort ascending by priority -> high priority is burned last (on top)
     scored.sort(key=lambda item: item[0])
 
     for _priority, geometry, internal_name in scored:
@@ -209,10 +208,10 @@ def paint_landuse_materials(
 
 def _burn_geometry(target: np.ndarray, geometry, value: int, transform: Affine, size: int) -> None:
     """
-    Brennt eine Geometrie in `target` (size x size), nur im Fenster ihrer Bounding Box.
+    Burns a geometry into `target` (size x size), only within the window of its bounding box.
 
-    Ergebnisgleich zur Rasterisierung über die ganze Karte, aber je Polygon nur so groß wie das Polygon selbst
-    (bei 4096² Zellen und über tausend Polygonen sonst mehrere Sekunden für Leerlauf).
+    Same result as rasterizing over the whole map, but per polygon only as large as the polygon itself
+    (with 4096² cells and over a thousand polygons otherwise several seconds of idle work).
     """
     if geometry is None or geometry.is_empty:
         return
@@ -247,20 +246,20 @@ def mask_layer_map_with_photo(
     buffer: float = 0.0,
 ) -> np.ndarray:
     """
-    Setzt die Layer-Map unter den Geometrien auf das Luftbild (Index 0) zurück.
+    Resets the layer map under the geometries to the aerial photo (index 0).
 
-    Grund: Bodenbewuchs (GroundCover) wächst auf dem Terrain-LAYER. Straßen sind
-    Decals über dem Terrain - ohne diese Maskierung würde Gras durch Straßen und
-    Häuser wachsen, sobald darunter ein Landnutzungs-Layer liegt. Auf dem
-    Foto-Layer wächst nichts.
+    Reason: ground vegetation (GroundCover) grows on the terrain LAYER. Roads are
+    decals above the terrain - without this masking, grass would grow through roads and
+    buildings as soon as a land use layer lies beneath. Nothing grows on the
+    photo layer.
 
     Args:
-        geometries: shapely-Geometrien in lokalen Koordinaten (z.B. Straßenflächen,
-            Gebäudegrundrisse)
-        buffer: Puffer in Metern um jede Geometrie (z.B. Straßenschulter)
+        geometries: shapely geometries in local coordinates (e.g. road surfaces,
+            building footprints)
+        buffer: Buffer in meters around each geometry (e.g. road shoulder)
 
     Returns:
-        Neue layer_map (Eingabe bleibt unverändert)
+        New layer_map (input remains unchanged)
     """
     result = layer_map.copy()
     shapes = []
@@ -280,19 +279,19 @@ def mask_layer_map_with_photo(
 
 def mark_padding_as_holes(layer_map: np.ndarray, data_cols: int, data_rows: int) -> np.ndarray:
     """
-    Markiert den aufgefüllten Überschussrand der Zweierpotenz-Heightmap als Terrain-Hole.
+    Marks the padded excess border of the power-of-two heightmap as terrain hole.
 
-    Die .ter-Größe ist eine Zweierpotenz (z.B. 2048), die echten Daten sind kleiner (2001).
-    Der Rand jenseits der Daten ist nur Extrapolation - als Hole (Layer 255) wird dort weder
-    Terrain gerendert noch kollidiert; der Horizont deckt diesen Streifen ab
-    (terrain/horizon_seam.py). Das sichtbare Terrain endet damit exakt am Datenrand.
+    The .ter size is a power of two (e.g. 2048), the real data is smaller (2001).
+    The border beyond the data is mere extrapolation - as a hole (layer 255) neither
+    terrain is rendered nor collides there; the horizon covers this strip
+    (terrain/horizon_seam.py). The visible terrain thus ends exactly at the data border.
 
     Args:
-        layer_map: (size, size) Layer-Indizes, layer_map[row, col]
-        data_cols, data_rows: Anzahl echter Datenspalten (x) bzw. -zeilen (y)
+        layer_map: (size, size) layer indices, layer_map[row, col]
+        data_cols, data_rows: Number of real data columns (x) and rows (y), respectively
 
     Returns:
-        Neue layer_map (Eingabe bleibt unverändert)
+        New layer_map (input remains unchanged)
     """
     from .ter_writer import EMPTY_LAYER_VALUE
 
@@ -313,20 +312,20 @@ def ensure_landuse_detail_textures_sized(
     level_name: str,
 ) -> Dict:
     """
-    Skaliert detailColorMap/detailNormalMap aller aktiven Landnutzungs-Kategorien
-    auf detail_tex_size und gibt eine Kopie von landuse_mappings mit den
-    (ggf. neuen) Pfaden zurück.
+    Scales detailColorMap/detailNormalMap of all active land use categories
+    to detail_tex_size and returns a copy of landuse_mappings with the
+    (possibly new) paths.
 
-    Grund: baseColorDetailTex/normalDetailTex ALLER TerrainMaterial-Einträge
-    müssen exakt die detailTexSize der TerrainMaterialTextureSet haben -
-    sonst meldet BeamNG "dont have required size" und rendert für das
-    GESAMTE Material die "warning texture" (einheitlich grauer Boden), siehe
-    Recherche 2026-09-18. BeamNGs Terrain-Texturen sind bereits 1024 px groß;
-    die Skalierung greift nur bei abweichenden Größen.
+    Reason: baseColorDetailTex/normalDetailTex of ALL TerrainMaterial entries
+    must have exactly the detailTexSize of the TerrainMaterialTextureSet -
+    otherwise BeamNG reports "dont have required size" and renders the
+    "warning texture" (uniformly gray ground) for the ENTIRE material, see
+    research 2026-09-18. BeamNG's terrain textures are already 1024 px in size;
+    the scaling only takes effect for deviating sizes.
 
-    Nur level-lokale Texturen (Pfad beginnt mit "levels/{level_name}/",
-    also von tools/vendor_shared_textures.py bereits hierher kopiert) werden
-    angefasst; andere Pfade bleiben unverändert.
+    Only level-local textures (path starts with "levels/{level_name}/",
+    i.e. already copied here by tools/vendor_shared_textures.py) are
+    touched; other paths remain unchanged.
     """
     target_size = (detail_tex_size, detail_tex_size)
     level_prefix = f"levels/{level_name}/"
@@ -364,24 +363,24 @@ def ensure_flat_pbr_placeholders(
     macro_tex_size: int = 1024,
 ) -> Dict[str, Dict[str, str]]:
     """
-    Erzeugt (einmalig) flache Platzhalter-PNGs für die Pflicht-Texturslots und
-    gibt ihre Level-Pfade zurück, verschachtelt nach Tier (base/detail/macro).
+    Creates (once) flat placeholder PNGs for the mandatory texture slots and
+    returns their level paths, nested by tier (base/detail/macro).
 
-    Grund: BeamNGs v1.5-Terrain-Material-Editor speichert laut offizieller Doku
+    Reason: according to the official docs, BeamNG's v1.5 terrain material editor
     (https://documentation.beamng.com/modding/levels/level_formats/terrain/)
-    KEIN TerrainMaterial mit leerem Texturslot - alle 5 Kanäle (baseColor,
-    normal, roughness, ao, height) brauchen Base-, Detail- UND Macro-Textur,
-    sonst rendert BeamNG das Material als "warning texture" (einheitlich
-    dunkelgrauer Boden). Wir haben nur echte baseColor-Base-Daten (Luftbild/
-    Landuse-Textur) - für die restlichen Slots reichen neutrale Platzhalter,
-    deren Detail-/Macro-Anteil über *DetailStrength/*MacroStrength=0
-    zusätzlich stummgeschaltet wird (siehe build_terrain_material_entries()).
+    saves NO TerrainMaterial with an empty texture slot - all 5 channels (baseColor,
+    normal, roughness, ao, height) need base, detail AND macro textures,
+    otherwise BeamNG renders the material as "warning texture" (uniformly
+    dark gray ground). We only have real baseColor base data (aerial photo/
+    land use texture) - for the remaining slots neutral placeholders suffice,
+    whose detail/macro share is additionally muted via *DetailStrength/*MacroStrength=0
+    (see build_terrain_material_entries()).
 
-    WICHTIG: Die Platzhalter müssen exakt die in der TerrainMaterialTextureSet
-    deklarierte Pixelgröße je Tier haben (baseTexSize/detailTexSize/
-    macroTexSize) - sonst loggt BeamNG "dont have required size of W-H" und
-    rendert ebenfalls die "warning texture" (siehe Recherche 2026-09-18: ein
-    generisches 8x8-Bild reichte NICHT, obwohl der Texturslot selbst gefüllt war).
+    IMPORTANT: The placeholders must have exactly the pixel size per tier declared in
+    the TerrainMaterialTextureSet (baseTexSize/detailTexSize/
+    macroTexSize) - otherwise BeamNG logs "dont have required size of W-H" and
+    likewise renders the "warning texture" (see research 2026-09-18: a
+    generic 8x8 image was NOT enough, even though the texture slot itself was filled).
 
     Returns:
         {"base": {"normal": "/levels/.../_flat_normal_4096.png", ...},
@@ -406,18 +405,18 @@ def ensure_flat_pbr_placeholders(
 
 def _add_required_pbr_slots(entry: Dict, placeholders: Dict[str, Dict[str, str]]) -> None:
     """
-    Ergänzt ein TerrainMaterial-Dict um die 13 Pflichtfelder (baseColor-Detail/
-    -Macro sowie normal/roughness/ao/height je Base+Detail+Macro), die
-    build_terrain_material_entries() nicht aus echten Daten hat - siehe
+    Adds the 13 mandatory fields to a TerrainMaterial dict (baseColor detail/
+    macro as well as normal/roughness/ao/height for each of base+detail+macro) that
+    build_terrain_material_entries() has no real data for - see
     ensure_flat_pbr_placeholders().
 
-    Detail-/Macro-Anteil wird per *Strength=[0, 0] auf null gedämpft, damit
-    der neutrale Platzhalterinhalt so oder so keine sichtbare Rolle spielt.
-    baseColorBaseTex/-Size wird vom Aufrufer bereits gesetzt.
+    The detail/macro share is damped to zero via *Strength=[0, 0], so that
+    the neutral placeholder content plays no visible role either way.
+    baseColorBaseTex/-Size is already set by the caller.
     """
     zero = [0.0, 0.0]
-    # setdefault: bereits gesetzte echte Texturen (z.B. Detail-Textur einer
-    # Landnutzungs-Kategorie) dürfen nicht durch Platzhalter überschrieben werden.
+    # setdefault: real textures that are already set (e.g. the detail texture of a
+    # land use category) must not be overwritten by placeholders.
     entry.setdefault("baseColorDetailTex", placeholders["detail"]["baseColor"])
     entry.setdefault("baseColorDetailStrength", zero)
     entry.setdefault("baseColorMacroTex", placeholders["macro"]["baseColor"])
@@ -442,28 +441,28 @@ def build_terrain_material_entries(
     photo_extents: Optional[Dict[str, float]] = None,
 ) -> Dict[str, Dict]:
     """
-    Baut TerrainMaterial-JSON-Einträge für materials.json (Schema verifiziert
-    gegen BeamNGs offizielle Doku, siehe _add_required_pbr_slots()).
+    Builds TerrainMaterial JSON entries for materials.json (schema verified
+    against BeamNG's official docs, see _add_required_pbr_slots()).
 
     Args:
-        material_names: alle Layer-Map-Materialnamen in Index-Reihenfolge
-        photo_tile_names: Teilmenge von material_names, die auf das
-                          zusammengesetzte Luftbild verweisen (aktuell nur
-                          [AERIAL_PHOTO_MATERIAL_NAME], siehe
+        material_names: all layer map material names in index order
+        photo_tile_names: subset of material_names that refer to the
+                          assembled aerial photo (currently only
+                          [AERIAL_PHOTO_MATERIAL_NAME], see
                           build_photo_fallback_layer())
         landuse_mappings: data/osm_to_beamng.json["landuse_mappings"]
-        level_name: für den Foto-Textur-Pfad
-        photo_extent_size: Kantenlänge (Meter) der gesamten exportierten
-                          Fläche, die das EINE Luftbild abdeckt (nicht mehr
-                          eine 500m-Kachelgröße - das Foto wiederholt sich
-                          nicht, sondern deckt den kompletten Bereich einmal ab)
-        placeholders: von ensure_flat_pbr_placeholders() - Pflicht-Texturslots,
-                      für die wir keine echten Daten haben
-        variant_parents: Vier-Bilder-Modus (siehe terrain/photo_tiles.py): Variante -> (Schicht, Foto-
-                      Material der Kachel), z.B. {"mat_grass_t1": ("mat_grass", "aerial_photo_1")}. Die
-                      Variante nutzt das Foto ihrer Kachel als Basisfarbe und die Detail-Textur der Schicht.
-        photo_extents: Foto-Material -> Kantenlänge in Zellen (Kachelgröße); ohne Eintrag gilt
-                      photo_extent_size
+        level_name: for the photo texture path
+        photo_extent_size: Edge length (meters) of the entire exported
+                          area covered by the ONE aerial photo (no longer
+                          a 500m tile size - the photo does not repeat,
+                          but covers the complete area once)
+        placeholders: from ensure_flat_pbr_placeholders() - mandatory texture slots
+                      for which we have no real data
+        variant_parents: four-image mode (see terrain/photo_tiles.py): variant -> (layer, photo
+                      material of the tile), e.g. {"mat_grass_t1": ("mat_grass", "aerial_photo_1")}. The
+                      variant uses the photo of its tile as base color and the detail texture of the layer.
+        photo_extents: photo material -> edge length in cells (tile size); without an entry
+                      photo_extent_size applies
 
     Returns:
         {material_name: {...TerrainMaterial JSON...}}
@@ -480,27 +479,27 @@ def build_terrain_material_entries(
                 "internalName": name,
                 "class": "TerrainMaterial",
                 "persistentId": str(uuid4()),
-                # .png, nicht .dds: BeamNGs Terrain-Atlas-Packer erwartet eine PNG-
-                # Quelltextur und cached sie selbst zu DDS (siehe io/aerial.py).
+                # .png, not .dds: BeamNG's terrain atlas packer expects a PNG
+                # source texture and caches it to DDS itself (see io/aerial.py).
                 "baseColorBaseTex": f"/levels/{level_name}/art/shapes/textures/{name}.png",
                 "baseColorBaseTexSize": photo_extents.get(name, photo_extent_size),
-                # Bebaute/unkartierte Flächen; ohne Angabe loggt BeamNG "ground model not found ... using asphalt"
+                # Built-up/unmapped areas; without it BeamNG logs "ground model not found ... using asphalt"
                 "groundmodelName": PHOTO_GROUND_MODEL,
             }
             _add_required_pbr_slots(entry, placeholders)
             entries[name] = entry
             continue
 
-        # Vier-Bilder-Modus: Variante einer Schicht mit dem Foto ihrer Kachel als Basisfarbe
+        # Four-image mode: variant of a layer with the photo of its tile as base color
         layer_name, photo_name = variant_parents.get(name, (name, photo_tile_names[0]))
         category_data = landuse_by_internal_name.get(layer_name)
         if category_data is None:
             continue
 
-        # Farbe aus dem Luftbild (gleiche Basis-Textur wie das Foto-Material),
-        # die Landnutzung liegt als graue Detail-Textur darüber. BeamNGs
-        # Terrain-Texturen sind Detail-Texturen (near-greyscale) - als Basis
-        # ergäben sie einheitlich graue Flächen.
+        # Color from the aerial photo (same base texture as the photo material),
+        # the land use lies on top as a gray detail texture. BeamNG's
+        # terrain textures are detail textures (near-greyscale) - as a base
+        # they would yield uniformly gray areas.
         strength = float(category_data.get("detailStrength", DEFAULT_DETAIL_STRENGTH))
         entry = {
             "internalName": name,
@@ -515,8 +514,8 @@ def build_terrain_material_entries(
             entry["normalDetailTex"] = category_data["detailNormalMap"]
             entry["normalDetailStrength"] = [1.0, 0.0]
         if category_data.get("groundModelName"):
-            # BeamNGs groundmodels.json kennt nur GROSSGESCHRIEBENE Namen; ohne
-            # groundmodelName loggt BeamNG "ground model not found ... using asphalt".
+            # BeamNG's groundmodels.json only knows UPPERCASE names; without
+            # groundmodelName BeamNG logs "ground model not found ... using asphalt".
             entry["groundmodelName"] = str(category_data["groundModelName"]).upper()
         _add_required_pbr_slots(entry, placeholders)
         entries[name] = entry
@@ -526,20 +525,20 @@ def build_terrain_material_entries(
 
 def build_terrain_material_texture_set(name: str, base_tex_size: int = 512) -> Dict[str, Dict]:
     """
-    Baut den TerrainMaterialTextureSet-Eintrag, den TerrainBlock.materialTextureSet
-    referenziert. TerrainBlock löst diesen Namen über das SimObject-"name"-Feld auf
-    (NICHT "internalName" - das ist nur für TerrainMaterial-Layer-Referenzen aus der
-    .ter-Datei relevant), siehe offizielles Schema-Beispiel unter
+    Builds the TerrainMaterialTextureSet entry that TerrainBlock.materialTextureSet
+    references. TerrainBlock resolves this name via the SimObject "name" field
+    (NOT "internalName" - that is only relevant for TerrainMaterial layer references from the
+    .ter file), see the official schema example at
     https://documentation.beamng.com/modding/levels/level_formats/terrain/:
     {"class": "TerrainMaterialTextureSet", "name": "...", "baseTexSize": [w,h], ...}.
-    Ohne "name"-Feld findet BeamNG das Set nicht ("Failed to find
-    TerrainMaterialTextureSet with name: ...") und stürzt beim ersten Terrain-Draw
-    mit "D3D12: root cbv with 0 gpu va" ab, weil die Terrain-Material-Konstanten nie
-    gebunden wurden.
+    Without the "name" field BeamNG does not find the set ("Failed to find
+    TerrainMaterialTextureSet with name: ...") and crashes on the first terrain draw
+    with "D3D12: root cbv with 0 gpu va", because the terrain material constants were never
+    bound.
 
     Args:
-        name: Name des Sets (muss exakt mit TerrainBlock.materialTextureSet übereinstimmen)
-        base_tex_size: Atlas-Auflösung in Pixel (quadratisch) für baseColor-Texturen
+        name: Name of the set (must match TerrainBlock.materialTextureSet exactly)
+        base_tex_size: Atlas resolution in pixels (square) for baseColor textures
 
     Returns:
         {name: {...TerrainMaterialTextureSet JSON...}}

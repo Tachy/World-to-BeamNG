@@ -1,19 +1,19 @@
 """
-Automatischer Download eines Sentinel-2-cloudless-Mosaiks (EOX WMS-Dienst, `config.EOX_WMS_URL`)
-für die Horizont-Fläche. Zwei getrennte Cache-Schichten (beide unter cache/, gebietsabhängig
-benannt, jederzeit sicher löschbar): das Rohmosaik (config.EOX_MOSAIC_CACHE_DIR) und die daraus
-über `horizon_image.build_horizon_image()` zugeschnittene, fertige Textur
-(config.EOX_TEXTURE_CACHE_DIR). data/DOP300/ bleibt ausschließlich der manuelle Override-Slot für
-eine selbst abgelegte Datei - siehe ensure_horizon_texture().
+Automatic download of a Sentinel-2 cloudless mosaic (EOX WMS service, `config.EOX_WMS_URL`)
+for the horizon area. Two separate cache layers (both under cache/, named per area, safe to
+delete at any time): the raw mosaic (config.EOX_MOSAIC_CACHE_DIR) and the finished texture
+clipped from it via `horizon_image.build_horizon_image()` (config.EOX_TEXTURE_CACHE_DIR).
+data/DOP300/ remains exclusively the manual override slot for a self-provided file - see
+ensure_horizon_texture().
 
-Analog zum automatischen DGM30-Download in `world_to_beamng/terrain/dgm30_fetch.py` und zum OSM-
-Overpass-Download in `world_to_beamng/osm/downloader.py` (Retry mit exponentiellem Backoff,
-gestreamtes Fortschritts-Logging) - der Ansatz ist hier bewusst lokal dupliziert statt in einen
-gemeinsamen Helfer ausgelagert (gleiche Entscheidung wie in Task 2).
+Analogous to the automatic DGM30 download in `world_to_beamng/terrain/dgm30_fetch.py` and the OSM
+Overpass download in `world_to_beamng/osm/downloader.py` (retry with exponential backoff,
+streamed progress logging) - the approach is deliberately duplicated locally here instead of
+being extracted into a shared helper (same decision as in Task 2).
 
-Der EOX-Server begrenzt WMS-GetMap-Requests nicht dokumentiert in der Größe - das Mosaik wird
-deshalb in Kacheln von höchstens `config.EOX_MAX_REQUEST_PX` Kantenlänge zerlegt (tile_grid()) und
-Kachel für Kachel direkt in das Ziel-GeoTIFF geschrieben.
+The EOX server does not document a size limit for WMS GetMap requests - the mosaic is therefore
+split into tiles of at most `config.EOX_MAX_REQUEST_PX` edge length (tile_grid()) and written
+tile by tile directly into the target GeoTIFF.
 """
 
 import hashlib
@@ -33,13 +33,13 @@ from .horizon_image import build_horizon_image
 
 logger = LoggerConfig.get_logger()
 
-# Wird genau einmal pro Prozesslauf auf True gesetzt, sobald die EOX-Attribution geloggt wurde -
-# verhindert doppelte/mehrfache Meldung, falls ensure_horizon_texture() mehrfach aufgerufen wird.
+# Set to True exactly once per process run as soon as the EOX attribution has been logged -
+# prevents duplicate/repeated messages if ensure_horizon_texture() is called several times.
 _attribution_logged = False
 
 
 class TileRequest(NamedTuple):
-    """Ein einzelnes WMS-GetMap-Request-Fenster innerhalb des Gesamtmosaiks (siehe tile_grid())."""
+    """A single WMS GetMap request window within the full mosaic (see tile_grid())."""
 
     col_off: int
     row_off: int
@@ -50,12 +50,12 @@ class TileRequest(NamedTuple):
 
 def _mercator_bbox_for_area(area_utm: tuple) -> Tuple[float, float, float, float]:
     """
-    Transformiert `area_utm` (x_min, x_max, y_min, y_max in der aufgelösten Quell-CRS, siehe
-    horizon_image.horizon_area()) nach EPSG:3857 und weitet das Ergebnis um
-    config.EOX_FETCH_MARGIN_FACTOR um den Mittelpunkt auf (gegen Rundungslücken am Rand).
+    Transforms `area_utm` (x_min, x_max, y_min, y_max in the resolved source CRS, see
+    horizon_image.horizon_area()) to EPSG:3857 and widens the result by
+    config.EOX_FETCH_MARGIN_FACTOR around the center (against rounding gaps at the border).
 
     Returns:
-        (minx, miny, maxx, maxy) in EPSG:3857 - ACHTUNG anderes Tupel-Format als area_utm!
+        (minx, miny, maxx, maxy) in EPSG:3857 - NOTE: different tuple format than area_utm!
     """
     from rasterio.warp import transform_bounds
 
@@ -73,8 +73,8 @@ def _mercator_bbox_for_area(area_utm: tuple) -> Tuple[float, float, float, float
 
 
 def _mosaic_pixel_size(bbox_3857: tuple) -> Tuple[int, int]:
-    """Pixelgröße (w, h) des Gesamtmosaiks für `bbox_3857` bei config.EOX_TARGET_RESOLUTION_M,
-    gedeckelt auf config.EOX_MOSAIC_MAX_PX je Achse."""
+    """Pixel size (w, h) of the full mosaic for `bbox_3857` at config.EOX_TARGET_RESOLUTION_M,
+    capped at config.EOX_MOSAIC_MAX_PX per axis."""
     minx, miny, maxx, maxy = bbox_3857
     w = round((maxx - minx) / config.EOX_TARGET_RESOLUTION_M)
     h = round((maxy - miny) / config.EOX_TARGET_RESOLUTION_M)
@@ -85,11 +85,11 @@ def _mosaic_pixel_size(bbox_3857: tuple) -> Tuple[int, int]:
 
 def tile_grid(bbox_3857: tuple, w: int, h: int) -> List[TileRequest]:
     """
-    Zerlegt das w x h-Mosaik in TileRequest-Kacheln mit höchstens config.EOX_MAX_REQUEST_PX
-    Kantenlänge (viele WMS-Server begrenzen WIDTH/HEIGHT je Request). Reine, netzwerklose Funktion.
+    Splits the w x h mosaic into TileRequest tiles of at most config.EOX_MAX_REQUEST_PX
+    edge length (many WMS servers limit WIDTH/HEIGHT per request). Pure function, no network.
 
-    Bild-Konvention: Zeile 0 = Bildoberkante = geografisch Norden = maxy; mit wachsendem row_off
-    sinkt die geografische Y-Koordinate.
+    Image convention: row 0 = top edge of the image = geographic north = maxy; the geographic
+    Y coordinate decreases as row_off grows.
     """
     minx, miny, maxx, maxy = bbox_3857
     px_x = (maxx - minx) / w
@@ -108,10 +108,10 @@ def tile_grid(bbox_3857: tuple, w: int, h: int) -> List[TileRequest]:
 
 
 def _fetch_one_tile(tile: TileRequest) -> Optional[np.ndarray]:
-    """Lädt eine einzelne WMS-Kachel mit Retry + exponentiellem Backoff (analog
-    dgm30_fetch._download_one_tile()). Rückgabe: (H, W, 3)-uint8-Array oder None bei endgültigem
-    Fehlschlag (Timeout, 5xx, unerwarteter Content-Type, Dekodier-Fehler - egal welcher Grund,
-    diese Kachel bleibt dann einfach schwarz)."""
+    """Downloads a single WMS tile with retry + exponential backoff (analogous to
+    dgm30_fetch._download_one_tile()). Returns: (H, W, 3) uint8 array, or None on final
+    failure (timeout, 5xx, unexpected content type, decode error - whatever the reason,
+    this tile simply stays black)."""
     params = {
         "service": "WMS",
         "version": config.EOX_WMS_VERSION,
@@ -154,7 +154,7 @@ def _fetch_one_tile(tile: TileRequest) -> Optional[np.ndarray]:
             )
 
         if attempt < config.EOX_FETCH_MAX_RETRIES - 1:
-            wait_time = 2**attempt  # Exponentielles Backoff: 1s, 2s, 4s, ...
+            wait_time = 2**attempt  # Exponential backoff: 1s, 2s, 4s, ...
             logger.info(f"  Waiting {wait_time}s before retrying...")
             time.sleep(wait_time)
 
@@ -167,22 +167,21 @@ def _fetch_one_tile(tile: TileRequest) -> Optional[np.ndarray]:
 
 def fetch_eox_mosaic(area_utm: tuple, dest_path) -> Tuple[bool, int]:
     """
-    Lädt das komplette Sentinel-2-cloudless-Mosaik für `area_utm` von EOX (gekachelt) und schreibt
-    es als ein GeoTIFF nach `dest_path` (EPSG:3857).
+    Downloads the complete Sentinel-2 cloudless mosaic for `area_utm` from EOX (tiled) and writes
+    it as a single GeoTIFF to `dest_path` (EPSG:3857).
 
     Args:
-        area_utm: (x_min, x_max, y_min, y_max) in der aufgelösten Quell-CRS, siehe
+        area_utm: (x_min, x_max, y_min, y_max) in the resolved source CRS, see
             horizon_image.horizon_area()
-        dest_path: Zieldatei (wird nur bei mindestens einer erfolgreichen Kachel erzeugt)
+        dest_path: Target file (only created if at least one tile succeeded)
 
     Returns:
         (success, failed_count):
-        - success: True, wenn mindestens eine Kachel erfolgreich geladen wurde (dest_path existiert
-          dann, fehlgeschlagene Kacheln bleiben schwarz); False, wenn ALLE Kacheln fehlgeschlagen
-          sind (dest_path existiert dann NICHT).
-        - failed_count: Anzahl der Kacheln, die (nach Ausschöpfen aller Retries oder wegen falscher
-          Bildgröße) schwarz geblieben sind. > 0 bei success=True bedeutet: das Mosaik ist nur
-          TEILWEISE vollständig - der Aufrufer darf es dann nicht dauerhaft cachen (siehe
+        - success: True if at least one tile was downloaded successfully (dest_path then exists,
+          failed tiles stay black); False if ALL tiles failed (dest_path then does NOT exist).
+        - failed_count: Number of tiles that stayed black (after exhausting all retries or due to
+          a wrong image size). > 0 with success=True means: the mosaic is only PARTIALLY
+          complete - the caller must then not cache it permanently (see
           ensure_horizon_texture()).
     """
     import rasterio
@@ -221,13 +220,13 @@ def fetch_eox_mosaic(area_utm: tuple, dest_path) -> Tuple[bool, int]:
             arr = _fetch_one_tile(tile)
             if arr is None:
                 failed_count += 1
-                continue  # Kachel bleibt schwarz (frisch angelegtes GeoTIFF ist nullinitialisiert)
+                continue  # tile stays black (a freshly created GeoTIFF is zero-initialized)
             if arr.shape[:2] != (tile.height, tile.width):
-                # Der Server hat Status 200 + Content-Type image/* geliefert, aber das dekodierte
-                # Bild hat nicht die angefragte Pixelgröße (realistischer Fehlermodus bei einem
-                # externen WMS-Server) - dst.write() mit falscher Fenstergröße würde eine Exception
-                # werfen und den GANZEN Mosaik-Lauf abbrechen. Stattdessen: wie ein Dekodier-
-                # Fehlschlag behandeln, Kachel bleibt schwarz, weiter mit der nächsten Kachel.
+                # The server returned status 200 + Content-Type image/*, but the decoded image
+                # does not have the requested pixel size (a realistic failure mode with an
+                # external WMS server) - dst.write() with a wrong window size would raise an
+                # exception and abort the WHOLE mosaic run. Instead: treat it like a decode
+                # failure, the tile stays black, continue with the next tile.
                 logger.warning(
                     f"  [x] Tile ({tile.col_off},{tile.row_off}): image size {arr.shape[1]}x{arr.shape[0]} "
                     f"does not match the requested size {tile.width}x{tile.height} - stays black"
@@ -238,7 +237,7 @@ def fetch_eox_mosaic(area_utm: tuple, dest_path) -> Tuple[bool, int]:
             any_success = True
 
     if any_success:
-        os.replace(temp_path, dest_path)  # atomar: ein Absturz mittendrin hinterlässt nie ein Mosaik
+        os.replace(temp_path, dest_path)  # atomic: a crash midway never leaves a mosaic behind
         if failed_count:
             logger.warning(f"  [!] EOX mosaic: {failed_count}/{len(tiles)} tile(s) stayed black")
         else:
@@ -252,28 +251,26 @@ def fetch_eox_mosaic(area_utm: tuple, dest_path) -> Tuple[bool, int]:
 
 def ensure_horizon_texture(area_utm: tuple, size_px=None, resampling: str = "bilinear") -> Optional[Path]:
     """
-    Öffentlicher Einstiegspunkt: stellt sicher, dass eine Horizont-Textur für `area_utm` verfügbar
-    ist, und liefert ihren Pfad. Rein automatisch - keine manuelle Override-Datei mehr (die frühere
-    feste `data/DOP300/horizon_temp.tif` liess sich nicht sicher pro Gebiet unterscheiden, siehe
-    Git-Historie). Die Textur landet in config.EOX_TEXTURE_CACHE_DIR, mit einem Dateinamen, der von
-    Gebiet + Zielgröße + Resampling + WMS-Layer abhängt - eine jederzeit sicher löschbare/
-    regenerierbare Cache-Datei (wie das Rohmosaik). Das macht einen Wechsel des Quellgebiets (z. B.
-    testweise eine andere Region) automatisch korrekt: jedes Gebiet bekommt seine eigene
-    Cache-Datei.
+    Public entry point: ensures a horizon texture is available for `area_utm` and returns its
+    path. Fully automatic - no manual override file anymore (the former fixed
+    `data/DOP300/horizon_temp.tif` could not be reliably distinguished per area, see git
+    history). The texture ends up in config.EOX_TEXTURE_CACHE_DIR, with a file name that depends
+    on area + target size + resampling + WMS layer - a cache file that is safe to delete and
+    regenerate at any time (like the raw mosaic). This makes switching the source area (e.g.
+    trying a different region) automatically correct: every area gets its own cache file.
 
     Args:
-        area_utm: (x_min, x_max, y_min, y_max) in der aufgelösten Quell-CRS, siehe
+        area_utm: (x_min, x_max, y_min, y_max) in the resolved source CRS, see
             horizon_image.horizon_area()
-        size_px: Kantenlänge der Zieltextur; Default config.HORIZON_IMAGE_SIZE_PX
-        resampling: rasterio-Resampling-Name, siehe build_horizon_image()
+        size_px: Edge length of the target texture; default config.HORIZON_IMAGE_SIZE_PX
+        resampling: rasterio resampling name, see build_horizon_image()
 
     Returns:
-        Pfad zur Horizont-Textur unter config.EOX_TEXTURE_CACHE_DIR, oder None, wenn kein Download
-        versucht wurde (config.EOX_AUTO_DOWNLOAD == False), er vollständig fehlgeschlagen ist, oder
-        ein unerwarteter Fehler auftrat. Wirft NIE - analog zu dgm30_fetch.ensure_dgm30_coverage()
-        muss dieser Einstiegspunkt bei jedem Fehler (Netzwerk, Dateisystem, CRS-Transform, ...)
-        einfach None liefern, damit horizon_workflow.py ihn ohne eigene Fehlerbehandlung aufrufen
-        kann.
+        Path to the horizon texture under config.EOX_TEXTURE_CACHE_DIR, or None if no download
+        was attempted (config.EOX_AUTO_DOWNLOAD == False), it failed completely, or an
+        unexpected error occurred. NEVER raises - analogous to dgm30_fetch.ensure_dgm30_coverage()
+        this entry point must simply return None on any error (network, file system, CRS
+        transform, ...) so that horizon_workflow.py can call it without its own error handling.
     """
     global _attribution_logged
 
@@ -283,27 +280,27 @@ def ensure_horizon_texture(area_utm: tuple, size_px=None, resampling: str = "bil
 
         size_px = size_px if size_px is not None else config.HORIZON_IMAGE_SIZE_PX
 
-        # Cache-Schlüssel fürs Rohmosaik: unabhängig von size_px/resampling (das Mosaik ist
-        # unabhängig von der Zielgröße), auf 1 m gerundete area_utm-Werte + Layer-Name.
+        # Cache key for the raw mosaic: independent of size_px/resampling (the mosaic is
+        # independent of the target size), area_utm values rounded to 1 m + layer name.
         area_sig = f"{round(area_utm[0])}_{round(area_utm[1])}_{round(area_utm[2])}_{round(area_utm[3])}_{config.EOX_WMS_LAYER}"
         mosaic_cache_key = hashlib.sha1(area_sig.encode("utf-8")).hexdigest()[:16]
         mosaic_path = config.EOX_MOSAIC_CACHE_DIR / f"eox_mosaic_{mosaic_cache_key}.tif"
 
-        # Cache-Schlüssel für die FERTIGE, zugeschnittene Textur: zusätzlich von size_px/resampling
-        # abhängig, da diese das Ergebnis von build_horizon_image() verändern.
+        # Cache key for the FINISHED, clipped texture: additionally depends on size_px/resampling,
+        # since these change the result of build_horizon_image().
         texture_cache_key = hashlib.sha1(f"{area_sig}_{size_px}_{resampling}".encode("utf-8")).hexdigest()[:16]
         texture_path = config.EOX_TEXTURE_CACHE_DIR / f"horizon_texture_{texture_cache_key}.tif"
 
         if texture_path.exists():
-            # Für genau dieses Gebiet/Größe/Resampling bereits fertig gebaut - weder Netzwerk noch
-            # erneuter Zuschnitt nötig.
+            # Already built for exactly this area/size/resampling - neither network nor
+            # another clip needed.
             if not _attribution_logged:
                 logger.info(config.EOX_ATTRIBUTION_NOTICE)
                 _attribution_logged = True
             return texture_path
 
-        # Nur bei einem frischen (Teil-)Fetch in diesem Aufruf > 0 - ein Mosaik-Cache-Hit lädt
-        # kein Mosaik neu und kann daher auch keine neuen fehlgeschlagenen Kacheln haben.
+        # Only > 0 after a fresh (partial) fetch in this call - a mosaic cache hit does not
+        # reload the mosaic and therefore cannot have any new failed tiles either.
         failed_count = 0
         if not mosaic_path.exists():
             config.EOX_MOSAIC_CACHE_DIR.mkdir(parents=True, exist_ok=True)
@@ -311,22 +308,22 @@ def ensure_horizon_texture(area_utm: tuple, size_px=None, resampling: str = "bil
             if not success:
                 return None
             if failed_count:
-                # Teilerfolg: fürs AKTUELLE Level trotzdem eine Textur bauen (unten), aber weder
-                # das Rohmosaik NOCH die daraus gebaute Textur dauerhaft cachen - sonst bäckt ein
-                # einmaliger Netzwerk-Hänger eine schwarze Kachel für immer in den Horizont ein
-                # (analog zur "sonst bleibt der Fehler dauerhaft im Cache hängen"-Logik in
-                # osm/downloader.get_osm_data() und zur failed/not_found-Unterscheidung in
-                # dgm30_fetch.download_dgm30_tiles()). Der nächste Lauf sieht dann keinen
-                # Mosaik-UND keinen Textur-Cache-Hit und versucht die fehlenden Kacheln erneut.
+                # Partial success: still build a texture for the CURRENT level (below), but cache
+                # neither the raw mosaic NOR the texture built from it permanently - otherwise a
+                # one-off network hiccup bakes a black tile into the horizon forever
+                # (analogous to the "otherwise the error stays stuck in the cache" logic in
+                # osm/downloader.get_osm_data() and to the failed/not_found distinction in
+                # dgm30_fetch.download_dgm30_tiles()). The next run then sees neither a
+                # mosaic NOR a texture cache hit and retries the missing tiles.
                 logger.warning(
                     f"  [!] EOX mosaic incomplete ({failed_count} tile(s) black) - NOT "
                     f"cached permanently ({mosaic_path}). The next run retries the missing "
                     f"tiles automatically."
                 )
 
-        # Die Imagery-Lizenz (CC BY-NC-SA) knüpft die Attributionspflicht an die NUTZUNG des
-        # Bildmaterials, nicht an den Download - daher hier loggen (bei jedem Aufruf, der
-        # tatsächlich EOX-Bildmaterial verwendet), nicht nur im Cache-Miss-Zweig oben.
+        # The imagery license (CC BY-NC-SA) ties the attribution requirement to the USE of the
+        # imagery, not to the download - hence logged here (on every call that actually uses
+        # EOX imagery), not only in the cache-miss branch above.
         if not _attribution_logged:
             logger.info(config.EOX_ATTRIBUTION_NOTICE)
             _attribution_logged = True
@@ -335,10 +332,10 @@ def ensure_horizon_texture(area_utm: tuple, size_px=None, resampling: str = "bil
         build_horizon_image(mosaic_path, texture_path, area=area_utm, size_px=size_px, resampling=resampling)
 
         if failed_count:
-            # Unvollständige Textur nicht unter dem kanonischen Cache-Namen liegen lassen - sonst
-            # würde ein späterer Lauf sie fälschlich als vollständigen Cache-Hit übernehmen. Für
-            # DIESEN Lauf bleibt sie trotzdem nutzbar: unter eindeutigem Namen umbenannt: der
-            # Aufrufer liest gleich danach genau den hier zurückgegebenen Pfad.
+            # Do not leave an incomplete texture under the canonical cache name - otherwise a later
+            # run would wrongly accept it as a complete cache hit. It remains usable for THIS run
+            # nonetheless: renamed to a distinct name: the caller reads exactly the path returned
+            # here right afterwards.
             partial_path = texture_path.with_name(f"{texture_path.stem}_partial.tif")
             os.replace(texture_path, partial_path)
             mosaic_path.unlink(missing_ok=True)

@@ -1,9 +1,9 @@
 """
-Höhe der nächsten Straßen-Centerline für Mauern.
+Height of the nearest road centerline for walls.
 
-Liegt eine Mauer höchstens `max_distance` Meter neben einer Centerline, steht sie auf Straßenhöhe (z. B. Stützmauer
-am Straßenrand); sonst auf dem Gelände. Das Terrain ist innerhalb der Straße exakt auf die Centerline-Höhe gesetzt,
-fällt daneben aber über die Böschung ab - dort weichen Centerline- und Geländehöhe voneinander ab.
+If a wall is at most `max_distance` meters from a centerline, it stands at road height (e.g. a retaining wall
+at the roadside); otherwise on the terrain. The terrain is set exactly to the centerline height within the road,
+but beside it drops off over the embankment - there the centerline and terrain heights differ.
 """
 
 from typing import Dict, List, Sequence
@@ -11,11 +11,11 @@ from typing import Dict, List, Sequence
 import numpy as np
 from scipy.spatial import cKDTree
 
-SAMPLE_STEP_M = 0.2  # Abstand der Stützpunkte auf der Centerline; Höhenfehler dadurch höchstens Steigung * 0.1 m
+SAMPLE_STEP_M = 0.2  # spacing of the sample points on the centerline; height error thus at most gradient * 0.1 m
 
 
 def centerlines_from_roads(roads: Sequence[Dict]) -> List[np.ndarray]:
-    """Centerlines ((N, 3) x, y, z) aller Straßen-Dicts mit `trimmed_centerline` (mindestens 2 Punkte)."""
+    """Centerlines ((N, 3) x, y, z) of all road dicts with `trimmed_centerline` (at least 2 points)."""
     lines = []
     for road in roads:
         line = road.get("trimmed_centerline")
@@ -25,10 +25,10 @@ def centerlines_from_roads(roads: Sequence[Dict]) -> List[np.ndarray]:
 
 
 class RoadBaseHeight:
-    """Callable (x, y) -> Höhe der nächsten Centerline; NaN, wo keine im Abstand `max_distance` liegt.
+    """Callable (x, y) -> height of the nearest centerline; NaN where none is within `max_distance`.
 
-    Der KD-Baum (alle Centerlines in 0,2-m-Schritten, bei einem 4-km-Export Millionen Punkte) entsteht erst beim
-    ersten Aufruf - ohne Mauern wird er nie gebraucht.
+    The KD-tree (all centerlines in 0.2 m steps, millions of points for a 4 km export) is only built on the
+    first call - without walls it is never needed.
     """
 
     def __init__(self, centerlines: Sequence[np.ndarray], max_distance: float):
@@ -45,16 +45,16 @@ class RoadBaseHeight:
 
     @staticmethod
     def _densify(line: np.ndarray) -> np.ndarray:
-        """Stützpunkte im Abstand SAMPLE_STEP_M entlang der Centerline, Höhe linear zwischen ihren Punkten.
+        """Sample points spaced SAMPLE_STEP_M along the centerline, height linear between its points.
 
-        Je Segment steps = ceil(Länge / SAMPLE_STEP_M) (mindestens 1) Punkte bei den Anteilen 1/steps .. steps/steps -
-        für alle Segmente auf einmal statt Segment für Segment (gleiche Rechenschritte, bitgleiches Ergebnis).
+        Per segment steps = ceil(length / SAMPLE_STEP_M) (at least 1) points at the fractions 1/steps .. steps/steps -
+        for all segments at once instead of segment by segment (same arithmetic steps, bit-identical result).
         """
         start, end = line[:-1], line[1:]
         lengths = np.linalg.norm(end[:, :2] - start[:, :2], axis=1)
         steps = np.maximum(1, np.ceil(lengths / SAMPLE_STEP_M).astype(int))
         segment = np.repeat(np.arange(len(steps)), steps)
-        k = np.arange(len(segment)) - np.repeat(np.cumsum(steps) - steps, steps) + 1  # 1..steps je Segment
+        k = np.arange(len(segment)) - np.repeat(np.cumsum(steps) - steps, steps) + 1  # 1..steps per segment
         fractions = (k / steps[segment])[:, None]
         points = start[segment] + (end[segment] - start[segment]) * fractions
         return np.vstack([line[:1], points])

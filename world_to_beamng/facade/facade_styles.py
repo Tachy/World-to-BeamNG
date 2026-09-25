@@ -1,8 +1,8 @@
 """
-Putzfarben der Wände und deterministische Wahl je Gebäude.
+Plaster colors of the walls and deterministic choice per building.
 
-Die Häuser sind verputzt: vorwiegend weiß, vereinzelt Beigetöne, ganz vereinzelt Rottöne. Jede Farbe ist ein eigenes
-Wandmaterial (dieselbe Normal-/Roughness-Textur, eigene Albedo-Textur).
+The houses are plastered: mostly white, occasionally beige tones, very rarely red tones. Each color is its own
+wall material (same normal/roughness texture, own albedo texture).
 """
 
 import zlib
@@ -17,7 +17,7 @@ _WEIGHT_TOTAL = 1000
 class PlasterColor:
     name: str
     rgb: RGB
-    weight: int  # Promille aller Gebäude
+    weight: int  # per mille of all buildings
 
 
 PLASTER_COLORS: Tuple[PlasterColor, ...] = (
@@ -35,14 +35,14 @@ if sum(color.weight for color in PLASTER_COLORS) != _WEIGHT_TOTAL:
 
 def stable_hash(key: str) -> int:
     """
-    Reproduzierbarer Hash (crc32). Python-`hash()` ist je Prozess gesalzen und würde die Farben bei jedem Export
-    neu würfeln.
+    Reproducible hash (crc32). Python `hash()` is salted per process and would reshuffle the colors on every
+    export.
     """
     return zlib.crc32(key.encode("utf-8"))
 
 
 def building_key(building: Dict) -> str:
-    """Schlüssel eines Gebäudes: gml:id, sonst der auf 10 cm gerundete Schwerpunkt aus den bounds."""
+    """Key of a building: gml:id, otherwise the centroid from the bounds rounded to 10 cm."""
     building_id = building.get("id")
     if building_id and building_id != "unknown":
         return str(building_id)
@@ -51,7 +51,7 @@ def building_key(building: Dict) -> str:
 
 
 def plaster_index(key: str) -> int:
-    """Index in PLASTER_COLORS; die Wahrscheinlichkeit folgt den Gewichten (crc32 des Schlüssels mod 1000)."""
+    """Index into PLASTER_COLORS; the probability follows the weights (crc32 of the key mod 1000)."""
     point = stable_hash(key) % _WEIGHT_TOTAL
     upper = 0
     for index, color in enumerate(PLASTER_COLORS):
@@ -62,5 +62,5 @@ def plaster_index(key: str) -> int:
 
 
 def choice(key: str, salt: str, count: int) -> int:
-    """Reproduzierbare Zufallswahl 0..count-1 aus Gebäudeschlüssel und Zweck (`salt`)."""
+    """Reproducible random choice 0..count-1 from building key and purpose (`salt`)."""
     return stable_hash(f"{key}|{salt}") % count

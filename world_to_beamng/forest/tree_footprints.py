@@ -1,14 +1,14 @@
 """
-Stamm-genaue Prüfung der Bäume.
+Trunk-accurate checking of trees.
 
-Die Ausschlusszonen (Fahrbahnen, Gebäude) und die Höhe aus der Heightmap gelten für den URSPRUNG eines
-Baum-Assets. Gruppen-Assets (`*_group`) bestehen aber aus mehreren Stämmen, die bis ~9 m neben dem Ursprung
-stehen: Stämme landen auf Wegen und hängen an Hängen frei in der Luft, obwohl der Ursprung passt.
+The exclusion zones (carriageways, buildings) and the height from the heightmap apply to the ORIGIN of a
+tree asset. Group assets (`*_group`), however, consist of several trunks that stand up to ~9 m beside the origin:
+trunks end up on paths and hang freely in the air on slopes even though the origin fits.
 
-Hier werden die Stammfüße aus dem Kollisionsmodell (Colmesh) des Assets gelesen und jede Instanz mit ihren
-tatsächlichen Stammpositionen gegen dieselben Ausschlusszonen und den Boden geprüft - ohne die Abstände zu
-ändern. Was nicht passt, wird bis zu `max_sink` abgesenkt, sonst bekommt derselbe Punkt einen anderen Typ
-aus dem Pool des Waldes (z.B. einen Einzelstamm) oder entfällt.
+Here the trunk feet are read from the asset's collision model (colmesh) and each instance is checked with its
+actual trunk positions against the same exclusion zones and the ground - without changing the spacing. What
+does not fit is lowered by up to `max_sink`, otherwise the same point gets a different type
+from the forest's pool (e.g. a single trunk) or is dropped.
 """
 
 import logging
@@ -21,10 +21,10 @@ import shapely
 
 logger = logging.getLogger(__name__)
 
-# Stammfuß: tiefster Punkt eines Stamms im Kollisionsmodell. Höher liegende Stücke (Stammspitzen, Äste) zählen nicht.
+# Trunk foot: lowest point of a trunk in the collision model. Higher pieces (trunk tips, branches) do not count.
 FOOT_MAX_Z = 1.0
-FOOT_CELL = 1.0  # Kollisions-Vertices werden in Zellen dieser Größe je Stamm zusammengefasst
-FOOT_MERGE_DISTANCE = 0.8  # Füße näher als das (Teilstücke desselben Stamms) zählen einmal
+FOOT_CELL = 1.0  # collision vertices are grouped into cells of this size per trunk
+FOOT_MERGE_DISTANCE = 0.8  # feet closer than this (parts of the same trunk) count once
 
 _ORIGIN_FOOT = np.zeros((1, 3))
 _GEOMETRY = re.compile(r'<geometry id="([^"]*)"[^>]*>(.*?)</geometry>', re.S)
@@ -34,9 +34,9 @@ _INSTANCE = re.compile(r'<instance_geometry url="#([^"]*)" name="([^"]*)"')
 
 def read_trunk_feet(dae_path) -> np.ndarray:
     """
-    Stammfüße (Modellkoordinaten, (K, 3)) aus dem Kollisionsmodell einer .dae.
+    Trunk feet (model coordinates, (K, 3)) from the collision model of a .dae.
 
-    Ohne lesbares Colmesh (oder ohne Punkte nahe dem Boden) bleibt ein einzelner Fuß im Ursprung.
+    Without a readable colmesh (or without points near the ground) a single foot at the origin remains.
     """
     try:
         text = Path(dae_path).read_text(encoding="utf-8", errors="ignore")
@@ -57,7 +57,7 @@ def read_trunk_feet(dae_path) -> np.ndarray:
     if points is None or len(points) == 0:
         return _ORIGIN_FOOT.copy()
 
-    # Je Zelle der tiefste Vertex = Fuß des Stamms in dieser Zelle
+    # Per cell the lowest vertex = foot of the trunk in this cell
     lowest = {}
     for point in points:
         key = (int(np.floor(point[0] / FOOT_CELL)), int(np.floor(point[1] / FOOT_CELL)))
@@ -66,7 +66,7 @@ def read_trunk_feet(dae_path) -> np.ndarray:
     candidates = sorted((p for p in lowest.values() if p[2] < FOOT_MAX_Z), key=lambda p: p[2])
 
     feet: List[np.ndarray] = []
-    for point in candidates:  # tiefste zuerst: Duplikate desselben Stamms fallen weg
+    for point in candidates:  # lowest first: duplicates of the same trunk are dropped
         if all(np.hypot(point[0] - f[0], point[1] - f[1]) >= FOOT_MERGE_DISTANCE for f in feet):
             feet.append(point)
     return np.array(feet) if feet else _ORIGIN_FOOT.copy()
@@ -74,11 +74,11 @@ def read_trunk_feet(dae_path) -> np.ndarray:
 
 def load_trunk_feet(registered_trees: Dict[str, Dict], root) -> Dict[str, np.ndarray]:
     """
-    Stammfüße aller registrierten Baumtypen.
+    Trunk feet of all registered tree types.
 
     Args:
-        registered_trees: Typname -> {"dae_path": "levels/<level>/art/shapes/trees/....dae", ...}
-        root: Verzeichnis, relativ zu dem dae_path aufgelöst wird (BeamNG-Benutzerordner "current")
+        registered_trees: type name -> {"dae_path": "levels/<level>/art/shapes/trees/....dae", ...}
+        root: directory relative to which dae_path is resolved (BeamNG user folder "current")
     """
     feet = {}
     for name, info in registered_trees.items():
@@ -88,7 +88,7 @@ def load_trunk_feet(registered_trees: Dict[str, Dict], root) -> Dict[str, np.nda
 
 
 class TrunkFitter:
-    """Prüft Baum-Instanzen mit ihren tatsächlichen Stammpositionen gegen Ausschlusszone und Boden."""
+    """Checks tree instances with their actual trunk positions against the exclusion zone and the ground."""
 
     def __init__(
         self,
@@ -103,13 +103,13 @@ class TrunkFitter:
     ):
         """
         Args:
-            feet_by_type: Typname -> Stammfüße (K, 3) in Modellkoordinaten (siehe load_trunk_feet)
-            exclusion: shapely-Geometrie, in der kein Stamm stehen darf (dieselbe wie für die Ursprünge)
-            row_exclusion: dasselbe für Baumreihen (kleinere Abstände)
-            height_at: Höhenabfrage der fertigen Heightmap (x, y) -> z; ohne sie entfällt die Bodenprüfung
-            max_float: so weit darf ein Stammfuß nach dem Absenken über dem Boden stehen (m)
-            max_sink: so weit darf ein Baum höchstens abgesenkt werden (m); darüber wird der Typ gewechselt
-            max_rounds: Anzahl Typ-Neuwürfe, bevor eine Instanz entfällt
+            feet_by_type: type name -> trunk feet (K, 3) in model coordinates (see load_trunk_feet)
+            exclusion: shapely geometry in which no trunk may stand (the same as for the origins)
+            row_exclusion: the same for tree rows (smaller distances)
+            height_at: height query of the finished heightmap (x, y) -> z; without it the ground check is skipped
+            max_float: how far a trunk foot may stand above the ground after lowering (m)
+            max_sink: how far a tree may be lowered at most (m); beyond that the type is changed
+            max_rounds: number of type re-rolls before an instance is dropped
         """
         self.feet_by_type = feet_by_type
         self.exclusion = exclusion
@@ -122,12 +122,12 @@ class TrunkFitter:
 
     def fit(self, instances: List[Dict], pool: Dict[str, float], row: bool = False) -> List[Dict]:
         """
-        Gibt die Instanzen zurück, deren Stämme passen; Instanzen, die passen, bleiben unverändert.
+        Returns the instances whose trunks fit; instances that fit remain unchanged.
 
         Args:
-            instances: Instanzen im forest4-Format (type, pos, rotationMatrix, scale)
-            pool: Typname -> Gewicht der Bäume dieses Waldes (Ersatztypen kommen daraus)
-            row: Baumreihe - prüft gegen die Reihen-Ausschlusszone
+            instances: instances in forest4 format (type, pos, rotationMatrix, scale)
+            pool: type name -> weight of this forest's trees (replacement types are drawn from it)
+            row: tree row - checks against the row exclusion zone
         """
         if not instances:
             return []
@@ -170,13 +170,13 @@ class TrunkFitter:
         return result
 
     def _evaluate(self, types, pos, matrices, scales, zone):
-        """Je Instanz: passt sie (Stämme frei und am Boden) und um wie viel muss sie abgesenkt werden."""
+        """Per instance: does it fit (trunks clear and on the ground) and by how much must it be lowered."""
         fits = np.ones(len(types), dtype=bool)
         sink = np.zeros(len(types))
         for name in np.unique(types):
             sel = np.flatnonzero(types == name)
             feet = self.feet_by_type.get(name, _ORIGIN_FOOT)
-            # BeamNG liest die Modellachsen als Zeilen der Matrix: Welt-Offset = M^T * Fuß
+            # BeamNG reads the model axes as rows of the matrix: world offset = M^T * foot
             offsets = np.einsum("nji,bj->nbi", matrices[sel], feet) * scales[sel][:, None, None]
             x = pos[sel, 0][:, None] + offsets[:, :, 0]
             y = pos[sel, 1][:, None] + offsets[:, :, 1]

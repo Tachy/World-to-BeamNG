@@ -1,17 +1,17 @@
 """
-Schreibt/liest BeamNG .ter Terrain-Dateien (Binärformat Version 9).
+Writes/reads BeamNG .ter terrain files (binary format version 9).
 
-Format (empirisch verifiziert gegen eine echte .ter-Datei aus der BeamNG-
-Installation, content/levels/GridMap.zip -> GridMap.ter):
+Format (empirically verified against a real .ter file from the BeamNG
+installation, content/levels/GridMap.zip -> GridMap.ter):
 
     u8       version              (= 9)
-    u32 LE   size                 (Kantenlänge, Zweierpotenz, 128-8192)
-    u16[] LE heightmap            (size*size Werte, row-major)
-    u8[]     layer_map            (size*size Werte, 255 = leer/Hole)
+    u32 LE   size                 (edge length, power of two, 128-8192)
+    u16[] LE heightmap            (size*size values, row-major)
+    u8[]     layer_map            (size*size values, 255 = empty/hole)
     u32 LE   material_count
-    für jedes Material:
+    for each material:
         u8   name_length
-        ...  name (ASCII, name_length Bytes, kein Terminator)
+        ...  name (ASCII, name_length bytes, no terminator)
 """
 
 import struct
@@ -32,17 +32,17 @@ def write_ter(
     material_names: List[str],
 ) -> None:
     """
-    Schreibt eine .ter-Datei.
+    Writes a .ter file.
 
     Args:
-        path: Zielpfad der .ter-Datei
-        heightmap: 2D uint16-Array, shape (size, size), row-major
-        layer_map: 2D uint8-Array, gleiche Shape wie heightmap
-        material_names: Materialnamen, Index entspricht layer_map-Werten
-                        (max. 254 Einträge, Index 255 ist für "leer" reserviert)
+        path: Target path of the .ter file
+        heightmap: 2D uint16 array, shape (size, size), row-major
+        layer_map: 2D uint8 array, same shape as heightmap
+        material_names: Material names, index corresponds to layer_map values
+                        (max. 254 entries, index 255 is reserved for "empty")
 
     Raises:
-        ValueError: bei ungültiger Größe, Shape-Mismatch oder zu vielen Materialien
+        ValueError: on invalid size, shape mismatch or too many materials
     """
     if heightmap.shape != layer_map.shape:
         raise ValueError(f"heightmap shape {heightmap.shape} != layer_map shape {layer_map.shape}")
@@ -76,10 +76,10 @@ def write_ter(
 
 def read_ter(path: Path) -> Tuple[np.ndarray, np.ndarray, List[str]]:
     """
-    Liest eine .ter-Datei zurück (für Tests/Validierung).
+    Reads a .ter file back (for tests/validation).
 
     Returns:
-        (heightmap, layer_map, material_names) - gleiche Typen wie write_ter's Input
+        (heightmap, layer_map, material_names) - same types as write_ter's input
     """
     with open(path, "rb") as f:
         data = f.read()
@@ -113,18 +113,18 @@ def read_ter(path: Path) -> Tuple[np.ndarray, np.ndarray, List[str]]:
 
 def encode_heights_to_u16(heights_m: np.ndarray, z_min: float, max_height: float) -> np.ndarray:
     """
-    Wandelt absolute Höhenwerte (Meter) in das u16-Format der .ter-Heightmap um.
+    Converts absolute elevation values (meters) to the u16 format of the .ter heightmap.
 
-    Formel (siehe Spec Abschnitt 8): heightMeters = storedHeight * (maxHeight / 65536)
+    Formula (see spec section 8): heightMeters = storedHeight * (maxHeight / 65536)
     -> storedHeight = (heightMeters - z_min) / maxHeight * 65536
 
     Args:
-        heights_m: beliebige Shape, absolute Höhenwerte in Metern
-        z_min: Höhe (Meter), die u16-Wert 0 entspricht
-        max_height: Höhenbereich (Meter), den u16-Wert 65535 entspricht
+        heights_m: any shape, absolute elevation values in meters
+        z_min: Height (meters) that corresponds to u16 value 0
+        max_height: Height range (meters) that corresponds to u16 value 65535
 
     Returns:
-        Gleiche Shape wie heights_m, dtype uint16, auf [0, 65535] geclampt
+        Same shape as heights_m, dtype uint16, clamped to [0, 65535]
     """
     relative = (heights_m - z_min) / max_height * 65536.0
     clamped = np.clip(relative, 0, 65535)

@@ -1,29 +1,29 @@
 """
-Gelände an Tunneln - nur unmittelbar lokal an Röhre und Portal (siehe tunnels/tunnel_mesh.py, tunnels/tunnel_portal.py).
+Terrain at tunnels - only immediately local to the tube and portal (see tunnels/tunnel_mesh.py, tunnels/tunnel_portal.py).
 
-Die Röhre ist ein Zylinder mit Außenschale (tunnel_mesh.shell_cross_section()); sie darf frei stehen und muss nicht
-vom Gelände versteckt werden. Die Heightmap ist aber eine einzige Fläche je Rasterzelle - sie darf nicht quer durch
-das Röhreninnere laufen. Deshalb:
+The tube is a cylinder with an outer shell (tunnel_mesh.shell_cross_section()); it may stand free and does not have to
+be hidden by the terrain. The heightmap, however, is a single surface per raster cell - it must not run straight through
+the tube interior. Therefore:
 
-1. Überdeckung: An jeder Station, an der das Gelände innerhalb der Schale über den Röhrenboden ragt
-   (ENTER_TOLERANCE), liegt im Grundriss der Schale Erde `cover` über dem runden Außenquerschnitt. Liegt das
-   Gelände schon höher, bleibt es; liegt es unter der Röhre, bleibt es auch (die Röhre steht dort frei). Keine
-   seitlichen Böschungen, keine Dämme ins Tal.
-2. Portal-Zone (je offenem Portal): zwischen Portalebene und flat_depth liegt das Gelände knapp unter dem
-   Röhrenboden (dort verdeckt es der Boden der Röhre); dahinter wird der Hang im Grundriss des Portals auf dessen
-   runde Außenkontur abgetragen (Kragen bzw. Röhrenschale) - das Portal wächst nicht mit dem Hang.
-3. Löcher: eine Rasterzelle über der Röhre (Abstand <= Radius + HOLE_BAND_MARGIN), deren Ecken teils auf/unter dem
-   Röhrenboden und teils darüber liegen, liefe als schräge Fläche durch die Röhre - sie wird Terrain-Loch. Das
-   passiert an der Portalstufe (verdeckt vom Kragen) und dort, wo die Röhre aus dem Gelände austritt (verdeckt von
-   der Schale).
+1. Cover: At every station where the terrain inside the shell rises above the tube floor
+   (ENTER_TOLERANCE), the footprint of the shell holds earth `cover` above the round outer cross-section. If the
+   terrain is already higher, it stays; if it lies below the tube, it also stays (the tube stands free there). No
+   lateral embankments, no fills into the valley.
+2. Portal zone (per open portal): between the portal plane and flat_depth the terrain lies just below the
+   tube floor (there the tube floor hides it); behind that, the slope within the portal footprint is cut down to its
+   round outer contour (collar or tube shell) - the portal does not grow with the slope.
+3. Holes: a raster cell above the tube (distance <= radius + HOLE_BAND_MARGIN) whose corners lie partly on/below the
+   tube floor and partly above it would run as a sloped face through the tube - it becomes a terrain hole. This
+   happens at the portal step (hidden by the collar) and where the tube emerges from the terrain (hidden by
+   the shell).
 
-Oberflächenstraßen (z.B. ein Weg, der über den Tunnel führt, oder die Zufahrt) bleiben unangetastet - ihre Höhe
-bestimmt die Straßen-Einbettung.
+Surface roads (e.g. a path that runs over the tunnel, or the access road) remain untouched - their height
+determines the road embedding.
 
-Ein Tunnel-Ende ist nur dann ein Portal, wenn davor offenes Gelände liegt (siehe _portal_is_open()): endet eine
-Kette mitten im Berg (z.B. am Kartenrand abgeschnitten oder an einer mehrdeutigen Stoßstelle), bleibt das Gelände
-dort unberührt und es entsteht kein Portalbauwerk. Übergänge in eine Galerie (portal["kind"] == "gallery") sind
-immer Portale.
+A tunnel end is only a portal if open terrain lies in front of it (see _portal_is_open()): if a
+chain ends in the middle of the mountain (e.g. cut off at the map edge or at an ambiguous joint), the terrain
+there stays untouched and no portal structure is created. Transitions into a gallery (portal["kind"] == "gallery") are
+always portals.
 """
 
 from typing import Dict, List, Tuple
@@ -34,19 +34,19 @@ from shapely import intersects_xy
 
 from ..tunnels.tunnel_portal import portal_local_coords
 
-DENSE_STEP = 0.5  # Abtastung der Centerline für die Abstandsberechnung, in Metern
-WINDOW = 100.0  # Centerline-Abschnitt je Verarbeitungsfenster, in Metern
-ENTER_TOLERANCE = 0.3  # so weit darf das Gelände über den Röhrenboden ragen, ohne als "in der Röhre" zu gelten
-HOLE_BAND_MARGIN = 0.0  # Loch nur, wenn eine Zellecke innerhalb des Röhrenradius liegt (sonst schneidet die Fläche das Innere nicht)
-FLOOR_CLEARANCE = 0.05  # so weit liegt das Gelände in der Portal-Zone unter dem Röhrenboden, in Metern
-STRUCTURE_CLEARANCE = 0.1  # so weit bleibt der abgetragene Hang unter der Außenkontur des Portalbauwerks, in Metern
-OPEN_PROBE_DIST = 3.0  # Abstand vor der Portalebene, an dem offenes Gelände geprüft wird, in Metern
-APRON_LENGTH = 1.5  # so weit vor der Portalebene wird das Gelände höchstens auf Bodenhöhe gehalten, in Metern
+DENSE_STEP = 0.5  # Sampling of the centerline for the distance computation, in meters
+WINDOW = 100.0  # Centerline section per processing window, in meters
+ENTER_TOLERANCE = 0.3  # how far the terrain may rise above the tube floor without counting as "inside the tube"
+HOLE_BAND_MARGIN = 0.0  # Hole only if a cell corner lies within the tube radius (otherwise the face does not cut the interior)
+FLOOR_CLEARANCE = 0.05  # how far the terrain lies below the tube floor in the portal zone, in meters
+STRUCTURE_CLEARANCE = 0.1  # how far the cut-down slope stays below the outer contour of the portal structure, in meters
+OPEN_PROBE_DIST = 3.0  # Distance in front of the portal plane at which open terrain is checked, in meters
+APRON_LENGTH = 1.5  # how far in front of the portal plane the terrain is held at most at floor height, in meters
 
 
 def _portal_is_open(heights, origin_x, origin_y, square_size, portal) -> bool:
-    """Offenes Portal: kurz vor der Portalebene liegt das Gelände (nach der Straßen-Einbettung) höchstens auf
-    halber Kronenhöhe über dem Röhrenboden - dort kommt man tatsächlich von außen in die Röhre."""
+    """Open portal: shortly before the portal plane the terrain (after the road embedding) lies at most at
+    half the crown height above the tube floor - there one actually enters the tube from outside."""
     from .road_embedding import sample_heightmap_bilinear
 
     px, py = portal["xy"]
@@ -84,7 +84,7 @@ def _unprotected(protected, gx, gy) -> np.ndarray:
 
 
 def _tube_windows(heights, origin_x, origin_y, square_size, xy, reach):
-    """(Fenster-Slice, gx, gy, Abstand zur Centerline, nächster Stationsindex) je WINDOW-Abschnitt der Röhre."""
+    """(window slice, gx, gy, distance to the centerline, nearest station index) per WINDOW section of the tube."""
     tree = cKDTree(xy)
     per_window = max(2, int(WINDOW / DENSE_STEP))
     for start in range(0, len(xy), per_window):
@@ -101,14 +101,14 @@ def _tube_windows(heights, origin_x, origin_y, square_size, xy, reach):
 
 
 def _cover_tube(heights, origin_x, origin_y, square_size, plan, cover, protected) -> None:
-    """Schritt 1 (siehe Moduldocstring), in-place."""
+    """Step 1 (see module docstring), in-place."""
     xy, _, floor_z = _dense_centerline(plan["coords"])
     radius = plan["radius"]
     outer = radius + plan.get("shell", 0.0)
     last = len(xy) - 1
 
     def footprint(dist, idx):
-        # Nur Zellen seitlich der Röhre (nicht vor den Enden: dort ist der nächste Punkt ein Endpunkt)
+        # Only cells beside the tube (not in front of the ends: there the nearest point is an end point)
         return (dist <= outer) & (idx > 0) & (idx < last)
 
     windows = list(_tube_windows(heights, origin_x, origin_y, square_size, xy, outer + square_size))
@@ -125,7 +125,7 @@ def _cover_tube(heights, origin_x, origin_y, square_size, plan, cover, protected
 
 
 def _shape_portal(heights, origin_x, origin_y, square_size, portal, protected) -> None:
-    """Schritt 2 (siehe Moduldocstring) für ein offenes Portal, in-place."""
+    """Step 2 (see module docstring) for an open portal, in-place."""
     radius, half_width = portal["radius"], portal["half_width"]
     length, flat_depth = portal["length"], portal["flat_depth"]
     floor_z = portal["floor_z"]
@@ -146,8 +146,8 @@ def _shape_portal(heights, origin_x, origin_y, square_size, portal, protected) -
     apron = free & (np.abs(across) <= radius + 1.0) & (along >= -APRON_LENGTH) & (along < 0.0)
     view[apron] = np.minimum(view[apron], floor_z)
 
-    # Hang im Grundriss des Portals auf dessen Außenkontur abtragen: Oberkante des rechteckigen Kragens bzw. ohne
-    # Kragen die runde Röhrenschale
+    # Cut the slope within the portal footprint down to its outer contour: top edge of the rectangular collar or,
+    # without a collar, the round tube shell
     behind = free & in_structure & (along >= flat_depth) & (along <= length)
     if portal.get("collar", 0.0) > 0.0:
         limit = np.full(gx.shape, portal["top_z"] - STRUCTURE_CLEARANCE)
@@ -157,7 +157,7 @@ def _shape_portal(heights, origin_x, origin_y, square_size, portal, protected) -
 
 
 def _mark_holes(heights, holes, origin_x, origin_y, square_size, plan) -> None:
-    """Schritt 3 (siehe Moduldocstring): Loch-Zellen über der Röhre, in-place in `holes`."""
+    """Step 3 (see module docstring): hole cells above the tube, in-place in `holes`."""
     xy, _, floor_z = _dense_centerline(plan["coords"])
     band = plan["radius"] + HOLE_BAND_MARGIN
     last = len(xy) - 1
@@ -185,21 +185,21 @@ def shape_terrain_for_tunnels(
     protected=None,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
-    Überdeckung, Portal-Zonen und Löcher für alle Tunnel-Pläne (siehe tunnels/tunnel_portal.py::plan_tunnels()).
+    Cover, portal zones and holes for all tunnel plans (see tunnels/tunnel_portal.py::plan_tunnels()).
 
     Args:
-        cover: Erdschicht über der Röhrenschale, wo das Gelände in die Röhre ragt, in Metern
-        protected: shapely-Geometrie der Oberflächenstraßen (oder None) - dort bleibt das Gelände unverändert
+        cover: Earth layer above the tube shell where the terrain rises into the tube, in meters
+        protected: shapely geometry of the surface roads (or None) - the terrain stays unchanged there
 
     Returns:
-        (neue Heightmap, Loch-Maske (bool, gleiche Shape; True = Rasterzelle wird Terrain-Loch))
-        Die Portale in `plans` bekommen dabei "open" (siehe _portal_is_open()).
+        (new heightmap, hole mask (bool, same shape; True = raster cell becomes a terrain hole))
+        In the process, the portals in `plans` get "open" (see _portal_is_open()).
     """
     result = heights.copy()
     holes = np.zeros(heights.shape, dtype=bool)
     for plan in plans:
         for portal in plan["portals"]:
-            # Übergang in eine Galerie: davor liegt immer ein Bauwerk - immer ein Portal
+            # Transition into a gallery: a structure always lies in front of it - always a portal
             portal["open"] = portal.get("kind") == "gallery" or _portal_is_open(heights, origin_x, origin_y, square_size, portal)
     for plan in plans:
         _cover_tube(result, origin_x, origin_y, square_size, plan, cover, protected)

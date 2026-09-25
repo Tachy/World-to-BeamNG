@@ -1,7 +1,7 @@
 """
-Tile-Processing Logik.
+Tile processing logic.
 
-Extrahiert die Tile-Lade und Verarbeitungslogik aus multitile.py.
+Extracts the tile loading and processing logic from multitile.py.
 """
 
 from world_to_beamng.logging_config import LoggerConfig
@@ -17,12 +17,12 @@ logger = LoggerConfig.get_logger()
 
 class TileProcessor:
     """
-    Verarbeitet einzelne DGM-Tiles.
+    Processes individual DGM tiles.
 
-    Verantwortlich für:
-    - Laden von Höhendaten
+    Responsible for:
+    - Loading elevation data
     - Caching
-    - Koordinaten-Transformation
+    - Coordinate transformation
     """
 
     def __init__(self, cache_manager: CacheManager):
@@ -32,14 +32,14 @@ class TileProcessor:
         self, tile: Dict, tile_hash: Optional[str] = None
     ) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
         """
-        Lade Höhendaten einer DGM1-Kachel (mit Cache).
+        Load the elevation data of a DGM1 tile (with cache).
 
         Args:
-            tile: Tile-Metadaten Dict
-            tile_hash: Optional - Hash für Cache
+            tile: Tile metadata dict
+            tile_hash: Optional - hash for the cache
 
         Returns:
-            Tuple (height_points, height_elevations) oder (None, None)
+            Tuple (height_points, height_elevations) or (None, None)
         """
         filepath = tile.get("filepath")
         if not filepath or not Path(filepath).exists():
@@ -56,19 +56,19 @@ class TileProcessor:
 
     def load_height_data_multi(self, tiles: List[Dict]) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
         """
-        Lädt und kombiniert die Höhendaten mehrerer Kacheln zu einer
-        einzigen Punktwolke (vstack/hstack) - dieselbe Kombinationslogik wie
-        beim Laden mehrerer XYZ-Dateien innerhalb einer einzelnen Kachel-ZIP
-        (elevation_io.read_elevation_tile), nur eine Ebene höher für mehrere Dateien.
+        Loads and combines the elevation data of several tiles into a
+        single point cloud (vstack/hstack) - the same combination logic as
+        when loading several XYZ files within a single tile ZIP
+        (elevation_io.read_elevation_tile), just one level higher for multiple files.
 
-        Setzt voraus, dass die Kacheln einen lückenlosen, rechteckigen
-        Bereich bilden (Nutzer-Verantwortung, siehe utils.tile_scanner).
+        Assumes that the tiles form a gapless, rectangular
+        area (user responsibility, see utils.tile_scanner).
 
         Args:
-            tiles: Liste von Tile-Metadaten-Dicts (wie scan_elevation_tiles() sie liefert)
+            tiles: List of tile metadata dicts (as returned by scan_elevation_tiles())
 
         Returns:
-            Tuple (points, elevations) oder (None, None), falls eine Kachel fehlschlägt
+            Tuple (points, elevations) or (None, None) if a tile fails
         """
         all_points = []
         all_elevations = []
@@ -90,15 +90,15 @@ class TileProcessor:
         self, global_offset: Tuple[float, float], height_points: np.ndarray, height_elevations: np.ndarray
     ) -> Tuple[np.ndarray, np.ndarray]:
         """
-        Transformiere globale Koordinaten zu lokalen (relativ zu global_offset).
+        Transform global coordinates to local ones (relative to global_offset).
 
         Args:
-            global_offset: (origin_x, origin_y) globaler Offset
-            height_points: N×2 Array mit Punkten
-            height_elevations: N Array mit Höhen
+            global_offset: (origin_x, origin_y) global offset
+            height_points: N×2 array of points
+            height_elevations: N array of elevations
 
         Returns:
-            Tuple (lokale_points, elevations)
+            Tuple (local_points, elevations)
         """
         origin_x, origin_y = global_offset
 

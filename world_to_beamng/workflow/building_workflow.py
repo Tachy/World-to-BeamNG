@@ -1,7 +1,7 @@
 """
 Building (LoD2) Workflow.
 
-Orchestriert den LoD2-Gebäude-Export.
+Orchestrates the LoD2 building export.
 """
 
 import re
@@ -16,20 +16,20 @@ from ..managers import MaterialManager, ItemManager, DAEExporter
 
 logger = logging.getLogger(__name__)
 
-SINGLE_BUILDINGS_NAME = "buildings"  # DAE- und Item-Name, wenn alle Gebäude EIN Objekt sind
+SINGLE_BUILDINGS_NAME = "buildings"  # DAE and item name when all buildings are ONE object
 
 
 def group_buildings(buildings: List[Dict], tile_size: Optional[float]) -> Dict[Tuple[int, int], List[Dict]]:
     """
-    Gruppiert Gebäude für den DAE-Export.
+    Groups buildings for the DAE export.
 
     Args:
-        buildings: Gebäude-Dicts; "bounds" = (min_x, min_y, min_z, max_x, max_y, max_z)
-        tile_size: Kachelgröße in Metern. None/0 = KEINE Kacheln: alle Gebäude in einer Gruppe (0, 0), wie die
-            Straßen (DecalRoads) auf der Gesamtfläche liegen.
+        buildings: building dicts; "bounds" = (min_x, min_y, min_z, max_x, max_y, max_z)
+        tile_size: tile size in meters. None/0 = NO tiles: all buildings in one group (0, 0), just as the
+            roads (DecalRoads) lie on the whole area.
 
     Returns:
-        {(tile_x, tile_y): [Gebäude]}
+        {(tile_x, tile_y): [buildings]}
     """
     if not tile_size:
         return {(0, 0): list(buildings)} if buildings else {}
@@ -49,12 +49,12 @@ def plan_building_shapes(
     buildings: List[Dict], tile_size: Optional[float], max_per_shape: int
 ) -> List[Tuple[int, int, Optional[str], List[Dict]]]:
     """
-    Plant die DAE-Shapes: (tile_x, tile_y, name, Gebäude).
+    Plans the DAE shapes: (tile_x, tile_y, name, buildings).
 
-    BeamNG lädt höchstens 2048 Nodes je Shape und ignoriert den Rest ("Shape exceeds the maximum node count") -
-    jedes Gebäude ist ein Node. Ohne Kacheln wird die Gesamtfläche deshalb in räumlich zusammenhängende Teile mit
-    höchstens `max_per_shape` Gebäuden zerlegt: "buildings", "buildings_part_2", ... (Teil 1 behält den Namen des
-    Einzelobjekts). Mit Kacheln bleibt es bei buildings_tile_<x>_<y> (name = None).
+    BeamNG loads at most 2048 nodes per shape and ignores the rest ("Shape exceeds the maximum node count") -
+    each building is one node. Without tiles the whole area is therefore split into spatially contiguous parts with
+    at most `max_per_shape` buildings: "buildings", "buildings_part_2", ... (part 1 keeps the name of the
+    single object). With tiles it stays at buildings_tile_<x>_<y> (name = None).
     """
     if tile_size:
         return [(x, y, None, group) for (x, y), group in group_buildings(buildings, tile_size).items()]
@@ -63,7 +63,7 @@ def plan_building_shapes(
         return []
 
     def _cell(building: Dict) -> Tuple[int, float]:
-        # Gebäude ohne bounds ans Ende; sonst Streifen von 250 m (Süd->Nord), darin West->Ost
+        # Buildings without bounds go to the end; otherwise strips of 250 m (south->north), within them west->east
         bounds = building.get("bounds")
         if not bounds:
             return (1 << 30, 0.0)
@@ -79,11 +79,11 @@ def plan_building_shapes(
 
 def remove_stale_building_daes(directory, keep: Set[str]) -> int:
     """
-    Entfernt Gebäude-DAEs (und kompilierte .cdae) einer früheren Aufteilung: buildings_tile_*.dae, buildings.dae
-    bzw. buildings_part_*.dae, die nicht zu `keep` (Dateinamen ohne Endung) gehören.
+    Removes building DAEs (and compiled .cdae) of an earlier split: buildings_tile_*.dae, buildings.dae
+    or buildings_part_*.dae that do not belong to `keep` (file names without extension).
 
     Returns:
-        Anzahl entfernter Dateien
+        Number of removed files
     """
     removed = 0
     directory = Path(directory)
@@ -100,12 +100,12 @@ def remove_stale_building_daes(directory, keep: Set[str]) -> int:
 
 class BuildingWorkflow:
     """
-    Orchestriert den LoD2-Gebäude-Workflow.
+    Orchestrates the LoD2 building workflow.
 
-    Verantwortlich für:
-    - LoD2-Daten cachen
-    - Gebäude-Export
-    - Material/Item-Management
+    Responsible for:
+    - caching LoD2 data
+    - building export
+    - material/item management
     """
 
     def __init__(
@@ -127,30 +127,30 @@ class BuildingWorkflow:
         name: Optional[str] = None,
     ) -> Optional[str]:
         """
-        Exportiere Gebäude als DAE.
+        Export buildings as DAE.
 
         Args:
-            buildings: Liste von Gebäude-Dicts
-            tile_x, tile_y: Tile-Koordinaten
-            grid_bounds: Optional - (min_x, max_x, min_y, max_y) für Filterung
-            name: Optional - Dateiname ohne Endung (z.B. "buildings" für EIN Objekt auf der Gesamtfläche);
-                Standard: buildings_tile_<x>_<y>
+            buildings: list of building dicts
+            tile_x, tile_y: tile coordinates
+            grid_bounds: optional - (min_x, max_x, min_y, max_y) for filtering
+            name: optional - file name without extension (e.g. "buildings" for ONE object on the whole area);
+                default: buildings_tile_<x>_<y>
 
         Returns:
-            Pfad zur DAE-Datei oder None
+            Path to the DAE file or None
         """
         from ..builders import BuildingMeshBuilder
 
         if not buildings:
             return None
 
-        # Verwende Builder für Mesh-Generierung
+        # Use the builder for mesh generation
         meshes = BuildingMeshBuilder().with_buildings(buildings).with_bounds_filter(grid_bounds).build()
 
         if not meshes:
             return None
 
-        # Exportiere mit DAEExporter
+        # Export with DAEExporter
         output_path = config.BEAMNG_DIR_BUILDINGS / f"{name or f'buildings_tile_{tile_x}_{tile_y}'}.dae"
 
         self.dae.export_multi_mesh(output_path=output_path, meshes=meshes, with_uv=True)
@@ -161,12 +161,12 @@ class BuildingWorkflow:
 
     def add_items(self, buildings: List[Dict], tile_x: int, tile_y: int, name: Optional[str] = None):
         """
-        Füge Gebäude-Items hinzu.
+        Add building items.
 
         Args:
-            buildings: Liste von Gebäude-Dicts
-            tile_x, tile_y: Tile-Koordinaten
-            name: Optional - Item-/Dateiname (z.B. "buildings" für EIN Objekt auf der Gesamtfläche)
+            buildings: list of building dicts
+            tile_x, tile_y: tile coordinates
+            name: optional - item/file name (e.g. "buildings" for ONE object on the whole area)
         """
         from ..io.lod2 import create_items_json_entry
 
@@ -177,7 +177,7 @@ class BuildingWorkflow:
         dae_filename = f"buildings/{item_name}.dae"
         item_entry = create_items_json_entry(dae_filename, tile_x, tile_y, self.items, item_name=item_name)
 
-        # Nutze alle Felder aus item_entry
+        # Use all fields from item_entry
         self.items.add_item(
             name=item_name,
             item_class=item_entry.get("className", "TSStatic"),

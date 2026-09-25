@@ -1,13 +1,13 @@
 """
-Klassifizierung von Straßen-Ways als Brücke, Tunnel, Galerie oder normale Fahrbahn anhand ihrer OSM-Tags
-(siehe Design-Spec docs/superpowers/specs/2026-09-22-bridges-tunnels-design.md Abschnitt 1).
+Classification of road ways as bridge, tunnel, gallery or regular carriageway based on their OSM tags
+(see design spec docs/superpowers/specs/2026-09-22-bridges-tunnels-design.md section 1).
 """
 
 from typing import Dict, List, Tuple
 
 
 def _below_ground(osm_tags: Dict) -> bool:
-    """`layer` ist eine negative Ganzzahl (unlesbare Werte wie "-1;0" zählen nicht)."""
+    """`layer` is a negative integer (unparsable values like "-1;0" do not count)."""
     try:
         return int(str(osm_tags.get("layer", "0")).strip()) < 0
     except ValueError:
@@ -16,13 +16,13 @@ def _below_ground(osm_tags: Dict) -> bool:
 
 def classify_structure(osm_tags: Dict) -> str:
     """
-    "bridge" | "tunnel" | "gallery" | "surface", anhand von `bridge`/`tunnel`/`covered`/`layer`-Tags.
+    "bridge" | "tunnel" | "gallery" | "surface", based on the `bridge`/`tunnel`/`covered`/`layer` tags.
 
-    Reihenfolge: bridge=* (außer "no") -> "bridge"; tunnel=avalanche_protector -> "gallery"; covered=yes mit
-    negativem layer und ohne tunnel-Tag (oder tunnel=no) -> "gallery" (überdachte Straße unter Geländeniveau, z.B.
-    die Galerien der Nuova strada del San Gottardo, siehe
-    docs/superpowers/specs/2026-09-24-tunnel-gallery-transition-design.md - ein Vordach über einer Service-Straße
-    ohne negativen layer bleibt Oberfläche); jedes andere tunnel=* (außer "no") -> "tunnel"; sonst "surface".
+    Order: bridge=* (except "no") -> "bridge"; tunnel=avalanche_protector -> "gallery"; covered=yes with a
+    negative layer and without a tunnel tag (or tunnel=no) -> "gallery" (covered road below terrain level, e.g.
+    the galleries of the Nuova strada del San Gottardo, see
+    docs/superpowers/specs/2026-09-24-tunnel-gallery-transition-design.md - a canopy over a service road
+    without a negative layer stays surface); any other tunnel=* (except "no") -> "tunnel"; otherwise "surface".
     """
     osm_tags = osm_tags or {}
     bridge = str(osm_tags.get("bridge", "")).strip().lower()
@@ -41,8 +41,8 @@ def classify_structure(osm_tags: Dict) -> str:
 
 def split_by_structure_type(road_slope_polygons_2d: List[Dict]) -> Tuple[List[Dict], List[Dict]]:
     """
-    (surface_roads, structure_roads) - `structure_roads` sind Brücken/Tunnel/Galerien
-    (road["structure_type"] != "surface"; fehlt das Feld, gilt die Straße als "surface").
+    (surface_roads, structure_roads) - `structure_roads` are bridges/tunnels/galleries
+    (road["structure_type"] != "surface"; if the field is missing, the road counts as "surface").
     """
     surface, structures = [], []
     for road in road_slope_polygons_2d:

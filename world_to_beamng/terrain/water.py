@@ -1,19 +1,19 @@
 """
-Echtes Wasser für Bäche und Wasserflächen.
+Real water for streams and water bodies.
 
-In BeamNG sind Wasseroberfläche, Wellen, Unterwasser-Nebel und Auftrieb eigene Objekte - das Luftbild
-allein reicht nicht:
+In BeamNG the water surface, waves, underwater fog and buoyancy are separate objects - the aerial photo
+alone is not enough:
 
-- Bäche werden `River`-Splines: Knoten [x, y, z, Breite, Tiefe, nx, ny, nz] entlang der OSM-Linie.
-- Teiche/Seen werden `WaterBlock`-Quader (Oberfläche = Position.z, Tiefe nach unten). Ein Block ist
-  immer ein Rechteck, das Polygon deshalb mit kleinen Blöcken gekachelt, die es samt einem Rand überdecken.
-  Der Spiegel ist der Mittelwert der drei tiefsten Randpunkte; wo das Gelände höher liegt, ist das Wasser
-  verdeckt, wo es tiefer liegt (das ganze Loch), sichtbar. Bäche enden am Ufer (cut_line_by_area).
+- Streams become `River` splines: nodes [x, y, z, width, depth, nx, ny, nz] along the OSM line.
+- Ponds/lakes become `WaterBlock` boxes (surface = position.z, depth downward). A block is
+  always a rectangle, so the polygon is tiled with small blocks that cover it including a margin.
+  The water level is the mean of the three lowest edge points; where the terrain is higher, the water is
+  hidden, where it is lower (the whole hole), it is visible. Streams end at the bank (cut_line_by_area).
 
-Das DGM1 bleibt bis auf die Teichmulden unverändert (carve_pond_basins: innerhalb des OSM-Polygons 50 cm
-tiefer, Böschung 45 Grad nach innen); die Wasserhöhen werden aus dem Gelände abgeleitet. Bäche liegen
-knapp über dem Rinnenboden (Wasser nur in der Rinne sichtbar, wo das Gelände dahinter höher ist);
-das Wasser fällt flussabwärts nur und verschwindet unter Dämmen/Durchlässen im Gelände.
+The DGM1 stays unchanged except for the pond hollows (carve_pond_basins: inside the OSM polygon 50 cm
+lower, embankment 45 degrees inward); the water heights are derived from the terrain. Streams lie
+just above the channel floor (water only visible in the channel, where the terrain behind it is higher);
+the water only falls downstream and disappears under fills/culverts in the terrain.
 """
 
 import re
@@ -33,7 +33,7 @@ NORMAL_UP = [0.0, 0.0, 1.0]
 
 
 def _parse_width(value: Optional[str]) -> Optional[float]:
-    """OSM-`width` wie "4", "3.5 m" oder "2,5" -> Meter oder None."""
+    """OSM `width` like "4", "3.5 m" or "2,5" -> meters or None."""
     if not value:
         return None
     match = re.match(r"\s*(\d+(?:[.,]\d+)?)", str(value))
@@ -42,11 +42,11 @@ def _parse_width(value: Optional[str]) -> Optional[float]:
 
 def select_waterways(osm_data: Sequence[Dict], to_local: ToLocal, widths: Dict[str, float]) -> List[Dict]:
     """
-    Sichtbare Bäche/Flüsse aus OSM-Ways: nur Arten aus `widths` (Standardbreite je Art), keine
-    unterirdischen Abschnitte (Tunnel/Durchlass). Die Breite kommt aus dem `width`-Tag, sonst dem Standard.
+    Visible streams/rivers from OSM ways: only kinds from `widths` (default width per kind), no
+    underground sections (tunnel/culvert). The width comes from the `width` tag, otherwise the default.
 
     Returns:
-        [{"waterway", "width", "coords": [(x, y), ...]}] in lokalen Koordinaten, Richtung wie in OSM
+        [{"waterway", "width", "coords": [(x, y), ...]}] in local coordinates, direction as in OSM
     """
     result = []
     for element in osm_data:
@@ -64,7 +64,7 @@ def select_waterways(osm_data: Sequence[Dict], to_local: ToLocal, widths: Dict[s
 
 
 def clip_line_to_bounds(coords: Sequence[Tuple[float, float]], bounds: Bounds) -> List[List[Tuple[float, float]]]:
-    """Schneidet eine Linie auf das Terrain zu; verlässt sie es und kehrt zurück, entstehen mehrere Teile."""
+    """Clips a line to the terrain; if it leaves the terrain and returns, several parts result."""
     clipped = LineString(coords).intersection(box(*bounds))
     if clipped.is_empty:
         return []
@@ -76,8 +76,8 @@ def cut_line_by_area(
     coords: Sequence[Tuple[float, float]], area: Optional[BaseGeometry], min_length: float = 1.0
 ) -> List[List[Tuple[float, float]]]:
     """
-    Schneidet die Teile einer Linie weg, die in `area` (z.B. Teichfläche) liegen: ein Bach endet am Ufer.
-    Läuft er durch den Teich, entstehen zwei Stücke; Reststücke unter `min_length` Meter entfallen.
+    Cuts away the parts of a line that lie in `area` (e.g. pond area): a stream ends at the bank.
+    If it runs through the pond, two pieces result; leftover pieces shorter than `min_length` meters are dropped.
     """
     line = LineString(coords)
     if area is None or area.is_empty:
@@ -105,12 +105,12 @@ def _perpendicular(points: np.ndarray) -> np.ndarray:
 
 def _snap_to_channel(points: np.ndarray, height_at: HeightAt, search: float) -> Tuple[np.ndarray, np.ndarray]:
     """
-    Zieht die Linie seitlich (±search) auf den tiefsten Punkt quer zum Lauf - die Rinne im DGM1. Die OSM-Linie
-    liegt oft 1-2 m daneben; dort läge die Wasserfläche verdeckt unter dem Ufer. Die Versätze werden
-    geglättet (gleitender Median, dann Mittel), damit der Bach nicht von Rand zu Rand springt.
+    Pulls the line sideways (±search) onto the lowest point across the flow direction - the channel in the DGM1.
+    The OSM line is often 1-2 m off; there the water surface would lie hidden under the bank. The offsets are
+    smoothed (moving median, then mean) so the stream does not jump from edge to edge.
 
     Returns:
-        (verschobene Punkte, Rinnenboden-Höhe an diesen Punkten)
+        (shifted points, channel floor height at these points)
     """
     perp = _perpendicular(points)
     offsets = np.linspace(-search, search, 9)
@@ -124,7 +124,7 @@ def _snap_to_channel(points: np.ndarray, height_at: HeightAt, search: float) -> 
 
     best = smooth(smooth(best, 5, np.median), 3, np.mean)
     snapped = points + perp * best[:, None]
-    # Boden an der verschobenen Stelle: Minimum über eine kleine Umgebung quer (fängt Rest-Versatz ab)
+    # Floor at the shifted position: minimum over a small neighborhood across (catches residual offset)
     fine = np.linspace(-0.75, 0.75, 4)
     bottom = np.stack([np.asarray(height_at(*(snapped + perp * o).T), dtype=float) for o in fine]).min(axis=0)
     return snapped, bottom
@@ -140,12 +140,12 @@ def build_river_nodes(
     search: float = 2.0,
 ) -> List[List[float]]:
     """
-    River-Knoten [x, y, z, Breite, Tiefe, 0, 0, 1] flussabwärts.
+    River nodes [x, y, z, width, depth, 0, 0, 1] downstream.
 
-    Die Knoten werden seitlich auf die Rinne im DGM1 gezogen (siehe _snap_to_channel). Wasserhöhe =
-    Rinnenboden + `lift`, danach als laufendes Minimum flussabwärts: das Wasser fällt nur.
-    Steigt das Gelände (Damm, Straße, Durchlass), bleibt der Wasserspiegel darunter und ist dort unsichtbar.
-    Liegt das Ende höher als der Anfang, wird die Linie umgedreht (OSM-Richtung war dann nicht das Gefälle).
+    The nodes are pulled sideways onto the channel in the DGM1 (see _snap_to_channel). Water height =
+    channel floor + `lift`, then as a running minimum downstream: the water only falls.
+    If the terrain rises (fill, road, culvert), the water level stays below it and is invisible there.
+    If the end lies higher than the start, the line is reversed (the OSM direction was then not the gradient).
     """
     points = _resample(coords, spacing)
     points, bottom = _snap_to_channel(points, height_at, search)
@@ -156,7 +156,7 @@ def build_river_nodes(
 
 
 def split_nodes(nodes: List[List[float]], max_nodes: int) -> List[List[List[float]]]:
-    """Teilt lange Knotenlisten in Stücke <= max_nodes; aufeinanderfolgende Stücke teilen einen Knoten (lückenlos)."""
+    """Splits long node lists into pieces <= max_nodes; consecutive pieces share one node (gap-free)."""
     if len(nodes) <= max_nodes:
         return [nodes]
     chunks, start = [], 0
@@ -172,8 +172,8 @@ IDENTITY_ROTATION = [1, 0, 0, 0, 1, 0, 0, 0, 1]
 
 def is_pond_area(tags: Dict[str, str]) -> bool:
     """
-    Wasserfläche nach OSM-Tags: natürliches Wasser, Becken oder Stausee. Trockene Hochwasser-Rückhaltebecken
-    (`basin=detention`) sind nie Wasser, sondern Wiese (siehe landuse_mappings["meadow"]).
+    Water area by OSM tags: natural water, basin or reservoir. Dry flood retention basins
+    (`basin=detention`) are never water, but meadow (see landuse_mappings["meadow"]).
     """
     if tags.get("basin") == "detention":
         return False
@@ -181,7 +181,7 @@ def is_pond_area(tags: Dict[str, str]) -> bool:
 
 
 def select_pond_areas(landuse_polygons: Sequence[Dict], bounds: Bounds) -> List[BaseGeometry]:
-    """Wasserflächen (siehe is_pond_area) als Geometrien, auf das Terrain (`bounds` = xmin, ymin, xmax, ymax) zugeschnitten."""
+    """Water areas (see is_pond_area) as geometries, clipped to the terrain (`bounds` = xmin, ymin, xmax, ymax)."""
     terrain_box = box(*bounds)
     areas = []
     for polygon in landuse_polygons:
@@ -203,13 +203,13 @@ def carve_pond_basins(
     slope_deg: float = 45.0,
 ) -> np.ndarray:
     """
-    Legt das Terrain innerhalb der Wasserflächen tiefer: alle Rasterpunkte im Polygon um `depth` Meter, mit einer
-    Böschung von `slope_deg` Grad nach innen (Absenkung = Abstand zum Rand * tan(Winkel), höchstens `depth`; bei
-    45 Grad also 1 m Absenkung je Meter nach innen, volle Tiefe nach 0,5 m). Außerhalb und auf dem Rand ändert sich
-    nichts. Überlappen sich Flächen, gilt je Punkt die größere Absenkung.
+    Lowers the terrain inside the water areas: all raster points in the polygon by `depth` meters, with an
+    embankment of `slope_deg` degrees inward (lowering = distance to the edge * tan(angle), at most `depth`; at
+    45 degrees that is 1 m lowering per meter inward, full depth after 0.5 m). Outside and on the edge nothing
+    changes. If areas overlap, the larger lowering applies per point.
 
-    heights[i, j] gehört zur Weltposition (origin_x + j * square_size, origin_y + i * square_size).
-    Gibt eine neue Heightmap zurück, `heights` bleibt unverändert.
+    heights[i, j] belongs to the world position (origin_x + j * square_size, origin_y + i * square_size).
+    Returns a new heightmap, `heights` remains unchanged.
     """
     from shapely import contains_xy, distance, points
 
@@ -237,7 +237,7 @@ def carve_pond_basins(
 
 
 def pond_level(polygon: BaseGeometry, height_at: HeightAt, count: int = 3, rim_step: float = 1.0) -> float:
-    """Wasserspiegel: Mittelwert der `count` tiefsten Höhenpunkte auf dem Polygonrand (Punkte alle `rim_step` m)."""
+    """Water level: mean of the `count` lowest elevation points on the polygon edge (points every `rim_step` m)."""
     ring = polygon.exterior
     samples = max(count, int(np.ceil(ring.length / rim_step)))
     points = np.array([ring.interpolate(d).coords[0] for d in np.linspace(0.0, ring.length, samples, endpoint=False)])
@@ -246,7 +246,7 @@ def pond_level(polygon: BaseGeometry, height_at: HeightAt, count: int = 3, rim_s
 
 
 def _cells_covering(shape: BaseGeometry, cell: float) -> List[Tuple[float, float, float, float]]:
-    """Rasterzellen der Kantenlänge `cell`, die `shape` berühren, zu Zeilen-Rechtecken verschmolzen."""
+    """Raster cells of edge length `cell` that touch `shape`, merged into row rectangles."""
     prepared = prep(shape)
     min_x, min_y, max_x, max_y = shape.bounds
     rectangles = []
@@ -276,13 +276,13 @@ def build_pond_blocks(
     margin: float = 2.0,
 ) -> List[Dict]:
     """
-    `WaterBlock`-Quader (position = Mitte, Oberfläche auf position.z; scale = Breite, Länge, Tiefe), die das
-    Polygon samt `margin` Meter Rand lückenlos überdecken.
+    `WaterBlock` boxes (position = center, surface at position.z; scale = width, length, depth) that
+    cover the polygon plus `margin` meters of border without gaps.
 
-    Der Spiegel gilt für das ganze Gewässer: Mittelwert der drei tiefsten Randpunkte (siehe pond_level). Die
-    Blöcke reichen über den Rand hinaus, damit das Wasser das ganze Loch füllt, wo das Gelände unter dem
-    Spiegel liegt; wo es höher liegt, ist es verdeckt. Die Zellgröße passt sich der Teichgröße an (mindestens
-    1 m), damit auch kleine Teiche sauber gefüllt werden.
+    The water level applies to the whole water body: mean of the three lowest edge points (see pond_level). The
+    blocks extend beyond the edge so that the water fills the whole hole where the terrain lies below the
+    water level; where it is higher, the water is hidden. The cell size adapts to the pond size (at least
+    1 m), so that even small ponds are filled cleanly.
     """
     if polygon is None or polygon.is_empty:
         return []

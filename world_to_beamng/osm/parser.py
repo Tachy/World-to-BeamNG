@@ -1,5 +1,5 @@
 """
-OSM Daten Parser und Datenextraktion.
+OSM data parser and data extraction.
 """
 
 
@@ -9,26 +9,26 @@ logger = LoggerConfig.get_logger()
 
 
 def calculate_bbox_from_height_data(points, margin=0.0):
-    """Berechnet die BBOX (WGS84) aus UTM-Hoehendaten.
+    """Computes the BBOX (WGS84) from UTM elevation data.
 
     Args:
-        points: UTM-Koordinaten (N x 2)
-        margin: Erweiterung in Metern (in UTM)
+        points: UTM coordinates (N x 2)
+        margin: Expansion in meters (in UTM)
 
     Returns:
-        BBox im Format [lat_min, lon_min, lat_max, lon_max]
+        BBox in the format [lat_min, lon_min, lat_max, lon_max]
     """
-    # Finde Min/Max in UTM
+    # Find min/max in UTM
     min_x, min_y = points.min(axis=0)
     max_x, max_y = points.max(axis=0)
 
-    # Erweitere um Margin (in UTM, also in Metern)
+    # Expand by margin (in UTM, i.e. in meters)
     min_x -= margin
     min_y -= margin
     max_x += margin
     max_y += margin
 
-    # Konvertiere zu WGS84
+    # Convert to WGS84
     min_lon, min_lat = transformer_to_wgs84.transform(min_x, min_y)
     max_lon, max_lat = transformer_to_wgs84.transform(max_x, max_y)
 
@@ -38,13 +38,13 @@ def calculate_bbox_from_height_data(points, margin=0.0):
     return bbox
 
 
-# Lebenszyklus-Werte von highway=*: Straßen, die (noch/nicht mehr) nicht befahrbar existieren - z.B. die im Bau
-# befindliche 2. Gotthardröhre (highway=construction + tunnel=yes), die sonst als fertiger Tunnel gebaut würde.
+# Lifecycle values of highway=*: roads that do not (yet/anymore) exist as drivable - e.g. the 2nd Gotthard tube
+# under construction (highway=construction + tunnel=yes), which would otherwise be built as a finished tunnel.
 NON_EXISTING_HIGHWAY_VALUES = {"construction", "proposed", "planned", "abandoned", "disused", "razed", "demolished"}
 
 
 def extract_roads_from_osm(osm_elements):
-    """Extrahiert nur Strassen-Ways aus allen OSM-Daten."""
+    """Extracts only road ways from all OSM data."""
     roads = [
         element
         for element in osm_elements
@@ -52,7 +52,7 @@ def extract_roads_from_osm(osm_elements):
         and "tags" in element
         and "highway" in element["tags"]
         and element["tags"]["highway"] not in NON_EXISTING_HIGHWAY_VALUES
-        and element["tags"].get("area") != "yes"  # Filtere Flächen-Features (area=yes)
+        and element["tags"].get("area") != "yes"  # Filter out area features (area=yes)
     ]
     logger.info(f"  [->] {len(roads)} road segments extracted from {len(osm_elements)} OSM elements")
     return roads

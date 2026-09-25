@@ -1,20 +1,20 @@
 """
-Setzt das Terrain-Heightmap-Array entlang von Straßen exakt auf die
-Straßen-Centerline-Höhe.
+Sets the terrain heightmap array exactly to the road centerline
+height along roads.
 
-Seit der Umstellung auf BeamNG `DecalRoad` - Straßen werden nicht mehr als eigenes Mesh
-exportiert, sondern als Decal zur Laufzeit direkt auf die Terrain-Oberfläche
-projiziert - gibt es keine zweite, separat kodierte Straßen-Oberfläche mehr,
-die "getroffen" werden müsste - das Terrain IST die sichtbare Straße. Daher
-kein Sicherheitsabstand/Gefälle-Kompensation mehr nötig (im Gegensatz zur
-früheren Mesh-Einbettung): die Ziel-Höhe pro Rasterzelle ist exakt die
-Centerline-Höhe an der nächstgelegenen Position.
+Since the switch to BeamNG `DecalRoad` - roads are no longer exported as their own mesh,
+but projected as a decal directly onto the terrain surface at runtime -
+there is no second, separately encoded road surface anymore
+that would have to be "hit" - the terrain IS the visible road. Therefore
+no safety margin/gradient compensation is needed anymore (unlike the
+earlier mesh embedding): the target height per raster cell is exactly the
+centerline height at the nearest position.
 
-Kern-Idee: für jede Straße wird pro Rasterzelle im (bereits vorhandenen)
-2D-Straßenpolygon geprüft, ob sie darin liegt (Punkt-in-Polygon), und falls
-ja die Höhe per Projektion der Zellmitte auf die nächstgelegene Position
-entlang der Centerline bestimmt (lineare Interpolation zwischen den beiden
-nächsten Centerline-Punkten) und direkt gesetzt.
+Core idea: for each road, every raster cell is checked against the (already existing)
+2D road polygon to see whether it lies inside (point-in-polygon), and if so
+the height is determined by projecting the cell center onto the nearest position
+along the centerline (linear interpolation between the two nearest centerline
+points) and set directly.
 """
 
 import math
@@ -37,26 +37,26 @@ def embed_roads_into_heightmap(
     clamp_to_max: bool = False,
 ) -> np.ndarray:
     """
-    Setzt heights dort exakt auf Straßen-Centerline-Höhe, wo eine Straße
-    liegt. Verändert heights NICHT in-place, gibt eine neue Kopie zurück.
+    Sets heights exactly to the road centerline height wherever a road
+    lies. Does NOT modify heights in place, returns a new copy.
 
     Args:
-        heights: (size, size) float Array
-        origin_x, origin_y: Welt-Koordinaten der Zelle [*, 0] bzw. [0, *]
-        square_size: Meter pro Rasterzelle
-        road_slope_polygons_2d: Liste von Dicts mit "road_polygon" ((M,2)
-            2D-Straßenumriss, bereits um halbe Straßenbreite gebuffert) und
-            "trimmed_centerline" ((N,3) x,y,z-Punkte) - dieselbe Struktur wie
-            für build_road_embankment_profiles()
-        clamp_to_max: False (Standard) setzt die Höhe unbedingt auf Centerline-Niveau (normale Straßen/
-            Galerien). True senkt nur Zellen ab, die HÖHER als die Centerline-Höhe liegen (np.minimum),
-            lässt niedrigere Zellen unverändert - für Brücken-Auflager: das Gelände quer zur Fahrbahn ist
-            dort nicht zwingend flach und könnte sonst stellenweise durchs (flache) Deck ragen, aber der
-            Talboden, den die Brücke überspannt, muss unverändert sichtbar bleiben (siehe
+        heights: (size, size) float array
+        origin_x, origin_y: world coordinates of cell [*, 0] and [0, *] respectively
+        square_size: meters per raster cell
+        road_slope_polygons_2d: list of dicts with "road_polygon" ((M,2)
+            2D road outline, already buffered by half the road width) and
+            "trimmed_centerline" ((N,3) x,y,z points) - the same structure as
+            for build_road_embankment_profiles()
+        clamp_to_max: False (default) unconditionally sets the height to centerline level (normal roads/
+            galleries). True only lowers cells that lie HIGHER than the centerline height (np.minimum),
+            leaves lower cells unchanged - for bridge abutments: the terrain across the carriageway is
+            not necessarily flat there and could otherwise poke through the (flat) deck in places, but the
+            valley floor that the bridge spans must stay visible unchanged (see
             TerrainWorkflow.process_tile()).
 
     Returns:
-        Neues (size, size) float Array
+        New (size, size) float array
     """
     result = heights.copy()
     size_y, size_x = heights.shape
@@ -68,7 +68,7 @@ def embed_roads_into_heightmap(
 
 
 def _points_in_polygon_2d(qx: np.ndarray, qy: np.ndarray, polygon: np.ndarray) -> np.ndarray:
-    """Vektorisierter Punkt-in-Polygon-Test (Ray-Casting/Crossing-Number)."""
+    """Vectorized point-in-polygon test (ray casting/crossing number)."""
     polygon = np.asarray(polygon, dtype=np.float64)
     px = polygon[:, 0]
     py = polygon[:, 1]
@@ -88,9 +88,9 @@ def _points_in_polygon_2d(qx: np.ndarray, qy: np.ndarray, polygon: np.ndarray) -
 
 def _cells_in_polygon(qx: np.ndarray, qy: np.ndarray, polygon: np.ndarray) -> np.ndarray:
     """
-    Punkt-in-Polygon für ein Zellraster. Schnell über Shapely (C, vorbereitetes Polygon);
-    nur bei ungültigen Polygonen (z.B. selbstüberschneidender Centerline-Fallback) greift
-    der Ray-Casting-Test, dessen Even-Odd-Regel dort das bisherige Verhalten liefert.
+    Point-in-polygon for a cell grid. Fast via Shapely (C, prepared polygon);
+    only for invalid polygons (e.g. self-intersecting centerline fallback) does
+    the ray-casting test apply, whose even-odd rule yields the previous behavior there.
     """
     shape = Polygon(polygon)
     if not shape.is_valid:
@@ -98,22 +98,22 @@ def _cells_in_polygon(qx: np.ndarray, qy: np.ndarray, polygon: np.ndarray) -> np
     return intersects_xy(shape, qx, qy)
 
 
-PROJECT_CHUNK = 96  # Zellen je Block in _project_onto_polyline
+PROJECT_CHUNK = 96  # cells per block in _project_onto_polyline
 
 
 def _project_onto_polyline(
     qx: np.ndarray, qy: np.ndarray, poly_x: np.ndarray, poly_y: np.ndarray, poly_z: np.ndarray
 ) -> np.ndarray:
     """
-    Projiziert Query-Punkte (qx, qy, beliebige gleiche Shape) auf die
-    nächstgelegene Position entlang der durch (poly_x, poly_y, poly_z)
-    definierten Polylinie und gibt die dort linear interpolierte Z-Höhe
-    zurück (gleiche Shape wie qx/qy).
+    Projects query points (qx, qy, any identical shape) onto the
+    nearest position along the polyline defined by (poly_x, poly_y, poly_z)
+    and returns the linearly interpolated Z height there
+    (same shape as qx/qy).
 
-    Ergebnisgleich zur einfachen Schleife über alle Segmente (bei Gleichstand gewinnt das erste Segment), aber
-    nur mit den Segmenten, die für einen Block räumlich benachbarter Zellen überhaupt in Frage kommen: der
-    nächste Segment-Endpunkt liegt auf der Polylinie und begrenzt damit die Entfernung zum nächsten Segment von
-    oben; Segmente, deren Bounding Box weiter als diese Schranke vom Block entfernt ist, können nicht gewinnen.
+    Gives the same result as the simple loop over all segments (on a tie the first segment wins), but
+    only with the segments that are at all candidates for a block of spatially adjacent cells: the
+    nearest segment endpoint lies on the polyline and thereby bounds the distance to the nearest segment
+    from above; segments whose bounding box is farther than this bound from the block cannot win.
     """
     shape = np.shape(qx)
     points = np.column_stack([np.ravel(qx), np.ravel(qy)]).astype(np.float64)
@@ -126,7 +126,7 @@ def _project_onto_polyline(
     bx, by, bz = poly_x[1:], poly_y[1:], poly_z[1:]
     dx, dy = bx - ax, by - ay
     seg_len_sq = dx * dx + dy * dy
-    valid = np.flatnonzero(~(seg_len_sq < 1e-9))  # Nulllängen-Segmente entfallen
+    valid = np.flatnonzero(~(seg_len_sq < 1e-9))  # zero-length segments are dropped
     if len(valid) == 0:
         return best_z.reshape(shape)
     ax, ay, az, bx, by, bz, dx, dy, seg_len_sq = (a[valid] for a in (ax, ay, az, bx, by, bz, dx, dy, seg_len_sq))
@@ -137,7 +137,7 @@ def _project_onto_polyline(
 
     endpoints = np.concatenate([np.column_stack([ax, ay]), np.column_stack([bx, by])])
     endpoint_dist, nearest_endpoint = cKDTree(endpoints).query(points)
-    # Nach Lage entlang der Linie sortieren: aufeinanderfolgende Zellen bilden kompakte Blöcke
+    # Sort by position along the line: consecutive cells form compact blocks
     order = np.argsort(nearest_endpoint % segments, kind="stable")
 
     for start in range(0, count, PROJECT_CHUNK):
@@ -154,7 +154,7 @@ def _project_onto_polyline(
         col_x, col_y = cx[:, None], cy[:, None]
         t = np.clip(((col_x - cax) * cdx + (col_y - cay) * cdy) / clen, 0.0, 1.0)
         dist = np.hypot(col_x - (cax + t * cdx), col_y - (cay + t * cdy))
-        nearest = np.argmin(dist, axis=1)  # erstes Minimum wie die Schleife mit "dist < best"
+        nearest = np.argmin(dist, axis=1)  # first minimum, like the loop with "dist < best"
         t_best = t[np.arange(len(cells)), nearest]
         seg = candidates[nearest]
         best_z[cells] = az[seg] + t_best * (bz[seg] - az[seg])
@@ -172,8 +172,8 @@ def _embed_road(
     size_y: int,
     clamp_to_max: bool = False,
 ) -> None:
-    """Setzt alle Rasterzellen innerhalb des Straßenpolygons auf Centerline-Höhe (oder kappt sie nur nach
-    oben, siehe embed_roads_into_heightmap()'s clamp_to_max)."""
+    """Sets all raster cells inside the road polygon to centerline height (or only caps them from
+    above, see embed_roads_into_heightmap()'s clamp_to_max)."""
     polygon = np.asarray(road["road_polygon"], dtype=np.float64)
     centerline = np.asarray(road["trimmed_centerline"], dtype=np.float64)
     if len(polygon) < 3 or len(centerline) < 2:
@@ -200,8 +200,8 @@ def _embed_road(
     if not np.any(inside):
         return
 
-    # Nur die Zellen im Polygon projizieren: bei langen, diagonalen Straßen ist die
-    # Bounding-Box riesig, der eigentliche Streifen aber schmal (Faktor 100+ weniger Zellen).
+    # Only project the cells inside the polygon: for long, diagonal roads the
+    # bounding box is huge, but the actual strip is narrow (factor 100+ fewer cells).
     target_z = _project_onto_polyline(
         grid_x[inside], grid_y[inside], centerline[:, 0], centerline[:, 1], centerline[:, 2]
     )
@@ -218,17 +218,17 @@ def sample_heightmap_bilinear(
     points_xy: np.ndarray,
 ) -> np.ndarray:
     """
-    Liest die Heightmap an beliebigen (nicht Grid-ausgerichteten) XY-Punkten
-    per bilinearer Interpolation - für Straßenkanten-Punkte, die nicht exakt
-    auf einer Rasterzelle liegen.
+    Reads the heightmap at arbitrary (not grid-aligned) XY points
+    via bilinear interpolation - for road edge points that do not lie exactly
+    on a raster cell.
 
     Args:
-        heights: (size, size) float Array
-        origin_x, origin_y, square_size: wie in heightmap.build_heightmap()
-        points_xy: (N, 2) Array von Weltkoordinaten (x, y)
+        heights: (size, size) float array
+        origin_x, origin_y, square_size: as in heightmap.build_heightmap()
+        points_xy: (N, 2) array of world coordinates (x, y)
 
     Returns:
-        (N,) Array interpolierter Höhenwerte
+        (N,) array of interpolated height values
     """
     size_y, size_x = heights.shape
     col_f = (points_xy[:, 0] - origin_x) / square_size
@@ -271,69 +271,70 @@ def build_road_embankment_profiles(
     max_slope_width: float = config.MAX_SLOPE_WIDTH,
 ) -> list:
     """
-    Baut pro Straße die Kanten-/Böschungs-Profildaten für apply_embankment_blend().
+    Builds the per-road edge/embankment profile data for apply_embankment_blend().
 
-    Für jede Straße wird entlang der Centerline (bereits dicht abgetastet,
-    ca. 1m Punktabstand) links und rechts der Kantenpunkt bei halber
-    Straßenbreite berechnet, die natürliche Terrainhöhe dort aus dem noch
-    unveränderten Heightmap abgetastet, und daraus eine Böschungsbreite über
-    config.SLOPE_ANGLE abgeleitet (Breite = Höhendifferenz / tan(Winkel),
-    mindestens min_slope_width, gedeckelt bei max_slope_width).
+    For each road, along the centerline (already densely sampled,
+    approx. 1 m point spacing), the edge point at half the road width is computed
+    on the left and right, the natural terrain height there is sampled from the still
+    unmodified heightmap, and an embankment width is derived from it via
+    config.SLOPE_ANGLE (width = height difference / tan(angle),
+    at least min_slope_width, capped at max_slope_width).
 
     Args:
-        road_slope_polygons_2d: Liste von Dicts mit "trimmed_centerline"
-            ((N,3) Koordinaten x,y,z) und "osm_tags" (Dict) - dieselbe
-            Struktur, die TerrainWorkflow.process_tile() bereits für
-            Material-Mapping verwendet
-        heights: (size, size) float Array MIT der noch unveränderten,
-            natürlichen Terrainhöhe (vor embed_roads_into_heightmap und vor
-            apply_embankment_blend aufrufen)
-        origin_x, origin_y, square_size: wie in heightmap.build_heightmap()
-        osm_mapper: OSMMapper-Instanz (für get_road_properties()["width"])
+        road_slope_polygons_2d: list of dicts with "trimmed_centerline"
+            ((N,3) coordinates x,y,z) and "osm_tags" (dict) - the same
+            structure that TerrainWorkflow.process_tile() already uses for
+            material mapping
+        heights: (size, size) float array WITH the still unmodified,
+            natural terrain height (call before embed_roads_into_heightmap and before
+            apply_embankment_blend)
+        origin_x, origin_y, square_size: as in heightmap.build_heightmap()
+        osm_mapper: OSMMapper instance (for get_road_properties()["width"])
         slope_angle_deg: config.SLOPE_ANGLE
         min_slope_width: config.MIN_SLOPE_WIDTH
-        max_slope_width: Obergrenze der Böschungsbreite (Meter)
+        max_slope_width: upper limit of the embankment width (meters)
 
-    Optionales Feld je Straßen-Dict: "slope_width_override" (Dict, Schlüssel "left"/"right", Wert = feste
-    Böschungsbreite in Metern, als Zahl oder je Centerline-Punkt als Array) - ersetzt die berechnete Böschungsbreite auf der jeweiligen Seite durch
-    einen festen Wert statt sie aus der Höhendifferenz zum natürlichen Gelände abzuleiten (0.0 = gar keine
-    Böschung, das Gelände bleibt dort auf natürlicher Höhe stehen). Bei einem Wert > 0 gibt es zwei Modi
-    für diese Seite, gesteuert über das optionale Feld "flat_shoulder_sides" (Set/Liste mit "left"/"right",
-    STANDARD-Konvention wie unten):
-    - NICHT in flat_shoulder_sides (Standard): natural_z wird NICHT an der Fahrbahnkante abgetastet,
-      sondern am FERNEN Ende des überschriebenen Korridors (Kante + Override-Breite) - echte Abwärts-/
-      Aufwärts-Interpolation zum Gelände dort. Siehe Galerie-Talseite unten für den Grund.
-    - IN flat_shoulder_sides: natural_z wird auf die Kantenhöhe selbst gesetzt - der ganze Korridor bleibt
-      FLACH auf Fahrbahnhöhe (keine Interpolation zum Gelände). Siehe Galerie-Bergseite unten.
+    Optional field per road dict: "slope_width_override" (dict, keys "left"/"right", value = fixed
+    embankment width in meters, as a number or as an array per centerline point) - replaces the computed
+    embankment width on the respective side with a fixed value instead of deriving it from the height
+    difference to the natural terrain (0.0 = no embankment at all, the terrain stays at natural height
+    there). For a value > 0 there are two modes for this side, controlled via the optional field
+    "flat_shoulder_sides" (set/list with "left"/"right", STANDARD convention as below):
+    - NOT in flat_shoulder_sides (default): natural_z is NOT sampled at the carriageway edge,
+      but at the FAR end of the overridden corridor (edge + override width) - real downward/
+      upward interpolation to the terrain there. See gallery valley side below for the reason.
+    - IN flat_shoulder_sides: natural_z is set to the edge height itself - the whole corridor stays
+      FLAT at carriageway height (no interpolation to the terrain). See gallery mountain side below.
 
-    "left"/"right" folgen dabei der STANDARD-Konvention (wie offset_points()/resolve_open_side(): links =
-    Centerline-Richtung um +90° gedreht) - NICHT der (rein internen, siehe Hinweis unten)
-    links/rechts-Zuordnung dieser Funktion; die Übersetzung passiert intern.
+    "left"/"right" follow the STANDARD convention (as in offset_points()/resolve_open_side(): left =
+    centerline direction rotated by +90°) - NOT the (purely internal, see note below)
+    left/right assignment of this function; the translation happens internally.
 
-    Für Galerien:
-    - Bergseite (flat_shoulder_sides): config.GALLERY_MOUNTAIN_EMBED_MARGIN als schmaler FLACHER Saum auf
-      Fahrbahnhöhe direkt an der Innenkante der (massiven, siehe config.GALLERY_WALL_THICKNESS) Wand - für
-      einen sauberen Wand-Boden-Übergang, keinen künstlichen Böschungswinkel. Jenseits davon bleibt das
-      Gelände unverändert (die Wand reicht ohnehin bis in den Hang).
-    - Talseite (NICHT in flat_shoulder_sides): config.GALLERY_VALLEY_SLOPE_WIDTH als kurzer FESTER Wert
-      (statt der berechneten Breite) - das DGM zeigt an einer Galerie nicht das ursprüngliche Gelände,
-      sondern die reale Talseiten-Struktur (Brüstung/Dachüberstand) - direkt an der Fahrbahnkante zeigt es
-      daher NICHT den Übergang ins Tal, sondern die Bauwerksoberfläche selbst (Höhensprung von mehreren
-      Metern typischerweise schon 2 m hinter der Kante, empirisch an echten Galerien im DGM gemessen).
-      Würde natural_z weiterhin an der Kante abgetastet, "glättete" die Böschung auf diesen erhöhten, kaum
-      unter Straßenniveau liegenden Wert - sichtbar als stehenbleibende Geländespitze statt eines Gefälles
-      talwärts. Deshalb wird natural_z hier am fernen Ende des Korridors (Kante + GALLERY_VALLEY_SLOPE_WIDTH)
-      abgetastet, wo das DGM wieder echtes Gelände zeigt. Siehe tunnels/gallery_mesh.py::resolve_open_side().
+    For galleries:
+    - Mountain side (flat_shoulder_sides): config.GALLERY_MOUNTAIN_EMBED_MARGIN as a narrow FLAT border at
+      carriageway height directly at the inner edge of the (massive, see config.GALLERY_WALL_THICKNESS) wall - for
+      a clean wall-to-ground transition, not an artificial embankment angle. Beyond that, the
+      terrain stays unchanged (the wall reaches into the hillside anyway).
+    - Valley side (NOT in flat_shoulder_sides): config.GALLERY_VALLEY_SLOPE_WIDTH as a short FIXED value
+      (instead of the computed width) - at a gallery the DGM does not show the original terrain,
+      but the real valley-side structure (parapet/roof overhang) - directly at the carriageway edge it
+      therefore does NOT show the transition into the valley, but the structure surface itself (height jump
+      of several meters typically already 2 m behind the edge, measured empirically at real galleries in the DGM).
+      If natural_z were still sampled at the edge, the embankment would "smooth" to this raised value that lies
+      barely below road level - visible as a remaining terrain spike instead of a downhill
+      gradient toward the valley. Therefore natural_z is sampled here at the far end of the corridor
+      (edge + GALLERY_VALLEY_SLOPE_WIDTH), where the DGM shows real terrain again.
+      See tunnels/gallery_mesh.py::resolve_open_side().
 
     Returns:
-        Liste von Dicts, je Straße:
+        List of dicts, one per road:
             {
-                "left_edge_xyz": (N,3) float Array (x, y, road_z),
-                "right_edge_xyz": (N,3) float Array (x, y, road_z),
-                "left_slope_width": (N,) float Array,
-                "right_slope_width": (N,) float Array,
-                "left_natural_z": (N,) float Array,
-                "right_natural_z": (N,) float Array,
+                "left_edge_xyz": (N,3) float array (x, y, road_z),
+                "right_edge_xyz": (N,3) float array (x, y, road_z),
+                "left_slope_width": (N,) float array,
+                "right_slope_width": (N,) float array,
+                "left_natural_z": (N,) float array,
+                "right_natural_z": (N,) float array,
             }
     """
     tan_angle = math.tan(math.radians(slope_angle_deg))
@@ -365,10 +366,10 @@ def build_road_embankment_profiles(
 
         perp = np.column_stack([-point_dirs[:, 1], point_dirs[:, 0]])
 
-        # Hinweis: "links"/"rechts" ist hier eine reine Namenskonvention ohne
-        # geometrische Bedeutung (perp zeigt in Fahrtrichtung nach links,
-        # aber die Zuordnung + / - ist willkürlich) - apply_embankment_blend
-        # behandelt beide Seiten symmetrisch, daher ist die Wahl unkritisch.
+        # NOTE: "left"/"right" is a pure naming convention here without
+        # geometric meaning (perp points to the left in driving direction,
+        # but the assignment + / - is arbitrary) - apply_embankment_blend
+        # treats both sides symmetrically, so the choice is uncritical.
         left_xy = xy - perp * half_width
         right_xy = xy + perp * half_width
 
@@ -381,22 +382,22 @@ def build_road_embankment_profiles(
         left_slope_width = np.clip(np.maximum(min_slope_width, left_diff / tan_angle), None, max_slope_width)
         right_slope_width = np.clip(np.maximum(min_slope_width, right_diff / tan_angle), None, max_slope_width)
 
-        # STANDARD-"links" (point + perp*half) ist oben "right_xy", STANDARD-"rechts" ist "left_xy" (siehe
-        # Hinweis) - die slope_width_override-Zuordnung muss deshalb gespiegelt werden.
+        # STANDARD "left" (point + perp*half) is "right_xy" above, STANDARD "right" is "left_xy" (see
+        # note) - the slope_width_override assignment therefore has to be mirrored.
         override = poly.get("slope_width_override") or {}
         flat_sides = poly.get("flat_shoulder_sides") or ()
         def overridden(key, sign, slope_width, natural_z):
-            """Böschungsbreite/natural_z einer überschriebenen Seite; key in STANDARD-Konvention, sign = Richtung."""
+            """Embankment width/natural_z of an overridden side; key in STANDARD convention, sign = direction."""
             widths = np.broadcast_to(np.asarray(override[key], dtype=float), slope_width.shape).copy()
             if not np.any(widths > 0):
                 return widths, natural_z
             if key in flat_sides:
-                # Flacher Saum auf Fahrbahnhöhe (Galerie-Bergseite): natural_z = Kantenhöhe selbst,
-                # keine Interpolation zum Gelände (siehe Docstring).
+                # Flat border at carriageway height (gallery mountain side): natural_z = edge height itself,
+                # no interpolation to the terrain (see docstring).
                 return widths, z.copy()
-            # natural_z NICHT an der Fahrbahnkante (dort zeigt das DGM bei einer Galerie das Bauwerk selbst,
-            # siehe Docstring), sondern am FERNEN Ende des überschriebenen Korridors abtasten - erst dort zeigt
-            # das DGM wieder echtes Gelände. Breite 0 tastet damit von selbst an der Kante ab.
+            # Sample natural_z NOT at the carriageway edge (there the DGM shows the structure itself at a gallery,
+            # see docstring), but at the FAR end of the overridden corridor - only there does
+            # the DGM show real terrain again. Width 0 thus samples at the edge by itself.
             far = xy + sign * perp * (half_width + widths)[:, None]
             return widths, sample_heightmap_bilinear(heights, origin_x, origin_y, square_size, far)
 
@@ -421,31 +422,31 @@ def build_road_embankment_profiles(
 
 def apply_embankment_blend(heights: np.ndarray, origin_x: float, origin_y: float, square_size: float, roads: list) -> np.ndarray:
     """
-    Überblendet das Terrain zwischen Straßenkante und natürlicher Umgebung
-    (Böschung) direkt im Heightmap-Raster - ersetzt die nie fertiggestellte
-    Böschungs-Mesh-Geometrie.
+    Blends the terrain between road edge and natural surroundings
+    (embankment) directly in the heightmap raster - replaces the never completed
+    embankment mesh geometry.
 
-    Für jede Rasterzelle im Böschungskorridor (zwischen Straßenkante und
-    Kante+Böschungsbreite) wird linear zwischen der Straßenkanten-Höhe (an
-    der Kante) und der ursprünglichen natürlichen Terrainhöhe (am
-    Korridor-Rand) interpoliert. Funktioniert für Damm (Straße höher) und
-    Einschnitt (Straße tiefer) gleichermaßen, weil einfach in Richtung
-    "natürliche Höhe" interpoliert wird, ohne Vorzeichen-Annahme.
+    For each raster cell in the embankment corridor (between road edge and
+    edge + embankment width), it interpolates linearly between the road edge height (at
+    the edge) and the original natural terrain height (at the
+    corridor border). Works equally for fill (road higher) and
+    cut (road lower), because it simply interpolates toward the
+    "natural height", without a sign assumption.
 
-    Bekannte Einschränkung: überlappende Korridore mehrerer Straßen (z.B. an
-    Kreuzungen) werden nicht speziell behandelt - die zuletzt verarbeitete
-    Straße gewinnt. Dokumentiert in der Spec als akzeptierte Vereinfachung.
+    Known limitation: overlapping corridors of several roads (e.g. at
+    junctions) are not handled specially - the last processed
+    road wins. Documented in the spec as an accepted simplification.
 
     Args:
-        heights: (size, size) float Array MIT der noch unveränderten,
-            natürlichen Terrainhöhe (vor embed_roads_into_heightmap
-            aufrufen - diese Funktion muss VOR der Straßen-Einbettung
-            laufen, damit "natürliche Höhe" wirklich natürlich ist)
-        origin_x, origin_y, square_size: wie in heightmap.build_heightmap()
-        roads: Rückgabe von build_road_embankment_profiles()
+        heights: (size, size) float array WITH the still unmodified,
+            natural terrain height (call before embed_roads_into_heightmap
+            - this function must run BEFORE the road embedding,
+            so that "natural height" is really natural)
+        origin_x, origin_y, square_size: as in heightmap.build_heightmap()
+        roads: return value of build_road_embankment_profiles()
 
     Returns:
-        Neues (size, size) float Array (Kopie, Original unverändert)
+        New (size, size) float array (copy, original unchanged)
     """
     result = heights.copy()
     size_y, size_x = heights.shape
@@ -459,12 +460,12 @@ def apply_embankment_blend(heights: np.ndarray, origin_x: float, origin_y: float
     return result
 
 
-BLEND_BLOCK = 8  # Kantenlänge der Zellblöcke, die _blend_one_side auf Nähe zur Straße vorprüft (Böschungen sind
-# nur 2-8,5 m breit: 32er Blöcke fragten 7 Mio. Zellen ab, 8er nur 3 Mio. - kleinere bringen nichts mehr)
+BLEND_BLOCK = 8  # Edge length of the cell blocks _blend_one_side pre-checks for road proximity (embankments are
+# only 2-8.5 m wide: 32-cell blocks queried 7 million cells, 8-cell blocks only 3 million - smaller ones gain nothing)
 
 
 def _blend_one_side(heights, origin_x, origin_y, square_size, size_x, size_y, edge_xyz, slope_width, natural_z):
-    """Überblendet eine Straßenseite (links oder rechts) in-place in heights."""
+    """Blends one road side (left or right) in place into heights."""
     if len(edge_xyz) == 0:
         return
 
@@ -487,11 +488,11 @@ def _blend_one_side(heights, origin_x, origin_y, square_size, size_x, size_y, ed
 
     tree = cKDTree(edge_xyz[:, :2])
 
-    # Der Korridor endet spätestens bei max_width. Bei langen, diagonalen Straßen ist die Bounding Box aber riesig
-    # und fast leer: statt alle ihre Zellen abzufragen, werden nur Blöcke von BLEND_BLOCK x BLEND_BLOCK Zellen
-    # berücksichtigt, deren Mittelpunkt nah genug an einem Kantenpunkt liegt (jede Zelle des Blocks ist höchstens
-    # die halbe Blockdiagonale vom Mittelpunkt entfernt - weiter entfernte Blöcke enthalten garantiert keine
-    # Korridorzelle). Das Ergebnis je Zelle ist unverändert.
+    # The corridor ends at max_width at the latest. For long, diagonal roads, however, the bounding box is huge
+    # and almost empty: instead of querying all its cells, only blocks of BLEND_BLOCK x BLEND_BLOCK cells are
+    # considered whose center is close enough to an edge point (every cell of the block is at most
+    # half the block diagonal away from the center - blocks farther away are guaranteed to contain no
+    # corridor cell). The result per cell is unchanged.
     limit = max_width + 1e-9
     n_rows = row_end - row_start + 1
     n_cols = col_end - col_start + 1
@@ -509,8 +510,8 @@ def _blend_one_side(heights, origin_x, origin_y, square_size, size_x, size_y, ed
     if not keep.any():
         return
 
-    # Zellen aller behaltenen Blöcke auf einmal: volle Blöcke per Broadcasting, Randblöcke (am Ende der Bounding
-    # Box kürzer) über die Maske auf n_rows/n_cols gekürzt - dieselben Zellen wie Block für Block
+    # Cells of all kept blocks at once: full blocks via broadcasting, edge blocks (shorter at the end of the bounding
+    # box) trimmed to n_rows/n_cols via the mask - the same cells as block by block
     offset_r, offset_c = np.meshgrid(np.arange(BLEND_BLOCK), np.arange(BLEND_BLOCK), indexing="ij")
     rows = (r0[keep][:, None] + offset_r.ravel()[None, :]).ravel()
     cols = (c0[keep][:, None] + offset_c.ravel()[None, :]).ravel()

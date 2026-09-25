@@ -1,7 +1,7 @@
 """
-PNG -> DDS über bin/texconv.exe, in denselben Formaten wie die BeamNG-Stock-Texturen.
+PNG -> DDS via bin/texconv.exe, in the same formats as the BeamNG stock textures.
 
-Farbe BC7 sRGB, Normalmap BC5, Daten (Roughness) BC4.
+Color BC7 sRGB, normal map BC5, data (roughness) BC4.
 """
 
 import subprocess
@@ -19,17 +19,17 @@ DATA = "BC4_UNORM"
 
 def write_dds(pixels: np.ndarray, output_dir: Path, name: str, dds_format: str, max_mip_levels: int) -> Path:
     """
-    Schreibt `pixels` (H, W, 3 uint8) als `<name>.dds` in `output_dir`.
+    Writes `pixels` (H, W, 3 uint8) as `<name>.dds` to `output_dir`.
 
     Args:
-        pixels: RGB-Bild
-        output_dir: Zielordner (wird angelegt)
-        name: Dateiname ohne .dds, z. B. "windows_b.color"
-        dds_format: COLOR, NORMAL oder DATA
-        max_mip_levels: Länge der Mip-Kette (0 = vollständig)
+        pixels: RGB image
+        output_dir: Target folder (is created)
+        name: File name without .dds, e.g. "windows_b.color"
+        dds_format: COLOR, NORMAL or DATA
+        max_mip_levels: Length of the mip chain (0 = complete)
 
     Returns:
-        Pfad der DDS-Datei
+        Path of the DDS file
     """
     if not TEXCONV.exists():
         raise FileNotFoundError(f"texconv.exe not found: {TEXCONV}")

@@ -1,4 +1,4 @@
-"""Vereinigte Straßenflächen für Ausschlusszonen (Bäume, Reben, Bodenbewuchs)."""
+"""Unioned road surfaces for exclusion zones (trees, vines, ground cover)."""
 
 from typing import Dict, Iterable, Optional
 
@@ -6,9 +6,9 @@ from shapely.geometry import Polygon
 from shapely.geometry.base import BaseGeometry
 from shapely.ops import unary_union
 
-# Die Straßenpolygone sind feiner aufgelöst, als für Ausschlusszonen nötig (Mittellinie im Meterabstand, ca.
-# 200 Eckpunkte je Straße). Mit 10 cm Toleranz schrumpft die Eckpunktzahl auf ein Zehntel; Vereinigung und
-# Pufferung laufen dadurch ~5x schneller, die Zonen (Meter-Abstände) ändern sich nicht messbar.
+# The road polygons are finer than needed for exclusion zones (centerline at 1 m spacing, approx.
+# 200 vertices per road). With a 10 cm tolerance the vertex count shrinks to a tenth; union and
+# buffering therefore run ~5x faster, and the zones (distances in meters) do not change measurably.
 ROAD_SURFACE_SIMPLIFY_TOLERANCE = 0.1
 
 
@@ -16,11 +16,11 @@ def union_road_surfaces(
     road_slope_polygons_2d: Optional[Iterable[Dict]], tolerance: float = ROAD_SURFACE_SIMPLIFY_TOLERANCE
 ) -> Optional[BaseGeometry]:
     """
-    Vereinigung aller eingebetteten Straßenflächen (Polygone in lokalen Koordinaten) oder None ohne Straßen.
+    Union of all embedded road surfaces (polygons in local coordinates), or None without roads.
 
     Args:
-        road_slope_polygons_2d: Liste von Dicts mit "road_polygon" ((M, 2) Array)
-        tolerance: Vereinfachungstoleranz in Metern (0 = keine Vereinfachung)
+        road_slope_polygons_2d: List of dicts with "road_polygon" ((M, 2) array)
+        tolerance: Simplification tolerance in meters (0 = no simplification)
     """
     polygons = []
     for road in road_slope_polygons_2d or []:

@@ -1,12 +1,12 @@
 """
-Tunnelröhren abdunkeln: BeamNG beleuchtet die Röhre sonst mit Umgebungs- und Himmelslicht, als stünde sie im Freien.
-Die eigenen Levels (west_coast_usa, Utah, italy, ...) legen dafür gedrehte Quader vom Typ `Zone` entlang des Tunnels
-(`useAmbientLightColor`, `ambientLightColor` schwarz, `skyLightFactor` 0.05) - genau das passiert hier je Tunnel-Plan
-(tunnel_portal.plan_tunnels()). Galerien bleiben hell (talseitig offen).
+Darken tunnel tubes: otherwise BeamNG lights the tube with ambient and sky light as if it stood in the open.
+The stock levels (west_coast_usa, Utah, italy, ...) place rotated boxes of type `Zone` along the tunnel for this
+(`useAmbientLightColor`, `ambientLightColor` black, `skyLightFactor` 0.05) - exactly what happens here for each tunnel
+plan (tunnel_portal.plan_tunnels()). Galleries stay bright (open on the valley side).
 
-Wie im Vanilla-Tunnel (jungle_rock_island): alle Zonen einer Röhre teilen sich eine `zoneGroup` (ein zusammenhängender
-Innenraum), und an beiden Enden sitzt ein `Portal`-Objekt - die Öffnung zwischen Innenraum und Außenwelt. Ohne beides
-(erster Versuch 2026-09-24) flackerte die Helligkeit an den Zonengrenzen, dunkel wurde es nie.
+As in the vanilla tunnel (jungle_rock_island): all zones of a tube share one `zoneGroup` (one contiguous interior),
+and a `Portal` object sits at both ends - the opening between interior and outside world. Without both
+(first attempt 2026-09-24) the brightness flickered at the zone borders and it never got dark.
 """
 
 from typing import Dict, List, Sequence
@@ -17,7 +17,7 @@ ZONE_FIELDS = {"useAmbientLightColor": True, "ambientLightColor": [0, 0, 0, 1], 
 
 
 def _points_between(coords: np.ndarray, start: float, end: float) -> np.ndarray:
-    """Polylinienpunkte (x, y, z) von Bogenlänge `start` bis `end` (Endpunkte interpoliert)."""
+    """Polyline points (x, y, z) from arc length `start` to `end` (end points interpolated)."""
     cum = np.concatenate([[0.0], np.cumsum(np.hypot(np.diff(coords[:, 0]), np.diff(coords[:, 1])))])
 
     def at(s):
@@ -28,7 +28,7 @@ def _points_between(coords: np.ndarray, start: float, end: float) -> np.ndarray:
 
 
 def _lateral_deviation(points: np.ndarray, a: int, b: int) -> float:
-    """Größter seitlicher Abstand der Punkte zwischen a und b von der Sehne a-b (Grundriss)."""
+    """Largest lateral distance of the points between a and b from the chord a-b (plan view)."""
     if b - a < 2:
         return 0.0
     chord = points[b, :2] - points[a, :2]
@@ -40,8 +40,8 @@ def _lateral_deviation(points: np.ndarray, a: int, b: int) -> float:
 
 
 def _segments(points: np.ndarray, max_length: float, max_deviation: float) -> List[tuple]:
-    """Gierig möglichst lange Abschnitte (Punktindizes), je höchstens max_length lang und max_deviation seitlich
-    von ihrer Sehne entfernt."""
+    """Greedily the longest possible sections (point indices), each at most max_length long and at most
+    max_deviation lateral distance from its chord."""
     cum = np.concatenate([[0.0], np.cumsum(np.hypot(np.diff(points[:, 0]), np.diff(points[:, 1])))])
     segments, start = [], 0
     while start < len(points) - 1:
@@ -57,9 +57,9 @@ def _segments(points: np.ndarray, max_length: float, max_deviation: float) -> Li
 
 
 def _rotation_matrix(forward: np.ndarray) -> List[float]:
-    """rotationMatrix, deren ZEILEN die Bilder der lokalen Achsen sind (BeamNG-Konvention, siehe
-    ItemManager._heading_rotation_matrix()): x = forward (entlang der Röhre, samt Steigung), y = waagerecht quer,
-    z = senkrecht dazu (nicht gekippt)."""
+    """rotationMatrix whose ROWS are the images of the local axes (BeamNG convention, see
+    ItemManager._heading_rotation_matrix()): x = forward (along the tube, including gradient), y = horizontal across,
+    z = perpendicular to both (not tilted)."""
     x_axis = forward / np.linalg.norm(forward)
     y_axis = np.cross([0.0, 0.0, 1.0], x_axis)
     y_axis /= np.linalg.norm(y_axis)
@@ -68,13 +68,13 @@ def _rotation_matrix(forward: np.ndarray) -> List[float]:
 
 
 def _portal_rotation_matrix(forward: np.ndarray) -> List[float]:
-    """rotationMatrix eines Portals nach Vanilla-Konvention: lokale y-Achse entlang des Tunnels (waagerecht), x quer,
-    z senkrecht."""
+    """rotationMatrix of a portal following the vanilla convention: local y axis along the tunnel (horizontal), x across,
+    z vertical."""
     y_axis = np.array([forward[0], forward[1], 0.0])
     y_axis /= np.linalg.norm(y_axis)
     z_axis = np.array([0.0, 0.0, 1.0])
     x_axis = np.cross(y_axis, z_axis)
-    return [float(v) for v in np.vstack([x_axis, y_axis, z_axis]).reshape(-1)]  # Zeilen = lokale Achsen
+    return [float(v) for v in np.vstack([x_axis, y_axis, z_axis]).reshape(-1)]  # rows = local axes
 
 
 def plan_tunnel_zones(
@@ -88,13 +88,13 @@ def plan_tunnel_zones(
     portal_depth: float,
 ) -> List[Dict]:
     """
-    Zone-Quader je Tunnel-Plan: die Röhre von portal_inset hinter jedem Portal bis zum anderen in Abschnitte
-    (höchstens max_length lang, Achse höchstens max_deviation von der Röhrenachse), je Abschnitt ein Quader:
-    Länge + end_overlap je Seite, Breite = Röhrenbreite + width_margin, Höhe = Scheitel + height_margin (je zur
-    Hälfte unter dem Boden und über dem Scheitel), entlang der Achse gedreht und mit der Steigung geneigt.
+    Zone boxes per tunnel plan: the tube from portal_inset behind each portal to the other one is split into sections
+    (at most max_length long, axis at most max_deviation from the tube axis), one box per section:
+    length + end_overlap on each side, width = tube width + width_margin, height = crown + height_margin (half of it
+    below the floor and half above the crown), rotated along the axis and tilted with the gradient.
 
-    Dazu je Röhre eine gemeinsame zoneGroup und an beiden Enden (Stirnfläche der Zonenkette) ein Portal:
-    Breite/Höhe wie die Zonen, portal_depth tief.
+    In addition, one shared zoneGroup per tube and a portal at both ends (end face of the zone chain):
+    width/height like the zones, portal_depth deep.
 
     Returns:
         [{"class" ("Zone" | "Portal"), "name", "position" (x, y, z), "rotation_matrix", "scale", "fields"}, ...]

@@ -1,11 +1,11 @@
 """
-Lange Fahrbahn-DecalRoads in Stücke teilen.
+Split long carriageway DecalRoads into chunks.
 
-BeamNG zeichnet pro DecalRoad nur eine begrenzte Menge Geometrie: das Decal wird auf die Terrain-Dreiecke unter seiner
-Fläche zugeschnitten, und was über das Budget hinausgeht, fehlt ohne Fehlermeldung (im Spiel gefunden 2026-09-24:
-road_33264943009, 6,5 m breit, Knoten alle 0,81 m, brach nach 97 Segmenten / ~510 m^2 ab - die schmalen
-Markierungslinien auf derselben Strecke blieben sichtbar). Geteilt wird deshalb nach Fläche (Länge x Breite), nicht
-nach Länge oder Knotenzahl.
+BeamNG draws only a limited amount of geometry per DecalRoad: the decal is clipped to the terrain triangles under its
+area, and whatever exceeds the budget is missing without an error message (found in game 2026-09-24:
+road_33264943009, 6.5 m wide, nodes every 0.81 m, stopped after 97 segments / ~510 m^2 - the narrow
+marking lines on the same stretch stayed visible). Splitting is therefore done by area (length x width), not
+by length or node count.
 """
 
 from typing import List, Sequence
@@ -17,10 +17,10 @@ def split_decal_nodes(
     nodes: Sequence[Sequence[float]], max_area: float, min_tail_length: float
 ) -> List[List[List[float]]]:
     """
-    DecalRoad-Knoten [x, y, z, width] in aufeinanderfolgende Stücke mit höchstens `max_area` Fläche. Benachbarte Stücke
-    teilen sich ihren Stoßknoten (gleiche Position und Breite, damit sie nahtlos aneinanderschließen). Ein letzter Rest
-    kürzer als `min_tail_length` wird dem vorherigen Stück zugeschlagen (das dann etwas über dem Budget liegen darf).
-    Jedes Stück hat mindestens ein Segment, auch wenn ein einzelnes Segment schon größer als das Budget ist.
+    DecalRoad nodes [x, y, z, width] into consecutive chunks with at most `max_area` area. Adjacent chunks
+    share their joint node (same position and width, so that they connect seamlessly). A final remainder
+    shorter than `min_tail_length` is added to the previous chunk (which may then slightly exceed the budget).
+    Each chunk has at least one segment, even if a single segment is already larger than the budget.
     """
     nodes = [list(n) for n in nodes]
     if len(nodes) < 3:
@@ -29,7 +29,7 @@ def split_decal_nodes(
     seg_len = np.linalg.norm(np.diff(arr[:, :2], axis=0), axis=1)
     seg_area = seg_len * (arr[:-1, 3] + arr[1:, 3]) / 2.0
 
-    cuts = [0]  # Knotenindizes, an denen ein Stück beginnt
+    cuts = [0]  # node indices at which a chunk begins
     area = 0.0
     for seg in range(len(seg_area)):
         if area > 0.0 and area + seg_area[seg] > max_area:

@@ -1,17 +1,17 @@
 """
-Materialnamen der LOD2-Gebäude (eine Quelle für Mesh-Builder, DAE-Exporter und Material-Export).
+Material names of the LOD2 buildings (single source for mesh builders, DAE exporter and material export).
 """
 
 from .facade_styles import PLASTER_COLORS
 
-WALL_MATERIALS = tuple(f"lod2_wall_plaster_{color.name}" for color in PLASTER_COLORS)  # Index = PLASTER_COLORS
-WINDOW_MATERIAL = "lod2_windows"  # Fenster, Türen, Kellerfenster (Sprite-Atlas)
-ROOF_MATERIAL = "lod2_roof_red"  # Biberschwanz-Dach
-FLAT_ROOF_MATERIAL = "lod2_roof_flat"  # Kiesfläche auf Flachdächern
-ROOF_EDGE_MATERIAL = "lod2_roof_edge"  # Blechrand um Flachdächer
-ROOF_TRIM_MATERIAL = "lod2_roof_trim"  # Stirnbrett und Untersicht der Dachüberstände
+WALL_MATERIALS = tuple(f"lod2_wall_plaster_{color.name}" for color in PLASTER_COLORS)  # index = PLASTER_COLORS
+WINDOW_MATERIAL = "lod2_windows"  # windows, doors, basement windows (sprite atlas)
+ROOF_MATERIAL = "lod2_roof_red"  # beaver-tail tile roof
+FLAT_ROOF_MATERIAL = "lod2_roof_flat"  # gravel surface on flat roofs
+ROOF_EDGE_MATERIAL = "lod2_roof_edge"  # sheet-metal rim around flat roofs
+ROOF_TRIM_MATERIAL = "lod2_roof_trim"  # fascia board and soffit of the roof overhangs
 
-# Diffuse Vorschaufarben im DAE-Effekt (BeamNG nutzt die Texturen aus materials.json)
+# Diffuse preview colors in the DAE effect (BeamNG uses the textures from materials.json)
 DAE_EFFECT_COLORS = {
     **{name: tuple(channel / 255.0 for channel in color.rgb) for name, color in zip(WALL_MATERIALS, PLASTER_COLORS)},
     WINDOW_MATERIAL: (0.55, 0.62, 0.70),

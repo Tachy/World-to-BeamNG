@@ -1,9 +1,9 @@
 """
-Fahrbahnmarkierungen als eigene, schmale DecalRoads über der Fahrbahn - so wie BeamNGs eigene Levels es machen
-(west_coast_usa: ~3100 `line_white`- und ~200 `line_dashed_short`-DecalRoads mit 0,15-0,2 m Breite). Weiße
-Randlinien links und rechts, gestrichelte Leitlinien an den Fahrstreifengrenzen. Die Linien folgen der Knotenbreite
-der Fahrbahn (also auch den weichen Breitenübergängen aus road_width_transitions.py). Hintergrund und Regeln siehe
-docs/OSM_ROAD_ANALYSIS.md und docs/superpowers/plans/2026-09-24-road-markings-width-transitions.md.
+Road markings as separate, narrow DecalRoads above the carriageway - the way BeamNG's own levels do it
+(west_coast_usa: ~3100 `line_white` and ~200 `line_dashed_short` DecalRoads with 0.15-0.2 m width). White
+edge lines on the left and right, dashed lane dividers at the lane boundaries. The lines follow the node width
+of the carriageway (including the smooth width transitions from road_width_transitions.py). For background and rules
+see docs/OSM_ROAD_ANALYSIS.md and docs/superpowers/plans/2026-09-24-road-markings-width-transitions.md.
 """
 
 from dataclasses import dataclass
@@ -13,8 +13,8 @@ import numpy as np
 
 EDGE = "edge"
 DIVIDER = "divider"
-MAX_MITRE_FACTOR = 2.0  # spitze Knicke: Versatz höchstens doppelt so weit wie verlangt
-BOUNDARY_EPS = 0.01  # Hindernisflächen um 1 cm schrumpfen, siehe junction_obstacles()
+MAX_MITRE_FACTOR = 2.0  # sharp kinks: offset at most twice as far as requested
+BOUNDARY_EPS = 0.01  # shrink obstacle areas by 1 cm, see junction_obstacles()
 
 
 @dataclass(frozen=True)
@@ -23,7 +23,7 @@ class MarkingLayout:
 
 
 def parse_lanes(value) -> Optional[int]:
-    """OSM-`lanes` als positive Ganzzahl, sonst None (fehlend, "2;3", "", "0", ...)."""
+    """OSM `lanes` as a positive integer, otherwise None (missing, "2;3", "", "0", ...)."""
     try:
         lanes = int(str(value).strip())
     except (TypeError, ValueError):
@@ -40,9 +40,9 @@ def marking_layout(
     min_two_lane_width: float,
 ) -> Optional[MarkingLayout]:
     """
-    Markierungs-Layout einer Straße oder None (keine Markierung): nur Straßentypen aus `marked_highways` mit der
-    Oberfläche `marked_surface` (Asphalt) und ohne `lane_markings=no`. Fahrstreifen aus `lanes`; fehlt der Tag, ist
-    eine Rampe (*_link) oder eine Straße schmaler als min_two_lane_width einspurig, alles andere zweispurig.
+    Marking layout of a road, or None (no marking): only road types from `marked_highways` with the surface
+    `marked_surface` (asphalt) and without `lane_markings=no`. Lanes come from `lanes`; if the tag is missing, a
+    ramp (*_link) or a road narrower than min_two_lane_width is single-lane, everything else is two-lane.
     """
     tags = tags or {}
     highway = str(tags.get("highway", ""))
@@ -55,8 +55,8 @@ def marking_layout(
 
 
 def line_offsets(widths: np.ndarray, lanes: int, edge_inset: float) -> List[Tuple[str, np.ndarray]]:
-    """(Art, seitlicher Versatz je Knoten), positiv = links der Laufrichtung. Randlinien bei +-(Breite/2 -
-    edge_inset), Leitlinien an den lanes-1 Fahrstreifengrenzen."""
+    """(kind, lateral offset per node), positive = left of the travel direction. Edge lines at +-(width/2 -
+    edge_inset), dividers at the lanes-1 lane boundaries."""
     widths = np.asarray(widths, dtype=float)
     half = widths / 2.0
     lines = [(EDGE, half - edge_inset), (EDGE, -(half - edge_inset))]
@@ -67,9 +67,9 @@ def line_offsets(widths: np.ndarray, lanes: int, edge_inset: float) -> List[Tupl
 def offset_polyline(
     xy: np.ndarray, offsets: np.ndarray, start_normal: Optional[np.ndarray] = None, end_normal: Optional[np.ndarray] = None
 ) -> np.ndarray:
-    """Polylinie mit Versatz je Knoten (positiv = links), an Knicken auf Gehrung. Nullsegmente (doppelte Knoten)
-    übernehmen die Richtung des Nachbarsegments. `start_normal`/`end_normal` (Einheitsvektoren, links) ersetzen die
-    Gehrungsrichtung am ersten/letzten Knoten - am Stoß zweier Straßen (siehe joint_normals())."""
+    """Polyline with an offset per node (positive = left), mitered at kinks. Zero-length segments (duplicate nodes)
+    take the direction of the neighboring segment. `start_normal`/`end_normal` (unit vectors, left) replace the
+    miter direction at the first/last node - at the joint of two roads (see joint_normals())."""
     xy = np.asarray(xy, dtype=float)
     offsets = np.asarray(offsets, dtype=float)
     segments = np.diff(xy, axis=0)
@@ -104,8 +104,8 @@ def offset_polyline(
 
 
 def forward_indices(offset_xy: np.ndarray, center_xy: np.ndarray) -> np.ndarray:
-    """Indizes der Linienknoten, die in Fahrtrichtung vorankommen. In engen Kehren läuft die innere Linie sonst
-    rückwärts (Versatz größer als der Kurvenradius) - diese Knoten fallen weg."""
+    """Indices of the line nodes that advance in the travel direction. In tight hairpins the inner line would
+    otherwise run backwards (offset larger than the curve radius) - those nodes are dropped."""
     center_xy = np.asarray(center_xy, dtype=float)
     count = len(center_xy)
     kept = [0]
@@ -123,10 +123,10 @@ def build_marking_lines(
     start_normal: Optional[np.ndarray] = None,
     end_normal: Optional[np.ndarray] = None,
 ) -> List[Tuple[str, np.ndarray]]:
-    """(Art, (N, 3)-Linie) für alle Markierungslinien einer Straße aus ihren DecalRoad-Knoten [x, y, z, width];
-    z je Linienknoten vom zugehörigen Fahrbahnknoten (BeamNG projiziert die Linie ohnehin aufs Terrain).
-    `start_normal`/`end_normal`: gemeinsame Stoßnormale mit der Geradeaus-Fortsetzung (joint_normals()), damit die
-    Linien beider Straßen an einem geknickten Stoß exakt aneinander anschließen."""
+    """(kind, (N, 3) line) for all marking lines of a road from its DecalRoad nodes [x, y, z, width];
+    z per line node from the corresponding carriageway node (BeamNG projects the line onto the terrain anyway).
+    `start_normal`/`end_normal`: shared joint normal with the straight continuation (joint_normals()), so that the
+    lines of both roads connect exactly at a kinked joint."""
     arr = np.asarray(nodes, dtype=float)
     center_xy = arr[:, :2]
     lines = []
@@ -140,10 +140,10 @@ def build_marking_lines(
 
 def joint_normals(roads: Sequence[Sequence[Sequence[float]]], pairs) -> Dict[Tuple[int, str], np.ndarray]:
     """
-    Gemeinsame Linksnormale je Straßenende an einem Geradeaus-Stoß (`pairs` aus find_continuations()): die
-    Winkelhalbierende beider Fahrtrichtungen, jeweils in der Laufrichtung der eigenen Straße. Ohne sie wird jede
-    Straße senkrecht zu ihrem eigenen letzten Segment versetzt, und an einem Knick um den Winkel t klaffen die
-    Linienenden um rund 2 * Versatz * sin(t/2) auseinander (außen Lücke, innen Überlappung).
+    Shared left normal per road end at a straight joint (`pairs` from find_continuations()): the
+    bisector of both travel directions, each in the travel direction of the road's own side. Without it, each
+    road is offset perpendicular to its own last segment, and at a kink of angle t the line ends
+    gape apart by about 2 * offset * sin(t/2) (gap on the outside, overlap on the inside).
     """
     from .road_width_transitions import outward_direction
 
@@ -152,9 +152,9 @@ def joint_normals(roads: Sequence[Sequence[Sequence[float]]], pairs) -> Dict[Tup
         da, db = outward_direction(roads[ia], ea), outward_direction(roads[ib], eb)
         if da is None or db is None:
             continue
-        travel_a = da if ea == "start" else -da  # Fahrtrichtung der Straße am Stoß
+        travel_a = da if ea == "start" else -da  # travel direction of the road at the joint
         travel_b = db if eb == "start" else -db
-        sign = 1.0 if ea != eb else -1.0  # gleiche Laufrichtung (Ende -> Anfang) oder gegenläufig
+        sign = 1.0 if ea != eb else -1.0  # same travel direction (end -> start) or opposing
         joint = travel_a + sign * travel_b
         length = float(np.linalg.norm(joint))
         if length < 1e-9:
@@ -166,8 +166,8 @@ def joint_normals(roads: Sequence[Sequence[Sequence[float]]], pairs) -> Dict[Tup
 
 
 def clip_line(line: np.ndarray, obstacles, min_length: float) -> List[np.ndarray]:
-    """Teile einer (N, 3)-Linie außerhalb von `obstacles` (shapely-Fläche, z.B. die Fahrbahnen einmündender Straßen)
-    mit mindestens min_length Länge; z linear entlang der ursprünglichen Linie."""
+    """Parts of an (N, 3) line outside `obstacles` (shapely area, e.g. the carriageways of joining roads)
+    with a length of at least min_length; z linear along the original line."""
     from shapely.geometry import LineString, Point
 
     shape = LineString(line[:, :2])
@@ -188,8 +188,8 @@ def clip_line(line: np.ndarray, obstacles, min_length: float) -> List[np.ndarray
 
 
 def road_surface_polygon(nodes: Sequence[Sequence[float]], clearance: float):
-    """Fahrbahnfläche einer DecalRoad (Puffer um die Mittellinie mit der größten Knotenbreite, flache Enden),
-    um `clearance` verbreitert."""
+    """Carriageway area of a DecalRoad (buffer around the centerline with the largest node width, flat ends),
+    widened by `clearance`."""
     from shapely.geometry import LineString
 
     arr = np.asarray(nodes, dtype=float)
@@ -200,9 +200,9 @@ def road_surface_polygon(nodes: Sequence[Sequence[float]], clearance: float):
 
 def _side_junction(polygon, main_line, side_xy: np.ndarray, endpoint_tol: float):
     """
-    (Mündungspunkt, Seite, eigene Halbebene) einer Straße, die mit genau einem Ende auf `main_line` (Mittellinie der
-    markierten Straße) mündet - Seite +1 links, -1 rechts. None für Straßen, die die Mittellinie queren oder nur
-    berühren.
+    (junction point, side, half-plane on its own side) of a road that joins `main_line` (centerline of the marked
+    road) with exactly one end - side +1 left, -1 right. None for roads that cross the centerline or merely
+    touch it.
     """
     from shapely.geometry import Point
 
@@ -228,19 +228,19 @@ def junction_obstacles(
     endpoint_tol: float = 0.5,
 ):
     """
-    Vereinigung der Fahrbahnflächen, die die Fläche `index` berühren - ohne sie selbst und ohne `excluded`
-    (Geradeaus-Partner, Wege ohne Markierungslücke). None, wenn keine übrig bleibt. `tree`: shapely.STRtree über
+    Union of the carriageway areas that touch area `index` - excluding itself and `excluded`
+    (straight-continuation partners, paths without a marking gap). None if none remain. `tree`: shapely.STRtree over
     `polygons`.
 
-    Mit `centerlines` ((N, 2) je Straße) wird die Fläche einer Einmündung auf ihre Seite der eigenen Mittellinie
-    beschränkt: ihr flaches Ende steht senkrecht zu ihr selbst, nicht zur Hauptstraße, und reicht bei schräger
-    Einmündung sonst über die Mittellinie - Leitlinie und gegenüberliegende Randlinie bekämen eine Lücke. Mündet am
-    selben Punkt auch von der Gegenseite eine Straße (Kreuzung, in OSM an der Hauptstraße in zwei Ways geteilt),
-    bleiben beide Flächen ganz, damit die Leitlinie in der Kreuzung unterbrochen wird.
+    With `centerlines` ((N, 2) per road), the area of a T-junction is restricted to its own side of the marked road's
+    centerline: its flat end is perpendicular to itself, not to the main road, and for an oblique
+    junction it would otherwise reach across the centerline - the divider and the opposite edge line would get a
+    gap. If a road also joins from the opposite side at the same point (crossing, split into two ways in OSM at the
+    main road), both areas are kept whole, so that the divider is interrupted in the crossing.
 
-    Um BOUNDARY_EPS geschrumpft: eine Nebenstraße beginnt am gemeinsamen Knoten auf der Mittellinie der Hauptstraße,
-    ihre flache Kante liegt also genau auf deren Leitlinie. Ohne das Schrumpfen bekäme die Leitlinie an jeder
-    T-Einmündung eine Lücke.
+    Shrunk by BOUNDARY_EPS: a side road starts at the shared node on the main road's centerline,
+    so its flat edge lies exactly on the main road's divider. Without the shrinking, the divider would get a gap at
+    every T-junction.
     """
     from shapely import unary_union
     from shapely.geometry import LineString

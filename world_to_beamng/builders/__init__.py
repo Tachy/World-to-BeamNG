@@ -1,4 +1,4 @@
-"""Builder-Module für komplexe Objekte."""
+"""Builder modules for complex objects."""
 
 from .mesh_builders import GridBuilder, BuildingMeshBuilder
 

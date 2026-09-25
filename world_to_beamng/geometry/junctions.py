@@ -1,8 +1,8 @@
 """
-Erkennung und Handling von Strassen-Junctions direkt in Centerlines.
+Detection and handling of road junctions directly in centerlines.
 
-Diese Module erkennt Kreuzungen und T-Junctions direkt aus den Centerline-Koordinaten
-(wo Strassen-Punkte verbunden sind), um diese bei der Mesh-Generierung sauber zu meshen.
+This module detects crossings and T-junctions directly from the centerline coordinates
+(where road points are connected), in order to mesh them cleanly during mesh generation.
 """
 
 import numpy as np
@@ -17,11 +17,11 @@ logger = LoggerConfig.get_logger()
 
 
 def _nearest_vertex_to_line(coords, line):
-    """Der Eckpunkt aus `coords`, der `line` am nächsten liegt (der erste bei Gleichstand), als Point - oder None."""
+    """The vertex from `coords` closest to `line` (the first on a tie), as a Point - or None."""
     if len(coords) == 0:
         return None
     xy = np.array([(c[0], c[1]) for c in coords], dtype=float)
-    shapely.prepare(line)  # vorbereitete Geometrie: Punkt-Linie-Abstände über Index statt Segment für Segment
+    shapely.prepare(line)  # prepared geometry: point-line distances via index instead of segment by segment
     dists = shapely.distance(line, shapely.points(xy))
     best = int(np.argmin(dists))
     if not np.isfinite(dists[best]):
@@ -31,11 +31,11 @@ def _nearest_vertex_to_line(coords, line):
 
 class _JunctionIndex:
     """
-    Räumlicher Index der Junction-Positionen für "gibt es schon eine Junction innerhalb der Toleranz?".
+    Spatial index of the junction positions for "is there already a junction within the tolerance?".
 
-    Ersetzt die lineare Suche über alle Junctions (mit je einem np.array/np.sum pro Vergleich, bei tausenden
-    Junctions und Kandidaten der Hauptkostenpunkt). Liefert wie die lineare Suche die ERSTE Junction in
-    Listenreihenfolge, die innerhalb der Toleranz liegt (Positionen ändern sich nach dem Anlegen nicht).
+    Replaces the linear search over all junctions (with one np.array/np.sum per comparison, the main cost point
+    with thousands of junctions and candidates). Like the linear search, it returns the FIRST junction in list
+    order that lies within the tolerance (positions do not change after creation).
     """
 
     def __init__(self, junctions, tolerance):
@@ -49,14 +49,14 @@ class _JunctionIndex:
         return int(np.floor(x / self.tolerance)), int(np.floor(y / self.tolerance))
 
     def _sync(self):
-        """Nimmt seit dem letzten Aufruf angehängte Junctions auf."""
+        """Picks up junctions appended since the last call."""
         while self.indexed < len(self.junctions):
             position = self.junctions[self.indexed]["position"]
             self.cells.setdefault(self._cell(position[0], position[1]), []).append(self.indexed)
             self.indexed += 1
 
     def find(self, x, y):
-        """Erste Junction (Listenreihenfolge) mit Abstand <= Toleranz zu (x, y) oder None."""
+        """First junction (list order) with distance <= tolerance to (x, y), or None."""
         self._sync()
         cx, cy = self._cell(x, y)
         best = None
@@ -74,20 +74,20 @@ class _JunctionIndex:
 
 def detect_junctions_in_centerlines(road_polygons, height_points=None, height_elevations=None):
     """
-    Erkennt Junctions (Kreuzungen/Einmuendungen) direkt in den Centerlines.
+    Detects junctions (crossings/T-junctions) directly in the centerlines.
 
-    Eine Junction ist ein Punkt, wo mehrere Strassen zusammenkommen.
-    OSM-Daten haben Strassenenden als Punkte, die verbunden sind -> natuerliche Junctions.
+    A junction is a point where several roads meet.
+    OSM data has road ends as points that are connected -> natural junctions.
 
     Args:
-        road_polygons: Liste von Strassen-Dicts mit 'coords', 'id', 'name'
+        road_polygons: List of road dicts with 'coords', 'id', 'name'
 
     Returns:
         List of junctions with:
         {
-            'position': (x, y, z),         # 3D-Position der Junction
-            'road_indices': [i, j, ...],   # Indices der beteiligten Strassen
-            'connection_types': [...]      # 'end' oder 'start' pro Strasse
+            'position': (x, y, z),         # 3D position of the junction
+            'road_indices': [i, j, ...],   # indices of the roads involved
+            'connection_types': [...]      # 'end' or 'start' per road
         }
     """
     if not road_polygons:
@@ -99,19 +99,19 @@ def detect_junctions_in_centerlines(road_polygons, height_points=None, height_el
         dem_interpolator = cKDTree(height_points[:, :2])
         height_elevations_array = np.asarray(height_elevations)
 
-    # Sammle alle Strassenenden (Anfang und Ende) und precompute Segmentdaten
+    # Collect all road ends (start and end) and precompute segment data
     endpoints = []  # (x, y, z, road_idx, is_start)
-    road_cache = []  # pro Straße: vorberechnete Segmentdaten für Direction/Interpolation
+    road_cache = []  # per road: precomputed segment data for direction/interpolation
 
     for road_idx, road in enumerate(road_polygons):
         coords = road["coords"]
 
         if len(coords) >= 2:
-            # Anfangspunkt
+            # Start point
             start = coords[0]
             endpoints.append((start[0], start[1], start[2], road_idx, True))
 
-            # Endpunkt
+            # End point
             end = coords[-1]
             endpoints.append((end[0], end[1], end[2], road_idx, False))
 
@@ -128,7 +128,7 @@ def detect_junctions_in_centerlines(road_polygons, height_points=None, height_el
             seg_len_sq_valid = seg_len_sq[valid]
             p1_valid = p1[valid]
 
-            # Vorbereitete Start/End-Richtungen (normalisiert) für _direction_at_endpoint
+            # Prepared start/end directions (normalized) for _direction_at_endpoint
             start_dir = seg_valid[0] if len(seg_valid) else np.array([1.0, 0.0])
             end_dir = seg_valid[-1] if len(seg_valid) else np.array([1.0, 0.0])
             sd_norm = np.sqrt(start_dir.dot(start_dir))
@@ -142,7 +142,7 @@ def detect_junctions_in_centerlines(road_polygons, height_points=None, height_el
             else:
                 end_dir = np.array([1.0, 0.0])
 
-            # Für Z-Interpolation: Segment-Mittelpunkte und mittleres Z pro Segment
+            # For Z interpolation: segment midpoints and mean Z per segment
             seg_mids = (p1 + p2) / 2.0
             z_mid = (coords_z[:-1] + coords_z[1:]) / 2.0
 
@@ -179,18 +179,18 @@ def detect_junctions_in_centerlines(road_polygons, height_points=None, height_el
     if len(endpoints) < 2:
         return []
 
-    # Baue KDTree fuer schnelle Nachbarschaftssuche (nur XY-Koordinaten)
+    # Build a KDTree for fast neighbor search (XY coordinates only)
     endpoints_xy = np.array([(p[0], p[1]) for p in endpoints])
     kdtree = cKDTree(endpoints_xy)
 
-    # Finde alle Punkte, die nah beieinander liegen (Toleranz 1 m)
+    # Find all points that are close together (tolerance 1 m)
     endpoint_merge_tol = 1.0
     junction_pairs = kdtree.query_pairs(r=endpoint_merge_tol)
 
     if not junction_pairs:
         return []
 
-    # Gruppiere Endpoints zu Junctions (Union-Find)
+    # Group endpoints into junctions (union-find)
     from collections import defaultdict
 
     parent = list(range(len(endpoints)))
@@ -208,13 +208,13 @@ def detect_junctions_in_centerlines(road_polygons, height_points=None, height_el
     for i, j in junction_pairs:
         union(i, j)
 
-    # Sammle Cluster
+    # Collect clusters
     clusters = defaultdict(list)
     for i, endpoint in enumerate(endpoints):
         root = find(i)
         clusters[root].append(i)
 
-    # Baue Junctions aus Clustern
+    # Build junctions from clusters
     junctions = []
 
     def _direction_at_endpoint(road_idx, is_start):
@@ -222,7 +222,7 @@ def detect_junctions_in_centerlines(road_polygons, height_points=None, height_el
         return cache["start_dir"] if is_start else cache["end_dir"]
 
     def _get_direction_at_point(road_idx, proj_xy):
-        """Berechnet Straßenrichtung an einem beliebigen Punkt (vektorisiert mit reduce)."""
+        """Computes the road direction at an arbitrary point (vectorized with reduce)."""
         cache = road_cache[road_idx]
         seg_valid = cache["seg_valid"]
         seg_len_sq_valid = cache["seg_len_sq_valid"]
@@ -231,34 +231,34 @@ def detect_junctions_in_centerlines(road_polygons, height_points=None, height_el
         if seg_valid.size == 0:
             return np.array([1.0, 0.0])
 
-        # OPTIMIZATION: Nutze dot() statt sum() für Vektorprodukte
+        # OPTIMIZATION: use dot() instead of sum() for vector products
         vec_to_point = proj_xy - p1_valid  # Broadcasting: (n_valid, 2)
-        # Dot-Product ohne reshape: sum(vec * seg) = sum along axis 1
+        # Dot product without reshape: sum(vec * seg) = sum along axis 1
         t = np.einsum("ij,ij->i", vec_to_point, seg_valid) / seg_len_sq_valid
         t = np.clip(t, 0, 1)
 
-        # Nächste Punkte auf Segmenten
+        # Nearest points on segments
         proj_pts = p1_valid + t[:, None] * seg_valid  # (n_valid, 2)
 
-        # OPTIMIZATION: Nutze einsum für dot-product (schneller als sum+*+*)
+        # OPTIMIZATION: use einsum for the dot product (faster than sum+*+*)
         diff = proj_pts - proj_xy
         dists_sq = np.einsum("ij,ij->i", diff, diff)
         best_idx = int(np.argmin(dists_sq))
 
-        # Richtung des besten Segments
+        # Direction of the best segment
         best_seg = seg_valid[best_idx]
         seg_norm = np.sqrt(seg_len_sq_valid[best_idx])
         return best_seg / seg_norm if seg_norm > 0.01 else np.array([1.0, 0.0])
 
     def _get_z_at_point(road_idx, xy_point):
-        """Interpoliert Z-Koordinate an XY-Punkt vom DEM (oder aus bereits normalisierten Coords)."""
+        """Interpolates the Z coordinate at an XY point from the DEM (or from already normalized coords)."""
         if dem_interpolator is not None:
-            # Nutze DEM für normalisierte Z-Werte
+            # Use the DEM for normalized Z values
             dist, idx = dem_interpolator.query(xy_point)
             return float(height_elevations_array[idx])
         else:
-            # Fallback: Coords sind bereits normalisiert (von polygon.py),
-            # also können wir direkt interpolieren ohne weitere DEM-Abfrage
+            # Fallback: coords are already normalized (from polygon.py),
+            # so we can interpolate directly without another DEM lookup
             cache = road_cache[road_idx]
             coords = cache["coords"]
             if not coords or len(coords) < 2:
@@ -308,50 +308,50 @@ def detect_junctions_in_centerlines(road_polygons, height_points=None, height_el
 
     for cluster_indices in clusters.values():
         if len(cluster_indices) < 2:
-            continue  # Keine echte Junction
+            continue  # Not a real junction
 
-        # Vektorisierte Mittelwert-Berechnung (nur XY verwenden!)
+        # Vectorized mean computation (use XY only!)
         cluster_points = np.array([endpoints[i][:3] for i in cluster_indices], dtype=np.float64)
         avg_xy = np.mean(cluster_points[:, :2], axis=0)
 
-        # Z-Koordinate vom DEM interpolieren (nicht aus OSM-Rohdaten!)
+        # Interpolate the Z coordinate from the DEM (not from raw OSM data!)
         if dem_interpolator is not None:
             dist, idx = dem_interpolator.query(avg_xy)
             avg_z = float(height_elevations_array[idx])
         else:
-            # Fallback: Mittelwert der OSM-Z-Werte
+            # Fallback: mean of the OSM Z values
             avg_z = float(np.mean(cluster_points[:, 2]))
 
         avg_point = (avg_xy[0], avg_xy[1], avg_z)
         _add_junction(avg_point, cluster_indices)
 
-    # ---- Zusätzliche Erkennung: Endpoint auf durchgehender Centerline (T-Junction) ----
-    # Erkennt Punkte, bei denen ein Endpoint auf der Mittellinie einer anderen Straße endet
-    # (typisch für T-Junctions mit durchgehender Straße).
+    # ---- Additional detection: endpoint on a continuous centerline (T-junction) ----
+    # Detects points where an endpoint ends on the centerline of another road
+    # (typical for T-junctions with a continuous road).
 
-    # Suchradius nur anhand Rasterweite (OSM-Knoten liegen meist exakt)
+    # Search radius based on grid spacing only (OSM nodes usually lie exactly)
     t_search_radius = config.GRID_SPACING * 2.5
-    t_line_tol = 1.0  # Meter - Toleranz für Punkt-zu-Linie Entfernung (1.0m)
+    t_line_tol = 1.0  # meters - tolerance for point-to-line distance (1.0 m)
     t_line_tol_sq = t_line_tol * t_line_tol
-    merge_tol = 1.0  # Zusammenführungs-Toleranz zu bestehenden Junctions (1.0m)
+    merge_tol = 1.0  # merge tolerance to existing junctions (1.0 m)
     junction_index = _JunctionIndex(junctions, merge_tol)
 
-    # Sammle alle Linienpunkte mit ihrem Straßen-Index und baue LineStrings/Indexe
+    # Collect all line points with their road index and build LineStrings/indexes
     all_line_points = []  # [(x, y, road_idx, point_idx)]
     line_points_xy = []
-    line_strings = []  # index-aligniert zu road_polygons (None für zu kurze Straßen)
-    indexed_geoms = []  # Geometrien, die in den STRtree kommen
-    geom_to_idx = {}  # STRtree-Geometrie → road_idx
+    line_strings = []  # index-aligned with road_polygons (None for roads that are too short)
+    indexed_geoms = []  # geometries that go into the STRtree
+    geom_to_idx = {}  # STRtree geometry → road_idx
 
     for road_idx, road in enumerate(road_polygons):
         coords = road.get("coords", [])
 
-        # Punkte sammeln (für KDTree aus T-Erkennung)
+        # Collect points (for the KDTree from T-junction detection)
         for pt_idx, coord in enumerate(coords):
             all_line_points.append((coord[0], coord[1], road_idx, pt_idx))
             line_points_xy.append([coord[0], coord[1]])
 
-        # LineString einmalig bauen
+        # Build the LineString once
         if len(coords) >= 2:
             ls = LineString([(c[0], c[1]) for c in coords])
             line_strings.append(ls)
@@ -366,7 +366,7 @@ def detect_junctions_in_centerlines(road_polygons, height_points=None, height_el
         line_kdtree = cKDTree(np.array(line_points_xy))
 
 
-        # STUFE 1: KDTree-Vorauswahl - Linienpunkte im Umkreis, für alle Endpunkte in EINER Abfrage
+        # STAGE 1: KDTree pre-selection - line points in the neighborhood, for all endpoints in ONE query
         endpoint_xy = np.array([(ep[0], ep[1]) for ep in endpoints], dtype=float)
         all_dists, all_indices = line_kdtree.query(endpoint_xy, k=50, distance_upper_bound=t_search_radius)
         n_line_points = len(all_line_points)
@@ -375,8 +375,8 @@ def detect_junctions_in_centerlines(road_polygons, height_points=None, height_el
             nearby_indices = [
                 i for i, d in zip(all_indices[ep_number].tolist(), all_dists[ep_number].tolist()) if d <= t_search_radius
             ]
-            # Pro Endpunkt genügt jede andere Straße einmal: die Projektion hängt nur von Endpunkt und Straße ab,
-            # eine Wiederholung träfe dieselbe Junction und änderte nichts mehr.
+            # For each endpoint, every other road is needed only once: the projection depends only on the endpoint
+            # and the road, a repetition would hit the same junction and change nothing.
             seen_roads = set()
 
             for line_pt_idx in nearby_indices:
@@ -386,12 +386,12 @@ def detect_junctions_in_centerlines(road_polygons, height_points=None, height_el
                 lx, ly, other_road_idx, pt_idx_on_line = all_line_points[line_pt_idx]
 
                 if other_road_idx == road_idx:
-                    continue  # Gleiche Straße
+                    continue  # Same road
                 if other_road_idx in seen_roads:
                     continue
                 seen_roads.add(other_road_idx)
 
-                # STUFE 2: Projiziere auf die gesamte Linie und prüfe Punkt-zu-Linie Entfernung
+                # STAGE 2: Project onto the entire line and check the point-to-line distance
                 other_line = line_strings[other_road_idx]
                 if other_line is None:
                     continue
@@ -400,32 +400,32 @@ def detect_junctions_in_centerlines(road_polygons, height_points=None, height_el
                 proj_pt = other_line.interpolate(proj_dist)
                 proj_xy = (proj_pt.x, proj_pt.y)
 
-                # Berechne echte Punkt-zu-Linie Entfernung
-                # STUFE 3: Nur akzeptieren, wenn Punkt wirklich nah bei der Linie liegt (10cm)
+                # Compute the true point-to-line distance
+                # STAGE 3: Only accept if the point is really close to the line (10 cm)
                 dist_vec = np.array([ep_x - proj_pt.x, ep_y - proj_pt.y])
                 point_to_line_dist_sq = np.sum(dist_vec * dist_vec)
                 if point_to_line_dist_sq > t_line_tol_sq:
-                    continue  # Punkt ist zu weit weg von der Linie
+                    continue  # Point is too far from the line
 
-                # Z-Koordinate vom DEM interpolieren (nicht aus OSM-Rohdaten)
+                # Interpolate the Z coordinate from the DEM (not from raw OSM data)
                 proj_z = _get_z_at_point(other_road_idx, proj_xy)
 
-                # Prüfe ob bereits eine Junction an DIESER Position existiert (positionsbasiert!)
-                # Erlaubt mehrere Junctions zwischen denselben Straßen an verschiedenen Positionen
+                # Check whether a junction already exists at THIS position (position-based!)
+                # Allows several junctions between the same roads at different positions
                 existing_junction = junction_index.find(proj_xy[0], proj_xy[1])
 
-                # Wenn Junction existiert, versuche Straßen hinzuzufügen statt zu überspringen
+                # If a junction exists, try to add roads instead of skipping
                 if existing_junction is not None:
-                    # Versuche Straßen zu dieser existierenden Junction hinzuzufügen
+                    # Try to add roads to this existing junction
                     through_dir = _get_direction_at_point(other_road_idx, proj_xy)
 
-                    # Stelle sicher dass connection_types initialisiert ist
+                    # Make sure connection_types is initialized
                     if "connection_types" not in existing_junction:
                         existing_junction["connection_types"] = {}
                     if "direction_vectors" not in existing_junction:
                         existing_junction["direction_vectors"] = {}
 
-                    # Füge erste Straße hinzu oder aktualisiere connection_type
+                    # Add the first road or update connection_type
                     if road_idx not in existing_junction["road_indices"]:
                         existing_junction["road_indices"].append(road_idx)
 
@@ -436,7 +436,7 @@ def detect_junctions_in_centerlines(road_polygons, height_points=None, height_el
                         existing_junction["connection_types"][road_idx].append(conn_type)
                     existing_junction["direction_vectors"][road_idx] = _direction_at_endpoint(road_idx, is_start)
 
-                    # Füge zweite Straße hinzu oder aktualisiere connection_type
+                    # Add the second road or update connection_type
                     if other_road_idx not in existing_junction["road_indices"]:
                         existing_junction["road_indices"].append(other_road_idx)
 
@@ -446,13 +446,13 @@ def detect_junctions_in_centerlines(road_polygons, height_points=None, height_el
                         existing_junction["connection_types"][other_road_idx].append("mid")
                     existing_junction["direction_vectors"][other_road_idx] = through_dir
 
-                    continue  # Fertig mit dieser Prüfung
+                    continue  # Done with this check
 
-                # Richtung auf der Linie an der Projektionsstelle
+                # Direction on the line at the projection point
                 through_dir = _get_direction_at_point(other_road_idx, proj_xy)
                 new_junc_pos = (proj_xy[0], proj_xy[1], proj_z)
 
-                # Versuche mit bestehender Junction zu mergen
+                # Try to merge with an existing junction
                 merged = False
                 j = junction_index.find(new_junc_pos[0], new_junc_pos[1])
                 if j is not None:
@@ -478,13 +478,13 @@ def detect_junctions_in_centerlines(road_polygons, height_points=None, height_el
                     _add_junction(new_junc_pos, [], extra_connections=extra_conns)
 
 
-    # ---- Dritte Erkennung: Line-on-Line Kreuzungen (X-Junctions ohne Endpoint-Match) ----
-    # Erkennt Kreuzungen, wo zwei Straßen sich kreuzen, aber die Endpunkte nicht exakt aufeinander treffen
+    # ---- Third detection: line-on-line crossings (X-junctions without an endpoint match) ----
+    # Detects crossings where two roads cross but the endpoints do not meet exactly
 
     ll_search_radius = config.GRID_SPACING * 2.5
-    ll_line_tol = 1.0  # Meter - Toleranz für Line-zu-Line Entfernung (1m)
+    ll_line_tol = 1.0  # meters - tolerance for line-to-line distance (1 m)
 
-    # Verwende den bereits erstellten KDTree der Linienpunkte für Performance
+    # Use the already created KDTree of the line points for performance
     if line_points_xy and indexed_geoms:
         tree = STRtree(indexed_geoms)
 
@@ -502,12 +502,12 @@ def detect_junctions_in_centerlines(road_polygons, height_points=None, height_el
                 road_bounds[3] + pad,
             )
 
-            # Nur Kandidaten mit größerer Straßen-Nummer, und deren Abstand zur Linie EINMAL vektorisiert prüfen
-            # (Reihenfolge der Kandidaten bleibt die des STRtree, damit die Junction-Reihenfolge gleich bleibt).
+            # Only candidates with a larger road number, and check their distance to the line ONCE, vectorized
+            # (candidate order stays that of the STRtree, so the junction order stays the same).
             candidates = [c for c in tree.query(query_geom).tolist() if c > road_idx]
             if not candidates:
                 continue
-            # dwithin über den STRtree (Index + vorbereitete Geometrie) statt distance() je Paar
+            # dwithin via the STRtree (index + prepared geometry) instead of distance() per pair
             near = set(tree.query(road_line, predicate="dwithin", distance=ll_line_tol).tolist())
 
             for other_idx in candidates:
@@ -516,7 +516,7 @@ def detect_junctions_in_centerlines(road_polygons, height_points=None, height_el
                 other_line = line_strings[other_road_idx]
 
                 if other_idx not in near:
-                    continue  # Abstand > ll_line_tol
+                    continue  # distance > ll_line_tol
 
                 intersection = road_line.intersection(other_line)
 
@@ -542,7 +542,7 @@ def detect_junctions_in_centerlines(road_polygons, height_points=None, height_el
                         continue
 
                 if junction_index.find(cross_x, cross_y) is not None:
-                    continue  # an dieser Stelle gibt es schon eine Junction
+                    continue  # there is already a junction at this location
 
                 best_z1 = _get_z_at_point(road_idx, (cross_x, cross_y))
                 best_z2 = _get_z_at_point(other_road_idx, (cross_x, cross_y))
@@ -579,19 +579,19 @@ def detect_junctions_in_centerlines(road_polygons, height_points=None, height_el
 
 def mark_junction_endpoints(road_polygons, junctions):
     """
-    Markiert Strassen-Endpoints, die zu Junctions gehoeren.
+    Marks road endpoints that belong to junctions.
 
-    Dies wird später bei der Mesh-Generierung verwendet, um diese Punkte
-    beim Stitchen zu identifizieren.
+    This is used later during mesh generation to identify these points
+    when stitching.
 
     Args:
-        road_polygons: Liste von Strassen (wird modifiziert)
-        junctions: Liste von Junctions aus detect_junctions_in_centerlines()
+        road_polygons: List of roads (is modified)
+        junctions: List of junctions from detect_junctions_in_centerlines()
 
     Returns:
-        Modifizierte road_polygons mit 'junction_indices' attribute
+        Modified road_polygons with a 'junction_indices' attribute
     """
-    # Markiere jeden Endpoint
+    # Mark every endpoint
     for road_idx, road in enumerate(road_polygons):
         road["junction_indices"] = {"start": None, "end": None}
 
@@ -608,9 +608,9 @@ def mark_junction_endpoints(road_polygons, junctions):
 
 def _same_xy(a, b) -> bool:
     """
-    np.allclose(a[:2], b[:2], atol=1e-6) für genau zwei Koordinaten - bitgleiche Formel (inkl. der relativen
-    Standardtoleranz rtol=1e-5, bei Koordinaten um 1000 m also ca. 1 cm), aber ohne den numpy-Overhead:
-    allclose kostet je Aufruf ~50 µs und wurde beim Split zehntausendfach aufgerufen.
+    np.allclose(a[:2], b[:2], atol=1e-6) for exactly two coordinates - bit-identical formula (including the relative
+    default tolerance rtol=1e-5, i.e. about 1 cm for coordinates around 1000 m), but without the numpy overhead:
+    allclose costs ~50 µs per call and was called tens of thousands of times during the split.
     """
     ax, ay, bx, by = float(a[0]), float(a[1]), float(b[0]), float(b[1])
     return abs(ax - bx) <= 1e-6 + 1e-5 * abs(bx) and abs(ay - by) <= 1e-6 + 1e-5 * abs(by)
@@ -618,11 +618,11 @@ def _same_xy(a, b) -> bool:
 
 def split_roads_at_mid_junctions(road_polygons, junctions, merge_tol=0.5):
     """
-    Splittet Strassen an Junction-Punkten, die als "mid" erkannt wurden.
+    Splits roads at junction points that were detected as "mid".
 
-    Ergebnis: neue Road-Liste, in der jeder Abschnitt eine eigene Strasse mit
-    Start/End-Junction besitzt. Alle Eigenschaften der Originalstrasse werden
-    kopiert, die IDs werden um einen Teil-Suffix erweitert.
+    Result: new road list in which each section is its own road with a
+    start/end junction. All properties of the original road are
+    copied, the IDs are extended by a part suffix.
     """
 
     if not junctions or not road_polygons:
@@ -649,8 +649,8 @@ def split_roads_at_mid_junctions(road_polygons, junctions, merge_tol=0.5):
             return base_id * 1000 + part_idx
         return f"{base_id}_p{part_idx}"
 
-    # Straße -> [(Junction-Index, Verbindungsarten)] in Junction-Reihenfolge - einmal aufgebaut statt je Straße alle
-    # Junctions zu durchlaufen (Straßen x Junctions)
+    # Road -> [(junction index, connection types)] in junction order - built once instead of iterating over all
+    # junctions for each road (roads x junctions)
     connections_by_road = {}
     for j_idx, j in enumerate(junctions):
         for r_idx, conn in j.get("connection_types", {}).items():
@@ -662,7 +662,7 @@ def split_roads_at_mid_junctions(road_polygons, junctions, merge_tol=0.5):
     for road_idx, road in enumerate(road_polygons):
         coords = np.asarray(road.get("coords", []), dtype=float)
         if len(coords) < 2:
-            # Unveraendert uebernehmen - mit explizitem osm_tags-Copy
+            # Take over unchanged - with an explicit osm_tags copy
             new_road = {
                 "id": road.get("id"),
                 "coords": road.get("coords", []),
@@ -673,11 +673,11 @@ def split_roads_at_mid_junctions(road_polygons, junctions, merge_tol=0.5):
                 "end_junction_id": None,
             }
             new_roads.append(new_road)
-            # Mapping setzen, damit Junctions ihre Verbindungen behalten
+            # Set the mapping so that junctions keep their connections
             old_to_new_map[road_idx] = [len(new_roads) - 1]
             continue
 
-        # Sammle bekannte Start/End-Junctions aus originalen connection_types
+        # Collect known start/end junctions from the original connection_types
         start_junc_id = None
         end_junc_id = None
         road_connections = connections_by_road.get(road_idx, [])
@@ -687,7 +687,7 @@ def split_roads_at_mid_junctions(road_polygons, junctions, merge_tol=0.5):
             if "end" in conn:
                 end_junc_id = j_idx
 
-        # Sammle alle mid-Junctions fuer diese Strasse
+        # Collect all mid junctions for this road
         cut_marks = []
         for j_idx, conn in road_connections:
             if "mid" not in conn:
@@ -709,11 +709,11 @@ def split_roads_at_mid_junctions(road_polygons, junctions, merge_tol=0.5):
             best_t = float(t[best])
             best_proj = proj[best]
             best_z = coords[best, 2] + best_t * (coords[best + 1, 2] - coords[best, 2])
-            # Arc-Position als segmentindex + t
+            # Arc position as segment index + t
             cut_marks.append((best + best_t, best_proj[0], best_proj[1], best_z, j_idx))
 
         if not cut_marks:
-            # Keine Schnitte - mit explizitem osm_tags-Copy
+            # No cuts - with an explicit osm_tags copy
             new_road = {
                 "id": road.get("id"),
                 "coords": road.get("coords", []),
@@ -724,11 +724,11 @@ def split_roads_at_mid_junctions(road_polygons, junctions, merge_tol=0.5):
                 "end_junction_id": None,
             }
             new_roads.append(new_road)
-            # Mapping setzen, damit unveraenderte Strassen in Junctions verbleiben
+            # Set the mapping so that unchanged roads remain in junctions
             old_to_new_map[road_idx] = [len(new_roads) - 1]
             continue
 
-        # Doppelte Schnitte (nahe beieinander) zusammenfassen
+        # Merge duplicate cuts (close together)
         cut_marks.sort(key=lambda x: x[0])
         merged_cuts = []
         for c in cut_marks:
@@ -737,11 +737,11 @@ def split_roads_at_mid_junctions(road_polygons, junctions, merge_tol=0.5):
                 continue
             last = merged_cuts[-1]
             if abs(c[0] - last[0]) <= 1e-4:
-                merged_cuts[-1] = c  # ersetze mit letzter (gleiches Segment)
+                merged_cuts[-1] = c  # replace with the last one (same segment)
             else:
                 merged_cuts.append(c)
 
-        # Map Segment -> Cuts
+        # Map segment -> cuts
         cuts_by_seg = {}
         for c in merged_cuts:
             s_pos = c[0]
@@ -758,37 +758,37 @@ def split_roads_at_mid_junctions(road_polygons, junctions, merge_tol=0.5):
                 seg_cuts = sorted(cuts_by_seg[seg_idx], key=lambda x: x[0])
                 for t_seg, x_cut, y_cut, z_cut, j_idx in seg_cuts:
                     cut_pt = np.array([x_cut, y_cut, z_cut])
-                    # Schnittpunkt nur anhängen, wenn er nicht schon der letzte Punkt ist (t_seg kann durch die
-                    # floor()-Segmentzuordnung in split_roads_at_mid_junctions exakt auf den Vorgänger-Endpunkt
-                    # fallen) - sonst entstünde ein 0-Länge-Segment (siehe test_junction_split.py). Der Split
-                    # (neues Teilstück) passiert trotzdem, nur ohne doppelten Punkt.
+                    # Only append the cut point if it is not already the last point (t_seg can fall exactly on the
+                    # predecessor end point due to the floor() segment assignment in split_roads_at_mid_junctions)
+                    # - otherwise a zero-length segment would arise (see test_junction_split.py). The split
+                    # (new part) still happens, just without a duplicate point.
                     if not _same_xy(current_coords[-1], cut_pt):
                         current_coords.append(cut_pt)
                     parts.append((current_coords, current_start_j, j_idx))
                     current_coords = [cut_pt]
                     current_start_j = j_idx
-            # füge Ende des Segments hinzu, falls kein Cut dort endet (derselbe 0-Länge-Schutz wie oben: ein
-            # Cut, dessen Projektion auf den Segment-Endpunkt fällt, hat current_coords bereits dorthin gesetzt)
+            # add the end of the segment if no cut ends there (same zero-length guard as above: a
+            # cut whose projection falls on the segment end point has already set current_coords there)
             next_pt = coords[seg_idx + 1]
             if not _same_xy(current_coords[-1], next_pt):
                 current_coords.append(next_pt)
 
-        # letztes Teilstück
+        # last part
         parts.append((current_coords, current_start_j, end_junc_id))
 
-        # Baue neue Roads aus Parts
+        # Build new roads from the parts
         base_id = road.get("id", f"road{road_idx}")
         new_ids_for_this = []
         for idx, (coords_part, start_j, end_j) in enumerate(parts, 1):
             coords_arr = np.asarray(coords_part)
             if len(coords_arr) < 2:
                 continue
-            # FIX: Explizites Kopieren aller Felder inklusive osm_tags
+            # FIX: explicitly copy all fields including osm_tags
             new_road = {
                 "id": _new_id(base_id, idx),
                 "coords": coords_arr.tolist(),
                 "name": road.get("name", ""),
-                "osm_tags": dict(road.get("osm_tags", {})),  # Deep copy von osm_tags
+                "osm_tags": dict(road.get("osm_tags", {})),  # Deep copy of osm_tags
                 "start_junction_id": start_j,
                 "end_junction_id": end_j,
                 "junction_indices": {"start": start_j, "end": end_j},
@@ -801,7 +801,7 @@ def split_roads_at_mid_junctions(road_polygons, junctions, merge_tol=0.5):
         else:
             old_to_new_map[road_idx] = []
 
-    # Rebaue Junction-Liste basierend auf den neuen Roads, bewahre Junction-Zahl
+    # Rebuild the junction list based on the new roads, preserve the junction count
     new_junctions = []
     for j_idx, j in enumerate(junctions):
         pos = junction_positions[j_idx]
@@ -815,7 +815,7 @@ def split_roads_at_mid_junctions(road_polygons, junctions, merge_tol=0.5):
                 road = new_roads[new_ridx]
                 coords_arr = np.asarray(road.get("coords", []), dtype=float)
 
-                # Setze fehlende Start/End IDs falls nötig
+                # Set missing start/end IDs if necessary
                 if "start" in conn_list and road.get("start_junction_id") is None:
                     road["start_junction_id"] = j_idx
                     road["junction_indices"]["start"] = j_idx
@@ -823,7 +823,7 @@ def split_roads_at_mid_junctions(road_polygons, junctions, merge_tol=0.5):
                     road["end_junction_id"] = j_idx
                     road["junction_indices"]["end"] = j_idx
 
-                # Nur zählen, wenn das Teilstück tatsächlich an dieser Junction startet/endet
+                # Only count if the part actually starts/ends at this junction
                 if road.get("start_junction_id") == j_idx:
                     roads_here.append(new_ridx)
                     conn_types.setdefault(new_ridx, []).append("start")
@@ -849,13 +849,13 @@ def split_roads_at_mid_junctions(road_polygons, junctions, merge_tol=0.5):
 
 
 
-OSM_NODE_JUNCTION_TOL = 1.0  # so nah muss eine Tunnel-Junction an einem gemeinsamen OSM-Knoten liegen, in Metern
+OSM_NODE_JUNCTION_TOL = 1.0  # how close a tunnel junction must be to a shared OSM node, in meters
 
 
 def _shared_osm_node_points(road_polygons):
     """
-    Lage (x, y) aller OSM-Knoten, die mindestens zwei VERSCHIEDENE Ways gemeinsam haben - oder None, wenn nicht
-    für alle Straßen Knoten bekannt sind (dann lässt sich nichts ausschließen).
+    Position (x, y) of all OSM nodes shared by at least two DIFFERENT ways - or None if nodes are not known
+    for all roads (then nothing can be excluded).
     """
     ways_of_node = {}
     position = {}
@@ -870,8 +870,8 @@ def _shared_osm_node_points(road_polygons):
 
 
 def _junction_network(road_polygons, allowed_points=None):
-    """detect -> split -> mark für ein in sich geschlossenes Straßennetz. Mit `allowed_points` ((N, 2) Array)
-    bleiben nur Junctions, die höchstens OSM_NODE_JUNCTION_TOL von einem dieser Punkte entfernt liegen."""
+    """detect -> split -> mark for a self-contained road network. With `allowed_points` ((N, 2) array),
+    only junctions that lie at most OSM_NODE_JUNCTION_TOL from one of these points are kept."""
     junctions = detect_junctions_in_centerlines(road_polygons)
     if allowed_points is not None:
         if len(allowed_points) == 0:
@@ -879,24 +879,23 @@ def _junction_network(road_polygons, allowed_points=None):
         else:
             tree = cKDTree(allowed_points)
             junctions = [j for j in junctions if tree.query(j["position"][:2])[0] <= OSM_NODE_JUNCTION_TOL]
-    road_polygons, junctions = split_roads_at_mid_junctions(road_polygons, junctions)  # ZUERST Split
-    road_polygons = mark_junction_endpoints(road_polygons, junctions)  # DANN Mark
+    road_polygons, junctions = split_roads_at_mid_junctions(road_polygons, junctions)  # Split FIRST
+    road_polygons = mark_junction_endpoints(road_polygons, junctions)  # THEN mark
     return road_polygons, junctions
 
 
 def build_junction_network(road_polygons):
     """
-    Junction-Erkennung, Split an Mid-Junctions und Endpunkt-Markierung (detect -> split -> mark) - getrennt für
-    Tunnel und alle übrigen Straßen.
+    Junction detection, split at mid junctions and endpoint marking (detect -> split -> mark) - separately for
+    tunnels and all other roads.
 
-    Tunnel liegen auf einer anderen Ebene und bilden nie Kreuzungen mit Oberflächenstraßen: ein Weg, der in 2D
-    über einen Tunnel führt, ist keine Einmündung - sonst würden beide dort geteilt, und die Tunnel-Stücke
-    bekämen Portale mitten im Berg. Untereinander bilden Tunnel dagegen echte Junctions (Abzweigungen im Tunnel),
-    deshalb läuft für sie eine eigene Erkennung - aber nur dort, wo sich die Ways in OSM einen Knoten teilen:
-    zwei Tunnel, die sich in 2D in unterschiedlicher Tiefe kreuzen (z.B. Festungsstollen über dem Gotthard-
-    Straßentunnel), haben keinen gemeinsamen Knoten und bleiben ungeteilt. Beide Netze werden danach
-    zusammengeführt (erst die übrigen Straßen, dann die Tunnel); Straßen- und Junction-Indizes des Tunnel-Netzes
-    werden dafür verschoben.
+    Tunnels lie on a different level and never form crossings with surface roads: a path that leads over a tunnel
+    in 2D is not a junction - otherwise both would be split there, and the tunnel pieces would get portals in the
+    middle of the mountain. Among themselves, however, tunnels do form real junctions (branches inside the tunnel),
+    so they get their own detection - but only where the ways share a node in OSM: two tunnels that cross in 2D at
+    different depths (e.g. fortress tunnels above the Gotthard road tunnel) have no shared node and stay
+    unsplit. Both networks are merged afterwards (first the other roads, then the tunnels); road and junction
+    indices of the tunnel network are shifted for this.
 
     Returns:
         (road_polygons, junctions)

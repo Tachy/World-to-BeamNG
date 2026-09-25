@@ -227,7 +227,7 @@
                 "tree_beech_large_b": 0.1,
                 "tree_beech_large_c": 0.1
             },
-            "comment": "Dichter Laubwald - Buchen und Eichen (klassischer deutscher Wald)"
+            "comment": "Dense deciduous forest - beech and oak (classic German forest)"
         },
         "german_mixed_forest": {
             "tree_density": 0.85,
@@ -250,7 +250,7 @@
                 "tree_douglasfir_group": 0.1,
                 "tree_douglasfir_group_low": 0.1
             },
-            "comment": "Mischwald - Buchen, Eichen und Espen (vielfältiger Bestand)"
+            "comment": "Mixed forest - beech, oak and aspen (diverse stand)"
         },
         "german_low_deciduous": {
             "tree_density": 0.7,
@@ -274,7 +274,7 @@
                 "tree_oak_sml_a": 0.09090909090909091,
                 "tree_oak_sml_b": 0.09090909090909091
             },
-            "comment": "Niedriger Laubwald (6-13 m) - alles mit Bäumen außer landuse=forest und Gehölzen (natural/landuse=wood); average_height wirkt als Skalierung (Zielhöhe/20 m)"
+            "comment": "Low deciduous forest (6-13 m) - everything with trees except landuse=forest and woods (natural/landuse=wood); average_height acts as a scale (target height/20 m)"
         },
         "garden_mixed": {
             "tree_density": 0.3,
@@ -305,7 +305,7 @@
                 "tree_beech_bush_b": 0.06875,
                 "generibush_small": 0.06875
             },
-            "comment": "Gärten/Kleingärten - lichte kleine Laubbäume (Obstbaum-Größe) und Büsche; es gibt keine echten Obstbaum-Assets in BeamNG"
+            "comment": "Gardens/allotments - sparse small deciduous trees (fruit tree size) and bushes; BeamNG has no real fruit tree assets"
         },
         "residential_green": {
             "tree_density": 0.3,
@@ -326,7 +326,7 @@
                 "tree_beech_bush_b": 0.125,
                 "generibush_small": 0.125
             },
-            "comment": "Wohngebiete - lichte Büsche zwischen den Häusern (Straßen/Gebäude werden ausgespart)"
+            "comment": "Residential areas - sparse bushes between the houses (roads/buildings are left out)"
         },
         "single_tree": {
             "tree_density": 1.0,
@@ -344,7 +344,7 @@
                 "tree_beech_large_b": 0.2,
                 "tree_beech_large_c": 0.2
             },
-            "comment": "Einzelbäume (OSM natural=tree als Punkt): große, breitkronige Laubbäume (Eiche/Buche, 13-21 m); average_height wirkt als Skalierung (Zielhöhe/20 m)"
+            "comment": "Single trees (OSM natural=tree as a point): large, broad-crowned deciduous trees (oak/beech, 13-21 m); average_height acts as a scale (target height/20 m)"
         },
         "german_broadleaf_undergrowth": {
             "tree_density": 3.6,
@@ -370,7 +370,7 @@
                 "tree_beech_bush_b": 0.04375,
                 "generibush_small": 0.04375
             },
-            "comment": "Dichter Laubwald aus großen, breitkronigen Eichen/Buchen (kein Nadelholz) mit Unterholz (Büsche, ca. 35 %) - für Gehölze (natural=wood, landuse=wood)"
+            "comment": "Dense deciduous forest of large, broad-crowned oaks/beeches (no conifers) with undergrowth (bushes, approx. 35 %) - for woods (natural=wood, landuse=wood)"
         },
         "tree_row": {
             "tree_density": 1.0,
@@ -393,7 +393,7 @@
                 "tree_oak_sml_a": 0.1111111111111111,
                 "tree_oak_sml_b": 0.1111111111111111
             },
-            "comment": "Baumreihe (OSM natural=tree_row ist eine LINIE): Bäume im Abstand row_spacing entlang der Linie"
+            "comment": "Tree row (OSM natural=tree_row is a LINE): trees at spacing row_spacing along the line"
         },
         "german_sparse_deciduous": {
             "tree_density": 0.4,
@@ -416,7 +416,7 @@
                 "tree_aspen_small_d": 0.1,
                 "tree_aspen_small_low": 0.1
             },
-            "comment": "Lichter Laubwald - überwiegend Busch- und kleinere Bäume"
+            "comment": "Sparse deciduous forest - mostly bushes and smaller trees"
         },
         "orchard_area": {
             "tree_density": 0.3,
@@ -432,7 +432,7 @@
                 "tree_oak_sml_b": 0.3333333333333333,
                 "tree_beech_small_c": 0.3333333333333333
             },
-            "comment": "Obstplantage - ca. 5 m hohe, breitkronige (rundliche) Laubbäume in ca. 9 m Abstand; average_height wirkt als Skalierung (Zielhöhe/20 m, min. 0,5): Modelle 8,5-9,9 m x 0,5-0,6"
+            "comment": "Orchard - approx. 5 m tall, broad-crowned (roundish) deciduous trees at approx. 9 m spacing; average_height acts as a scale (target height/20 m, min. 0.5): models 8.5-9.9 m x 0.5-0.6"
         },
         "hedgerow": {
             "tree_density": 0.2,
@@ -451,7 +451,7 @@
                 "tree_aspen_small_d": 0.16666666666666666,
                 "tree_aspen_small_low": 0.16666666666666666
             },
-            "comment": "Hecke/Feldgehölz - dünne, lineare Bestände"
+            "comment": "Hedgerow/field copse - thin, linear stands"
         },
         "dead_forest": {
             "tree_density": 0.3,
@@ -471,7 +471,7 @@
                 "tree_oak_dead_a": 0.14285714285714285,
                 "tree_oak_dead_b": 0.14285714285714285
             },
-            "comment": "Totholz/Verfallender Wald - dürre, tote Bäume"
+            "comment": "Dead wood/decaying forest - dry, dead trees"
         }
     },
     "forest_mappings": {
@@ -592,7 +592,7 @@
                 "grass_short",
                 "dry_grass_short"
             ],
-            "comment": "Gras zwischen den Rebzeilen; die Reben selbst sind Forest-Items (grape_vine).",
+            "comment": "Grass between the vine rows; the vines themselves are forest items (grape_vine).",
             "rows": {
                 "item": "grape_vine",
                 "orientation": "gradient",
@@ -606,7 +606,7 @@
                     0.97,
                     1.03
                 ],
-                "comment": "orientation: 'gradient' = Zeilen laufen entlang der Falllinie (Steigungsgradient), 'contour' = entlang der Höhenlinien. Bei fast ebenem Gelände (< min_slope_percent) richtet sich die Zeile nach der Längsachse der Fläche. Die Zeilen laufen bis exakt an den Polygonrand (edge_margin 0); die Segmente werden gleichmäßig auf die Zeilenlänge verteilt. Große Flächen werden in Blöcke geteilt (Mindestgröße min_block_area), wenn die Falllinie darin im Mittel mehr als max_direction_spread_deg schwankt; jeder Block bekommt dann seine eigene Zeilenrichtung. Alternative mit ca. 8x weniger Instanzen: item=grape_vine_group, segment_length=16.0, row_spacing=7.5 (ein Block = 3 Zeilen)."
+                "comment": "orientation: 'gradient' = rows run along the fall line (slope gradient), 'contour' = along the contour lines. On nearly flat terrain (< min_slope_percent) the rows follow the long axis of the area. The rows run exactly to the polygon edge (edge_margin 0); the segments are distributed evenly over the row length. Large areas are split into blocks (minimum size min_block_area) if the fall line inside them varies on average by more than max_direction_spread_deg; each block then gets its own row direction. Alternative with approx. 8x fewer instances: item=grape_vine_group, segment_length=16.0, row_spacing=7.5 (one block = 3 rows)."
             }
         },
         "orchard": {
@@ -725,7 +725,7 @@
                 "grass_short",
                 "grass_close"
             ],
-            "comment": "Wohngebiete: Rasen (Luftbild bleibt als Grundfarbe). Straßen und Gebäude werden per Maske ausgespart; Gärten/Parks/Wiesen darin haben mit höherer Priorität ihre eigene Schicht."
+            "comment": "Residential areas: lawn (the aerial photo stays as the base color). Roads and buildings are left out via a mask; gardens/parks/meadows inside have their own layer with higher priority."
         },
         "urban": {
             "osm_tags": {
@@ -742,7 +742,7 @@
             },
             "priority": 12,
             "keep_photo": true,
-            "comment": "Gewerbe-/Industriegebiete: das Luftbild bleibt (Hallen, Höfe, Straßen sind im Foto)."
+            "comment": "Commercial/industrial areas: the aerial photo stays (halls, yards, roads are in the photo)."
         },
         "bare_ground": {
             "osm_tags": {
@@ -756,7 +756,7 @@
             },
             "priority": 12,
             "keep_photo": true,
-            "comment": "Steinbruch/nackter Fels/Geröll: kein eigenes Fels-Material im Projekt - das Luftbild zeigt das bereits realistisch, also bleibt es stehen statt Gras zu bekommen."
+            "comment": "Quarry/bare rock/scree: the project has no rock material of its own - the aerial photo already shows this realistically, so it stays instead of getting grass."
         },
         "region": {
             "osm_tags": {
@@ -766,7 +766,7 @@
             },
             "active": false,
             "keep_photo": true,
-            "comment": "Benannte Regionen (Relationen wie natural=mountain_range) sind keine Bodenfläche - bewusst bekannt, aber weder eine eigene Kategorie noch der generische Gras-Default (siehe get_landuse_category()). keep_photo nur, damit test_material_categories_are_complete_and_unique() diesen inaktiven Eintrag nicht als echte Material-Kategorie zählt - er wird wegen active:false ohnehin nie ausgewählt."
+            "comment": "Named regions (relations like natural=mountain_range) are not a ground area - known on purpose, but neither a category of their own nor the generic grass default (see get_landuse_category()). keep_photo only so that test_material_categories_are_complete_and_unique() does not count this inactive entry as a real material category - it is never selected anyway because of active:false."
         },
         "water": {
             "osm_tags": {
@@ -789,7 +789,7 @@
             },
             "priority": 15,
             "use_material_of": "meadow",
-            "comment": "Wasserflächen: der Boden unter dem Wasser ist Wiese (Material und Bodenbewuchs der Kategorie meadow). Das Wasser selbst sind WaterBlock-/River-Objekte (terrain/water.py), das Terrain wird dort vorher tiefergelegt."
+            "comment": "Water areas: the ground under the water is meadow (material and ground cover of the category meadow). The water itself consists of WaterBlock/River objects (terrain/water.py); the terrain is lowered there beforehand."
         }
     }
 }

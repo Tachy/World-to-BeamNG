@@ -1,19 +1,19 @@
 """
-Bruchsteinmauern aus OSM-Linien (`barrier=wall`, `barrier=retaining_wall`).
+Rubble stone walls from OSM lines (`barrier=wall`, `barrier=retaining_wall`).
 
-Nur Mauern mit `height`-Tag werden gebaut (ohne Höhenangabe wäre die Höhe geraten). Die Mauer ist ein Band von
-~50 cm Dicke entlang der Linie, das dem Gelände folgt: Oberkante = Basis an der Mittellinie + Höhe, Unterkante
-beidseitig unter dem jeweiligen Boden, damit am Fuß kein Spalt bleibt. Ecken sind auf Gehrung geschnitten.
+Only walls with a `height` tag are built (without a height value the height would be a guess). The wall is a band of
+~50 cm thickness along the line that follows the terrain: top edge = base at the centerline + height, bottom edge
+on both sides below the respective ground, so that no gap remains at the foot. Corners are mitered.
 
-Oben liegen Abdeckplatten (wall_cap.py): Steinplatten von `cap_thickness` Dicke, die ein paar Zentimeter überstehen.
-Die Gesamthöhe (Plattenoberkante) ist die OSM-Höhe, der Mauerkörper endet um die Plattendicke tiefer.
+Cap slabs (wall_cap.py) sit on top: stone slabs of `cap_thickness` thickness that project a few centimeters.
+The total height (slab top edge) is the OSM height, the wall body ends lower by the slab thickness.
 
-Basis = Boden an der Mittellinie. Liegt ein Punkt der Mittellinie höchstens N Meter neben einer Straßen-Centerline
-(`road_base_at`, siehe road_base.py), ist die Basis stattdessen die Höhe dieser Centerline; die Unterkante reicht
-dort bis unter das Gelände oder die Straße, je nachdem, was tiefer liegt.
+Base = ground at the centerline. If a point of the centerline is at most N meters from a road centerline
+(`road_base_at`, see road_base.py), the base is instead the height of that centerline; the bottom edge there
+reaches down below the terrain or the road, whichever is lower.
 
-Jede Fläche hat eigene Eckpunkte (harte Kanten) und explizite Normalen. UVs sind in Textur-Kacheln angegeben
-(Kachelgröße `tile_m` Meter), das Material wiederholt sich also mit tiling_scale 1.
+Every face has its own vertices (hard edges) and explicit normals. UVs are given in texture tiles
+(tile size `tile_m` meters), so the material repeats with tiling_scale 1.
 """
 
 import math
@@ -29,12 +29,12 @@ HeightAt = Callable[[np.ndarray, np.ndarray], np.ndarray]
 ToLocal = Callable[[Sequence[Dict]], List[Tuple[float, float]]]
 
 WALL_BARRIERS = ("wall", "retaining_wall")
-STONE_MATERIALS = (None, "stone")  # ohne material-Tag wird Stein angenommen; Ziegel, Beton, Holz ... nicht
-MAX_PLAUSIBLE_HEIGHT = 10.0  # darüber ist die Angabe ein Tippfehler
+STONE_MATERIALS = (None, "stone")  # without a material tag stone is assumed; brick, concrete, wood ... are not
+MAX_PLAUSIBLE_HEIGHT = 10.0  # above this the value is a typo
 
 
 def parse_wall_height(value: Optional[str]) -> Optional[float]:
-    """OSM-`height` wie "1.50", "3", "2 m" oder "2,5" -> Meter; None bei fehlender oder unplausibler Angabe."""
+    """OSM `height` such as "1.50", "3", "2 m" or "2,5" -> meters; None if missing or implausible."""
     if not value:
         return None
     match = re.fullmatch(r"\s*(\d+(?:[.,]\d+)?)\s*m?\s*", str(value))
@@ -51,10 +51,10 @@ def _is_stone_wall(element: Dict) -> bool:
 
 def select_walls(osm_data: Sequence[Dict], to_local: ToLocal) -> List[Dict]:
     """
-    Mauern mit Höhenangabe aus OSM-Ways in lokalen Koordinaten.
+    Walls with a height value from OSM ways in local coordinates.
 
     Returns:
-        [{"osm_id", "height", "coords": [(x, y), ...]}] - ohne `height`-Tag (oder mit anderem Material als Stein) entfällt die Mauer
+        [{"osm_id", "height", "coords": [(x, y), ...]}] - a wall without a `height` tag (or with a material other than stone) is dropped
     """
     walls = []
     for element in osm_data:
@@ -69,7 +69,7 @@ def select_walls(osm_data: Sequence[Dict], to_local: ToLocal) -> List[Dict]:
 
 
 def _densify(points: np.ndarray, max_step: float, closed: bool) -> np.ndarray:
-    """Zusätzliche Punkte, damit kein Segment länger als `max_step` ist (die Mauer soll dem Gelände folgen)."""
+    """Additional points so that no segment is longer than `max_step` (the wall is meant to follow the terrain)."""
     ring = np.vstack([points, points[:1]]) if closed else points
     result = [ring[0]]
     for start, end in zip(ring[:-1], ring[1:]):
@@ -96,15 +96,15 @@ def build_wall_mesh(
     seed: int = 0,
 ) -> Dict:
     """
-    Mesh einer Mauer entlang `coords` (lokale x, y; geschlossen, wenn erster = letzter Punkt).
+    Mesh of a wall along `coords` (local x, y; closed if first = last point).
 
     Args:
-        road_base_at: (x, y) -> Höhe der Straßen-Centerline in Snap-Distanz, NaN sonst (RoadBaseHeight)
-        cap_thickness, cap_overhang, cap_plate_length, cap_joint: Abdeckplatten (Dicke 0 = keine Platten)
-        seed: Startwert der Plattenlängen (je Mauer verschieden, aber bei jedem Lauf gleich)
+        road_base_at: (x, y) -> height of the road centerline within snap distance, NaN otherwise (RoadBaseHeight)
+        cap_thickness, cap_overhang, cap_plate_length, cap_joint: cap slabs (thickness 0 = no slabs)
+        seed: start value of the slab lengths (different per wall, but identical on every run)
 
     Returns:
-        {"vertices": (N, 3), "uvs": (N, 2), "normals": (N, 3), "faces": [[a, b, c], ...]}; Z absolut wie das Gelände
+        {"vertices": (N, 3), "uvs": (N, 2), "normals": (N, 3), "faces": [[a, b, c], ...]}; Z absolute like the terrain
     """
     points = np.array(coords, dtype=float)
     closed = len(points) > 3 and np.allclose(points[0], points[-1])
@@ -119,13 +119,13 @@ def build_wall_mesh(
     road = np.asarray(road_base_at(points[:, 0], points[:, 1]), dtype=float) if road_base_at else np.full(len(points), np.nan)
     on_road = ~np.isnan(road)
     base = np.where(on_road, road, ground_center)
-    crown = base + height  # Oberkante der Abdeckplatten = OSM-Höhe
-    top = crown - cap_thickness  # der Mauerkörper endet unter den Platten
+    crown = base + height  # top edge of the cap slabs = OSM height
+    top = crown - cap_thickness  # the wall body ends below the slabs
     bottom_left = np.where(on_road, np.minimum(base, ground_left), ground_left) - sink
     bottom_right = np.where(on_road, np.minimum(base, ground_right), ground_right) - sink
 
     steps = np.linalg.norm(np.roll(points, -1, axis=0) - points, axis=1)
-    along = np.concatenate([[0.0], np.cumsum(steps)]) / tile_m  # u je Punkt; beim Ring hat der Schlusspunkt den Gesamtwert
+    along = np.concatenate([[0.0], np.cumsum(steps)]) / tile_m  # u per point; for a ring the closing point holds the total value
     across = thickness / tile_m
 
     def p3(xy: np.ndarray, z: float) -> List[float]:
@@ -140,7 +140,7 @@ def build_wall_mesh(
         direction = direction / np.linalg.norm(direction)
         left_normal = [float(-direction[1]), float(direction[0]), 0.0]
 
-        # Längsseiten: von der Unterkante (unter dem Boden) bis zur Oberkante
+        # Long sides: from the bottom edge (below the ground) to the top edge
         builder.quad(
             [p3(left[i], bottom_left[i]), p3(left[j], bottom_left[j]), p3(left[j], top[j]), p3(left[i], top[i])],
             [[u0, bottom_left[i] / tile_m], [u1, bottom_left[j] / tile_m], [u1, top[j] / tile_m], [u0, top[i] / tile_m]],
@@ -151,14 +151,14 @@ def build_wall_mesh(
             [[u0, bottom_right[i] / tile_m], [u1, bottom_right[j] / tile_m], [u1, top[j] / tile_m], [u0, top[i] / tile_m]],
             [-left_normal[0], -left_normal[1], 0.0],
         )
-        # Oberseite
+        # Top face
         corners = [p3(left[i], top[i]), p3(left[j], top[j]), p3(right[j], top[j]), p3(right[i], top[i])]
         top_normal = unit_vector(np.cross(np.array(corners[1]) - np.array(corners[0]), np.array(corners[3]) - np.array(corners[0])))
         if top_normal[2] < 0:
             top_normal = [-c for c in top_normal]
         builder.quad(corners, [[u0, 0.0], [u1, 0.0], [u1, across], [u0, across]], top_normal)
 
-    if not closed:  # Stirnflächen an den beiden Enden
+    if not closed:  # end faces at both ends
         for index, sign, neighbour in ((0, -1.0, 1), (len(points) - 1, 1.0, len(points) - 2)):
             direction = points[1] - points[0] if index == 0 else points[-1] - points[neighbour]
             direction = direction / np.linalg.norm(direction)
@@ -205,11 +205,11 @@ def build_walls(
     cap_joint: float = 0.01,
 ) -> Tuple[List[Dict], Dict]:
     """
-    Alle Mauern mit Höhenangabe als Mesh-Dicts für den DAE-Export (`{"id", "vertices", "uvs", "normals", "faces": {material: [...]}}`).
+    All walls with a height value as mesh dicts for the DAE export (`{"id", "vertices", "uvs", "normals", "faces": {material: [...]}}`).
 
     Returns:
-        (Meshes, Statistik {"built", "length", "without_height"}); "without_height" zählt Steinmauern, die mangels
-        Höhenangabe übersprungen wurden
+        (meshes, statistics {"built", "length", "without_height"}); "without_height" counts stone walls that were
+        skipped for lack of a height value
     """
     walls = select_walls(osm_data, to_local)
     meshes, length = [], 0.0

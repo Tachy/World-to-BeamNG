@@ -1,7 +1,7 @@
 """
-Zentrale BeamNG-Exporter-Fassade.
+Central BeamNG exporter facade.
 
-Bietet eine einheitliche API für den gesamten Export-Workflow.
+Provides a unified API for the entire export workflow.
 """
 
 from typing import List, Dict, Tuple
@@ -24,35 +24,35 @@ logger = LoggerConfig.get_logger()
 
 class BeamNGExporter:
     """
-    Zentrale Fassade für BeamNG-Level-Export.
+    Central facade for the BeamNG level export.
 
-    Vereinfacht die API und orchestriert alle Sub-Workflows.
+    Simplifies the API and orchestrates all sub-workflows.
 
-    Beispiel:
+    Example:
         >>> exporter = BeamNGExporter(pipeline)
         >>> exporter.export_complete_level(tiles)
     """
 
     def __init__(self, pipeline: Pipeline):
         """
-        Initialisiere BeamNGExporter.
+        Initialize the BeamNGExporter.
 
         Args:
-            pipeline: Pipeline-Instanz für die Hauptaufgaben-Anzeige (siehe progress.py)
+            pipeline: Pipeline instance for the main task display (see progress.py)
         """
         self.pipeline = pipeline
 
         # Core Components
         self.cache = CacheManager(Path(config.CACHE_DIR))
 
-        # Singleton-Manager (reset für neuen Export)
+        # Singleton managers (reset for a new export)
         MaterialManager.reset_instance()
         self.materials = MaterialManager.get_instance(config.BEAMNG_DIR)
 
         ItemManager.reset_instance()
         self.items = ItemManager.get_instance(config.BEAMNG_DIR)
 
-        # Registriere zentrales Forest-Objekt in items.level.json
+        # Register the central Forest object in items.level.json
         self.items.add_item(
             name="the_forest",
             item_class="Forest",
@@ -62,9 +62,9 @@ class BeamNGExporter:
         )
         logger.debug("✓ Forest object registered in ItemManager")
 
-        self.dae = DAEExporter(material_manager=self.materials)  # Übergebe MaterialManager-Referenz
+        self.dae = DAEExporter(material_manager=self.materials)  # pass the MaterialManager reference
 
-        # Lade osm_to_beamng.json Config (Materials werden SPÄTER generiert!)
+        # Load the osm_to_beamng.json config (materials are generated LATER!)
         osm_config_path = Path("data/osm_to_beamng.json")
         self.osm_config = {}
         self.forest_config = {"forest_type_templates": {}, "forest_mappings": {}}
@@ -72,34 +72,34 @@ class BeamNGExporter:
         if osm_config_path.exists():
             with open(osm_config_path, "r", encoding="utf-8") as f:
                 self.osm_config = json.load(f)
-                # Lade forest_type_templates und forest_mappings
+                # Load forest_type_templates and forest_mappings
                 self.forest_config["forest_type_templates"] = self.osm_config.get("forest_type_templates", {})
                 self.forest_config["forest_mappings"] = self.osm_config.get("forest_mappings", {})
 
-        # Workflows (nutzen MaterialManager/ItemManager.get_instance() intern)
+        # Workflows (use MaterialManager/ItemManager.get_instance() internally)
         self.terrain = TerrainWorkflow(self.cache, self.dae)
         self.buildings = BuildingWorkflow(self.cache, self.dae)
         self.horizon = HorizonWorkflow(self.cache, self.dae)
         self.tile_processor = TileProcessor(self.cache)
-        self.forests = ForestWorkflow(config)  # Nur config, kein Asset Scanning
+        self.forests = ForestWorkflow(config)  # config only, no asset scanning
 
-        # Debug-Exporter für Visualisierung (Singleton - reset für neuen Export)
+        # Debug exporter for visualization (singleton - reset for a new export)
         from ..utils.debug_exporter import DebugNetworkExporter
 
         DebugNetworkExporter.reset_instance()
         self.debug_exporter = DebugNetworkExporter.get_instance()
 
-        # Straßen-Centerlines für die automatische Fahrzeug-Spawn-Position (siehe
+        # Road centerlines for the automatic vehicle spawn position (see
         # managers/item_manager.py::_compute_vehicle_spawn())
         self.road_polygons = None
 
-        # POI-Kandidaten (Orte, große Parkplätze) für zusätzliche Spawn-Punkte, siehe
+        # POI candidates (villages/towns, large parking lots) for additional spawn points, see
         # managers/item_manager.py::_compute_poi_spawn_points()
         self.poi_points = None
         self.tunnel_spawns = None
 
-        # Foto-Kacheln (+ Status) für POI-Vorschaubilder, siehe _finalize_export()/io/aerial.py::
-        # build_poi_preview_image() - None/"none" bis export_complete_level() sie gebaut hat.
+        # Photo tiles (+ status) for POI preview images, see _finalize_export()/io/aerial.py::
+        # build_poi_preview_image() - None/"none" until export_complete_level() has built them.
         self.aerial_photos = None
         self.aerial_photo_status = "none"
 
@@ -109,28 +109,28 @@ class BeamNGExporter:
         global_offset: Tuple[float, float, float],
         include_buildings: bool = True,
         include_horizon: bool = True,
-        include_forests: bool = True,  # NEU: Forest-Export
+        include_forests: bool = True,  # NEW: forest export
     ) -> Dict:
         """
-        Exportiere komplettes BeamNG-Level.
+        Export the complete BeamNG level.
 
         Args:
-            tiles: Liste von Tile-Metadaten
+            tiles: List of tile metadata
             global_offset: (origin_x, origin_y, origin_z)
-            include_buildings: LoD2-Gebäude exportieren
-            include_horizon: Horizon-Layer exportieren
-            include_forests: Wald-Vegetation exportieren (per Config überschreibbar)
+            include_buildings: Export LoD2 buildings
+            include_horizon: Export the horizon layer
+            include_forests: Export forest vegetation (can be overridden via config)
 
         Returns:
-            Dict mit Export-Statistiken
+            Dict with export statistics
         """
         stats = {
             "tiles_processed": 0,
             "tiles_failed": 0,
             "buildings_exported": 0,
             "horizon_exported": False,
-            "forests_registered": 0,  # NEU
-            "trees_generated": 0,  # NEU
+            "forests_registered": 0,  # NEW
+            "trees_generated": 0,  # NEW
             "vine_segments": 0,
         }
 
@@ -138,39 +138,39 @@ class BeamNGExporter:
         if include_forests and not config.FORESTS_ENABLED:
             logger.info("Forest export disabled in config (config.FORESTS_ENABLED=False)")
 
-        # Kombinierter Hash über alle Kacheln - dieselbe Cache-Identität wie in
-        # terrain_workflow.py::process_tile() (OSM/Elevation/Grid), hier zusätzlich für den
-        # DGM30-Horizont-Cache (siehe horizon.py::_dgm30_cache_file()) gebraucht.
+        # Combined hash over all tiles - same cache identity as in
+        # terrain_workflow.py::process_tile() (OSM/Elevation/Grid), additionally needed here for the
+        # DGM30 horizon cache (see horizon.py::_dgm30_cache_file()).
         from ..io.cache import calculate_global_tiles_hash
 
         tile_hash = calculate_global_tiles_hash(tiles) if tiles else "unknown"
 
         self.pipeline.banner(
             f"BeamNG Level Export - {len(tiles)} Tiles, Offset {global_offset}, "
-            f"Forests: {'ein' if forests_enabled else 'aus'}"
+            f"Forests: {'on' if forests_enabled else 'off'}"
         )
 
-        # Erstelle Verzeichnisse
+        # Create directories
         config.BEAMNG_DIR_SHAPES.mkdir(parents=True, exist_ok=True)
         config.BEAMNG_DIR_TEXTURES.mkdir(parents=True, exist_ok=True)
         config.BEAMNG_DIR_BUILDINGS.mkdir(parents=True, exist_ok=True)
         config.CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
-        # Alle Texturen aus data/textures prüfen (prozedurale bei Bedarf einmalig erzeugen); fehlt eine Foto-Textur,
-        # bricht der Export hier ab (MissingTexturesError) - vor dem rechenintensiven Teil
+        # Check all textures from data/textures (generate procedural ones once if needed); if a photo texture is missing,
+        # the export aborts here (MissingTexturesError) - before the compute-intensive part
         from ..textures import registry
 
         with self.pipeline.task("Textures") as task:
             registry.prepare_textures()
             task.done()
 
-        # NEU: Phase 0 - Forest Asset Initialization (DIREKT VOR Tile-Loop)
+        # NEW: Phase 0 - forest asset initialization (DIRECTLY BEFORE the tile loop)
         registered_trees = {}
         vineyard_assets_ready = False
         if forests_enabled:
             with self.pipeline.task("Forest assets") as task:
-                # Reben-Assets für Weinberge sicherstellen (idempotent) - VOR dem Laden von
-                # managedItemData.json, damit die Reben als Forest-Items registriert sind.
+                # Ensure vine assets for vineyards (idempotent) - BEFORE loading
+                # managedItemData.json, so that the vines are registered as forest items.
                 if config.VINEYARDS_ENABLED:
                     try:
                         ensure_vineyard_assets(config.BEAMNG_DIR, get_beamng_install_dir(), config.LEVEL_NAME)
@@ -178,7 +178,7 @@ class BeamNGExporter:
                     except Exception as e:
                         logger.warning(f"Vine assets not available - vineyards stay without vines: {e}")
 
-                # Lade managedItemData.json (wird von generate_forest_assets.py erzeugt)
+                # Load managedItemData.json (created by generate_forest_assets.py)
                 forest_item_data_path = config.BEAMNG_DIR / "art" / "forest" / "managedItemData.json"
 
                 if forest_item_data_path.exists():
@@ -186,12 +186,12 @@ class BeamNGExporter:
                         with open(forest_item_data_path, "r", encoding="utf-8") as f:
                             forest_item_data = json.load(f)
 
-                        # Konvertiere zu registered_trees Format (Key MUSS der internalName sein,
-                        # denn forest.forest4.json referenziert Bäume darüber im "type"-Feld)
+                        # Convert to registered_trees format (key MUST be the internalName,
+                        # because forest.forest4.json references trees via the "type" field)
                         for item_key, item_info in forest_item_data.items():
                             internal_name = item_info.get("internalName", item_key)
-                            # Reben sind keine Waldbäume: sonst könnte der Fallback der
-                            # Baumartenwahl ("erster verfügbarer Baum") sie in den Wald pflanzen.
+                            # Vines are not forest trees: otherwise the fallback of the
+                            # tree species selection ("first available tree") could plant them in the forest.
                             if internal_name in VINEYARD_ITEM_NAMES:
                                 continue
                             registered_trees[internal_name] = {
@@ -209,7 +209,7 @@ class BeamNGExporter:
 
                 stats["forests_registered"] = len(registered_trees)
 
-                # Setze Forest-Konfiguration (initialisiert Normalizer, InstanceGenerator, JSONWriter)
+                # Set the forest configuration (initializes Normalizer, InstanceGenerator, JSONWriter)
                 if registered_trees:
                     self.forests.set_forest_config(
                         self.forest_config,
@@ -218,32 +218,32 @@ class BeamNGExporter:
                     )
                 task.done(f"{len(registered_trees)} tree items")
         else:
-            self.pipeline.skip("Forest-Assets", "FORESTS_ENABLED=False")
+            self.pipeline.skip("Forest assets", "FORESTS_ENABLED=False")
 
-        # Sammle alle Gebäude über alle Tiles
+        # Collect all buildings across all tiles
         all_buildings = []
-        tile_bounds_local = []  # Sammle Tile-Grenzen für Horizon-Clipping
+        tile_bounds_local = []  # collect tile bounds for horizon clipping
 
-        # Höhenabfrage der fertigen Terrain-Heightmap (Naht und Höhenübergang des Horizonts)
+        # Height lookup on the finished terrain heightmap (seam and height transition of the horizon)
         terrain_height_at = None
 
-        # EIN zusammengesetztes Luftbild für die Gesamtfläche generieren (nicht
-        # mehr eine Textur pro 500m-Kachel - siehe io/aerial.py::process_aerial_images()
-        # Docstring: BeamNGs Terrain-Atlas-Packer verdreht Kacheln sichtbar, wenn
-        # ihm zu viele große, einzigartige Materialien übergeben werden).
+        # Generate ONE combined aerial photo for the whole area (no longer
+        # one texture per 500 m tile - see io/aerial.py::process_aerial_images()
+        # docstring: BeamNG's terrain atlas packer visibly rotates tiles when
+        # it is given too many large, unique materials).
         from ..utils.tile_scanner import compute_global_bbox
         from ..terrain.heightmap import next_power_of_two_size
 
         utm_min_x, utm_max_x, utm_min_y, utm_max_y = compute_global_bbox(tiles)
 
-        # Das Luftbild MUSS exakt dieselbe Fläche abdecken, die das Terrain
-        # später tatsächlich einnimmt - und das ist NICHT die rohe DGM-Kachel-
-        # Bbox (z.B. 2000x2000m), sondern die auf Zweierpotenz aufgefüllte
-        # Heightmap-Größe (z.B. 2048x2048m, siehe heightmap.py:build_heightmap()).
-        # Ohne diesen Abgleich behauptet die TerrainMaterialTextureSet eine
-        # andere Kantenlänge (baseColorBaseTexSize), als das Foto tatsächlich
-        # zeigt -> das Bild wird falsch skaliert auf das Terrain projiziert.
-        # Padding erweitert (wie bei den Höhendaten) NUR nach Osten/Norden.
+        # The aerial photo MUST cover exactly the same area that the terrain
+        # will actually occupy later - and that is NOT the raw DGM tile
+        # bbox (e.g. 2000x2000 m), but the heightmap size padded to a power
+        # of two (e.g. 2048x2048 m, see heightmap.py:build_heightmap()).
+        # Without this alignment the TerrainMaterialTextureSet claims a
+        # different edge length (baseColorBaseTexSize) than the photo actually
+        # shows -> the image is projected onto the terrain with the wrong scale.
+        # Padding extends (as with the elevation data) ONLY to the east/north.
         nx = len(np.arange(utm_min_x, utm_max_x + config.GRID_SPACING * 0.5, config.GRID_SPACING))
         ny = len(np.arange(utm_min_y, utm_max_y + config.GRID_SPACING * 0.5, config.GRID_SPACING))
         padded_size = next_power_of_two_size(max(nx, ny))
@@ -260,19 +260,19 @@ class BeamNGExporter:
         from ..io.aerial import ensure_aerial_photos, SINGLE_PHOTO_NAME
         from ..terrain.photo_tiles import build_processing_tile_grid, photo_tile_specs
 
-        # Vier-Bilder-Modus: fester Kachelraster über die Gesamtfläche (config.PHOTO_TILE_SIZE_M),
-        # unabhängig von der Größe/Anzahl der rohen Höhendaten-Kacheln (siehe terrain/photo_tiles.py).
-        # process_tile() (terrain_workflow.py) baut denselben Raster aus denselben Eingaben
-        # (deterministisch, ohne dass Daten geteilt werden müssen) für die Layer-Map-Aufteilung.
+        # Four-image mode: fixed tile grid over the whole area (config.PHOTO_TILE_SIZE_M),
+        # independent of the size/number of the raw elevation data tiles (see terrain/photo_tiles.py).
+        # process_tile() (terrain_workflow.py) builds the same grid from the same inputs
+        # (deterministically, without having to share data) for the layer map split.
         processing_tiles = build_processing_tile_grid((utm_min_x, utm_max_x, utm_min_y, utm_max_y), config.PHOTO_TILE_SIZE_M)
         if config.AERIAL_PHOTO_PER_TILE and len(processing_tiles) > 1:
             photos = photo_tile_specs(processing_tiles, global_offset)
         else:
             photos = [{"name": SINGLE_PHOTO_NAME, "bounds": combined_grid_bounds_local}]
 
-        # Die Fotos werden neu gebaut, sobald Fläche, Ursprung, Auflösung, Kachelaufteilung oder Quellbilder nicht
-        # mehr zu den vorhandenen passen (z.B. Umstellung von einer auf vier DGM1-Kacheln) - nicht nur, wenn sie fehlen.
-        status = "none"  # Fallback, falls ensure_aerial_photos() unten eine Ausnahme wirft (siehe Minimap-Schritt weiter unten)
+        # The photos are rebuilt as soon as area, origin, resolution, tile layout or source images no
+        # longer match the existing ones (e.g. switching from one to four DGM1 tiles) - not only when they are missing.
+        status = "none"  # fallback in case ensure_aerial_photos() below raises an exception (see minimap step further below)
         with self.pipeline.task("Aerial photo") as task:
             try:
                 status = ensure_aerial_photos(
@@ -287,15 +287,15 @@ class BeamNGExporter:
             except Exception as e:
                 task.fail(str(e))
 
-        # Für POI-Vorschaubilder in _finalize_export() (build_poi_preview_image() schneidet aus den
-        # bereits gebauten Luftbild-PNGs, siehe dort) - nur sinnvoll, wenn ein Foto tatsächlich vorliegt.
+        # For POI preview images in _finalize_export() (build_poi_preview_image() crops from the
+        # already built aerial photo PNGs, see there) - only useful if a photo actually exists.
         self.aerial_photos = photos
         self.aerial_photo_status = status
 
-        # Phase 1: Terrain + Straßen - ALLE Kacheln als EINE zusammenhängende
-        # Fläche verarbeiten (ein Grid, ein Straßennetz, ein Junction-Pass).
-        # Clipping findet nur noch am Außenrand der Gesamtfläche statt, nicht
-        # mehr an den früheren DGM1-Kachelgrenzen (siehe process_tile()-Docstring).
+        # Phase 1: terrain + roads - process ALL tiles as ONE contiguous
+        # area (one grid, one road network, one junction pass).
+        # Clipping now only happens at the outer edge of the whole area, no
+        # longer at the former DGM1 tile borders (see process_tile() docstring).
         with self.pipeline.task("Terrain + roads") as task:
             result = self.terrain.process_tile(tiles=tiles, global_offset=global_offset[:2], bbox_margin=50.0, task=task)
 
@@ -305,16 +305,16 @@ class BeamNGExporter:
             else:
                 stats["tiles_processed"] = len(tiles)
 
-                # Straßen-Centerlines für die automatische Fahrzeug-Spawn-Position (bereits mit der
-                # späteren Terrain-Einbettungshöhe, siehe road_embedding.py)
+                # Road centerlines for the automatic vehicle spawn position (already with the
+                # later terrain embedding height, see road_embedding.py)
                 self.road_polygons = result.get("road_slope_polygons_2d")
                 self.poi_points = result.get("poi_points")
                 self.tunnel_spawns = result.get("tunnel_spawns")
 
                 self.terrain.export_tile(0, 0, result, task=task)
 
-                # BigMap-Vorschaubild aus den bereits gebauten Luftbild-PNGs (nur wenn welche gebaut/aktuell sind -
-                # ohne Luftbild macht ein Minimap-Bild keinen Sinn, siehe io/aerial.py::build_minimap_image()).
+                # BigMap preview image from the already built aerial photo PNGs (only if any were built/are current -
+                # without an aerial photo a minimap image makes no sense, see io/aerial.py::build_minimap_image()).
                 if config.MINIMAP_ENABLED and status in ("current", "built"):
                     from ..io.aerial import MINIMAP_FILENAME, MINIMAP_SUBDIR, ensure_minimap_image, minimap_info_json_fields
 
@@ -334,8 +334,8 @@ class BeamNGExporter:
                             logger.info("[i] Minimap skipped (source photo missing)")
                             sub.warn("source photo missing")
 
-                # Höhenabfrage der fertigen Heightmap: der Horizont bekommt daraus sein Terrain-Loch
-                # samt Randhöhen (kein Terrain-Mesh mehr, das vernäht werden könnte)
+                # Height lookup on the finished heightmap: the horizon derives its terrain hole
+                # including the edge heights from it (no terrain mesh anymore that could be stitched)
                 from ..terrain.road_embedding import sample_heightmap_bilinear
 
                 heightmap = result["heightmap"]
@@ -349,11 +349,11 @@ class BeamNGExporter:
 
                 terrain_height_at_1d = make_height_sampler(heightmap, hm_origin[0], hm_origin[1], config.TERRAIN_SQUARE_SIZE)
 
-                # Gesamt-BBox in lokalen Koordinaten für Horizon-Clipping
+                # Overall bbox in local coordinates for horizon clipping
                 x_min, x_max, y_min, y_max = result["grid_bounds_local"]
                 tile_bounds_local.append((x_min, y_min, x_max, y_max))
 
-                # Phase 1b: Forest Processing (für die Gesamtfläche, nicht mehr pro Kachel)
+                # Phase 1b: forest processing (for the whole area, no longer per tile)
                 if forests_enabled:
                     with task.subtask("Forest placement") as sub:
                         forest_result = self.forests.process_tile(
@@ -365,17 +365,17 @@ class BeamNGExporter:
                                 "spacing": 1.0,
                                 "elevations": result.get("height_elevations"),
                             },
-                            height_hash=result.get("height_hash"),  # Für Cache-Konsistenz
-                            global_offset=global_offset,  # NEU: Für WGS84-Transformation
-                            # Bäume stehen auf der fertigen Heightmap (nach Straßen-Einbettung), nicht auf rohen DGM1-Punkten,
-                            # und meiden die tatsächlich eingebetteten Straßenflächen
+                            height_hash=result.get("height_hash"),  # for cache consistency
+                            global_offset=global_offset,  # NEW: for the WGS84 transformation
+                            # Trees stand on the finished heightmap (after road embedding), not on raw DGM1 points,
+                            # and avoid the road surfaces that were actually embedded
                             height_at=terrain_height_at_1d,
                             road_surfaces=result.get("road_surface_union"),
                         )
                         if forest_result["status"] == "success":
                             stats["trees_generated"] += forest_result.get("tree_count", 0)
 
-                        # Weinberg-Reben (Forest-Items) zusammen mit den Bäumen in forest.forest4.json
+                        # Vineyard vines (forest items) together with the trees in forest.forest4.json
                         vine_segments = 0
                         if vineyard_assets_ready and result.get("vineyard_instances"):
                             vine_segments = self.forests.add_instances(result["vineyard_instances"])
@@ -383,17 +383,18 @@ class BeamNGExporter:
 
                         sub.finish(f"{forest_result.get('tree_count', 0)} trees, {vine_segments} vine row segments")
 
-                # Sammle Gebäude-Daten (werden später gruppiert nach Tiles exportiert)
+                # Collect building data (exported later, grouped by tiles)
                 if include_buildings and result.get("buildings_data"):
                     all_buildings.extend(result["buildings_data"])
 
-        # Phase 2: Buildings (nach Terrain-Export, wie im alten multitile.py)
+        # Phase 2: buildings (after the terrain export, as in the old multitile.py)
         if include_buildings and all_buildings:
             with self.pipeline.task("Export buildings") as task:
-                # Gebäude: EIN Objekt auf der Gesamtfläche (wie die Straßen) oder - wenn abgeschaltet - je 500-m-Kachel
+                # Buildings: ONE object over the whole area (like the roads) or - if disabled - one per 500 m tile
                 from ..workflow.building_workflow import plan_building_shapes, remove_stale_building_daes
 
-                # Mehr als 2048 Nodes je Shape verwirft BeamNG -> Gesamtfläche in Teil-Shapes (buildings, buildings_part_N)
+                # BeamNG discards shapes with more than 2048 nodes -> split the whole area into partial shapes
+                # (buildings, buildings_part_N)
                 shapes = plan_building_shapes(
                     all_buildings,
                     None if config.BUILDINGS_AS_ONE_OBJECT else config.TILE_SIZE,
@@ -408,11 +409,11 @@ class BeamNGExporter:
                         self.buildings.add_items(tile_buildings, tile_x, tile_y, name=name)
                         stats["buildings_exported"] += len(tile_buildings)
 
-                # DAEs der jeweils anderen Aufteilung (frühere Kacheln bzw. das Gesamtobjekt) entfernen
+                # Remove the DAEs of the respective other layout (earlier tiles or the single overall object)
                 remove_stale_building_daes(config.BEAMNG_DIR_BUILDINGS, keep=written)
 
-                # Materials exportieren
-                # Füge LoD2-Materialien zu gemeinsamen Materials hinzu (NICHT separat exportieren!)
+                # Export materials
+                # Add LoD2 materials to the shared materials (do NOT export separately!)
                 self._add_lod2_materials()
                 task.done(f"{stats['buildings_exported']} buildings")
         elif not include_buildings:
@@ -420,7 +421,7 @@ class BeamNGExporter:
         else:
             self.pipeline.skip("Export buildings", "no building data found")
 
-        # Phase 3: Horizon-Layer (optional)
+        # Phase 3: horizon layer (optional)
         if include_horizon:
             with self.pipeline.task("Export horizon") as task:
                 horizon_dae = self.horizon.generate_horizon(
@@ -434,12 +435,12 @@ class BeamNGExporter:
                 if horizon_dae:
                     task.done(Path(horizon_dae).name)
                 else:
-                    # deckungsgleich mit der Warnung in horizon_workflow.py::generate_horizon()
+                    # identical to the warning in horizon_workflow.py::generate_horizon()
                     task.warn("DGM30 data not found - no horizon created")
         else:
-            self.pipeline.skip("Horizont exportieren", "PHASE5_ENABLED=False")
+            self.pipeline.skip("Export horizon", "PHASE5_ENABLED=False")
 
-        # Phase 4: Finalisierung
+        # Phase 4: finalization
         with self.pipeline.task("Finalization") as task:
             self._finalize_export(forests_enabled, task=task)
             task.done()
@@ -448,16 +449,16 @@ class BeamNGExporter:
 
     def _add_lod2_materials(self):
         """
-        Füge LoD2-Gebäude-Materialien hinzu.
+        Add the LoD2 building materials.
 
-        - Wände: je Putzfarbe ein Material (eigene Albedo-, gemeinsame Normal-/Roughness-Textur)
-        - Fenster: Sprite-Atlas für Fenster, Türen und Kellerfenster
-        - Dach: Biberschwanz aus osm_to_beamng.json (unverändert)
-        - Flachdach: Kiesfläche (Textur aus data/textures); Blechrand und Dachüberstand-Trim: untexturiert
+        - Walls: one material per plaster color (own albedo texture, shared normal/roughness texture)
+        - Windows: sprite atlas for windows, doors and basement windows
+        - Roof: beaver-tail tiles from osm_to_beamng.json (unchanged)
+        - Flat roof: gravel surface (texture from data/textures); sheet-metal rim and roof overhang trim: untextured
 
-        Texturen der prozeduralen Materialien kommen aus ensure_building_textures(), die Kies-Textur aus der Textur-Registry
-        (textures/registry.py); Farben und Faktoren der
-        untexturierten aus osm_to_beamng.json (OSM_MAPPER), Template-Hinweise aus material_templates.json.
+        Textures of the procedural materials come from ensure_building_textures(), the gravel texture from the texture
+        registry (textures/registry.py); colors and factors of the
+        untextured ones from osm_to_beamng.json (OSM_MAPPER), template hints from material_templates.json.
         """
         from ..config import OSM_MAPPER
         from ..facade.building_textures import ensure_building_textures
@@ -521,18 +522,18 @@ class BeamNGExporter:
         )
 
     def _finalize_export(self, include_forests: bool = False, task=None):
-        """Finalisiere Export: Speichere Materials/Items/Forest JSON und Debug-Daten (je Schritt eine Teilaufgabe)."""
-        # Materials (nutze config.MATERIALS_JSON)
+        """Finalize the export: save materials/items/forest JSON and debug data (one subtask per step)."""
+        # Materials (use config.MATERIALS_JSON)
         with optional_subtask(task, "Materials"):
-            self.materials.save()  # nutzt automatisch config.MATERIALS_JSON
+            self.materials.save()  # automatically uses config.MATERIALS_JSON
             mat_path = config.BEAMNG_DIR / config.MATERIALS_JSON
             logger.info(f"\n[✓] Materials: {mat_path.name}")
 
-        # Items inkl. automatischer Fahrzeug-Spawn-Position (nächste Straße zur Gebietsmitte) und POI-
-        # Spawn-Punkten (Orte, große Parkplätze) samt Vorschaubild aus dem bereits gebauten Luftbild.
+        # Items incl. automatic vehicle spawn position (nearest road to the area center) and POI
+        # spawn points (villages/towns, large parking lots) with a preview image from the already built aerial photo.
         with optional_subtask(task, "Items + spawn points"):
-            # Vorschaubilder: Draufsicht-Ausschnitt aus dem bereits gebauten Luftbild, POI mittig - unveränderte
-            # werden übernommen (siehe io/aerial.py::PoiPreviewBuilder)
+            # Preview images: top-down crop from the already built aerial photo, POI centered - unchanged
+            # ones are reused (see io/aerial.py::PoiPreviewBuilder)
             preview_builder = None
             if self.aerial_photo_status in ("current", "built"):
                 from ..io.aerial import PoiPreviewBuilder
@@ -553,29 +554,29 @@ class BeamNGExporter:
             items_path = config.BEAMNG_DIR / config.ITEMS_JSON
             logger.info(f"[✓] Items: {items_path.name}")
 
-            # info.json ins Level-Root-Verzeichnis schreiben
+            # Write info.json to the level root directory
             self.items.save_info_json()
             info_path = config.BEAMNG_DIR / "info.json"
             logger.debug(f"[✓] Info: {info_path.name}")
 
-        # Forest.json (falls Forests aktiviert)
+        # Forest.json (if forests are enabled)
         if include_forests:
-            with optional_subtask(task, "Forest-JSON"):
+            with optional_subtask(task, "Forest JSON"):
                 forest_result = self.forests.finalize_forest_export()
 
                 if forest_result["status"] == "success":
-                    # Detaillierte Statistiken (Gesamt-Bäume, Baumarten-Liste, Scale, Höhenbereich) loggt
-                    # forests.finalize_forest_export() bereits selbst (forest_workflow.py) - hier keine
-                    # zweite, redundante Zusammenfassung.
+                    # Detailed statistics (total trees, tree species list, scale, height range) are already logged
+                    # by forests.finalize_forest_export() itself (forest_workflow.py) - no
+                    # second, redundant summary here.
                     pass
                 elif forest_result["status"] == "no_forests":
                     logger.info("No forests generated")
                 else:
                     logger.error(f"Forest export failed: {forest_result.get('error')}")
 
-        # main.level.json ist NICHT nötig - BeamNG lädt automatisch main/items.level.json
+        # main.level.json is NOT needed - BeamNG automatically loads main/items.level.json
 
-        # Debug-Netzwerk-Export (auskommentiert für Performance)
+        # Debug network export (commented out for performance)
         if config.DEBUG_EXPORTS:
-            with optional_subtask(task, "Debug-Export"):
+            with optional_subtask(task, "Debug export"):
                 self.debug_exporter.export(config.CACHE_DIR)

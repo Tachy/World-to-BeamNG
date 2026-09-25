@@ -1,5 +1,5 @@
 """
-Hoehendaten-Verwaltung (Laden, Caching, Interpolation).
+Elevation data management (loading, caching, interpolation).
 """
 
 import hashlib
@@ -12,10 +12,10 @@ logger = LoggerConfig.get_logger()
 
 
 def get_height_data_hash():
-    """Erstellt einen Hash basierend auf den Dateien im data/height Ordner.
+    """Creates a hash based on the files in the data/height folder.
 
-    Falls height_data_hash.txt fehlt oder unterschiedlich ist, werden alle alten
-    Cache-Dateien gelöscht (erzwingt Neugenerierung).
+    If height_data_hash.txt is missing or different, all old cache files
+    are deleted (forces regeneration).
     """
     xyz_files = sorted(config.HEIGHT_DATA_DIR.glob("*.xyz"))
     zip_files = sorted(config.HEIGHT_DATA_DIR.glob("*.zip"))
@@ -25,7 +25,7 @@ def get_height_data_hash():
     if not all_files:
         return None
 
-    # Hash basierend auf Dateinamen und Änderungszeitpunkten
+    # Hash based on file names and modification times
     hash_input = ""
     for file in all_files:
         mtime = file.stat().st_mtime
@@ -33,7 +33,7 @@ def get_height_data_hash():
 
     new_hash = hashlib.md5(hash_input.encode()).hexdigest()[:12]
 
-    # Prüfe ob height_data_hash.txt existiert und einen ANDEREN Hash enthält
+    # Check whether height_data_hash.txt exists and contains a DIFFERENT hash
     hash_file = config.CACHE_DIR / "height_data_hash.txt"
     old_hash = None
 
@@ -44,14 +44,14 @@ def get_height_data_hash():
         except:
             pass
 
-    # Wenn Hash sich geändert hat oder Datei fehlt: Cleanup
+    # If the hash has changed or the file is missing: cleanup
     if old_hash != new_hash:
         if old_hash is None:
             logger.debug(f"  [i] height_data_hash.txt missing - deleting old cache files...")
         else:
             logger.debug(f"  [i] Height data changed ({old_hash} -> {new_hash}) - deleting old cache files...")
 
-        # Lösche alle alten Cache-Dateien (wenn old_hash bekannt ist)
+        # Delete all old cache files (if old_hash is known)
         if old_hash:
             for pattern in [
                 f"height_raw_{old_hash}.npz",
@@ -66,7 +66,7 @@ def get_height_data_hash():
                     except Exception as e:
                         logger.error(f"    [!] Error deleting {old_file.name}: {e}")
         else:
-            # Wenn old_hash leer/None: Lösche ALLE potentiellen alten Caches (Sicherheitsmaßnahme)
+            # If old_hash is empty/None: delete ALL potential old caches (safety measure)
             logger.info(f"    Deleting all _*.npz and _*.json cache files...")
             for pattern in ["height_raw_*.npz", "grid_v3_*.npz", "osm_all_*.json", "elevations_*.json"]:
                 for old_file in config.CACHE_DIR.glob(pattern):
@@ -76,7 +76,7 @@ def get_height_data_hash():
                     except Exception as e:
                         logger.error(f"    [!] Error deleting {old_file.name}: {e}")
 
-        # Lösche auch die generierten DAE-Tiles im BeamNG-Verzeichnis
+        # Also delete the generated DAE tiles in the BeamNG directory
         logger.info(f"    Deleting terrain tiles in the BeamNG directory...")
         beamng_shapes = config.BEAMNG_DIR_SHAPES
         if beamng_shapes.exists():
@@ -86,7 +86,7 @@ def get_height_data_hash():
                     logger.info(f"    • Deleted: {file_path.name}")
                 except Exception as e:
                     logger.error(f"    [!] Error deleting {file_path.name}: {e}")
-            # Lösche auch DAE-Index-Datei falls vorhanden
+            # Also delete the DAE index file if present
             for meta_file_name in ["index.json", "manifest.json"]:
                 meta_path = beamng_shapes / meta_file_name
                 if meta_path.exists():
@@ -96,7 +96,7 @@ def get_height_data_hash():
                     except Exception as e:
                         logger.error(f"    [!] Error deleting {meta_path.name}: {e}")
 
-        # Lösche auch Texture-Tiles
+        # Also delete texture tiles
         logger.info(f"    Deleting texture tiles in the BeamNG directory...")
         beamng_textures = config.BEAMNG_DIR_TEXTURES
         if beamng_textures.exists():
@@ -107,7 +107,7 @@ def get_height_data_hash():
                 except Exception as e:
                     logger.error(f"    [!] Error deleting {file_path.name}: {e}")
 
-        # Speichere neuen Hash
+        # Save the new hash
         try:
             config.CACHE_DIR.mkdir(parents=True, exist_ok=True)
             with open(hash_file, "w") as f:
@@ -119,15 +119,15 @@ def get_height_data_hash():
 
 
 def get_elevation_cache(bbox, height_hash=None):
-    """Lädt den Elevation-Cache fuer eine BBox (Koordinate -> Hoehe).
+    """Loads the elevation cache for a BBox (coordinate -> elevation).
 
     Args:
         bbox: Bounding Box
-        height_hash: Optional - tile_hash für Cache-Konsistenz
+        height_hash: Optional - tile_hash for cache consistency
     """
     from ..io.cache import get_cache_path
 
-    # Verwende übergebenes height_hash oder fallback auf config (wenn vorhanden)
+    # Use the passed height_hash or fall back to config (if present)
     effective_hash = height_hash or (config.HEIGHT_HASH if hasattr(config, "HEIGHT_HASH") else None)
 
     if effective_hash:
@@ -139,7 +139,7 @@ def get_elevation_cache(bbox, height_hash=None):
         try:
             with open(cache_path, "r", encoding="utf-8") as f:
                 cache_data = json.load(f)
-                # Cache-Version prüfen (v2 = normalisierte Z-Werte)
+                # Check the cache version (v2 = normalized Z values)
                 if cache_data.get("_cache_version") == 2:
                     logger.info(f"  [OK] Elevation cache loaded: {len(cache_data)-1} coordinates")
                     return cache_data
@@ -151,16 +151,16 @@ def get_elevation_cache(bbox, height_hash=None):
 
 
 def save_elevation_cache(bbox, cache_data, height_hash=None):
-    """Speichert den Elevation-Cache.
+    """Saves the elevation cache.
 
     Args:
         bbox: Bounding Box
-        cache_data: Cache-Daten zu speichern
-        height_hash: Optional - tile_hash für Cache-Konsistenz
+        cache_data: Cache data to save
+        height_hash: Optional - tile_hash for cache consistency
     """
     from ..io.cache import get_cache_path
 
-    # Verwende übergebenes height_hash oder fallback auf config (wenn vorhanden)
+    # Use the passed height_hash or fall back to config (if present)
     effective_hash = height_hash or (config.HEIGHT_HASH if hasattr(config, "HEIGHT_HASH") else None)
 
     if effective_hash:
@@ -172,70 +172,70 @@ def save_elevation_cache(bbox, cache_data, height_hash=None):
         config.CACHE_DIR.mkdir(parents=True, exist_ok=True)
         with open(cache_path, "w", encoding="utf-8") as f:
             json.dump(cache_data, f, indent=2)
-        coord_count = len(cache_data) - 1  # -1 für _cache_version
+        coord_count = len(cache_data) - 1  # -1 for _cache_version
         logger.info(f"  [OK] Elevation cache saved: {coord_count} coordinates")
     except Exception as e:
         logger.error(f"  [!] Error saving the elevation cache: {e}")
 
 
 def get_elevations_for_points(pts, bbox, height_points, height_elevations, global_offset, height_hash=None):
-    """Holt Hoehendaten fuer Koordinaten - aus Cache oder durch Interpolation aus lokalen Daten.
+    """Gets elevation data for coordinates - from the cache or by interpolation from local data.
 
     Args:
-        pts: Koordinaten (lat, lon) in WGS84
+        pts: Coordinates (lat, lon) in WGS84
         bbox: Bounding Box
-        height_points: Höhendaten-Punkte (XY) - LOKAL, bereits normalisiert!
-        height_elevations: Z-Werte - LOKAL, bereits normalisiert!
-        global_offset: (origin_x, origin_y) für Transformation WGS84->UTM->Lokal
-        height_hash: Optional - tile_hash für Cache-Konsistenz
+        height_points: Elevation data points (XY) - LOCAL, already normalized!
+        height_elevations: Z values - LOCAL, already normalized!
+        global_offset: (origin_x, origin_y) for the WGS84->UTM->local transformation
+        height_hash: Optional - tile_hash for cache consistency
     """
     from ..geometry.coordinates import transformer_to_utm
     from scipy.interpolate import griddata
 
-    # Lade bestehenden Cache
+    # Load the existing cache
     elevation_cache = get_elevation_cache(bbox, height_hash=height_hash)
 
-    # Finde fehlende Koordinaten
+    # Find missing coordinates
     missing_pts = []
     missing_indices = []
 
     for idx, pt in enumerate(pts):
-        # Erstelle eindeutigen Key fuer Koordinate (gerundet auf 6 Dezimalstellen)
+        # Create a unique key for the coordinate (rounded to 6 decimal places)
         coord_key = f"{pt[0]:.6f},{pt[1]:.6f}"
         if coord_key not in elevation_cache:
             missing_pts.append(pt)
             missing_indices.append(idx)
 
-    # Berechne fehlende Hoehen durch Interpolation
+    # Compute missing elevations by interpolation
     if missing_pts:
         logger.info(f"  Interpolating {len(missing_pts)} height values...")
 
-        # Konvertiere WGS84 zu UTM und dann zu lokal mit global_offset
+        # Convert WGS84 to UTM and then to local using global_offset
         ox, oy = global_offset
 
         missing_pts_local = []
         for pt in missing_pts:
             x_utm, y_utm = transformer_to_utm.transform(pt[1], pt[0])  # lon, lat -> x, y
-            # Transformiere zu lokalen Koordinaten
+            # Transform to local coordinates
             x = x_utm - ox
             y = y_utm - oy
             missing_pts_local.append([x, y])
 
         missing_pts_local = np.array(missing_pts_local)
 
-        # Interpoliere Hoehen (nearest neighbor fuer schnellere Berechnung)
-        # WICHTIG: height_elevations ist BEREITS normalisiert (lokal)!
+        # Interpolate elevations (nearest neighbor for faster computation)
+        # IMPORTANT: height_elevations is ALREADY normalized (local)!
         new_elevations = griddata(height_points, height_elevations, missing_pts_local, method="nearest")
 
-        # Fuege zum Cache hinzu
+        # Add to the cache
         for pt, elev in zip(missing_pts, new_elevations):
             coord_key = f"{pt[0]:.6f},{pt[1]:.6f}"
             elevation_cache[coord_key] = float(elev)
 
-        # Speichere aktualisierten Cache (mit Version)
+        # Save the updated cache (with version)
         save_elevation_cache(bbox, elevation_cache, height_hash=height_hash)
 
-    # Erstelle Elevation-Array fuer alle Punkte
+    # Build the elevation array for all points
     elevations = []
     for pt in pts:
         coord_key = f"{pt[0]:.6f},{pt[1]:.6f}"

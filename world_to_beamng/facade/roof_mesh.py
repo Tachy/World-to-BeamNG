@@ -1,5 +1,5 @@
 """
-Dachgeometrie eines Gebäudes: Schrägdächer (mit Überstand), Flachdächer (Kies) und die Dicke der Überstände.
+Roof geometry of a building: sloped roofs (with overhang), flat roofs (gravel) and the thickness of the overhangs.
 """
 
 from dataclasses import dataclass, field
@@ -17,7 +17,7 @@ from .triangulate import triangulate_ccw
 
 @dataclass
 class MeshPart:
-    """Vertices, UVs und Dreiecke eines Materials."""
+    """Vertices, UVs and triangles of one material."""
 
     vertices: np.ndarray = field(default_factory=lambda: np.zeros((0, 3)))
     uvs: np.ndarray = field(default_factory=lambda: np.zeros((0, 2)))
@@ -45,13 +45,13 @@ class _PartBuilder:
 
 @dataclass
 class RoofParts:
-    sloped: MeshPart  # Biberschwanz, mit Überstand
-    flat: MeshPart  # Kiesfläche
-    trim: MeshPart  # Stirnbrett und Untersicht der Überstände
+    sloped: MeshPart  # beaver-tail tile, with overhang
+    flat: MeshPart  # gravel surface
+    trim: MeshPart  # fascia board and soffit of the overhangs
 
 
 class RoofMeshBuilder:
-    """Baut alle Dachflächen eines Gebäude-Dicts (`roofs`, `walls`)."""
+    """Builds all roof faces of a building dict (`roofs`, `walls`)."""
 
     def __init__(self):
         self._overhang = RoofOverhangBuilder()
@@ -80,7 +80,7 @@ class RoofMeshBuilder:
 
     @staticmethod
     def _add_polygon(builder: _PartBuilder, ring: np.ndarray, mapper: RoofUvMapper) -> None:
-        """Ring (gegen den Uhrzeigersinn von oben) triangulieren; die längentreuen UVs dienen als ebene Koordinaten."""
+        """Triangulate the ring (counterclockwise from above); the length-preserving UVs serve as planar coordinates."""
         uvs = mapper.map_polygon(ring)
         faces = triangulate_ccw(uvs)
         if faces:

@@ -1,11 +1,11 @@
 """
-Reben-Assets für Weinberge: kopiert die Shapes (grape_vine, grape_vine_group) samt
-Materialien aus BeamNGs italy-Level in den eigenen Level und registriert sie als
-Forest-Items in art/forest/managedItemData.json.
+Vine assets for vineyards: copies the shapes (grape_vine, grape_vine_group) together with
+their materials from BeamNG's italy level into our own level and registers them as
+forest items in art/forest/managedItemData.json.
 
-Läuft bei jedem Export (idempotent), damit ein erneutes Erzeugen der Forest-Assets
-(tools/generate_forest_assets.py überschreibt managedItemData.json) die Reben nicht
-verliert.
+Runs on every export (idempotent), so that regenerating the forest assets
+(tools/generate_forest_assets.py overwrites managedItemData.json) does not lose the
+vines.
 """
 
 import json
@@ -20,16 +20,16 @@ logger = LoggerConfig.get_logger()
 
 ITALY_SHAPE_DIR = "levels/italy/art/shapes/trees/trees_italy/"
 ITALY_MATERIALS = ITALY_SHAPE_DIR + "main.materials.json"
-# leaves_strong (Laub der Reben) liegt in den Baum-Materialien der Original-Levels
+# leaves_strong (foliage of the vines) is located in the tree materials of the original levels
 LEAVES_MATERIALS_LEVEL = "east_coast_usa"
 LEAVES_MATERIALS = "levels/east_coast_usa/art/shapes/trees/main.materials.json"
 
 ITEM_NAMES = ("grape_vine", "grape_vine_group")
-# Pflicht: .dae; optional: kompilierte Fassung und Imposter (LOD in der Ferne)
+# Required: .dae; optional: compiled version and imposters (LOD at a distance)
 SHAPE_SUFFIXES = (".dae", ".cdae", ".dae.imposter.dds", ".dae.imposter_normals.dds")
 NEEDED_MATERIALS = {"grape": ITALY_MATERIALS, "olive_trunk": ITALY_MATERIALS, "leaves_strong": LEAVES_MATERIALS}
 
-# Werte wie in BeamNGs italy-Level (managedItemData.json)
+# Values as in BeamNG's italy level (managedItemData.json)
 _ITEM_DEFAULTS = {
     "class": "TSForestItemData",
     "annotation": "NATURE",
@@ -48,7 +48,7 @@ def _stable_id(level_name: str, name: str) -> str:
 
 
 def _defined_material_names(level_dir: Path, exclude: Path) -> Set[str]:
-    """Namen aller im Level bereits definierten Materialien (außer in `exclude`)."""
+    """Names of all materials already defined in the level (except in `exclude`)."""
     names: Set[str] = set()
     for path in (level_dir / "art").rglob("*.materials.json") if (level_dir / "art").is_dir() else []:
         if path == exclude:
@@ -68,15 +68,15 @@ def _read_zip_materials(zip_path: Path, member: str) -> Dict:
 def ensure_vineyard_assets(level_dir: Path, install_dir: Path, level_name: str = "world_to_beamng") -> Dict:
     """
     Args:
-        level_dir: Level-Verzeichnis (config.BEAMNG_DIR)
-        install_dir: BeamNG-Installationsverzeichnis (enthält content/levels/*.zip)
-        level_name: Level-Name für die Pfade in managedItemData.json
+        level_dir: Level directory (config.BEAMNG_DIR)
+        install_dir: BeamNG installation directory (contains content/levels/*.zip)
+        level_name: Level name for the paths in managedItemData.json
 
     Returns:
         {"items": [...], "materials": [...], "copied": n}
 
     Raises:
-        FileNotFoundError: wenn das italy-Level nicht gefunden wird
+        FileNotFoundError: if the italy level is not found
     """
     levels_dir = Path(install_dir) / "content" / "levels"
     italy_zip = levels_dir / "italy.zip"
@@ -101,7 +101,7 @@ def ensure_vineyard_assets(level_dir: Path, install_dir: Path, level_name: str =
                     target.write_bytes(z.read(member))
                     copied += 1
 
-    # Nur Materialien, die der Level noch nicht kennt (doppelte Definitionen vermeiden)
+    # Only materials the level does not know yet (avoid duplicate definitions)
     materials_path = shape_dir / "main.materials.json"
     already_defined = _defined_material_names(Path(level_dir), exclude=materials_path)
     zip_by_member = {ITALY_MATERIALS: italy_zip, LEAVES_MATERIALS: levels_dir / f"{LEAVES_MATERIALS_LEVEL}.zip"}
@@ -120,7 +120,7 @@ def ensure_vineyard_assets(level_dir: Path, install_dir: Path, level_name: str =
     elif materials_path.exists():
         materials_path.unlink()
 
-    # Forest-Items in managedItemData.json ergänzen (bestehende Einträge bleiben)
+    # Add forest items to managedItemData.json (existing entries are kept)
     item_path = Path(level_dir) / "art" / "forest" / "managedItemData.json"
     item_path.parent.mkdir(parents=True, exist_ok=True)
     existing_text = item_path.read_text(encoding="utf-8") if item_path.exists() else None
@@ -134,12 +134,12 @@ def ensure_vineyard_assets(level_dir: Path, install_dir: Path, level_name: str =
             **_ITEM_DEFAULTS,
         }
     new_text = json.dumps(data, indent=2, ensure_ascii=False) + "\n"
-    # Nur schreiben, wenn sich tatsaechlich etwas aendert - diese Funktion laeuft bei JEDEM Export
-    # (siehe Docstring oben); ein unbedingtes Schreiben wuerde den Zeitstempel jedes Mal aendern,
-    # obwohl _stable_id() deterministisch ist und der Inhalt meist identisch bleibt. Andere Caches
-    # (siehe workflow/forest_workflow.py::_forest_cache_key()) nutzen genau diesen Zeitstempel, um
-    # zu erkennen, ob sich die verfuegbaren Baumarten geaendert haben - ein Cache-Treffer wuerde
-    # sonst nie greifen.
+    # Only write if something actually changes - this function runs on EVERY export
+    # (see docstring above); an unconditional write would change the timestamp every time,
+    # even though _stable_id() is deterministic and the content mostly stays identical. Other caches
+    # (see workflow/forest_workflow.py::_forest_cache_key()) use exactly this timestamp to
+    # detect whether the available tree species have changed - a cache hit would
+    # otherwise never occur.
     if new_text != existing_text:
         item_path.write_text(new_text, encoding="utf-8")
 

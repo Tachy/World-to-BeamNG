@@ -1,14 +1,14 @@
 """
-Scanner für Höhendaten-Kacheln (data/height).
+Scanner for elevation data tiles (data/height).
 
-Jede Datei (lose GeoTIFF ODER ZIP) wird am TATSÄCHLICHEN Inhalt erkannt - siehe
-terrain.elevation_io.read_elevation_tile() für die zwei unterstützten Formate (ASCII-XYZ-Punktwolke,
-GeoTIFF-Raster). Der Dateiname ist dafür irrelevant (nur zur informativen Anzeige im Log); es gibt
-keinen bevorzugten Sonderpfad für ein bestimmtes Namensschema wie das der LGL Baden-Württemberg.
+Each file (loose GeoTIFF OR ZIP) is recognized by its ACTUAL content - see
+terrain.elevation_io.read_elevation_tile() for the two supported formats (ASCII-XYZ point cloud,
+GeoTIFF raster). The file name is irrelevant for this (only for informative display in the log); there is
+no preferred special path for a particular naming scheme such as that of LGL Baden-Württemberg.
 
-Jede Kachel wird gecacht über denselben dateibasierten Cache wie workflow/tile_processor.py (Key
-"height_raw_<hash>"), damit eine Datei nur einmal tatsächlich geparst wird, egal ob sie zuerst
-gescannt oder zuerst geladen wird.
+Each tile is cached through the same file-based cache as workflow/tile_processor.py (key
+"height_raw_<hash>"), so that a file is only actually parsed once, no matter whether it is scanned
+first or loaded first.
 """
 
 import logging
@@ -26,21 +26,21 @@ SUPPORTED_SUFFIXES = (".zip", ".tif", ".tiff")
 
 def scan_elevation_tiles(dgm_dir, cache_dir=None) -> List[Dict]:
     """
-    Scannt dgm_dir nach Höhendaten-Dateien und liest jede (gecacht) vollständig ein, um ihre echte
-    BBox und ihr CRS zu bestimmen - unabhängig vom Dateinamen oder einer festen Kachelgröße.
+    Scans dgm_dir for elevation data files and fully reads each one (cached) to determine its true
+    BBox and CRS - independent of the file name or a fixed tile size.
 
     Args:
-        dgm_dir: Verzeichnis mit Höhendaten (lose GeoTIFFs und/oder ZIPs, beliebig gemischt)
-        cache_dir: Cache-Verzeichnis (Default: config.CACHE_DIR) - dasselbe Cache-Key-Schema wie
-            workflow/tile_processor.py, damit eine Datei nur einmal geparst wird
+        dgm_dir: directory with elevation data (loose GeoTIFFs and/or ZIPs, mixed arbitrarily)
+        cache_dir: cache directory (default: config.CACHE_DIR) - same cache key scheme as
+            workflow/tile_processor.py, so that a file is only parsed once
 
     Returns:
-        Liste von Tile-Metadaten-Dicts, sortiert nach Dateiname:
+        List of tile metadata dicts, sorted by file name:
         [{"filename", "filepath", "bbox_utm": (x_min, x_max, y_min, y_max),
           "easting", "northing", "tile_x", "tile_y", "tile_size", "crs_epsg"}, ...]
-        easting/northing/tile_x/tile_y/tile_size sind aus bbox_utm abgeleitet (Kompatibilität zu
-        bestehenden Aufrufern); bbox_utm ist die maßgebliche, ggf. nicht-quadratische Fläche.
-        crs_epsg ist None bei Formaten ohne eingebettetes CRS (ASCII-XYZ) - siehe
+        easting/northing/tile_x/tile_y/tile_size are derived from bbox_utm (compatibility with
+        existing callers); bbox_utm is the authoritative, possibly non-square area.
+        crs_epsg is None for formats without an embedded CRS (ASCII-XYZ) - see
         resolve_source_crs_epsg().
     """
     if not Path(dgm_dir).exists():
@@ -86,15 +86,15 @@ def scan_elevation_tiles(dgm_dir, cache_dir=None) -> List[Dict]:
 
 def resolve_source_crs_epsg(tiles: List[Dict]) -> int:
     """
-    Bestimmt die gemeinsame Quell-CRS aller Kacheln.
+    Determines the common source CRS of all tiles.
 
-    Kacheln ohne eigenes CRS (ASCII-XYZ, z.B. LGL Baden-Württemberg) sagen nichts über die CRS aus
-    - dafür gilt config.SOURCE_CRS_EPSG. Kacheln MIT eigenem CRS (GeoTIFF) müssen sich alle einig
-    sein; sonst ist unklar, in welcher CRS die Gesamtfläche verarbeitet werden soll.
+    Tiles without their own CRS (ASCII-XYZ, e.g. LGL Baden-Württemberg) say nothing about the CRS
+    - config.SOURCE_CRS_EPSG applies for them. Tiles WITH their own CRS (GeoTIFF) must all
+    agree; otherwise it is unclear in which CRS the whole area should be processed.
 
     Raises:
-        ValueError: wenn Kacheln mit unterschiedlichem CRS gemischt sind (Mischung verschiedener
-            DGM-CRS ist eine bewusste Scope-Grenze, kein unterstützter Fall)
+        ValueError: if tiles with different CRS are mixed (mixing different
+            DGM CRS is a deliberate scope limit, not a supported case)
     """
     detected = {t["crs_epsg"] for t in tiles if t.get("crs_epsg") is not None}
     if len(detected) > 1:
@@ -109,13 +109,13 @@ def resolve_source_crs_epsg(tiles: List[Dict]) -> int:
 
 def compute_global_bbox(tiles):
     """
-    Berechnet die globale Bounding Box über alle Tiles.
+    Computes the global bounding box over all tiles.
 
     Args:
-        tiles: Ergebnis von scan_elevation_tiles()
+        tiles: result of scan_elevation_tiles()
 
     Returns:
-        Tuple: (min_x, max_x, min_y, max_y) in UTM-Koordinaten
+        Tuple: (min_x, max_x, min_y, max_y) in UTM coordinates
     """
     if not tiles:
         return None
@@ -130,13 +130,13 @@ def compute_global_bbox(tiles):
 
 def compute_global_center(tiles):
     """
-    Berechnet den globalen Center-Punkt über alle Tiles.
+    Computes the global center point over all tiles.
 
     Args:
-        tiles: Ergebnis von scan_elevation_tiles()
+        tiles: result of scan_elevation_tiles()
 
     Returns:
-        Tuple: (center_x, center_y) in UTM-Koordinaten
+        Tuple: (center_x, center_y) in UTM coordinates
     """
     bbox = compute_global_bbox(tiles)
     if bbox is None:

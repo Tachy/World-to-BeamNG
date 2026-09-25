@@ -1,7 +1,7 @@
 """
-DAEExporter - Zentrale DAE/Collada Export-Klasse.
+DAEExporter - central DAE/Collada export class.
 
-Konsolidiert DAE-Export für:
+Consolidates the DAE export for:
 - Terrain (multi-tile meshes)
 - Buildings (LoD2)
 - Horizon (distant terrain)
@@ -17,30 +17,30 @@ from ..facade.material_names import DAE_EFFECT_COLORS
 
 class DAEExporter:
     """
-    Zentrale Klasse für DAE/Collada 1.4.1 Export.
+    Central class for DAE/Collada 1.4.1 export.
 
     Features:
-    - Gemeinsame XML-Struktur (Asset, Materials, Effects, Geometries)
-    - Automatische UV-Generierung
-    - Material-Binding
-    - Optimierte NumPy-Integration
-    - Integration mit MaterialManager (keine lokalen Material-Kopien)
+    - Shared XML structure (asset, materials, effects, geometries)
+    - Automatic UV generation
+    - Material binding
+    - Optimized NumPy integration
+    - Integration with MaterialManager (no local material copies)
     """
 
     def __init__(self, material_manager: Optional["MaterialManager"] = None, level_name: str = "World_to_BeamNG"):
         """
-        Initialisiere DAE Exporter.
+        Initialize the DAE exporter.
 
         Args:
-            material_manager: Referenz zum MaterialManager (optional für Kompatibilität)
-            level_name: Name des BeamNG Levels
+            material_manager: Reference to the MaterialManager (optional for compatibility)
+            level_name: Name of the BeamNG level
         """
         self.material_manager = material_manager
         self.level_name = level_name
         self.timestamp = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
 
     def _write_header(self, f) -> None:
-        """Schreibe DAE XML Header und Asset."""
+        """Write the DAE XML header and asset."""
         f.write('<?xml version="1.0" encoding="UTF-8"?>\n')
         f.write('<COLLADA version="1.4.1" xmlns="http://www.collada.org/2005/11/COLLADASchema">\n')
         f.write("  <asset>\n")
@@ -51,14 +51,14 @@ class DAEExporter:
         f.write("  </asset>\n")
 
     def _write_footer(self, f, scene_id: str = "Scene") -> None:
-        """Schreibe DAE XML Footer (Scene)."""
+        """Write the DAE XML footer (scene)."""
         f.write("  <scene>\n")
         f.write(f'    <instance_visual_scene url="#{scene_id}"/>\n')
         f.write("  </scene>\n")
         f.write("</COLLADA>\n")
 
     def _write_image_library(self, f, material_textures: Dict[str, str]) -> None:
-        """Schreibe library_images mit Textur-Pfaden.
+        """Write library_images with texture paths.
 
         Args:
             f: File handle
@@ -76,7 +76,7 @@ class DAEExporter:
         f.write("  </library_images>\n")
 
     def _write_material_library(self, f, material_names: List[str]) -> None:
-        """Schreibe library_materials mit Effects."""
+        """Write library_materials with effects."""
         f.write("  <library_materials>\n")
         for mat_name in sorted(material_names):
             f.write(f'    <material id="{mat_name}" name="{mat_name}">\n')
@@ -92,32 +92,32 @@ class DAEExporter:
         material_textures: Optional[Dict[str, str]] = None,
     ) -> None:
         """
-        Schreibe library_effects.
+        Write library_effects.
 
         Args:
             f: File handle
-            material_names: Liste von Material-Namen
-            colors: Optional Dict {mat_name: (r, g, b)} für diffuse colors
-            material_textures: Optional Dict {mat_name: texture_path} für Texturen
+            material_names: List of material names
+            colors: Optional dict {mat_name: (r, g, b)} for diffuse colors
+            material_textures: Optional dict {mat_name: texture_path} for textures
         """
         f.write("  <library_effects>\n")
         for mat_name in sorted(material_names):
             f.write(f'    <effect id="effect_{mat_name}">\n')
             f.write("      <profile_COMMON>\n")
 
-            # Wenn Textur vorhanden: newparam + sampler2D
+            # If a texture is present: newparam + sampler2D
             if material_textures and mat_name in material_textures:
                 surface_id = f"{mat_name}_surface"
                 sampler_id = f"{mat_name}_sampler"
 
-                # Surface (verweist auf Image)
+                # Surface (references the image)
                 f.write(f'        <newparam sid="{surface_id}">\n')
                 f.write('          <surface type="2D">\n')
                 f.write(f"            <init_from>{mat_name}_image</init_from>\n")
                 f.write("          </surface>\n")
                 f.write("        </newparam>\n")
 
-                # Sampler2D (verweist auf Surface)
+                # Sampler2D (references the surface)
                 f.write(f'        <newparam sid="{sampler_id}">\n')
                 f.write("          <sampler2D>\n")
                 f.write(f"            <source>{surface_id}</source>\n")
@@ -128,7 +128,7 @@ class DAEExporter:
             f.write("          <phong>\n")
             f.write("            <diffuse>\n")
 
-            # Textur oder Color
+            # Texture or color
             if material_textures and mat_name in material_textures:
                 sampler_id = f"{mat_name}_sampler"
                 f.write(f'              <texture texture="{sampler_id}" texcoord="UVSET0"/>\n')
@@ -147,17 +147,17 @@ class DAEExporter:
 
     def _write_vertices_source(self, f, source_id: str, vertices: np.ndarray) -> None:
         """
-        Schreibe <source> für Vertices (XYZ).
+        Write <source> for vertices (XYZ).
 
         Args:
             f: File handle
-            source_id: ID für <source>
-            vertices: (N, 3) NumPy Array
+            source_id: ID for <source>
+            vertices: (N, 3) NumPy array
         """
         f.write(f'        <source id="{source_id}">')
         f.write(f'\n          <float_array id="{source_id}_array" count="{len(vertices) * 3}">')
 
-        # Alle Vertex-Werte in einer Zeile
+        # All vertex values on one line
         vertex_str = " ".join(f"{v[0]:.2f} {v[1]:.2f} {v[2]:.2f}" for v in vertices)
         f.write(f"\n{vertex_str}")
 
@@ -173,17 +173,17 @@ class DAEExporter:
 
     def _write_uv_source(self, f, source_id: str, uv_coords: np.ndarray) -> None:
         """
-        Schreibe <source> für UV-Koordinaten.
+        Write <source> for UV coordinates.
 
         Args:
             f: File handle
-            source_id: ID für <source>
-            uv_coords: (N, 2) NumPy Array
+            source_id: ID for <source>
+            uv_coords: (N, 2) NumPy array
         """
         f.write(f'        <source id="{source_id}">')
         f.write(f'\n          <float_array id="{source_id}_array" count="{len(uv_coords) * 2}">')
 
-        # Alle UV-Werte in einer Zeile
+        # All UV values on one line
         uv_str = " ".join(f"{uv[0]:.6f} {uv[1]:.6f}" for uv in uv_coords)
         f.write(f"\n{uv_str}")
 
@@ -198,64 +198,64 @@ class DAEExporter:
 
     def _compute_smooth_normals(self, vertices: np.ndarray, faces: list) -> np.ndarray:
         """
-        Berechne Smooth Normals (gemittelt von angrenzenden Face-Normals).
+        Compute smooth normals (averaged from adjacent face normals).
 
         Args:
-            vertices: (N, 3) NumPy Array der Vertex-Positionen
-            faces: List von Face-Indizes oder (M, 3) Array
+            vertices: (N, 3) NumPy array of the vertex positions
+            faces: List of face indices or (M, 3) array
 
         Returns:
-            (N, 3) Array mit Vertex-Normals (normalisiert)
+            (N, 3) array with vertex normals (normalized)
         """
         if not faces:
-            # Falls keine Faces, gebe default Normals zurück
+            # If there are no faces, return default normals
             return np.array([[0, 0, 1]] * len(vertices), dtype=np.float32)
 
         faces = np.array(faces)
 
-        # Initialisiere Normal-Akkumulator
+        # Initialize the normal accumulator
         vertex_normals = np.zeros_like(vertices)
 
-        # Berechne Face-Normals (Cross Product)
-        v0 = vertices[faces[:, 0]]  # Erste Vertex jedes Dreiecks
-        v1 = vertices[faces[:, 1]]  # Zweite Vertex
-        v2 = vertices[faces[:, 2]]  # Dritte Vertex
+        # Compute face normals (cross product)
+        v0 = vertices[faces[:, 0]]  # First vertex of each triangle
+        v1 = vertices[faces[:, 1]]  # Second vertex
+        v2 = vertices[faces[:, 2]]  # Third vertex
 
-        # Kanten
+        # Edges
         edge1 = v1 - v0
         edge2 = v2 - v0
 
-        # Face-Normals (nicht normalisiert - Fläche wirkt als Gewicht)
+        # Face normals (not normalized - the face area acts as weight)
         face_normals = np.cross(edge1, edge2)
 
-        # Addiere Face-Normal zu jedem beteiligten Vertex
+        # Add the face normal to every participating vertex
         for i, face_idx_set in enumerate(faces):
             for vertex_idx in face_idx_set:
                 vertex_normals[vertex_idx] += face_normals[i]
 
-        # Normalisiere alle Vertex-Normals
-        # Berechne Längen
+        # Normalize all vertex normals
+        # Compute lengths
         lengths = np.linalg.norm(vertex_normals, axis=1, keepdims=True)
-        # Verhindere Division durch Null
+        # Prevent division by zero
         lengths[lengths == 0] = 1.0
-        # Normalisiere
+        # Normalize
         vertex_normals = vertex_normals / lengths
 
         return vertex_normals
 
     def _write_normals_source(self, f, source_id: str, normals: np.ndarray) -> None:
         """
-        Schreibe <source> für Normals (XYZ).
+        Write <source> for normals (XYZ).
 
         Args:
             f: File handle
-            source_id: ID für <source>
-            normals: (N, 3) NumPy Array
+            source_id: ID for <source>
+            normals: (N, 3) NumPy array
         """
         f.write(f'        <source id="{source_id}">')
         f.write(f'\n          <float_array id="{source_id}_array" count="{len(normals) * 3}">')
 
-        # Alle Normal-Werte in einer Zeile
+        # All normal values on one line
         normal_str = " ".join(f"{n[0]:.6f} {n[1]:.6f} {n[2]:.6f}" for n in normals)
         f.write(f"\n{normal_str}")
 
@@ -277,23 +277,23 @@ class DAEExporter:
         vertices_id: str,
         normal_id: Optional[str] = None,
         uv_id: Optional[str] = None,
-        uv_indices: Optional[List[Tuple[int, int, int]]] = None,  # NEU: Separate UV-Indizes
+        uv_indices: Optional[List[Tuple[int, int, int]]] = None,  # NEW: separate UV indices
     ) -> None:
         """
-        Schreibe <triangles> Block mit optionalen Normals und UVs.
+        Write a <triangles> block with optional normals and UVs.
 
-        WICHTIG: Terrain-Tiles vs. Road-Materialien nutzen unterschiedliche TEXCOORD-Semantics:
-        - Terrain Tiles (tile_*): semantic="TEXCOORD" (Original-Mapping)
-        - Road Materials: semantic="TEXCOORD0" (für PBR-Shader-Support)
+        IMPORTANT: Terrain tiles vs. road materials use different TEXCOORD semantics:
+        - Terrain tiles (tile_*): semantic="TEXCOORD" (original mapping)
+        - Road materials: semantic="TEXCOORD0" (for PBR shader support)
 
         Args:
             f: File handle
-            material_name: Material-Symbol
-            faces: Liste von (v0, v1, v2) Face-Indizes
-            vertices_id: ID des <vertices> Elements
-            normal_id: Optional ID der Normals <source>
-            uv_id: Optional ID der UV <source>
-            uv_indices: Optional separate UV-Indizes (Liste von (uv0, uv1, uv2) Tupeln)
+            material_name: Material symbol
+            faces: List of (v0, v1, v2) face indices
+            vertices_id: ID of the <vertices> element
+            normal_id: Optional ID of the normals <source>
+            uv_id: Optional ID of the UV <source>
+            uv_indices: Optional separate UV indices (list of (uv0, uv1, uv2) tuples)
         """
         f.write(f'        <triangles material="{material_name}" count="{len(faces)}">\n')
         f.write(f'          <input semantic="VERTEX" source="#{vertices_id}" offset="0"/>\n')
@@ -304,32 +304,32 @@ class DAEExporter:
             offset += 1
 
         if uv_id:
-            # TEXCOORD (BeamNG-Standard für alle Materialien)
+            # TEXCOORD (BeamNG default for all materials)
             f.write(f'          <input semantic="TEXCOORD" source="#{uv_id}" offset="{offset}" set="0"/>\n')
             offset += 1
 
         f.write("          <p>")
 
-        # Alle Indizes in einer Zeile
+        # All indices on one line
         if normal_id and uv_id:
-            # Mit Normals + UV: v0 n0 uv0 v1 n1 uv1 v2 n2 uv2
+            # With normals + UV: v0 n0 uv0 v1 n1 uv1 v2 n2 uv2
             if uv_indices:
-                # Separate UV-Indizes vorhanden (z.B. für Roads)
+                # Separate UV indices present (e.g. for roads)
                 indices_str = " ".join(
                     f"{face[0]} {face[0]} {uv_ids[0]} {face[1]} {face[1]} {uv_ids[1]} {face[2]} {face[2]} {uv_ids[2]}"
                     for face, uv_ids in zip(faces, uv_indices)
                 )
             else:
-                # 1:1 Mapping (z.B. für Terrain)
+                # 1:1 mapping (e.g. for terrain)
                 indices_str = " ".join(
                     f"{face[0]} {face[0]} {face[0]} {face[1]} {face[1]} {face[1]} {face[2]} {face[2]} {face[2]}"
                     for face in faces
                 )
         elif normal_id:
-            # Mit Normals nur: v0 n0 v1 n1 v2 n2
+            # With normals only: v0 n0 v1 n1 v2 n2
             indices_str = " ".join(f"{face[0]} {face[0]} {face[1]} {face[1]} {face[2]} {face[2]}" for face in faces)
         elif uv_id:
-            # Mit UV nur: v0 uv0 v1 uv1 v2 uv2
+            # With UV only: v0 uv0 v1 uv1 v2 uv2
             if uv_indices:
                 indices_str = " ".join(
                     f"{face[0]} {uv_ids[0]} {face[1]} {uv_ids[1]} {face[2]} {uv_ids[2]}"
@@ -338,7 +338,7 @@ class DAEExporter:
             else:
                 indices_str = " ".join(f"{face[0]} {face[0]} {face[1]} {face[1]} {face[2]} {face[2]}" for face in faces)
         else:
-            # Ohne UV/Normals: v0 v1 v2
+            # Without UV/normals: v0 v1 v2
             indices_str = " ".join(f"{face[0]} {face[1]} {face[2]}" for face in faces)
 
         f.write(f"\n{indices_str}")
@@ -353,26 +353,26 @@ class DAEExporter:
         material_textures: Optional[Dict[str, str]] = None,
     ) -> str:
         """
-        Exportiere Multi-Mesh DAE (z.B. Terrain-Tiles, Buildings).
+        Export a multi-mesh DAE (e.g. terrain tiles, buildings).
 
         Args:
-            output_path: Ziel-Dateipfad
-            meshes: Liste von Dicts mit:
-                - 'id': Mesh-ID
-                - 'vertices': (N, 3) NumPy Array
-                - 'faces': Liste von (v0, v1, v2) oder Dict {mat_name: faces_list}
-                - 'material' (optional): Material-Name (falls faces eine Liste)
-                - 'uv_offset' (optional): UV-Offset
-                - 'uv_scale' (optional): UV-Skalierung
-            with_uv: UV-Koordinaten generieren?
-            material_textures: Optional Dict {mat_name: texture_path} für Textur-Bindings
+            output_path: Target file path
+            meshes: List of dicts with:
+                - 'id': Mesh ID
+                - 'vertices': (N, 3) NumPy array
+                - 'faces': List of (v0, v1, v2) or dict {mat_name: faces_list}
+                - 'material' (optional): Material name (if faces is a list)
+                - 'uv_offset' (optional): UV offset
+                - 'uv_scale' (optional): UV scale
+            with_uv: Generate UV coordinates?
+            material_textures: Optional dict {mat_name: texture_path} for texture bindings
 
         Returns:
             output_path
         """
         Path(output_path).parent.mkdir(parents=True, exist_ok=True)
 
-        # Sammle alle Material-Namen
+        # Collect all material names
         material_names = set()
         for mesh_data in meshes:
             faces = mesh_data.get("faces", [])
@@ -384,14 +384,14 @@ class DAEExporter:
         with open(output_path, "w", encoding="utf-8") as f:
             self._write_header(f)
 
-            # Images (Texturen)
+            # Images (textures)
             if material_textures:
                 self._write_image_library(f, material_textures)
 
             # Materials
             self._write_material_library(f, list(material_names))
 
-            # Colors für Buildings (wall/roof)
+            # Colors for buildings (wall/roof)
             colors = {name: color for name, color in DAE_EFFECT_COLORS.items() if name in material_names}
 
             self._write_effect_library(f, list(material_names), colors, material_textures)
@@ -411,14 +411,14 @@ class DAEExporter:
                 vert_src_id = f"{mesh_id}_vertices"
                 self._write_vertices_source(f, vert_src_id, vertices)
 
-                # Normals Source (NEW: Smooth Normals für BeamNG)
+                # Normals source (NEW: smooth normals for BeamNG)
                 normal_src_id = f"{mesh_id}_normals"
                 provided_normals = mesh_data.get("normals")
                 if provided_normals is not None:
                     smooth_normals = provided_normals
                 else:
                     if isinstance(faces, dict):
-                        # Kombiniere alle Faces aus allen Materialen für Normal-Berechnung
+                        # Combine all faces of all materials for the normal computation
                         all_faces = []
                         for mat_faces in faces.values():
                             all_faces.extend(mat_faces)
@@ -430,8 +430,8 @@ class DAEExporter:
                 # UV Source (optional)
                 if with_uv:
                     uv_src_id = f"{mesh_id}_uvs"
-                    # Prüfe zuerst ob explizite UVs im mesh_data vorhanden sind
-                    # UVs müssen vorhanden sein - aus mesh_data["global_uvs"]
+                    # First check whether explicit UVs are present in mesh_data
+                    # UVs must be present - from mesh_data["global_uvs"]
                     if "uvs" in mesh_data and mesh_data["uvs"] is not None:
                         uv_coords = mesh_data["uvs"]
                     else:
@@ -446,13 +446,13 @@ class DAEExporter:
                 f.write(f'          <input semantic="POSITION" source="#{vert_src_id}"/>\n')
                 f.write("        </vertices>\n")
 
-                # Triangles (pro Material wenn faces ein Dict ist)
-                uv_indices_dict = mesh_data.get("uv_indices", {})  # NEU: Hole UV-Indizes
+                # Triangles (per material if faces is a dict)
+                uv_indices_dict = mesh_data.get("uv_indices", {})  # NEW: get UV indices
 
                 if isinstance(faces, dict):
                     for mat_name, mat_faces in faces.items():
                         if len(mat_faces) > 0:
-                            # Hole UV-Indizes für dieses Material (falls vorhanden)
+                            # Get the UV indices for this material (if present)
                             mat_uv_indices = uv_indices_dict.get(mat_name, None)
                             self._write_triangles(
                                 f, mat_name, mat_faces, vert_elem_id, normal_src_id, uv_src_id, mat_uv_indices

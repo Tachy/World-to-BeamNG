@@ -1,11 +1,11 @@
 """
-Bodenbewuchs (Gras, Blumen, Farn, Unkraut) als BeamNG-`GroundCover`-Objekte.
+Ground vegetation (grass, flowers, fern, weeds) as BeamNG `GroundCover` objects.
 
-Grashalme sind in BeamNG kein Teil der Terrain-Textur: ein GroundCover-Objekt hat
-EIN Billboard-Material (Textur-Atlas, gemeinsame Assets unter
-/assets/materials/foliage/...) und mehrere `Types` (Atlas-Ausschnitt, Größe,
-Klumpung), die über `layer` an den Namen eines Terrain-Materials gebunden sind.
-Die Vorlagen stammen aus BeamNGs eigenen Levels (siehe
+Grass blades are not part of the terrain texture in BeamNG: a GroundCover object has
+ONE billboard material (texture atlas, shared assets under
+/assets/materials/foliage/...) and several `Types` (atlas region, size,
+clumping), which are bound to the name of a terrain material via `layer`.
+The templates come from BeamNG's own levels (see
 tools/extract_ground_cover_templates.py -> data/ground_cover_templates.json).
 """
 
@@ -16,8 +16,8 @@ from uuid import uuid4
 
 TEMPLATES_PATH = Path(__file__).parent.parent.parent / "data" / "ground_cover_templates.json"
 
-# Objekt-Felder, die aus der Vorlage übernommen werden (radius/maxElements werden
-# separat begrenzt bzw. gesetzt).
+# Object fields taken over from the template (radius/maxElements are
+# limited or set separately).
 _PASSTHROUGH_FIELDS = (
     "gridSize",
     "maxBillboardTiltAngle",
@@ -32,7 +32,7 @@ _PASSTHROUGH_FIELDS = (
 
 
 def load_ground_cover_templates(path: Optional[Path] = None) -> Dict:
-    """Lädt data/ground_cover_templates.json ({"billboard_materials": ..., "templates": ...})."""
+    """Loads data/ground_cover_templates.json ({"billboard_materials": ..., "templates": ...})."""
     return json.loads(Path(path or TEMPLATES_PATH).read_text(encoding="utf-8"))
 
 
@@ -45,25 +45,25 @@ def build_ground_cover_items(
     layer_variants: Optional[Dict[str, List[str]]] = None,
 ) -> List[Dict]:
     """
-    Baut je Terrain-Layer und Vorlage ein GroundCover-Objekt.
+    Builds one GroundCover object per terrain layer and template.
 
     Args:
-        landuse_mappings: data/osm_to_beamng.json["landuse_mappings"] (pro Kategorie
-            "internal_name" = Layer-Name und "groundCover" = Liste von Vorlagennamen)
-        used_layers: Layer-Namen, die in der Layer-Map tatsächlich vorkommen
-            (für nicht gemalte Layer wären die Objekte nutzlos)
-        templates_data: Ergebnis von load_ground_cover_templates()
-        max_elements: Obergrenze gleichzeitig gezeichneter Elemente je Objekt
-        max_radius: Obergrenze für die Sichtweite (Meter) je Objekt
-        layer_variants: Vier-Bilder-Modus: Schicht -> ihre Kachel-Varianten (z.B. {"mat_grass": ["mat_grass_t0",
-            "mat_grass_t1"]}). Jede Variante bekommt ein EIGENES Objekt (gc_<variante>_<vorlage>) mit den Typen der
-            Vorlage. Die Typen dürfen nicht für mehrere Varianten in EIN Objekt vervielfacht werden: ein Objekt
-            trägt höchstens 8 Typen (alle 229 Objekte in BeamNGs Original-Levels haben genau 8), bei mehr fehlt das
-            Gras komplett.
+        landuse_mappings: data/osm_to_beamng.json["landuse_mappings"] (per category
+            "internal_name" = layer name and "groundCover" = list of template names)
+        used_layers: layer names that actually occur in the layer map
+            (the objects would be useless for layers that are not painted)
+        templates_data: result of load_ground_cover_templates()
+        max_elements: upper limit of simultaneously drawn elements per object
+        max_radius: upper limit for the view distance (meters) per object
+        layer_variants: four-image mode: layer -> its tile variants (e.g. {"mat_grass": ["mat_grass_t0",
+            "mat_grass_t1"]}). Each variant gets its OWN object (gc_<variant>_<template>) with the types of the
+            template. The types must not be multiplied for several variants into ONE object: an object
+            carries at most 8 types (all 229 objects in BeamNG's original levels have exactly 8), with more the
+            grass is missing completely.
 
     Returns:
-        Liste von Item-Feldern ("name", "material", "radius", "Types", ...)
-        für ItemManager.add_ground_cover().
+        List of item fields ("name", "material", "radius", "Types", ...)
+        for ItemManager.add_ground_cover().
     """
     templates = templates_data["templates"]
     layer_variants = layer_variants or {}
@@ -80,14 +80,14 @@ def build_ground_cover_items(
                 continue
 
             radius = min(float(template.get("radius", max_radius)), float(max_radius))
-            # Ein Objekt je Layer bzw. (Vier-Bilder-Modus) je Kachel-Variante des Layers
+            # One object per layer or (four-image mode) per tile variant of the layer
             for bound in layer_variants.get(layer, [layer]):
                 item = {
                     "name": f"gc_{bound}_{template_name}",
                     "material": template["material"],
                     "radius": radius,
                     "maxElements": int(max_elements),
-                    # Ohne layer würde ein Typ auf ALLEN Terrain-Materialien wachsen
+                    # Without layer, a type would grow on ALL terrain materials
                     "Types": [dict(t, layer=bound) for t in template["types"]],
                 }
                 for field in _PASSTHROUGH_FIELDS:
@@ -103,8 +103,8 @@ def build_ground_cover_items(
 
 def build_billboard_material_entries(items: Sequence[Dict], templates_data: Dict) -> Dict[str, Dict]:
     """
-    Liefert die Billboard-Materialien (Name -> Material-JSON) aller von `items`
-    verwendeten Atlanten, jeweils mit neuer persistentId.
+    Returns the billboard materials (name -> material JSON) of all atlases used by
+    `items`, each with a new persistentId.
     """
     materials = {}
     for item in items:

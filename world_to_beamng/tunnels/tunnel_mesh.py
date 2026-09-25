@@ -1,13 +1,13 @@
 """
-Tunnel aus OSM-Linien (highway=* mit tunnel=yes/culvert/building_passage): kreisrunde Röhre - Standard-
-Tunnelprofil, 240° Kreisbogen über einer flachen Bodensehne (Fahrbahn), die restlichen 120° liegen unterhalb der
-Sehne und werden nicht modelliert (unsichtbare Sohle) - entlang des linear interpolierten Höhenprofils (siehe
-geometry/road_structures.py + geometry/polygon.py), mit einem Portalbauwerk an beiden Enden (siehe
-tunnels/tunnel_portal.py). Das Gelände über der Röhre und am Portal formt terrain/tunnel_terrain.py.
+Tunnel from OSM lines (highway=* with tunnel=yes/culvert/building_passage): circular tube - standard
+tunnel profile, a 240° circular arc over a flat floor chord (road surface); the remaining 120° lie below the
+chord and are not modeled (invisible invert) - along the linearly interpolated elevation profile (see
+geometry/road_structures.py + geometry/polygon.py), with a portal structure at both ends (see
+tunnels/tunnel_portal.py). The terrain above the tube and at the portal is shaped by terrain/tunnel_terrain.py.
 
-Ein Tunnel kann in OSM aus mehreren aneinandergereihten Ways bestehen (die Junction-Erkennung teilt Tunnel
-nicht mehr, siehe geometry/junctions.py::build_junction_network()). chain_tunnel_pieces() fügt solche Stücke zu
-EINER durchgehenden Röhre zusammen - sonst bekäme jedes Stück eigene Portale mitten im Berg.
+In OSM a tunnel can consist of several consecutive ways (junction detection no longer splits tunnels,
+see geometry/junctions.py::build_junction_network()). chain_tunnel_pieces() joins such pieces into
+ONE continuous tube - otherwise each piece would get its own portals in the middle of the mountain.
 """
 
 import math
@@ -19,27 +19,27 @@ from scipy.spatial import cKDTree
 
 from ..walls.mesh_parts import MeshBuilder, offset_points
 
-ARC_SPAN_DEG = 240.0  # Kreisbogen über der Fahrbahn
-ARC_START_DEG = -30.0  # Startwinkel (rechter Bodenrand), Standardkreis-Konvention (0°=+x, CCW)
-JOINT_TOLERANCE = 0.05  # so nah müssen sich zwei Stück-Enden kommen, um als Stoß zu gelten, in Metern
+ARC_SPAN_DEG = 240.0  # circular arc over the road surface
+ARC_START_DEG = -30.0  # start angle (right floor edge), standard circle convention (0°=+x, CCW)
+JOINT_TOLERANCE = 0.05  # how close two piece ends must come to count as a joint, in meters
 
 
 def tunnel_radius(width: float) -> float:
-    """Radius der kreisrunden Tunnelröhre aus der Bodenbreite (Bodensehne = sqrt(3)*R bei 240°/120°-Aufteilung)."""
+    """Radius of the circular tunnel tube from the floor width (floor chord = sqrt(3)*R for the 240°/120° split)."""
     return width / math.sqrt(3.0)
 
 
 def tunnel_crown_height(width: float) -> float:
-    """Lichte Höhe (Boden bis Kronenscheitel) einer kreisrunden Tunnelröhre der gegebenen Bodenbreite."""
+    """Clear height (floor to crown apex) of a circular tunnel tube of the given floor width."""
     return 1.5 * tunnel_radius(width)
 
 
 def arc_cross_section(radius: float, segments: int) -> List[Tuple[float, float]]:
     """
-    (across, height)-Punkte des 240°-Kreisbogens über der Fahrbahn, `segments` Streifen (segments+1 Punkte), vom
-    rechten Bodenrand (θ=-30°) über die Krone (θ=90°) zum linken Bodenrand (θ=210°). Boden ist y=0, "across" ist
-    quer zur Fahrtrichtung (positiv = rechts). Kreismittelpunkt liegt bei (0, radius/2) - siehe Design-Spec
-    Abschnitt 5 für die Herleitung.
+    (across, height) points of the 240° circular arc over the road surface, `segments` strips (segments+1 points), from
+    the right floor edge (θ=-30°) over the crown (θ=90°) to the left floor edge (θ=210°). The floor is y=0, "across"
+    is across the direction of travel (positive = right). The circle center is at (0, radius/2) - see design spec
+    section 5 for the derivation.
     """
     points = []
     for k in range(segments + 1):
@@ -50,9 +50,9 @@ def arc_cross_section(radius: float, segments: int) -> List[Tuple[float, float]]
 
 def shell_cross_section(radius: float, segments: int, thickness: float) -> List[Tuple[float, float]]:
     """
-    Außenkontur (across, height) der Röhrenschale: 240°-Bogen mit Radius radius + thickness um denselben
-    Mittelpunkt (0, radius/2) wie der Innenbogen, unten geschlossen durch eine Bodenplatte `thickness` unter der
-    Fahrbahn. Umlauf: rechter Bogenfuß über die Krone zum linken Bogenfuß, dann links unten, rechts unten.
+    Outer contour (across, height) of the tube shell: 240° arc with radius radius + thickness around the same
+    center (0, radius/2) as the inner arc, closed at the bottom by a floor slab `thickness` below the
+    road surface. Winding: right arc foot over the crown to the left arc foot, then bottom left, bottom right.
     """
     outer = radius + thickness
     points = []
@@ -65,9 +65,9 @@ def shell_cross_section(radius: float, segments: int, thickness: float) -> List[
 
 
 def resample_tunnel_coords(coords: Sequence[Tuple[float, float, float]], step: float) -> List[Tuple[float, float, float]]:
-    """Dünnt die (bereits linear profilierte) Centerline auf einen festen Bogenlängen-Abstand aus (XYZ gemeinsam,
-    da das Höhenprofil affin in der Bogenlänge ist - siehe geometry/polygon.py::apply_structure_elevation_profiles()).
-    Hält die Vertex-Zahl auch bei sehr langen Tunneln (z.B. 16,9 km) im Rahmen."""
+    """Thins out the (already linearly profiled) centerline to a fixed arc-length spacing (XYZ together,
+    since the elevation profile is affine in arc length - see geometry/polygon.py::apply_structure_elevation_profiles()).
+    Keeps the vertex count in check even for very long tunnels (e.g. 16.9 km)."""
     arr = np.array(coords, dtype=float)
     if len(arr) < 2:
         return list(coords)
@@ -86,25 +86,25 @@ def resample_tunnel_coords(coords: Sequence[Tuple[float, float, float]], step: f
 
 def chain_tunnel_pieces(tunnels: Sequence[Dict]) -> List[Dict]:
     """
-    Fügt Tunnel-Stücke, die sich an einem Endpunkt treffen, zu durchgehenden Ketten zusammen.
+    Joins tunnel pieces that meet at an end point into continuous chains.
 
-    Verkettet wird nur an eindeutigen Stößen: genau zwei gleichartige Stück-Enden (gleiche Breite, gleiches
-    Bodenmaterial) am selben Punkt. Andersartige Tunnel am selben Punkt zählen nicht mit - z.B. ein Fußweg-Tunnel,
-    der am selben OSM-Knoten abzweigt. Die
-    Laufrichtung einzelner Stücke wird bei Bedarf umgedreht.
+    Chaining only happens at unambiguous joints: exactly two matching piece ends (same width, same
+    floor material) at the same point. Tunnels of a different kind at the same point do not count - e.g. a footway
+    tunnel that branches off at the same OSM node. The
+    direction of travel of individual pieces is reversed where needed.
 
     Args:
         tunnels: [{"id", "coords", "width", "floor_material"}, ...]
 
     Returns:
-        [{"id" (des ersten Stücks), "coords", "width", "floor_material"}, ...]
+        [{"id" (of the first piece), "coords", "width", "floor_material"}, ...]
     """
     pieces = [t for t in tunnels if len(t["coords"]) >= 2]
     if not pieces:
         return []
 
-    # Stück-Enden, die näher als JOINT_TOLERANCE beieinanderliegen, bilden einen Stoß (Clipping am Kartenrand
-    # verschiebt Endpunkte um Millimeter) - Gruppen per Union-Find über alle nahen Paare.
+    # Piece ends closer than JOINT_TOLERANCE form a joint (clipping at the map border
+    # shifts end points by millimeters) - groups via union-find over all nearby pairs.
     end_refs = [(index, at_start) for index in range(len(pieces)) for at_start in (True, False)]
     end_xy = np.array([pieces[i]["coords"][0 if s else -1][:2] for i, s in end_refs], dtype=float)
     group = list(range(len(end_refs)))
@@ -132,7 +132,7 @@ def chain_tunnel_pieces(tunnels: Sequence[Dict]) -> List[Dict]:
             return None
         other = joined[0] if joined[1] == (index, at_start) else joined[1]
         if other[0] == index:
-            return None  # Stück schließt sich selbst zum Ring
+            return None  # piece closes on itself to form a ring
         return other
 
     visited = set()
@@ -140,7 +140,7 @@ def chain_tunnel_pieces(tunnels: Sequence[Dict]) -> List[Dict]:
     for first in range(len(pieces)):
         if first in visited:
             continue
-        # Rückwärts bis zum freien Anfang der Kette laufen (mit Schutz gegen Ringe).
+        # Walk backwards to the free start of the chain (guarded against rings).
         head, head_at_start = first, True
         seen = {first}
         while True:
@@ -150,7 +150,7 @@ def chain_tunnel_pieces(tunnels: Sequence[Dict]) -> List[Dict]:
             head, head_at_start = prev[0], not prev[1]
             seen.add(head)
 
-        # Vorwärts: jedes Stück so ausrichten, dass es am Stoß zum Vorgänger beginnt.
+        # Forward: orient each piece so that it starts at the joint with its predecessor.
         coords: List[Tuple[float, float, float]] = []
         current, entry_at_start = head, head_at_start
         while current is not None and current not in visited:
@@ -184,17 +184,17 @@ def build_tunnel_mesh(
     tilt_end: float = 0.0,
 ) -> Dict:
     """
-    Röhren-Mesh (Boden + kreisrunder 240°-Bogen darüber) entlang `coords` (bereits das Tunnel-Höhenprofil).
-    Radius und Kronenhöhe ergeben sich aus `width` (siehe tunnel_radius()/tunnel_crown_height()).
+    Tube mesh (floor + circular 240° arc above it) along `coords` (already the tunnel elevation profile).
+    Radius and crown height follow from `width` (see tunnel_radius()/tunnel_crown_height()).
 
-    Mit shell_thickness > 0 bekommt die Röhre eine Außenschale (siehe shell_cross_section()) samt Stirnringen an
-    beiden Enden: sie ist dann auch von außen ein massiver Zylinder und darf frei im Gelände stehen. cap_start/
-    cap_end = False lässt den Stirnring weg (dort steht ein Portalbauwerk in derselben Ebene - sonst Z-Fighting).
-    tilt_start/tilt_end (tan des Neigungswinkels): die Stirnseite dort ist zur Bergseite gekippt - ein Punkt in Höhe h
-    über dem Boden rückt um h * tilt in die Röhre (Boden bleibt auf der Portalebene, siehe _end_shift()).
+    With shell_thickness > 0 the tube gets an outer shell (see shell_cross_section()) including end rings at
+    both ends: it is then a solid cylinder from the outside too and may stand freely in the terrain. cap_start/
+    cap_end = False omits the end ring (a portal structure stands in the same plane there - otherwise z-fighting).
+    tilt_start/tilt_end (tan of the tilt angle): the end face there is tilted toward the mountain side - a point at
+    height h above the floor moves by h * tilt into the tube (the floor stays on the portal plane, see _end_shift()).
 
-    Die Querschnitts-Ringe sitzen an den Centerline-Punkten und stehen dort auf Gehrung (wie die Bodenkanten aus
-    offset_points()): benachbarte Segmente teilen sich exakt denselben Ring, die Röhre ist auch in Kurven dicht.
+    The cross-section rings sit at the centerline points and are mitered there (like the floor edges from
+    offset_points()): adjacent segments share exactly the same ring, so the tube is watertight even in curves.
 
     Returns:
         {"vertices", "uvs", "normals", "faces": {floor_material: [...], wall_material: [...]}}
@@ -206,13 +206,13 @@ def build_tunnel_mesh(
     arc = arc_cross_section(radius, arc_segments)
 
     left, right = offset_points(xy, width / 2.0, closed=False)
-    # Gehrungs-Vektor je Centerline-Punkt (inkl. Gehrungs-Verlängerung), zeigt nach rechts der Laufrichtung
+    # Miter vector per centerline point (incl. miter extension), points to the right of the direction of travel
     miter_right = (right - xy) / (width / 2.0)
     rings = np.empty((len(points), arc_segments + 1, 3))
     for k, (across, height) in enumerate(arc):
         rings[:, k, :2] = xy + miter_right * across
         rings[:, k, 2] = floor_z + height
-    rings[:, 0, :2] = right  # Bodenränder exakt wie das Boden-Mesh (kein Rundungsspalt)
+    rings[:, 0, :2] = right  # floor edges exactly like the floor mesh (no rounding gap)
     rings[:, arc_segments, :2] = left
     shift = _end_shift(xy, tilt_start, tilt_end)
     rings[:, :, :2] += shift[:, None, :] * (rings[:, :, 2:3] - floor_z[:, None, None])
@@ -232,16 +232,16 @@ def build_tunnel_mesh(
         u0, u1 = along[i], along[j]
         direction = xy[j] - xy[i]
         direction = direction / np.linalg.norm(direction)
-        perp_right = np.array([direction[1], -direction[0]])  # zeigt "rechts" der Laufrichtung
+        perp_right = np.array([direction[1], -direction[0]])  # points "right" of the direction of travel
 
-        # Boden (Normale nach oben, ins Rohrinnere)
+        # Floor (normal pointing up, into the tube interior)
         floor_builder.quad(
             [p3(left[i], floor_z[i]), p3(left[j], floor_z[j]), p3(right[j], floor_z[j]), p3(right[i], floor_z[i])],
             [[u0, 0.0], [u1, 0.0], [u1, across_floor], [u0, across_floor]],
             [0.0, 0.0, 1.0],
         )
 
-        # Kreisbogen (240°) über der Fahrbahn, in arc_segments Streifen
+        # Circular arc (240°) over the road surface, in arc_segments strips
         for k in range(arc_segments):
             theta_mid = math.radians(ARC_START_DEG + ((k + 0.5) / arc_segments) * ARC_SPAN_DEG)
             inward = [-math.cos(theta_mid) * perp_right[0], -math.cos(theta_mid) * perp_right[1], -math.sin(theta_mid)]
@@ -274,8 +274,8 @@ def build_tunnel_mesh(
 
 
 def _end_shift(xy: np.ndarray, tilt_start: float, tilt_end: float) -> np.ndarray:
-    """Horizontale Verschiebung je Meter Höhe über dem Boden, je Centerline-Punkt: an einem gekippten Ende tilt mal
-    Einheitsvektor ins Röhreninnere (höchstens so weit, dass die Krone vor dem Nachbarring bleibt), sonst 0."""
+    """Horizontal shift per meter of height above the floor, per centerline point: at a tilted end tilt times the
+    unit vector into the tube interior (at most so far that the crown stays in front of the neighboring ring), else 0."""
     shift = np.zeros_like(xy)
     for index, neighbour, tilt in ((0, 1, tilt_start), (len(xy) - 1, len(xy) - 2, tilt_end)):
         if tilt > 0.0 and len(xy) >= 2:
@@ -285,7 +285,7 @@ def _end_shift(xy: np.ndarray, tilt_start: float, tilt_end: float) -> np.ndarray
 
 
 def _build_shell(xy, floor_z, miter_right, shift, radius, arc_segments, thickness, tile_m, cap_start=True, cap_end=True) -> MeshBuilder:
-    """Außenschale der Röhre (Mantel entlang der Achse, Normalen nach außen) plus Stirnring an den gewünschten Enden."""
+    """Outer shell of the tube (jacket along the axis, normals pointing outward) plus end ring at the requested ends."""
     from shapely import constrained_delaunay_triangles
     from shapely.geometry import Polygon
 
@@ -318,7 +318,7 @@ def _build_shell(xy, floor_z, miter_right, shift, radius, arc_segments, thicknes
                 [float(perp_right[0] * normal_2d[0]), float(perp_right[1] * normal_2d[0]), float(normal_2d[1])],
             )
 
-    # Stirnringe: Außenkontur minus lichter Querschnitt, nach außen (vom Tunnel weg) gerichtet
+    # End rings: outer contour minus clear cross-section, facing outward (away from the tunnel)
     ring = Polygon(profile).difference(Polygon(arc_cross_section(radius, arc_segments)))
     triangles = [list(t.exterior.coords)[:3] for t in constrained_delaunay_triangles(ring).geoms]
     for index, sign, cap in ((0, -1.0, cap_start), (len(xy) - 1, 1.0, cap_end)):
@@ -327,7 +327,7 @@ def _build_shell(xy, floor_z, miter_right, shift, radius, arc_segments, thicknes
         neighbour = 1 if index == 0 else index - 1
         axis = (xy[index] - xy[neighbour]) if index else (xy[neighbour] - xy[index])
         axis = axis / np.linalg.norm(axis)
-        # gekippte Stirnseite: Normale nach außen und um den Neigungswinkel nach oben
+        # tilted end face: normal pointing outward and up by the tilt angle
         tilt = float(np.linalg.norm(shift[index]))
         cos, sin = 1.0 / math.hypot(1.0, tilt), tilt / math.hypot(1.0, tilt)
         normal = [float(sign * axis[0] * cos), float(sign * axis[1] * cos), float(sin)]
@@ -340,21 +340,21 @@ def build_tunnels(
     plans: Sequence[Dict], wall_material: str, portal_material: str, arc_segments: int = 12, transition_cover: float = 0.2
 ) -> List[Dict]:
     """
-    Mesh-Dicts für den DAE-Export: je Tunnel-Kette die Röhre (mit Außenschale aus plan["shell"], Material wie die
-    Portale) plus ein Portalbauwerk je offenem Ende.
+    Mesh dicts for the DAE export: per tunnel chain the tube (with outer shell from plan["shell"], material like the
+    portals) plus one portal structure per open end.
 
     Args:
-        plans: Ergebnis von tunnel_portal.plan_tunnels() - Portale mit bereits gesetzter "top_z"/"bottom_z"
-            (siehe terrain/tunnel_terrain.py::shape_terrain_for_tunnels())
-        transition_cover: Dicke der massiven Abdeckplatten am Übergang in eine Galerie, in Metern
+        plans: result of tunnel_portal.plan_tunnels() - portals with "top_z"/"bottom_z" already set
+            (see terrain/tunnel_terrain.py::shape_terrain_for_tunnels())
+        transition_cover: thickness of the solid cover slabs at the transition into a gallery, in meters
     """
     from .tunnel_portal import build_portal_block_mesh
 
     meshes = []
     for plan in plans:
-        # Eigenes Portalbauwerk nur bei Kragen mit Überstand oder Galerie-Übergang (Flächen zwischen Bogen und Galerie-
-        # Querschnitt). Ohne Kragen ist der Stirnring der Röhre das Portal (gleiche Wandstärke wie die Röhre); mit Kragen
-        # entfällt er (gleiche Ebene wie die Kragen-Stirnseite -> Z-Fighting).
+        # Own portal structure only for collars with overhang or a gallery transition (faces between arch and gallery
+        # cross-section). Without a collar the end ring of the tube is the portal (same wall thickness as the tube); with
+        # a collar it is omitted (same plane as the collar end face -> z-fighting).
         open_portals = [p for p in plan["portals"] if p.get("open", True)]
         structures = [p for p in open_portals if p.get("kind") == "gallery" or p.get("collar", 0.0) > 0.0]
         collared = [p for p in open_portals if p.get("collar", 0.0) > 0.0]

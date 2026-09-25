@@ -1,4 +1,4 @@
-"""Core-Module für zentrale Komponenten."""
+"""Core modules for central components."""
 
 from .cache_manager import CacheManager
 

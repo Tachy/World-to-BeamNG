@@ -1,9 +1,9 @@
 """
-Foto -> nahtlos kachelnde Textur samt Normal- und Roughness-Map (einmalig per tools/make_seamless_texture.py).
+Photo -> seamlessly tiling texture including normal and roughness map (once via tools/make_seamless_texture.py).
 
-Ablauf: quadratisch zuschneiden, auf die Zielgröße skalieren, großflächige Beleuchtung ausgleichen, die Ränder über
-eine um die halbe Kachel versetzte Kopie überblenden (Kachelnaht) und aus der Helligkeit Höhe und Rauheit ableiten
-(dunkle Fugen = tief und rau).
+Procedure: crop to a square, scale to the target size, even out large-scale lighting, blend the edges via a copy
+offset by half a tile (tile seam) and derive height and roughness from the brightness
+(dark joints = deep and rough).
 """
 
 from typing import Dict, Optional, Tuple
@@ -15,18 +15,18 @@ from scipy.ndimage import gaussian_filter
 from .. import config
 from ..facade.texture_utils import gaussian_blur_wrap, gray_to_rgb, normal_from_height, to_uint8
 
-LIGHTING_SIGMA_FRAC = 0.12  # Radius des Beleuchtungsausgleichs relativ zur Kachelgröße
-DEFAULT_BLEND = 0.4  # Breite der Überblendung an den Rändern relativ zur Kachelgröße (höchstens 0.5)
-NORMAL_STRENGTH_PER_1024 = 4.0  # Normalmap-Stärke bei 1024 px; wächst mit der Auflösung, damit der Eindruck gleich bleibt
+LIGHTING_SIGMA_FRAC = 0.12  # Radius of the lighting compensation relative to the tile size
+DEFAULT_BLEND = 0.4  # Width of the blend at the edges relative to the tile size (at most 0.5)
+NORMAL_STRENGTH_PER_1024 = 4.0  # Normal map strength at 1024 px; grows with the resolution so the impression stays the same
 _LUMA = np.array([0.299, 0.587, 0.114])
 
 
 def crop_square(photo: np.ndarray, x: Optional[int] = None, y: Optional[int] = None, side: Optional[int] = None) -> Tuple[np.ndarray, int]:
     """
-    Quadratischer Ausschnitt; ohne Angaben das größte zentrierte Quadrat.
+    Square crop; without arguments the largest centered square.
 
     Returns:
-        (Ausschnitt, Kantenlänge in Bildpunkten)
+        (crop, edge length in pixels)
     """
     height, width = photo.shape[:2]
     side = side or min(height, width)
@@ -38,7 +38,7 @@ def crop_square(photo: np.ndarray, x: Optional[int] = None, y: Optional[int] = N
 
 
 def flatten_lighting(image: np.ndarray, sigma_frac: float = LIGHTING_SIGMA_FRAC) -> np.ndarray:
-    """Gleicht großflächige Helligkeitsverläufe (Schattenwurf, Vignette) aus; die mittlere Helligkeit bleibt."""
+    """Evens out large-scale brightness gradients (cast shadows, vignette); the mean brightness is preserved."""
     sigma = sigma_frac * min(image.shape[:2])
     luma = gaussian_filter(image @ _LUMA, sigma=sigma, mode="reflect")
     flat = image * (luma.mean() / np.maximum(luma, 1e-3))[..., None]
@@ -52,11 +52,11 @@ def _smoothstep(t: np.ndarray) -> np.ndarray:
 
 def make_seamless(image: np.ndarray, blend: float = DEFAULT_BLEND) -> np.ndarray:
     """
-    Macht das Bild an allen vier Rändern kachelbar.
+    Makes the image tileable at all four edges.
 
-    Die um die halbe Kantenlänge versetzte Kopie ist an den Bildrändern stetig (dort lagen im Original Nachbarpixel),
-    das Original in der Bildmitte. Gewichtet wird zum Rand hin zur Kopie; die Varianz wird in der Überblendung
-    erhalten, damit sie nicht flauer aussieht.
+    The copy offset by half the edge length is continuous at the image edges (in the original, neighboring pixels lay
+    there), the original in the image center. Weighting shifts toward the copy at the edge; the variance is
+    preserved in the blend so that it does not look flatter.
     """
     blend = min(blend, 0.5)
     height, width = image.shape[:2]
@@ -75,7 +75,7 @@ def make_seamless(image: np.ndarray, blend: float = DEFAULT_BLEND) -> np.ndarray
 
 def derive_maps(tile: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
     """
-    Normal- und Roughness-Map (uint8 RGB) aus der Helligkeit der Kachel; dunkel = tief und rauer.
+    Normal and roughness map (uint8 RGB) from the brightness of the tile; dark = deep and rougher.
     """
     size = min(tile.shape[:2])
     luma = tile @ _LUMA
@@ -96,14 +96,14 @@ def build_from_photo(
 ) -> Dict:
     """
     Args:
-        photo: uint8-RGB-Foto
-        photo_width_m: reale Breite des gesamten Fotos in Metern (bestimmt die Kachelgröße)
-        size_px: Kantenlänge der Kachel
-        crop: (x, y, Kantenlänge) des Quadrats in Foto-Bildpunkten; Standard: größtes zentriertes Quadrat
-        blend: siehe make_seamless
+        photo: uint8 RGB photo
+        photo_width_m: real width of the entire photo in meters (determines the tile size)
+        size_px: Edge length of the tile
+        crop: (x, y, edge length) of the square in photo pixels; default: largest centered square
+        blend: see make_seamless
 
     Returns:
-        {"maps": {"color", "normal", "roughness"} als uint8-RGB, "tile_m": reale Kantenlänge der Kachel in Metern}
+        {"maps": {"color", "normal", "roughness"} as uint8 RGB, "tile_m": real edge length of the tile in meters}
     """
     square, side = crop_square(photo, *crop) if crop else crop_square(photo)
     resized = Image.fromarray(np.ascontiguousarray(square), "RGB").resize((size_px, size_px), Image.LANCZOS)

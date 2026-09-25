@@ -1,10 +1,10 @@
 """
-Textur-Bibliothek: einmalig erzeugte oder fotobasierte Texturen aus `data/textures` (Teil des Repositories) werden als
-DDS ins Level geschrieben.
+Texture library: textures from `data/textures` (part of the repository) that were generated once or are photo-based
+are written into the level as DDS.
 
-Aufbau: `data/textures/manifest.json` ({"textures": {name: {"tile_m": Meter je Kachel, "source": Herkunft}}}) und je
-Textur ein Ordner `data/textures/<name>/` mit `color.png`, `normal.png`, `roughness.png`. Eine neue Textur ist damit
-nur ein neuer Ordner samt Manifest-Eintrag. Die DDS-Dateien werden nur neu geschrieben, wenn sich die PNGs ändern.
+Layout: `data/textures/manifest.json` ({"textures": {name: {"tile_m": meters per tile, "source": origin}}}) and, per
+texture, a folder `data/textures/<name>/` with `color.png`, `normal.png`, `roughness.png`. A new texture is thus
+just a new folder plus a manifest entry. The DDS files are only rewritten when the PNGs change.
 """
 
 import hashlib
@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 HASH_FILE = "library_textures.hash.json"
 
-# (Kanal = PNG-Name, Material-Schlüssel, DDS-Suffix, DDS-Format)
+# (channel = PNG name, material key, DDS suffix, DDS format)
 _CHANNELS = (
     ("color", "baseColorMap", "_b.color", dds_export.COLOR),
     ("normal", "normalMap", "_nm.normal", dds_export.NORMAL),
@@ -32,7 +32,7 @@ _CHANNELS = (
 
 
 def load_manifest(library_dir: Optional[Path] = None) -> Dict[str, Dict]:
-    """{Textur-Name: Manifest-Eintrag}; leer, wenn es die Bibliothek (noch) nicht gibt."""
+    """{texture name: manifest entry}; empty if the library does not exist (yet)."""
     manifest_path = Path(library_dir or config.TEXTURE_LIBRARY_DIR) / "manifest.json"
     if not manifest_path.exists():
         return {}
@@ -40,19 +40,19 @@ def load_manifest(library_dir: Optional[Path] = None) -> Dict[str, Dict]:
 
 
 def texture_tile_m(name: str, default: float, library_dir: Optional[Path] = None) -> float:
-    """Meter je Kachel der Textur laut Manifest; `default`, wenn sie dort nicht steht."""
+    """Meters per tile of the texture according to the manifest; `default` if it is not listed there."""
     entry = load_manifest(library_dir).get(name)
     return float(entry["tile_m"]) if entry and "tile_m" in entry else default
 
 
 def store_texture(name: str, maps: Dict[str, np.ndarray], tile_m: float, source: str, library_dir: Optional[Path] = None) -> Path:
     """
-    Legt eine Textur in der Bibliothek ab (PNGs + Manifest-Eintrag); ersetzt eine gleichnamige.
+    Stores a texture in the library (PNGs + manifest entry); replaces one of the same name.
 
     Args:
-        maps: {"color", "normal", "roughness"} als uint8-RGB-Bilder
-        tile_m: reale Kantenlänge einer Kachel in Metern
-        source: Herkunft (z. B. "Foto vom 21.09.2026, Bruchsteinmauer Musterort" oder "prozedural, Seed 4242")
+        maps: {"color", "normal", "roughness"} as uint8 RGB images
+        tile_m: real edge length of a tile in meters
+        source: origin (e.g. "photo taken 2026-09-21, rubble stone wall, sample town" or "procedural, seed 4242")
     """
     library_dir = Path(library_dir or config.TEXTURE_LIBRARY_DIR)
     folder = library_dir / name
@@ -69,13 +69,13 @@ def store_texture(name: str, maps: Dict[str, np.ndarray], tile_m: float, source:
 
 
 def missing_files(name: str, library_dir: Optional[Path] = None) -> List[str]:
-    """Namen der PNGs (color.png, normal.png, roughness.png), die im Ordner der Textur fehlen."""
+    """Names of the PNGs (color.png, normal.png, roughness.png) that are missing in the texture's folder."""
     folder = Path(library_dir or config.TEXTURE_LIBRARY_DIR) / name
     return [f"{channel}.png" for channel, *_ in _CHANNELS if not (folder / f"{channel}.png").exists()]
 
 
 def is_complete(name: str, library_dir: Optional[Path] = None) -> bool:
-    """Manifest-Eintrag und alle drei PNGs sind vorhanden."""
+    """Manifest entry and all three PNGs are present."""
     return name in load_manifest(library_dir) and not missing_files(name, library_dir)
 
 
@@ -88,15 +88,15 @@ def _source_hash(folder: Path) -> str:
 
 def ensure_library_textures(output_dir: Optional[Path] = None, library_dir: Optional[Path] = None) -> Dict[str, Dict[str, str]]:
     """
-    Schreibt die Bibliothekstexturen als DDS in den Level-Texturordner (nur bei Änderung).
+    Writes the library textures as DDS into the level texture folder (only on change).
 
     Args:
-        output_dir: Zielordner; Standard config.BEAMNG_DIR_TEXTURES
-        library_dir: Quellordner; Standard config.TEXTURE_LIBRARY_DIR
+        output_dir: Target folder; default config.BEAMNG_DIR_TEXTURES
+        library_dir: Source folder; default config.TEXTURE_LIBRARY_DIR
 
     Returns:
-        {Textur-Name: {"baseColorMap", "normalMap", "roughnessMap"}} mit Pfaden relativ zum BeamNG-Userordner (für
-        materials.json). Texturen mit fehlenden PNGs fehlen im Ergebnis (Warnung).
+        {texture name: {"baseColorMap", "normalMap", "roughnessMap"}} with paths relative to the BeamNG user folder (for
+        materials.json). Textures with missing PNGs are absent from the result (warning).
     """
     output_dir = Path(output_dir or config.BEAMNG_DIR_TEXTURES)
     library_dir = Path(library_dir or config.TEXTURE_LIBRARY_DIR)
@@ -116,7 +116,7 @@ def ensure_library_textures(output_dir: Optional[Path] = None, library_dir: Opti
             dds_name = f"{name}{suffix}"
             if known.get(dds_name) != source or not (output_dir / f"{dds_name}.dds").exists():
                 pixels = np.asarray(Image.open(folder / f"{channel}.png").convert("RGB"), dtype=np.uint8)
-                dds_export.write_dds(pixels, output_dir, dds_name, dds_format, 0)  # volle Mip-Kette: kachelnde Texturen
+                dds_export.write_dds(pixels, output_dir, dds_name, dds_format, 0)  # full mip chain: tiling textures
                 known[dds_name] = source
             result.setdefault(name, {})[key] = str(config.RELATIVE_DIR_TEXTURES / f"{dds_name}.dds")
 

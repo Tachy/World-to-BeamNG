@@ -1,9 +1,9 @@
 {
     "version": "1.0",
-    "description": "BeamNG Material-Templates für Terrain, Straßen, Gebäude und Horizont",
+    "description": "BeamNG material templates for terrain, roads, buildings and horizon",
     "templates": {
         "building_wall": {
-            "description": "LoD2 Gebäude-Wände",
+            "description": "LoD2 building walls",
             "class": "Material",
             "version": 1.5,
             "Stages": [
@@ -17,7 +17,7 @@
             "materialTag1": "Building"
         },
         "building_roof": {
-            "description": "LoD2 Gebäude-Dächer",
+            "description": "LoD2 building roofs",
             "class": "Material",
             "version": 1.5,
             "Stages": [
@@ -44,9 +44,9 @@
         }
     },
     "buildings": {
-        "description": "LoD2 Gebäude-Konfigurationen (wall und roof)",
+        "description": "LoD2 building configurations (wall and roof)",
         "wall": {
-            "description": "Gebäude-Wand Konfiguration",
+            "description": "Building wall configuration",
             "template": "building_wall",
             "material_hints": {
                 "groundType": "concrete",
@@ -55,7 +55,7 @@
             }
         },
         "roof": {
-            "description": "Gebäude-Dach Konfiguration",
+            "description": "Building roof configuration",
             "template": "building_roof",
             "material_hints": {
                 "groundType": "concrete",

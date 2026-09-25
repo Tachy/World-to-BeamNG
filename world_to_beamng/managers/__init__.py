@@ -1,5 +1,5 @@
 """
-BeamNG Asset Managers - Zentrale Verwaltung von Materials und Items.
+BeamNG asset managers - central management of materials and items.
 """
 
 from .material_manager import MaterialManager

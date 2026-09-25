@@ -1,14 +1,14 @@
 """
-Vineyard Generator: Rebzeilen für Weinberg-Flächen (landuse=vineyard).
+Vineyard Generator: vine rows for vineyard areas (landuse=vineyard).
 
-Die Reben sind Forest-Items (grape_vine: ein Zeilensegment, dessen X-Achse die
-Zeilenrichtung ist; siehe io/vineyard_assets.py). Pro Weinberg-Polygon
-werden gerade, parallele Zeilen erzeugt. Standardmäßig laufen sie entlang der
-Falllinie (Steigungsgradient); jedes Segment folgt außerdem der Hangneigung in
-Zeilenrichtung und steht aufrecht.
+The vines are forest items (grape_vine: a row segment whose X axis is the
+row direction; see io/vineyard_assets.py). For each vineyard polygon,
+straight, parallel rows are generated. By default they run along the
+fall line (slope gradient); each segment also follows the slope inclination in
+row direction and stands upright.
 
-Format pro Instanz (BeamNG .forest4.json Schema, wie ForestInstanceGenerator):
-    {"type": "grape_vine", "pos": [x, y, z], "rotationMatrix": [9 Werte, zeilenweise], "scale": 1.0}
+Format per instance (BeamNG .forest4.json schema, as in ForestInstanceGenerator):
+    {"type": "grape_vine", "pos": [x, y, z], "rotationMatrix": [9 values, row by row], "scale": 1.0}
 """
 
 from typing import Callable, Dict, List, Optional, Sequence
@@ -24,17 +24,17 @@ from ..terrain.terrain_materials import get_landuse_category
 
 HeightAt = Callable[[np.ndarray, np.ndarray], np.ndarray]
 
-GRADIENT_SAMPLE_STEP = 4.0  # Abstand der Stichproben für die Falllinie in Metern
-GRADIENT_DIFF_STEP = 1.0  # Schrittweite der zentralen Differenz in Metern
-MIN_ROW_FILL = 0.95  # kürzere Zeilenstücke (in Segmentlängen) bleiben leer
+GRADIENT_SAMPLE_STEP = 4.0  # spacing of the samples for the fall line in meters
+GRADIENT_DIFF_STEP = 1.0  # step size of the central difference in meters
+MIN_ROW_FILL = 0.95  # shorter row pieces (in segment lengths) stay empty
 
 
 def make_height_sampler(heights: np.ndarray, origin_x: float, origin_y: float, square_size: float) -> HeightAt:
     """
-    Bilineare Höhenabfrage auf der exportierten Terrain-Heightmap.
+    Bilinear height query on the exported terrain heightmap.
 
-    heights[i, j] gehört zur Weltposition (origin_x + j * square_size, origin_y + i * square_size);
-    außerhalb des Rasters wird an den Rand geklemmt.
+    heights[i, j] belongs to the world position (origin_x + j * square_size, origin_y + i * square_size);
+    outside the grid the query is clamped to the border.
     """
     rows, cols = heights.shape
 
@@ -56,7 +56,7 @@ def make_height_sampler(heights: np.ndarray, origin_x: float, origin_y: float, s
 
 
 def _canonical(vec: np.ndarray) -> np.ndarray:
-    """Achsen haben kein Vorzeichen: eindeutige Richtung mit ux > 0 (bzw. uy > 0 bei ux ≈ 0)."""
+    """Axes have no sign: unique direction with ux > 0 (or uy > 0 if ux ≈ 0)."""
     vec = vec / np.linalg.norm(vec)
     if vec[0] < -1e-9 or (abs(vec[0]) <= 1e-9 and vec[1] < 0):
         vec = -vec
@@ -74,7 +74,7 @@ def _sample_points(polygon: BaseGeometry, step: float) -> np.ndarray:
 
 
 def _gradient_samples(polygon: BaseGeometry, height_at: HeightAt):
-    """(gx, gy) des Geländegefälles (m/m) an Stichproben im Polygon oder None."""
+    """(gx, gy) of the terrain gradient (m/m) at sample points in the polygon, or None."""
     points = _sample_points(polygon, GRADIENT_SAMPLE_STEP)
     if len(points) < 3:
         return None
@@ -86,13 +86,13 @@ def _gradient_samples(polygon: BaseGeometry, height_at: HeightAt):
 
 
 def _fall_line(polygon: BaseGeometry, height_at: HeightAt):
-    """(Achse der Falllinie als Einheitsvektor, mittleres Gefälle in m/m) oder None."""
+    """(fall-line axis as a unit vector, mean gradient in m/m) or None."""
     samples = _gradient_samples(polygon, height_at)
     if samples is None:
         return None
     gx, gy = samples
-    # Strukturtensor statt Mittel der Gradienten: Gefälle nach links und rechts (Kuppe)
-    # hebt sich im Mittel auf, gehört aber zur selben Achse.
+    # Structure tensor instead of the mean of the gradients: downslope to the left and to the right (crest)
+    # cancels out in the mean but belongs to the same axis.
     tensor = np.array([[np.mean(gx * gx), np.mean(gx * gy)], [np.mean(gx * gy), np.mean(gy * gy)]])
     eigenvalues, eigenvectors = np.linalg.eigh(tensor)
     axis = eigenvectors[:, np.argmax(eigenvalues)]
@@ -101,9 +101,9 @@ def _fall_line(polygon: BaseGeometry, height_at: HeightAt):
 
 def _direction_agreement(polygon: BaseGeometry, height_at: HeightAt, min_slope_percent: float) -> float:
     """
-    Wie einheitlich ist die Falllinie im Polygon? 1.0 = überall dieselbe Achse, 0 = wild
-    gemischt (mittlere Resultierende der verdoppelten, nach Gefälle gewichteten Winkel).
-    Bei fast ebenem Gelände ist die Falllinie bedeutungslos -> 1.0 (kein Teilen nötig).
+    How uniform is the fall line in the polygon? 1.0 = same axis everywhere, 0 = wildly
+    mixed (mean resultant of the doubled angles, weighted by gradient).
+    On almost flat terrain the fall line is meaningless -> 1.0 (no splitting needed).
     """
     samples = _gradient_samples(polygon, height_at)
     if samples is None:
@@ -118,7 +118,7 @@ def _direction_agreement(polygon: BaseGeometry, height_at: HeightAt, min_slope_p
 
 
 def _long_axis(polygon: BaseGeometry) -> np.ndarray:
-    """Längsachse des kleinsten umschließenden Rechtecks."""
+    """Long axis of the smallest enclosing rectangle."""
     rectangle = polygon.minimum_rotated_rectangle
     if rectangle.geom_type != "Polygon":
         min_x, min_y, max_x, max_y = polygon.bounds
@@ -132,12 +132,12 @@ def compute_row_direction(
     polygon: BaseGeometry, height_at: HeightAt, orientation: str = "gradient", min_slope_percent: float = 2.0
 ) -> np.ndarray:
     """
-    Zeilenrichtung (2D-Einheitsvektor) für ein Weinberg-Polygon.
+    Row direction (2D unit vector) for a vineyard polygon.
 
-    orientation="gradient": Zeilen entlang der Falllinie (Steigungsgradient);
-    orientation="contour": Zeilen entlang der Höhenlinien. Bei fast ebenem Gelände
-    (Gefälle < min_slope_percent) ist die Falllinie unzuverlässig - dann läuft die
-    Zeile entlang der Längsachse der Fläche.
+    orientation="gradient": rows along the fall line (slope gradient);
+    orientation="contour": rows along the contour lines. On almost flat terrain
+    (gradient < min_slope_percent) the fall line is unreliable - then the
+    row runs along the long axis of the area.
     """
     fall = _fall_line(polygon, height_at)
     if fall is None or fall[1] * 100.0 < min_slope_percent:
@@ -153,7 +153,7 @@ def _polygon_parts(geometry: BaseGeometry) -> List[BaseGeometry]:
 
 
 def _halve(polygon: BaseGeometry) -> List[BaseGeometry]:
-    """Teilt ein Polygon mit einem Schnitt quer zur Längsachse in der Mitte in zwei Teile."""
+    """Splits a polygon into two parts with a cut across the long axis in the middle."""
     a = _long_axis(polygon)
     b = np.array([-a[1], a[0]])
     coords = np.array(polygon.exterior.coords) if polygon.geom_type == "Polygon" else np.array(polygon.envelope.exterior.coords)
@@ -174,15 +174,15 @@ def split_by_direction(
     max_depth: int = 6,
 ) -> List[BaseGeometry]:
     """
-    Teilt ein großes Polygon in Blöcke, solange die Falllinie darin zu stark schwankt.
+    Splits a large polygon into blocks as long as the fall line within it varies too much.
 
-    Gerade Rebzeilen können nur EINER Richtung folgen; bei gekrümmtem Hang weicht
-    diese vom lokalen Gefälle ab. Ein Block wird halbiert, wenn die Falllinie im Mittel
-    mehr als max_spread_deg von der Hauptachse abweicht und beide Hälften mindestens
-    min_area groß bleiben. Jeder Block bekommt danach seine eigene Zeilenrichtung.
+    Straight vine rows can only follow ONE direction; on a curved slope
+    this deviates from the local gradient. A block is halved if the fall line deviates on average
+    by more than max_spread_deg from the main axis and both halves remain at least
+    min_area in size. Each block then gets its own row direction.
 
     Returns:
-        Liste von Polygonen, die das Eingabe-Polygon ohne Überlappung überdecken.
+        List of polygons that cover the input polygon without overlap.
     """
     threshold = float(np.cos(np.radians(2.0 * max_spread_deg)))
     result: List[BaseGeometry] = []
@@ -205,11 +205,11 @@ def split_by_direction(
 
 
 def build_exclusion_geometry(shapes: Sequence[BaseGeometry], margin: float) -> Optional[BaseGeometry]:
-    """Vereinigung der um `margin` Meter gepufferten Flächen (Wege, Gebäude) oder None."""
-    # Ungültige Polygone (Selbstüberschneidung) reparieren: die Vereinigung würde daran scheitern, die Pufferung
-    # je Polygon hat sie bisher stillschweigend bereinigt.
+    """Union of the areas (paths, buildings) buffered by `margin` meters, or None."""
+    # Repair invalid polygons (self-intersection): the union would fail on them, the per-polygon buffering
+    # has so far silently cleaned them up.
     parts = [shape if shape.is_valid else shape.buffer(0) for shape in shapes if shape is not None and not shape.is_empty]
-    # Erst vereinigen, dann einmal puffern (Minkowski-Summe: gleiches Ergebnis, aber deutlich schneller)
+    # Union first, then buffer once (Minkowski sum: same result, but much faster)
     return unary_union(parts).buffer(margin) if parts else None
 
 
@@ -228,12 +228,12 @@ def _line_parts(geometry: BaseGeometry) -> List[LineString]:
 
 def _rotation_matrices(forward: np.ndarray) -> np.ndarray:
     """
-    Zeilenweise 3x3-Rotationsmatrizen als (N, 9)-Array für N normierte Zeilenrichtungen
-    (N, 3): ZEILEN = Modell-X (Zeilenrichtung, folgt der Hangneigung), Y, Z (aufrecht,
-    senkrecht zu X). BeamNG liest die Achsen als Zeilen; belegt an BeamNGs eigenen
-    Weinbergen (italy): dort folgt Zeile 0 zu 98,5 % dem Geländegefälle, Spalte 0 ist
-    negativ korreliert. Spalten würden die Neigung invertieren (Reben tauchen in den
-    Hang) und die Richtung spiegeln (quer zum Hang).
+    Row-major 3x3 rotation matrices as an (N, 9) array for N normalized row directions
+    (N, 3): ROWS = model X (row direction, follows the slope inclination), Y, Z (upright,
+    perpendicular to X). BeamNG reads the axes as rows; verified on BeamNG's own
+    vineyards (italy): there row 0 follows the terrain gradient to 98.5 %, column 0 is
+    negatively correlated. Columns would invert the inclination (vines dive into the
+    slope) and mirror the direction (across the slope).
     """
     up = np.array([0.0, 0.0, 1.0]) - forward[:, 2:3] * forward
     up /= np.linalg.norm(up, axis=1, keepdims=True)
@@ -250,8 +250,8 @@ def _polygon_instances(polygon: BaseGeometry, height_at: HeightAt, rows: Dict, e
     edge_margin = float(rows.get("edge_margin", 0.0))
     area = polygon.buffer(-edge_margin) if edge_margin else (polygon if polygon.is_valid else polygon.buffer(0))
     if exclusion is not None and not area.is_empty:
-        # Die Ausschlusszone umfasst das ganze Straßennetz (hunderttausende Eckpunkte): erst auf die Bounding Box
-        # dieses Blocks zuschneiden (linear, ohne Topologie-Operation), dann erst die Differenz bilden.
+        # The exclusion zone covers the whole road network (hundreds of thousands of vertices): first clip to the
+        # bounding box of this block (linear, no topology operation), only then form the difference.
         local_exclusion = shapely.clip_by_rect(exclusion, *area.bounds)
         if not local_exclusion.is_empty:
             area = area.difference(local_exclusion)
@@ -275,11 +275,11 @@ def _polygon_instances(polygon: BaseGeometry, height_at: HeightAt, rows: Dict, e
         for part in _line_parts(line.intersection(area)):
             start, end = np.array(part.coords[0]), np.array(part.coords[-1])
             t0, t1 = sorted((float(start @ u), float(end @ u)))
-            # Die Zeile reicht bis exakt an Polygonrand bzw. Ausschlusszone (kein Rest an den Enden): die Segmente
-            # werden auf die ganze Länge verteilt, Anzahl = nächste ganze Zahl. Nach unten gerundet (Reste > 0,5
-            # Segment) rücken sie gleichmäßig auseinander, nach oben gerundet stehen die Endsegmente bündig am Rand
-            # und die inneren überlappen leicht - so ragt nie ein Segment über den Rand hinaus. Reststücke unter
-            # MIN_ROW_FILL Segmentlängen bleiben leer.
+            # The row extends exactly to the polygon edge or exclusion zone (no remainder at the ends): the segments
+            # are distributed over the whole length, count = nearest integer. Rounded down (remainders > 0.5
+            # segment) they move apart evenly, rounded up the end segments sit flush at the edge
+            # and the inner ones overlap slightly - so no segment ever sticks out past the edge. Remainders below
+            # MIN_ROW_FILL segment lengths stay empty.
             length = t1 - t0
             if length < segment * MIN_ROW_FILL:
                 continue
@@ -295,7 +295,7 @@ def _polygon_instances(polygon: BaseGeometry, height_at: HeightAt, rows: Dict, e
     if not centers:
         return []
 
-    # Alle Segmente eines Blocks auf einmal: Höhen der Segmentenden, Neigung, Matrix.
+    # All segments of a block at once: heights of the segment ends, inclination, matrix.
     center = np.vstack(centers)
     end_a, end_b = center - u * segment / 2.0, center + u * segment / 2.0
     z_a, z_b = height_at(end_a[:, 0], end_a[:, 1]), height_at(end_b[:, 0], end_b[:, 1])
@@ -303,7 +303,7 @@ def _polygon_instances(polygon: BaseGeometry, height_at: HeightAt, rows: Dict, e
     forward /= np.linalg.norm(forward, axis=1, keepdims=True)
     z_center = height_at(center[:, 0], center[:, 1])
     matrices = _rotation_matrices(forward).tolist()
-    scales = rng.uniform(scale_min, scale_max, size=len(center))  # gleiche Zufallsfolge wie einzeln gezogen
+    scales = rng.uniform(scale_min, scale_max, size=len(center))  # same random sequence as when drawn individually
 
     return [
         {"type": rows["item"], "pos": [x, y, z], "rotationMatrix": matrix, "scale": scale}
@@ -315,22 +315,22 @@ def generate_vineyard_instances(
     polygon: BaseGeometry, height_at: HeightAt, rows: Dict, exclusion: Optional[BaseGeometry] = None
 ) -> List[Dict]:
     """
-    Erzeugt die Rebzeilen-Instanzen für ein Weinberg-(Multi-)Polygon.
+    Creates the vine row instances for a vineyard (multi-)polygon.
 
     Args:
-        polygon: Weinberg-Fläche in lokalen Koordinaten (MultiPolygon: jeder Teil
-            bekommt seine eigene Zeilenrichtung)
-        height_at: Höhenabfrage (siehe make_height_sampler())
-        rows: Zeilen-Einstellungen aus landuse_mappings["vineyard"]["rows"]
+        polygon: vineyard area in local coordinates (MultiPolygon: each part
+            gets its own row direction)
+        height_at: height query (see make_height_sampler())
+        rows: row settings from landuse_mappings["vineyard"]["rows"]
             (item, orientation, row_spacing, segment_length, edge_margin,
             min_slope_percent, scale_range)
-        exclusion: Bereiche ohne Reben (z.B. Wege, Gebäude)
+        exclusion: areas without vines (e.g. paths, buildings)
 
     Returns:
-        Liste von Forest-Instanzen; deterministisch für gleiche Eingaben.
+        List of forest instances; deterministic for identical inputs.
     """
-    # MultiPolygon/GeometryCollection (z.B. nach dem Verschnitt mit dem Terrain-Rechteck)
-    # in einzelne Polygone zerlegen; Linien-/Punktreste sind keine Flächen.
+    # Split MultiPolygon/GeometryCollection (e.g. after clipping with the terrain rectangle)
+    # into individual polygons; line/point remnants are not areas.
     parts = _polygon_parts(polygon)
     spread = rows.get("max_direction_spread_deg")
     instances = []
@@ -361,16 +361,16 @@ def generate_vineyards(
     bounds: Optional[BaseGeometry] = None,
 ) -> List[Dict]:
     """
-    Erzeugt Rebzeilen für alle Weinberg-Polygone (Kategorie mit "rows"-Einstellungen).
+    Creates vine rows for all vineyard polygons (category with "rows" settings).
 
     Args:
-        landuse_polygons: Ergebnis von osm.landuse_polygons.build_landuse_polygons()
+        landuse_polygons: result of osm.landuse_polygons.build_landuse_polygons()
         landuse_mappings: data/osm_to_beamng.json["landuse_mappings"]
-        height_at: Höhenabfrage
-        exclusion: Bereiche ohne Reben
-        bounds: Ausdehnung des Terrains. Die OSM-Abfrage reicht darüber hinaus, und
-            außerhalb gibt es keine Höhendaten (die Heightmap klemmt am Rand) - dort
-            würden Reben in der Luft schweben.
+        height_at: height query
+        exclusion: areas without vines
+        bounds: extent of the terrain. The OSM query reaches beyond it, and
+            outside there is no elevation data (the heightmap clamps at the border) - there
+            vines would float in the air.
     """
     instances = []
     for polygon in landuse_polygons:

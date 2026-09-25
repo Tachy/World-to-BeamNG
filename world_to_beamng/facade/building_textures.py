@@ -1,8 +1,8 @@
 """
-Erzeugt die prozeduralen Gebäude-Texturen (Putz je Farbe, Fenster-Atlas) als DDS im Level und liefert
-ihre Pfade.
+Generates the procedural building textures (plaster per color, window atlas) as DDS in the level and returns
+their paths.
 
-Die Dateien werden nur neu geschrieben, wenn sich Farben, Layout oder Generator geändert haben (Hash-Datei).
+The files are only rewritten when colors, layout or generator have changed (hash file).
 """
 
 import hashlib
@@ -21,10 +21,10 @@ logger = logging.getLogger(__name__)
 
 HASH_FILE = "building_textures.hash"
 
-# Dateien früherer Stände (Zellen-Atlas): werden beim Neuerzeugen entfernt
+# Files from earlier versions (cell atlas): removed on regeneration
 _OBSOLETE_FILES = ("facade_atlas_b.color.dds", "facade_atlas_nm.normal.dds", "facade_atlas_r.data.dds")
 
-# (Schlüssel, Dateiname ohne .dds, DDS-Format, Mip-Kette voll?, Bild aus den Generator-Ergebnissen)
+# (key, file name without .dds, DDS format, full mip chain?, image from the generator results)
 _Entry = Tuple[str, str, str, bool, Callable[[Dict], object]]
 
 
@@ -57,13 +57,13 @@ def _settings_hash() -> str:
 
 def ensure_building_textures(output_dir: Path = None) -> Dict[str, str]:
     """
-    Stellt die Gebäude-Texturen bereit (erzeugt sie bei Bedarf).
+    Provides the building textures (generates them if needed).
 
     Args:
-        output_dir: Zielordner; Standard config.BEAMNG_DIR_TEXTURES
+        output_dir: Target folder; default config.BEAMNG_DIR_TEXTURES
 
     Returns:
-        {Schlüssel: Pfad relativ zum BeamNG-Userordner für materials.json}. Schlüssel: plaster_color_<Farbe>,
+        {key: path relative to the BeamNG user folder for materials.json}. Keys: plaster_color_<color>,
         plaster_normal, plaster_roughness, windows_color/normal/roughness.
     """
     output_dir = Path(output_dir or config.BEAMNG_DIR_TEXTURES)
@@ -90,7 +90,7 @@ def _generate(output_dir: Path, entries: List[_Entry]) -> None:
         "windows": WindowAtlasGenerator().generate(),
     }
     for _, name, dds_format, full_mips, image in entries:
-        # Kachelnde Texturen: volle Mip-Kette (gegen Flimmern). Fenster-Atlas: begrenzt (Sprites bluten sonst ineinander).
+        # Tiling textures: full mip chain (against shimmering). Window atlas: limited (sprites would bleed together).
         mip_levels = 0 if full_mips else config.FACADE_MAX_MIP_LEVELS
         dds_export.write_dds(image(generated), output_dir, name, dds_format, mip_levels)
     for obsolete in _OBSOLETE_FILES:

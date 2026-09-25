@@ -1,1 +1,1 @@
-"""Mauern aus OSM (barrier=wall) als Geometrie."""
+"""Walls from OSM (barrier=wall) as geometry."""

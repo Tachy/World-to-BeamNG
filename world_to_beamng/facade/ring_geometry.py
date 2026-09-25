@@ -1,5 +1,5 @@
 """
-Geometrie-Helfer für CityGML-Ringe (Wand- und Dachpolygone).
+Geometry helpers for CityGML rings (wall and roof polygons).
 """
 
 import numpy as np
@@ -10,13 +10,13 @@ _MIN_NORMAL_LENGTH = 1e-9
 
 def open_ring(verts: np.ndarray) -> np.ndarray:
     """
-    Entfernt den Schlusspunkt eines GML-Rings (letzter Punkt = erster Punkt).
+    Removes the closing point of a GML ring (last point = first point).
 
     Args:
-        verts: (N, 3) Ringpunkte, ggf. mit doppeltem Schlusspunkt
+        verts: (N, 3) ring points, possibly with a duplicate closing point
 
     Returns:
-        (M, 3) Ringpunkte ohne Schlusspunkt
+        (M, 3) ring points without closing point
     """
     if len(verts) > 3 and float(np.abs(verts[0] - verts[-1]).max()) < 1e-8:
         return verts[:-1]
@@ -25,17 +25,17 @@ def open_ring(verts: np.ndarray) -> np.ndarray:
 
 def newell_normal(ring: np.ndarray) -> np.ndarray:
     """
-    Flächennormale eines (auch konkaven) planaren Rings nach Newell.
+    Face normal of a (possibly concave) planar ring according to Newell.
 
     Args:
-        ring: (N, 3) Ringpunkte ohne Schlusspunkt
+        ring: (N, 3) ring points without closing point
 
     Returns:
-        Normale, Länge = doppelte Polygonfläche; (0, 0, 0) bei entartetem Ring
+        Normal, length = twice the polygon area; (0, 0, 0) for a degenerate ring
     """
     c = ring - ring.mean(axis=0)
     n = np.roll(c, -1, axis=0)
-    # Kreuzprodukte ausgeschrieben: np.cross ist bei vielen kleinen Ringen deutlich langsamer
+    # Cross products written out: np.cross is much slower for many small rings
     return np.array(
         [
             (c[:, 1] * n[:, 2] - c[:, 2] * n[:, 1]).sum(),
@@ -46,7 +46,7 @@ def newell_normal(ring: np.ndarray) -> np.ndarray:
 
 
 def unit_or_none(vector: np.ndarray):
-    """Normierter Vektor, None bei (fast) Nullvektor."""
+    """Normalized vector, None for a (near-)zero vector."""
     length = np.linalg.norm(vector)
     if length < _MIN_NORMAL_LENGTH:
         return None

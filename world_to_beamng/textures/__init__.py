@@ -1,1 +1,1 @@
-"""Eingecheckte Texturen (data/textures): Laden für den Export und Werkzeuge zum einmaligen Erzeugen."""
+"""Checked-in textures (data/textures): loading for the export and tools for one-time generation."""

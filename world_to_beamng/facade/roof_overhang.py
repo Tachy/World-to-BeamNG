@@ -1,16 +1,16 @@
 """
-Dachüberstand von Schrägdächern.
+Roof overhang of pitched roofs.
 
-Die LOD2-Dächer enden exakt an der Wand. Hier wird jede Dachkante, die außen über einer Wand liegt, in der Dachebene
-nach außen verschoben: Traufe (waagerechte Kante) um `eave_m`, Giebelkante (Ortgang) um `verge_m`. Beide Maße sind
-WAAGERECHT gemessen (wie am Bau üblich); an der Traufe wird deshalb in der Dachebene um `eave_m / cos(Neigung)`
-verschoben. Kanten ohne Wand
-darunter (Grate, Kehlen, Anschlüsse) und Brandwände bleiben unverändert. Der Überstand ist eine Platte von
-`thickness_m` Dicke SENKRECHT zur Dachfläche (Rechteckprofil): die obere Fläche ist die verlängerte Dachfläche, dazu
-kommen Untersicht und Stirnbrett.
+The LOD2 roofs end exactly at the wall. Here every roof edge that lies outside above a wall is moved outward within
+the roof plane: eave (horizontal edge) by `eave_m`, gable edge (verge) by `verge_m`. Both dimensions are measured
+HORIZONTALLY (as is customary in construction); at the eave the edge is therefore moved by `eave_m / cos(pitch)`
+within the roof plane. Edges without a wall
+below them (ridges, valleys, abutments) and firewalls remain unchanged. The overhang is a slab of
+`thickness_m` thickness PERPENDICULAR to the roof surface (rectangular profile): the top face is the extended roof
+surface, plus soffit and fascia board.
 
-Die Verschiebung ist ein Polygon-Offset mit eigenem Betrag je Kante; die Ecken werden verschnitten. Dadurch treffen sich
-die Überstände zweier Dachflächen an einem Grat genau auf der (verlängerten) Gratlinie.
+The displacement is a polygon offset with its own amount per edge; the corners are mitered. As a result, the
+overhangs of two roof surfaces meet exactly on the (extended) ridge line at a ridge.
 """
 
 from dataclasses import dataclass
@@ -23,15 +23,15 @@ from .. import config
 from .edge_topology import WallLine, edge_is_exterior_over_wall, orient_counter_clockwise
 from .ring_geometry import UP, newell_normal, unit_or_none
 
-_HORIZONTAL_EDGE_SLOPE = 0.17  # |dz| / Länge darunter gilt eine Kante als waagerecht (~10 Grad)
-_MIN_COS_SLOPE = 0.3  # sehr steile Dächer: der Traufüberstand wächst nicht über 1/0,3 hinaus
-_MITER_LIMIT = 4.0  # Eckverschnitt darf höchstens so viele Überstandsbreiten von der Ecke entfernt liegen
-_MIN_AREA_RATIO = 0.99  # der verschobene Umriss darf nie kleiner werden als der ursprüngliche
+_HORIZONTAL_EDGE_SLOPE = 0.17  # below |dz| / length an edge counts as horizontal (~10 degrees)
+_MIN_COS_SLOPE = 0.3  # very steep roofs: the eave overhang does not grow beyond 1/0.3
+_MITER_LIMIT = 4.0  # the corner miter may be at most this many overhang widths away from the corner
+_MIN_AREA_RATIO = 0.99  # the offset outline must never become smaller than the original
 
 
 @dataclass
 class SlopedRoof:
-    """Dachfläche samt Überstand (Ring gegen den Uhrzeigersinn von oben) und dessen Stirnbrett/Untersicht."""
+    """Roof surface including overhang (ring counter-clockwise seen from above) and its fascia/soffit."""
 
     ring: np.ndarray  # (M, 3)
     trim_vertices: np.ndarray  # (K, 3)
@@ -39,7 +39,7 @@ class SlopedRoof:
 
 
 class RoofOverhangBuilder:
-    """Erzeugt für ein Schrägdachpolygon die verlängerte Dachfläche und die Dicke des Überstands."""
+    """Builds the extended roof surface and the thickness of the overhang for a pitched roof polygon."""
 
     def __init__(
         self,
@@ -54,13 +54,13 @@ class RoofOverhangBuilder:
     def build(self, ring: np.ndarray, index: int, roofs: Sequence[np.ndarray], lines: Sequence[WallLine]) -> SlopedRoof:
         """
         Args:
-            ring: Dachring ohne Schlusspunkt
-            index: Position dieses Rings in `roofs`
-            roofs: alle Dachringe des Gebäudes (für gemeinsame Kanten)
-            lines: Grundrisslinien der Wände des Gebäudes
+            ring: roof ring without closing point
+            index: position of this ring in `roofs`
+            roofs: all roof rings of the building (for shared edges)
+            lines: footprint lines of the building's walls
 
         Returns:
-            SlopedRoof; ohne Überstand (keine Kante über einer Wand) ist `ring` der Eingangsring, ggf. gedreht.
+            SlopedRoof; without overhang (no edge above a wall) `ring` is the input ring, rotated if necessary.
         """
         ordered = orient_counter_clockwise(ring)
         if ordered is None:
@@ -87,10 +87,10 @@ class RoofOverhangBuilder:
         trim_vertices, trim_faces = self._trim(ordered, new_ring, distances, normal)
         return SlopedRoof(new_ring, trim_vertices, trim_faces)
 
-    # ------------------------------------------------------------------ Kanten
+    # ------------------------------------------------------------------ Edges
 
     def _edge_distances(self, ring, points, index, roofs, lines, cos_slope: float) -> np.ndarray:
-        """Überstand je Kante i (von Punkt i zu i+1) in der Dachebene: Traufe, Giebel oder 0."""
+        """Overhang per edge i (from point i to i+1) in the roof plane: eave, gable or 0."""
         count = len(ring)
         distances = np.zeros(count)
         for i in range(count):
@@ -106,20 +106,20 @@ class RoofOverhangBuilder:
                 continue
             direction = points[(i + 1) % count] - points[i]
             outward = np.array([direction[1], -direction[0]]) / max(float(np.linalg.norm(direction)), 1e-12)
-            # Traufe: Außenrichtung zeigt in der Dachebene hangabwärts (-v); eine freie Oberkante zählt als Giebel
+            # Eave: the outward direction points downslope in the roof plane (-v); a free upper edge counts as gable
             distances[i] = self._eave / max(cos_slope, _MIN_COS_SLOPE) if outward[1] < 0 else self._verge
         return distances
 
     @staticmethod
     def _offset(points: np.ndarray, distances: np.ndarray):
-        """Polygon-Offset in der Dachebene mit eigenem Betrag je Kante; None bei nicht berechenbarer Ecke."""
+        """Polygon offset in the roof plane with its own amount per edge; None if a corner cannot be computed."""
         count = len(points)
         tangents = np.roll(points, -1, axis=0) - points
         lengths = np.linalg.norm(tangents, axis=1)
         if (lengths < 1e-9).any():
             return None
         tangents = tangents / lengths[:, None]
-        normals = np.column_stack([tangents[:, 1], -tangents[:, 0]])  # rechts der Laufrichtung = außen (gegen den Uhrzeigersinn)
+        normals = np.column_stack([tangents[:, 1], -tangents[:, 0]])  # right of the direction of travel = outside (counter-clockwise)
         limit = _MITER_LIMIT * float(distances.max())
 
         moved = np.empty_like(points)
@@ -128,33 +128,33 @@ class RoofOverhangBuilder:
             a = points[j] + normals[prev] * distances[prev]
             b = points[j] + normals[cur] * distances[cur]
             cross = float(tangents[prev, 0] * tangents[cur, 1] - tangents[prev, 1] * tangents[cur, 0])
-            if abs(cross) < 1e-6:  # (fast) parallele Nachbarkanten: gemittelt verschieben
+            if abs(cross) < 1e-6:  # (nearly) parallel neighboring edges: move by the average
                 moved[j] = points[j] + (normals[prev] * distances[prev] + normals[cur] * distances[cur]) / 2
                 continue
             step = float((b[0] - a[0]) * tangents[cur, 1] - (b[1] - a[1]) * tangents[cur, 0]) / cross
             corner = a + step * tangents[prev]
-            if float(np.linalg.norm(corner - points[j])) > limit:  # sehr spitze Ecke: Verschnitt würde ausreißen
+            if float(np.linalg.norm(corner - points[j])) > limit:  # very sharp corner: the miter would shoot out
                 return None
             moved[j] = corner
         return moved
 
     @staticmethod
     def _is_valid(points: np.ndarray, moved: np.ndarray) -> bool:
-        """Der verschobene Umriss muss ein gültiges Polygon sein und die Fläche nicht verkleinern."""
+        """The offset outline must be a valid polygon and must not reduce the area."""
         original, extended = Polygon(points), Polygon(moved)
         return bool(extended.is_valid and extended.area >= original.area * _MIN_AREA_RATIO)
 
-    # ------------------------------------------------------------------ Dicke
+    # ------------------------------------------------------------------ Thickness
 
     def _trim(self, ring: np.ndarray, new_ring: np.ndarray, distances: np.ndarray, normal: np.ndarray):
         """
-        Untersicht und Stirnbrett je verlängerter Kante.
+        Soffit and fascia board per extended edge.
 
-        Die Platte reicht `thickness` senkrecht zur Dachfläche nach unten. Untersicht: Streifen Wand -> Außenkante
-        (parallel zur Dachfläche, zeigt nach unten). Stirnbrett: Fläche an der Außenkante (senkrecht zur Dachfläche,
-        zeigt nach außen). (Ring gegen den Uhrzeigersinn: außen liegt rechts der Laufrichtung.)
+        The slab extends `thickness` downward, perpendicular to the roof surface. Soffit: strip wall -> outer edge
+        (parallel to the roof surface, faces down). Fascia board: face at the outer edge (perpendicular to the roof
+        surface, faces outward). (Ring counter-clockwise: outside is to the right of the direction of travel.)
         """
-        drop = normal * self._thickness  # Dachnormale zeigt nach oben: die Platte liegt darunter
+        drop = normal * self._thickness  # roof normal points up: the slab lies below
         count = len(ring)
         vertices, faces, base = [], [], 0
         for i in range(count):

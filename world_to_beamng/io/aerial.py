@@ -1,5 +1,5 @@
 """
-Aerial image processing - Extrahiert und kachelt Luftbildaufnahmen.
+Aerial image processing - extracts and tiles aerial photos.
 """
 
 import json
@@ -14,10 +14,10 @@ from io import BytesIO
 from world_to_beamng.logging_config import LoggerConfig
 from .. import config
 
-# Dieses Modul baut selbst große Leinwände aus eigenen, vertrauenswürdigen Geodaten (kein Öffnen
-# einer fremden Datei) - PILs Decompression-Bomb-Schutz (Default-Grenze ~89,5 Mio. Pixel) greift
-# hier grundlos: schon eine 2 km-Kachel bei feiner Auflösung (z.B. 0.1m/px Schweizer Orthofotos)
-# liegt weit darüber.
+# This module itself builds large canvases from its own, trusted geodata (it does not open a
+# foreign file) - PIL's decompression bomb protection (default limit ~89.5 million pixels) triggers
+# here for no reason: even a 2 km tile at fine resolution (e.g. 0.1 m/px Swiss orthophotos)
+# is far above it.
 Image.MAX_IMAGE_PIXELS = None
 
 logger = LoggerConfig.get_logger()
@@ -25,13 +25,13 @@ logger = LoggerConfig.get_logger()
 
 def parse_world_file(tfw_data):
     """
-    Parst World File (.tfw) Daten.
+    Parses World File (.tfw) data.
 
     Args:
-        tfw_data: Bytes oder String der .tfw-Datei
+        tfw_data: Bytes or string of the .tfw file
 
     Returns:
-        Dict mit pixel_size_x, pixel_size_y, x_origin, y_origin
+        Dict with pixel_size_x, pixel_size_y, x_origin, y_origin
     """
     if isinstance(tfw_data, bytes):
         tfw_data = tfw_data.decode("utf-8")
@@ -58,18 +58,18 @@ def parse_world_file(tfw_data):
 
 def extract_images_from_zips(aerial_dir=config.AERIAL_DATA_DIR):
     """
-    Extrahiert alle Bilder mit Georeferenzierung aus ZIP-Dateien.
+    Extracts all images with georeferencing from ZIP files.
 
-    Georeferenzierung kommt entweder aus einer begleitenden .tfw-Datei (world_info["crs_epsg"] bleibt
-    dann None - die Quell-CRS wird wie bisher angenommen) ODER, falls keine .tfw da ist, aus
-    eingebetteten GeoTIFF-Tags im Bild selbst (world_info["crs_epsg"] gesetzt). Reines JPG/PNG ohne
-    .tfw und ohne Geo-Tags bleibt ein Fehlerfall (world_info=None, wird später verworfen).
+    Georeferencing comes either from an accompanying .tfw file (world_info["crs_epsg"] then stays
+    None - the source CRS is assumed as before) OR, if there is no .tfw, from embedded GeoTIFF
+    tags in the image itself (world_info["crs_epsg"] set). A plain JPG/PNG without a .tfw and
+    without geo tags remains an error case (world_info=None, discarded later).
 
     Args:
-        aerial_dir: Pfad zum Luftbild-Verzeichnis (config.AERIAL_DATA_DIR)
+        aerial_dir: Path to the aerial photo directory (config.AERIAL_DATA_DIR)
 
     Returns:
-        List von (image_name, image_data_bytes, world_file_info) Tupeln
+        List of (image_name, image_data_bytes, world_file_info) tuples
     """
     aerial_path = Path(aerial_dir)
     images = []
@@ -85,15 +85,15 @@ def extract_images_from_zips(aerial_dir=config.AERIAL_DATA_DIR):
             with zipfile.ZipFile(zip_path, "r") as zip_ref:
                 file_list = zip_ref.namelist()
 
-                # Finde Bilddateien (TIF, TIFF, JPG, JPEG, PNG)
+                # Find image files (TIF, TIFF, JPG, JPEG, PNG)
                 image_extensions = [".tif", ".tiff", ".jpg", ".jpeg", ".png"]
                 image_files = [f for f in file_list if any(f.lower().endswith(ext) for ext in image_extensions)]
 
                 for img_file in image_files:
                     img_data = zip_ref.read(img_file)
 
-                    # Suche passende .tfw-Datei
-                    # Ersetze Bildendung mit .tfw (z.B. .tif → .tfw)
+                    # Look for the matching .tfw file
+                    # Replace the image extension with .tfw (e.g. .tif → .tfw)
                     img_path = Path(img_file)
                     tfw_file = str(img_path.with_suffix(".tfw"))
 
@@ -102,7 +102,7 @@ def extract_images_from_zips(aerial_dir=config.AERIAL_DATA_DIR):
                         tfw_data = zip_ref.read(tfw_file)
                         world_info = parse_world_file(tfw_data)
                     else:
-                        # Debugging: Suche .tfw mit gleichem Stammnamen (case-insensitive)
+                        # Debugging: look for a .tfw with the same stem name (case-insensitive)
                         base_name = img_path.stem.lower()
                         for f in file_list:
                             if f.lower().endswith(".tfw") and Path(f).stem.lower() == base_name:
@@ -111,8 +111,8 @@ def extract_images_from_zips(aerial_dir=config.AERIAL_DATA_DIR):
                                 break
 
                     if world_info is None:
-                        # Kein .tfw gefunden - evtl. hat das Bild selbst eine eingebettete
-                        # GeoTIFF-Georeferenz (kein .tfw nötig, z.B. viele generische GeoTIFF-Portale)
+                        # No .tfw found - the image itself may have embedded GeoTIFF
+                        # georeferencing (no .tfw needed, e.g. many generic GeoTIFF portals)
                         world_info = _read_geotiff_world_info(f"/vsizip/{zip_path}/{img_file}")
 
                     images.append((img_file, img_data, world_info))
@@ -125,12 +125,12 @@ def extract_images_from_zips(aerial_dir=config.AERIAL_DATA_DIR):
 
 def _read_geotiff_world_info(path_or_vsi):
     """
-    Liest CRS + world_info (pixel_size_x/y, x_origin, y_origin = obere linke Pixelecke) aus einem
-    georeferenzierten Raster via rasterio - eingebettete GeoTIFF-Tags, kein .tfw nötig.
+    Reads CRS + world_info (pixel_size_x/y, x_origin, y_origin = upper left pixel corner) from a
+    georeferenced raster via rasterio - embedded GeoTIFF tags, no .tfw needed.
 
     Returns:
-        dict wie parse_world_file(), zusätzlich "crs_epsg" (kann None sein, falls das CRS keinen
-        EPSG-Code hat - bekannte Grenze), oder None falls kein CRS/keine echte Geotransform da ist.
+        dict like parse_world_file(), plus "crs_epsg" (can be None if the CRS has no EPSG code -
+        known limitation), or None if there is no CRS/no real geotransform.
     """
     import rasterio
 
@@ -152,13 +152,13 @@ def _read_geotiff_world_info(path_or_vsi):
 
 def extract_loose_images(aerial_dir=config.AERIAL_DATA_DIR):
     """
-    Lose Rasterdateien direkt im Verzeichnis (*.tif, *.tiff) - nicht in einem ZIP. Georeferenzierung
-    wie bei extract_images_from_zips(): eingebettete GeoTIFF-Tags bevorzugt, sonst eine begleitende
-    .tfw-Datei gleichen Namens.
+    Loose raster files directly in the directory (*.tif, *.tiff) - not in a ZIP. Georeferencing
+    as in extract_images_from_zips(): embedded GeoTIFF tags preferred, otherwise an accompanying
+    .tfw file of the same name.
 
     Returns:
-        Liste von (image_name, image_path: Path, world_info) - image_path (nicht bytes!), da lose
-        GeoTIFFs beliebig groß sein können; siehe _open_image().
+        List of (image_name, image_path: Path, world_info) - image_path (not bytes!), since loose
+        GeoTIFFs can be arbitrarily large; see _open_image().
     """
     aerial_path = Path(aerial_dir)
     images = []
@@ -180,32 +180,32 @@ def extract_loose_images(aerial_dir=config.AERIAL_DATA_DIR):
 
 def extract_georeferenced_images(aerial_dir=config.AERIAL_DATA_DIR):
     """
-    Kombiniert extract_images_from_zips() (ZIP, bytes-basiert) und extract_loose_images() (lose
-    Datei, Path-basiert) zu einer einheitlichen Liste - Quellformat ist danach egal, beides läuft
-    über denselben _open_image()/_prepare_image_for_compositing()-Pfad weiter.
+    Combines extract_images_from_zips() (ZIP, bytes-based) and extract_loose_images() (loose
+    file, Path-based) into one uniform list - the source format no longer matters afterwards, both
+    continue through the same _open_image()/_prepare_image_for_compositing() path.
 
     Returns:
-        Liste von (image_name, source: bytes|Path, world_info|None)
+        List of (image_name, source: bytes|Path, world_info|None)
     """
     return extract_images_from_zips(aerial_dir) + extract_loose_images(aerial_dir)
 
 
 def _open_image(source):
-    """Öffnet ein Quellbild - source ist entweder bytes (aus einem ZIP) oder ein Path (lose Datei)."""
+    """Opens a source image - source is either bytes (from a ZIP) or a Path (loose file)."""
     return Image.open(BytesIO(source)) if isinstance(source, (bytes, bytearray)) else Image.open(source)
 
 
 def _reproject_image_to_source_crs(source, dst_epsg):
     """
-    Reprojiziert ein einzelnes georeferenziertes Bild nach dst_epsg via rasterio (Vorbild: die
-    bereits vorhandene Reprojektions-Logik in terrain/horizon_image.py::build_horizon_image()).
+    Reprojects a single georeferenced image to dst_epsg via rasterio (model: the reprojection
+    logic already present in terrain/horizon_image.py::build_horizon_image()).
 
     Args:
-        source: bytes (aus einem ZIP) oder Path/str (lose Datei)
-        dst_epsg: Ziel-EPSG-Code
+        source: bytes (from a ZIP) or Path/str (loose file)
+        dst_epsg: Target EPSG code
 
     Returns:
-        (PIL.Image RGB, world_info) im Ziel-CRS
+        (PIL.Image RGB, world_info) in the target CRS
     """
     import numpy as np
     import rasterio
@@ -245,13 +245,13 @@ def _reproject_image_to_source_crs(source, dst_epsg):
 
 def _prepare_image_for_compositing(source, world_info, dst_epsg):
     """
-    Öffnet ein Quellbild fürs Compositing und reprojiziert es bei Bedarf ins Ziel-CRS. Für
-    .tfw-Paare (world_info["crs_epsg"] is None, angenommene Quell-CRS wie bisher) wird NIE
-    reprojiziert - kein Verhaltensunterschied für den bestehenden LGL-BW-Pfad.
+    Opens a source image for compositing and reprojects it to the target CRS if needed. For
+    .tfw pairs (world_info["crs_epsg"] is None, assumed source CRS as before) it NEVER
+    reprojects - no behavior difference for the existing LGL-BW path.
 
     Returns:
-        (PIL.Image, world_info) - world_info unverändert, außer bei Reprojektion (dann die im
-        Ziel-CRS neu berechnete Georeferenz)
+        (PIL.Image, world_info) - world_info unchanged, except on reprojection (then the
+        georeferencing recomputed in the target CRS)
     """
     src_epsg = world_info.get("crs_epsg")
     if src_epsg is not None and src_epsg != dst_epsg:
@@ -261,35 +261,35 @@ def _prepare_image_for_compositing(source, world_info, dst_epsg):
 
 def enhance_dop20_image(image, contrast_factor=1.18, brightness_factor=0.92, color_factor=1.12):
     """
-    Verbessert DOP20-Bilder für naturgetreuere Darstellung in BeamNG.
+    Enhances DOP20 images for a more natural look in BeamNG.
 
-    DOP20 Bilder sind oft zu blass und zu hell - diese Funktion erhöht:
-    - Kontrast (mehr Dynamik)
-    - Farbnättigung (lebendiger)
-    - Reduziert Helligkeit (naturgetreuer)
+    DOP20 images are often too pale and too bright - this function increases:
+    - Contrast (more dynamic range)
+    - Color saturation (more vivid)
+    - Reduces brightness (more natural)
 
     Args:
         image: PIL Image
-        contrast_factor: Kontrast-Multiplikator (1.18 = +18%, Standard)
-        brightness_factor: Helligkeit-Multiplikator (0.92 = -8%, Standard)
-        color_factor: Farbnättigung-Multiplikator (1.12 = +12%, Standard)
+        contrast_factor: Contrast multiplier (1.18 = +18%, default)
+        brightness_factor: Brightness multiplier (0.92 = -8%, default)
+        color_factor: Color saturation multiplier (1.12 = +12%, default)
 
     Returns:
-        Verbessertes PIL Image
+        Enhanced PIL Image
     """
-    # Stelle sicher, dass Bild RGB ist
+    # Make sure the image is RGB
     if image.mode != "RGB":
         image = image.convert("RGB")
 
-    # Erhöhe Kontrast
+    # Increase contrast
     enhancer = ImageEnhance.Contrast(image)
     image = enhancer.enhance(contrast_factor)
 
-    # Reduziere Helligkeit (dunkler)
+    # Reduce brightness (darker)
     enhancer = ImageEnhance.Brightness(image)
     image = enhancer.enhance(brightness_factor)
 
-    # Erhöhe Farbnättigung
+    # Increase color saturation
     enhancer = ImageEnhance.Color(image)
     image = enhancer.enhance(color_factor)
 
@@ -301,32 +301,32 @@ AERIAL_PHOTO_FILENAME = "aerial_photo.png"
 
 def process_aerial_images(aerial_dir, output_dir, grid_bounds, global_offset, target_pixel_size=None):
     """
-    Setzt alle Luftbilder zu EINEM zusammenhängenden Foto für die gesamte
-    grid_bounds-Fläche zusammen (statt vieler kleiner 500m-Kacheln).
+    Composes all aerial photos into ONE contiguous photo for the entire
+    grid_bounds area (instead of many small 500m tiles).
 
-    Hintergrund (Recherche 2026-09-18): BeamNGs v1.5-Terrain-Material-System
-    ist laut offizieller Doku für eine KLEINE Anzahl wiederholender Materialien
-    ausgelegt ("keep terrain material counts much lower than the technical
-    limit"), nicht für viele (16-25) einzigartige 4096px-Texturen. Mit vielen
-    großen, einzigartigen Materialien hat BeamNGs Textur-Atlas-Packer beim
-    Verpacken einzelne Kacheln verdreht dargestellt, obwohl die Quelldateien
-    nachweislich korrekt waren (jede für sich UND als zusammengesetztes Mosaik
-    lückenlos). Mit nur einem Material für die gesamte Fläche entfällt dieses
-    Packing-Problem komplett.
+    Background (research 2026-09-18): according to the official docs, BeamNG's v1.5 terrain
+    material system is designed for a SMALL number of repeating materials
+    ("keep terrain material counts much lower than the technical
+    limit"), not for many (16-25) unique 4096px textures. With many
+    large, unique materials, BeamNG's texture atlas packer displayed individual tiles
+    rotated when packing, even though the source files were
+    demonstrably correct (each on its own AND as a composed mosaic
+    without gaps). With only one material for the entire area, this
+    packing problem disappears completely.
 
-    Nutzt .tfw World Files zur exakten Positionierung jedes Quellbilds auf
-    einer gemeinsamen Leinwand in nativer Auflösung, skaliert das Ergebnis
-    danach auf target_pixel_size herunter.
+    Uses .tfw World Files to position each source image exactly on
+    a common canvas at native resolution, then scales the result
+    down to target_pixel_size.
 
     Args:
-        aerial_dir: Verzeichnis mit ZIP-Archiven
-        output_dir: Zielverzeichnis für das zusammengesetzte Foto
-        grid_bounds: (min_x, max_x, min_y, max_y) in lokalen Koordinaten
-        global_offset: (utm_x, utm_y, utm_z) tuple - UTM Offset für Koordinaten-Transformation
-        target_pixel_size: Kantenlänge (Pixel) des Ausgabefotos (Default: config.TERRAIN_BASE_TEX_PIXEL_SIZE)
+        aerial_dir: Directory with ZIP archives
+        output_dir: Target directory for the composed photo
+        grid_bounds: (min_x, max_x, min_y, max_y) in local coordinates
+        global_offset: (utm_x, utm_y, utm_z) tuple - UTM offset for the coordinate transformation
+        target_pixel_size: Edge length (pixels) of the output photo (default: config.TERRAIN_BASE_TEX_PIXEL_SIZE)
 
     Returns:
-        1 wenn ein Foto gespeichert wurde, sonst 0
+        1 if a photo was saved, otherwise 0
     """
     if target_pixel_size is None:
         target_pixel_size = config.TERRAIN_BASE_TEX_PIXEL_SIZE
@@ -352,8 +352,8 @@ def process_aerial_images(aerial_dir, output_dir, grid_bounds, global_offset, ta
     grid_height = grid_max_y - grid_min_y
     offset_x, offset_y = global_offset[:2]
 
-    # Native Auflösung als Referenz für die Leinwand (alle DOP20-Kacheln einer
-    # Region haben dieselbe Pixelgröße, z.B. 0.2m/px).
+    # Native resolution as the reference for the canvas (all DOP20 tiles of
+    # a region have the same pixel size, e.g. 0.2m/px).
     native_pixel_size = abs(images_with_geo[0][2]["pixel_size_x"])
     canvas_w = max(1, round(grid_width / native_pixel_size))
     canvas_h = max(1, round(grid_height / native_pixel_size))
@@ -362,8 +362,8 @@ def process_aerial_images(aerial_dir, output_dir, grid_bounds, global_offset, ta
         f"@ {native_pixel_size}m/px = {canvas_w}x{canvas_h}px native -> {target_pixel_size}x{target_pixel_size}px"
     )
 
-    # Füllfarbe für evtl. Lücken (keine Luftbild-Deckung) - gedecktes Grün statt
-    # Schwarz/Magenta, damit fehlende Randbereiche nicht grell auffallen.
+    # Fill color for possible gaps (no aerial photo coverage) - muted green instead of
+    # black/magenta, so that missing border areas do not stand out garishly.
     canvas = Image.new("RGB", (canvas_w, canvas_h), (70, 95, 55))
 
     pasted = 0
@@ -373,7 +373,7 @@ def process_aerial_images(aerial_dir, output_dir, grid_bounds, global_offset, ta
             image = enhance_dop20_image(image)
             pixel_size = abs(world_info["pixel_size_x"])
 
-            # .tfw-Ursprung ist die obere linke (nordwestliche) Pixelecke.
+            # The .tfw origin is the upper left (northwest) pixel corner.
             img_local_x = world_info["x_origin"] - offset_x
             img_local_y = world_info["y_origin"] - offset_y
 
@@ -384,9 +384,9 @@ def process_aerial_images(aerial_dir, output_dir, grid_bounds, global_offset, ta
                     Image.Resampling.LANCZOS,
                 )
 
-            # Position auf der Leinwand: Ursprung der Leinwand ist die
-            # nordwestliche Ecke (grid_min_x, grid_max_y), Zeile 0 = Norden -
-            # Standard-Bildkonvention, keine Kachel-Bucket-Arithmetik mehr nötig.
+            # Position on the canvas: the canvas origin is the
+            # northwest corner (grid_min_x, grid_max_y), row 0 = north -
+            # standard image convention, no tile bucket arithmetic needed anymore.
             px = round((img_local_x - grid_min_x) / native_pixel_size)
             py = round((grid_max_y - img_local_y) / native_pixel_size)
 
@@ -418,18 +418,18 @@ SINGLE_PHOTO_NAME = AERIAL_PHOTO_FILENAME[: -len(".png")]  # "aerial_photo"
 
 def process_aerial_tiles(aerial_dir, output_dir, photos, global_offset, target_pixel_size=None):
     """
-    Vier-Bilder-Modus: baut pro Eintrag in `photos` ein eigenes Luftbild (ein Foto je DGM1-Kachel).
+    Four-image mode: builds a separate aerial photo per entry in `photos` (one photo per DGM1 tile).
 
-    Jedes Quellbild wird nur EINMAL gelesen und verbessert und dann in alle Fotos gesetzt, die es berührt
-    (ein Quellbild kann über eine Kachelgrenze reichen). Positioniert wird wie beim Gesamtfoto über die
-    .tfw-Georeferenz; jedes Foto wird von der nativen Auflösung (0,2 m/px) auf target_pixel_size skaliert.
+    Each source image is read and enhanced only ONCE and then placed into all photos it touches
+    (a source image can span a tile boundary). Positioning works as for the combined photo via the
+    .tfw georeferencing; each photo is scaled from the native resolution (0.2 m/px) to target_pixel_size.
 
     Args:
-        photos: [{"name": "aerial_photo_0", "bounds": (x_min, x_max, y_min, y_max)}] in lokalen Koordinaten
-        global_offset: (utm_x, utm_y, ...) für die Umrechnung der Quellbild-Ursprünge nach lokal
+        photos: [{"name": "aerial_photo_0", "bounds": (x_min, x_max, y_min, y_max)}] in local coordinates
+        global_offset: (utm_x, utm_y, ...) for converting the source image origins to local
 
     Returns:
-        Anzahl der gespeicherten Fotos
+        Number of saved photos
     """
     if target_pixel_size is None:
         target_pixel_size = config.TERRAIN_BASE_TEX_PIXEL_SIZE
@@ -450,7 +450,7 @@ def process_aerial_tiles(aerial_dir, output_dir, photos, global_offset, target_p
     for photo in photos:
         x_min, x_max, y_min, y_max = photo["bounds"]
         size = (max(1, round((x_max - x_min) / native)), max(1, round((y_max - y_min) / native)))
-        canvases.append(Image.new("RGB", size, (70, 95, 55)))  # gedecktes Grün für Lücken
+        canvases.append(Image.new("RGB", size, (70, 95, 55)))  # muted green for gaps
         logger.info(f"  [i] Building {photo['name']}: {x_max - x_min:.0f}m x {y_max - y_min:.0f}m @ {native}m/px = {size[0]}x{size[1]}px -> {target_pixel_size}px")
 
     for img_name, img_data, world_info in images:
@@ -463,15 +463,15 @@ def process_aerial_tiles(aerial_dir, output_dir, photos, global_offset, target_p
                 image = image.resize(
                     (max(1, round(image.width * scale)), max(1, round(image.height * scale))), Image.Resampling.LANCZOS
                 )
-            img_x = world_info["x_origin"] - offset_x  # .tfw-Ursprung = obere linke (nordwestliche) Pixelecke
+            img_x = world_info["x_origin"] - offset_x  # .tfw origin = upper left (northwest) pixel corner
             img_y = world_info["y_origin"] - offset_y
             for photo, canvas in zip(photos, canvases):
                 x_min, _, _, y_max = photo["bounds"]
                 px = round((img_x - x_min) / native)
                 py = round((y_max - img_y) / native)
                 if px >= canvas.width or py >= canvas.height or px + image.width <= 0 or py + image.height <= 0:
-                    continue  # Quellbild liegt außerhalb dieser Kachel
-                canvas.paste(image, (px, py))  # PIL schneidet an den Rändern ab
+                    continue  # source image lies outside this tile
+                canvas.paste(image, (px, py))  # PIL clips at the edges
         except Exception as e:
             logger.error(f"  [!] Error processing {img_name}: {e}")
 
@@ -487,17 +487,17 @@ def process_aerial_tiles(aerial_dir, output_dir, photos, global_offset, target_p
 
 
 def _aerial_source_files(aerial_dir):
-    """ZIPs UND lose Rasterdateien (*.tif/*.tiff) - beide gelten als Quellbilder (siehe extract_georeferenced_images())."""
+    """ZIPs AND loose raster files (*.tif/*.tiff) - both count as source images (see extract_georeferenced_images())."""
     p = Path(aerial_dir)
     return sorted(p.glob("*.zip")) + sorted(p.glob("*.tif")) + sorted(p.glob("*.tiff"))
 
 
 def aerial_photos_signature(aerial_dir, photos, global_offset, target_pixel_size=None):
     """
-    Beschreibt, WOFÜR die Luftbilder gebaut wurden: welche Fotos (Name + Fläche), Ursprung, Auflösung, Quellbilder.
+    Describes WHAT the aerial photos were built for: which photos (name + area), origin, resolution, source images.
 
-    Ohne diese Angabe erkennt der Exporter veraltete Fotos nicht - z.B. das 2-km-Foto einer einzelnen
-    DGM1-Kachel, das nach dem Umstellen auf vier Kacheln (4 km) einfach auf die doppelte Fläche gestreckt würde.
+    Without this information the exporter does not detect outdated photos - e.g. the 2 km photo of a single
+    DGM1 tile, which would simply be stretched to double the area after switching to four tiles (4 km).
     """
     if target_pixel_size is None:
         target_pixel_size = config.TERRAIN_BASE_TEX_PIXEL_SIZE
@@ -516,7 +516,7 @@ def write_aerial_photo_signature(output_dir, signature):
 
 
 def aerial_photo_is_current(output_dir, signature):
-    """True, wenn ALLE Fotos existieren und genau mit dieser Signatur gebaut wurden (Fotos ohne Signatur gelten als veraltet)."""
+    """True if ALL photos exist and were built with exactly this signature (photos without a signature count as outdated)."""
     signature_file = Path(output_dir) / AERIAL_SIGNATURE_FILENAME
     if not signature_file.exists():
         return False
@@ -530,7 +530,7 @@ def aerial_photo_is_current(output_dir, signature):
 
 
 def _remove_stale_photos(output_dir, keep_names):
-    """Entfernt Fotos des jeweils anderen Modus (aerial_photo.png bzw. aerial_photo_<k>.png) - je ca. 130 MB."""
+    """Removes photos of the respective other mode (aerial_photo.png or aerial_photo_<k>.png) - about 130 MB each."""
     import re
 
     for path in Path(output_dir).glob("aerial_photo*.png"):
@@ -541,14 +541,14 @@ def _remove_stale_photos(output_dir, keep_names):
 
 def ensure_aerial_photos(aerial_dir, output_dir, photos, global_offset, target_pixel_size=None):
     """
-    Baut die Luftbilder nur, wenn sie fehlen oder nicht zur aktuellen Fläche/Kachelaufteilung passen.
+    Builds the aerial photos only if they are missing or do not match the current area/tile layout.
 
     Args:
-        photos: [{"name", "bounds"}]; ein einziger Eintrag "aerial_photo" = Gesamtfoto, sonst ein Foto je Kachel
+        photos: [{"name", "bounds"}]; a single entry "aerial_photo" = combined photo, otherwise one photo per tile
 
     Returns:
-        "current" (passt, nichts zu tun), "built" (neu gebaut), "failed" (Bauen fehlgeschlagen)
-        oder "none" (keine Quellbilder - bestehende Fotos bleiben unverändert)
+        "current" (matches, nothing to do), "built" (newly built), "failed" (build failed)
+        or "none" (no source images - existing photos remain unchanged)
     """
     if not Path(aerial_dir).exists() or not _aerial_source_files(aerial_dir):
         return "none"
@@ -577,22 +577,22 @@ MINIMAP_FILENAME = "terrain.png"
 
 def build_minimap_image(textures_dir, output_path, photos, terrain_bounds_local, target_pixel_size=None):
     """
-    Baut das BigMap-Vorschaubild (info.json-Feld "minimap") aus den bereits gebauten Luftbild-PNGs
-    (aerial_photo*.png in textures_dir, siehe ensure_aerial_photos()) - liest keine Quellbilder erneut ein,
-    sondern setzt nur die fertigen Fotos verkleinert auf eine gemeinsame Leinwand.
+    Builds the BigMap preview image (info.json field "minimap") from the already built aerial photo PNGs
+    (aerial_photo*.png in textures_dir, see ensure_aerial_photos()) - does not read the source images again,
+    but only places the finished photos, scaled down, on a common canvas.
 
-    Selbe Konvention wie process_aerial_images()/process_aerial_tiles(): Zeile 0 = Norden, Leinwand-Ursprung
-    = (terrain_bounds_local[0], terrain_bounds_local[3]) = (x_min, y_max), gedecktes Grün für Lücken.
+    Same convention as process_aerial_images()/process_aerial_tiles(): row 0 = north, canvas origin
+    = (terrain_bounds_local[0], terrain_bounds_local[3]) = (x_min, y_max), muted green for gaps.
 
     Args:
-        textures_dir: Verzeichnis mit den fertigen aerial_photo*.png (config.BEAMNG_DIR_TEXTURES)
-        output_path: Ziel-PNG-Pfad
-        photos: [{"name", "bounds": (x_min, x_max, y_min, y_max)}] - dieselbe Liste wie an ensure_aerial_photos()
-        terrain_bounds_local: (x_min, x_max, y_min, y_max) der GESAMTEN Terrain-Fläche in lokalen Koordinaten
-        target_pixel_size: Kantenlänge (Pixel) der Minimap (Default: config.MINIMAP_PIXEL_SIZE)
+        textures_dir: Directory with the finished aerial_photo*.png (config.BEAMNG_DIR_TEXTURES)
+        output_path: Target PNG path
+        photos: [{"name", "bounds": (x_min, x_max, y_min, y_max)}] - same list as passed to ensure_aerial_photos()
+        terrain_bounds_local: (x_min, x_max, y_min, y_max) of the ENTIRE terrain area in local coordinates
+        target_pixel_size: Edge length (pixels) of the minimap (default: config.MINIMAP_PIXEL_SIZE)
 
     Returns:
-        True bei Erfolg, False wenn ein Quellfoto fehlt (kein Ausnahmefehler - Minimap ist optional)
+        True on success, False if a source photo is missing (no exception - the minimap is optional)
     """
     if target_pixel_size is None:
         target_pixel_size = config.MINIMAP_PIXEL_SIZE
@@ -604,7 +604,7 @@ def build_minimap_image(textures_dir, output_path, photos, terrain_bounds_local,
 
     px_per_m_x = target_pixel_size / width_m
     px_per_m_y = target_pixel_size / height_m
-    canvas = Image.new("RGB", (target_pixel_size, target_pixel_size), (70, 95, 55))  # gedecktes Grün für Lücken
+    canvas = Image.new("RGB", (target_pixel_size, target_pixel_size), (70, 95, 55))  # muted green for gaps
 
     source_paths = [Path(textures_dir) / f"{photo['name']}.png" for photo in photos]
     if not all(path.exists() for path in source_paths):
@@ -614,16 +614,16 @@ def build_minimap_image(textures_dir, output_path, photos, terrain_bounds_local,
         bx_min, bx_max, by_min, by_max = photo["bounds"]
         tile_w = max(1, round((bx_max - bx_min) * px_per_m_x))
         tile_h = max(1, round((by_max - by_min) * px_per_m_y))
-        # reducing_gap: erst ganzzahlig per Box-Filter verkleinern, dann LANCZOS auf die Zielgröße -
-        # ca. 8x schneller als LANCZOS über das volle 8192er Foto, in Minimap-Auflösung gleich scharf
+        # reducing_gap: first shrink by an integer factor with a box filter, then LANCZOS to the target size -
+        # about 8x faster than LANCZOS over the full 8192 photo, equally sharp at minimap resolution
         with Image.open(source_path) as source:
             tile = source.convert("RGB").resize((tile_w, tile_h), Image.Resampling.LANCZOS, reducing_gap=3.0)
         px = round((bx_min - x_min) * px_per_m_x)
         py = round((y_max - by_max) * px_per_m_y)
         return tile, (px, py)
 
-    # Das PNG-Dekodieren (ca. 1,4 s je 8192er Foto) gibt den GIL frei - Threads laufen echt parallel.
-    # Höchstens 4 gleichzeitig: jedes dekodierte Foto belegt ca. 200 MB.
+    # PNG decoding (about 1.4 s per 8192 photo) releases the GIL - threads really run in parallel.
+    # At most 4 at a time: each decoded photo occupies about 200 MB.
     workers = max(1, min(4, len(photos), os.cpu_count() or 1))
     with ThreadPoolExecutor(max_workers=workers) as executor:
         for tile, position in executor.map(load_tile, photos, source_paths):
@@ -641,8 +641,8 @@ MINIMAP_SIGNATURE_VERSION = 1
 
 def minimap_signature(textures_dir, photos, terrain_bounds_local, target_pixel_size=None):
     """
-    Beschreibt, WORAUS die Minimap gebaut wurde: Fotos (Name + Fläche), Terrain-Fläche, Auflösung und
-    Größe + Änderungszeit jedes Quellfotos - ein neu gebautes Luftbild macht die Minimap damit automatisch veraltet.
+    Describes WHAT the minimap was built from: photos (name + area), terrain area, resolution and
+    size + modification time of each source photo - a newly built aerial photo thus automatically makes the minimap outdated.
     """
     if target_pixel_size is None:
         target_pixel_size = config.MINIMAP_PIXEL_SIZE
@@ -662,11 +662,11 @@ def minimap_signature(textures_dir, photos, terrain_bounds_local, target_pixel_s
 
 def ensure_minimap_image(textures_dir, output_path, photos, terrain_bounds_local, target_pixel_size=None):
     """
-    Baut die Minimap nur, wenn sie fehlt oder nicht mehr zu Luftbildern/Fläche passt (siehe minimap_signature()).
-    Die Signatur liegt neben aerial_photo.json in textures_dir, nicht im minimap-Ordner des Levels.
+    Builds the minimap only if it is missing or no longer matches the aerial photos/area (see minimap_signature()).
+    The signature is stored next to aerial_photo.json in textures_dir, not in the level's minimap folder.
 
     Returns:
-        "current" (passt, nichts zu tun), "built" (neu gebaut) oder "missing" (Quellfoto fehlt)
+        "current" (matches, nothing to do), "built" (newly built) or "missing" (source photo missing)
     """
     signature = minimap_signature(textures_dir, photos, terrain_bounds_local, target_pixel_size)
     signature_file = Path(textures_dir) / MINIMAP_SIGNATURE_FILENAME
@@ -685,15 +685,15 @@ def ensure_minimap_image(textures_dir, output_path, photos, terrain_bounds_local
 
 def minimap_info_json_fields(x_min, y_max, size_m, relative_file=None):
     """
-    info.json-Felder für die Minimap: "size" (Terrain-Ausdehnung) und "minimap" (Bild + Lage).
+    info.json fields for the minimap: "size" (terrain extent) and "minimap" (image + position).
 
     Args:
-        x_min, y_max: Nordwest-Ecke der Terrain-Fläche in lokalen Koordinaten (= Bild-Ursprung, Zeile 0 = Norden)
-        size_m: Kantenlänge der (quadratischen) Terrain-Fläche in Metern
-        relative_file: Pfad relativ zum Level-Root (Default: "{MINIMAP_SUBDIR}/{MINIMAP_FILENAME}")
+        x_min, y_max: Northwest corner of the terrain area in local coordinates (= image origin, row 0 = north)
+        size_m: Edge length of the (square) terrain area in meters
+        relative_file: Path relative to the level root (default: "{MINIMAP_SUBDIR}/{MINIMAP_FILENAME}")
 
     Returns:
-        {"size": [...], "minimap": [...]} zum Zusammenführen in ItemManager.set_info_json_fields()
+        {"size": [...], "minimap": [...]} for merging in ItemManager.set_info_json_fields()
     """
     file = relative_file or f"{MINIMAP_SUBDIR}/{MINIMAP_FILENAME}"
     return {
@@ -706,8 +706,8 @@ POI_PREVIEW_SUBDIR = "spawn_previews"
 
 
 def _photo_containing(photos, xy):
-    """Foto-Kachel, deren bounds xy enthalten - sonst die mit dem nächstgelegenen Mittelpunkt (Fallback für
-    einen POI hart an der Kachelkante/knapp außerhalb durch Rundung)."""
+    """Photo tile whose bounds contain xy - otherwise the one with the nearest center (fallback for
+    a POI right at the tile edge/just outside due to rounding)."""
     x, y = xy
     for photo in photos:
         bx_min, bx_max, by_min, by_max = photo["bounds"]
@@ -722,16 +722,16 @@ def _photo_containing(photos, xy):
 
 
 def _load_rgb_photo(source_path: Path, image_cache: Optional[Dict[Path, "Image.Image"]]) -> "Image.Image":
-    """Lädt ein Luftbild als RGB (voll dekodiert), optional über `image_cache` wiederverwendet.
+    """Loads an aerial photo as RGB (fully decoded), optionally reused via `image_cache`.
 
-    Die zusammengesetzten Luftbild-PNGs sind bei einem größeren Export oft >100 MB; `.convert("RGB")`
-    dekodiert dabei IMMER das gesamte Bild (PNG unterstützt kein partielles Decoding), unabhängig vom
-    späteren Ausschnitt. Ohne Cache zahlt jeder Aufruf (z.B. je POI-Vorschaubild, bis zu
-    config.MAX_POI_SPAWN_POINTS mal für denselben Foto-Kachel) diese Dekodierkosten erneut.
+    For a larger export, the composed aerial photo PNGs are often >100 MB; `.convert("RGB")`
+    ALWAYS decodes the entire image (PNG does not support partial decoding), regardless of the
+    later crop. Without a cache, every call (e.g. per POI preview image, up to
+    config.MAX_POI_SPAWN_POINTS times for the same photo tile) pays this decoding cost again.
     """
     if image_cache is not None and source_path in image_cache:
         cached = image_cache[source_path]
-        # Future: von PoiPreviewBuilder im Hintergrund vorab dekodiert - Fehler kommen hier als OSError an
+        # Future: decoded in advance in the background by PoiPreviewBuilder - errors arrive here as OSError
         return cached.result() if isinstance(cached, Future) else cached
     rgb = _decode_rgb_photo(source_path)
     if image_cache is not None:
@@ -741,7 +741,7 @@ def _load_rgb_photo(source_path: Path, image_cache: Optional[Dict[Path, "Image.I
 
 def _decode_rgb_photo(source_path: Path) -> "Image.Image":
     with Image.open(source_path) as img:
-        return img.convert("RGB")  # eigenständige, vom Dateihandle unabhängige Kopie
+        return img.convert("RGB")  # standalone copy, independent of the file handle
 
 
 def build_poi_preview_image(
@@ -749,25 +749,25 @@ def build_poi_preview_image(
     image_cache: Optional[Dict[Path, "Image.Image"]] = None,
 ):
     """
-    Vorschaubild für einen POI-Spawn-Punkt (info.json spawnPoints[].preview, siehe
-    lua/ge/extensions/core/levels.lua): quadratischer Ausschnitt aus dem bereits gebauten Luftbild,
-    Draufsicht, POI mittig - liest kein Quellbild erneut ein, nur die fertigen aerial_photo*.png
-    (siehe ensure_aerial_photos()), dieselbe Konvention wie build_minimap_image() (Zeile 0 = Norden).
+    Preview image for a POI spawn point (info.json spawnPoints[].preview, see
+    lua/ge/extensions/core/levels.lua): square crop from the already built aerial photo,
+    top-down view, POI centered - does not read any source image again, only the finished
+    aerial_photo*.png (see ensure_aerial_photos()), same convention as build_minimap_image() (row 0 = north).
 
     Args:
-        textures_dir: Verzeichnis mit den fertigen aerial_photo*.png (config.BEAMNG_DIR_TEXTURES)
-        output_path: Ziel-Bildpfad (.jpg)
-        photos: [{"name", "bounds": (x_min, x_max, y_min, y_max)}] - dieselbe Liste wie an ensure_aerial_photos()
-        position_xy: (x, y) des POI in lokalen Koordinaten
-        crop_size_m: Kantenlänge (Meter) des Ausschnitts (Default: config.POI_PREVIEW_CROP_SIZE_M)
-        target_pixel_size: Kantenlänge (Pixel) des gespeicherten Bilds (Default: config.POI_PREVIEW_PIXEL_SIZE)
-        image_cache: optionales Dict {Pfad: bereits dekodiertes RGB-Image}, über mehrere Aufrufe hinweg
-            vom Aufrufer offengehalten (siehe PoiPreviewBuilder) - erspart bei mehreren
-            POIs auf derselben Foto-Kachel das wiederholte Dekodieren desselben Bildes.
+        textures_dir: Directory with the finished aerial_photo*.png (config.BEAMNG_DIR_TEXTURES)
+        output_path: Target image path (.jpg)
+        photos: [{"name", "bounds": (x_min, x_max, y_min, y_max)}] - same list as passed to ensure_aerial_photos()
+        position_xy: (x, y) of the POI in local coordinates
+        crop_size_m: Edge length (meters) of the crop (default: config.POI_PREVIEW_CROP_SIZE_M)
+        target_pixel_size: Edge length (pixels) of the saved image (default: config.POI_PREVIEW_PIXEL_SIZE)
+        image_cache: optional dict {path: already decoded RGB image}, kept open by the caller across
+            multiple calls (see PoiPreviewBuilder) - saves repeated decoding of the same image
+            when several POIs lie on the same photo tile.
 
     Returns:
-        True bei Erfolg, False wenn keine passende Foto-Kachel gefunden/gelesen werden konnte (das
-        Vorschaubild ist optional - BeamNG fällt sonst auf das Level-Vorschaubild zurück)
+        True on success, False if no matching photo tile could be found/read (the
+        preview image is optional - BeamNG otherwise falls back to the level preview image)
     """
     if crop_size_m is None:
         crop_size_m = config.POI_PREVIEW_CROP_SIZE_M
@@ -795,11 +795,11 @@ def build_poi_preview_image(
 
         left = (x - half - bx_min) * px_per_m_x
         right = (x + half - bx_min) * px_per_m_x
-        top = (by_max - (y + half)) * px_per_m_y  # Zeile 0 = Norden
+        top = (by_max - (y + half)) * px_per_m_y  # row 0 = north
         bottom = (by_max - (y - half)) * px_per_m_y
 
-        # An den Bild-Rand klemmen (POI nahe der Kachel-Kante): Ausschnitt bleibt im Bild, ist dann
-        # nur nicht mehr exakt mittig - besser als ein leeres/abgeschnittenes Vorschaubild.
+        # Clamp to the image border (POI near the tile edge): the crop stays within the image, is then
+        # just no longer exactly centered - better than an empty/truncated preview image.
         left, right = max(0.0, left), min(float(source.width), right)
         top, bottom = max(0.0, top), min(float(source.height), bottom)
         if right - left < 2 or bottom - top < 2:
@@ -822,16 +822,16 @@ POI_PREVIEW_SIGNATURE_FILENAME = "aerial_poi_previews.json"
 
 class PoiPreviewBuilder:
     """
-    preview_builder für ItemManager.save(): (object_name, (x, y)) -> Vorschaubild-Pfad relativ zum Level-Root
-    oder None - siehe build_poi_preview_image().
+    preview_builder for ItemManager.save(): (object_name, (x, y)) -> preview image path relative to the level root
+    or None - see build_poi_preview_image().
 
-    Ein Vorschaubild wird nur neu geschnitten, wenn es fehlt oder sich Position, Ausschnitt oder das
-    Quellfoto (Größe + Änderungszeit) geändert haben; die Signaturen liegen neben aerial_photo.json in
-    textures_dir. Muss doch geschnitten werden, dekodiert es beim ersten Fehltreffer ALLE Foto-Kacheln
-    parallel im Hintergrund (ca. 1,4 s je 8192er PNG, seriell sonst der Hauptzeitfresser des Schritts).
+    A preview image is only re-cropped if it is missing or the position, crop or the
+    source photo (size + modification time) have changed; the signatures are stored next to aerial_photo.json in
+    textures_dir. If a crop is needed after all, it decodes ALL photo tiles on the first miss
+    in parallel in the background (about 1.4 s per 8192 PNG, otherwise the main time sink of the step when serial).
 
-    Nach dem letzten Aufruf close() aufrufen: gibt die dekodierten Fotos (je ca. 200 MB) frei und
-    schreibt die Signaturen.
+    Call close() after the last call: it frees the decoded photos (about 200 MB each) and
+    writes the signatures.
     """
 
     def __init__(self, textures_dir, level_dir, photos):
@@ -868,7 +868,7 @@ class PoiPreviewBuilder:
         }
 
     def _prefetch_photos(self):
-        """Alle Foto-Kacheln parallel dekodieren (höchstens 4 gleichzeitig, das Dekodieren gibt den GIL frei)."""
+        """Decode all photo tiles in parallel (at most 4 at a time, decoding releases the GIL)."""
         if self._executor is not None:
             return
         paths = [self.textures_dir / f"{p['name']}.png" for p in self.photos]

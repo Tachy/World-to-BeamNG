@@ -1,8 +1,8 @@
 """
-Forest Point Generator: Poisson-Disk-Sampling für Baumpositionen.
+Forest Point Generator: Poisson-disk sampling for tree positions.
 
-Generiert gleichmäßig verteilte Punkte innerhalb von Waldpolygonen unter
-Berücksichtigung der Baumdichte (tree_density aus forest_types).
+Generates evenly distributed points inside forest polygons, taking
+the tree density (tree_density from forest_types) into account.
 """
 
 import numpy as np
@@ -14,47 +14,47 @@ from world_to_beamng.logging_config import LoggerConfig
 
 logger = LoggerConfig.get_logger()
 
-POISSON_CANDIDATES_PER_CELL = 3.0  # Kandidaten je Runde und min_distance² Polygonfläche
-POISSON_MIN_CANDIDATES = 64  # Untergrenze je Runde (kleine Polygone)
-POISSON_MAX_DRAWS = 3_000_000  # Obergrenze der Zufallspunkte je Runde (Speicher bei sehr dünnen Polygonen)
+POISSON_CANDIDATES_PER_CELL = 3.0  # candidates per round and min_distance² of polygon area
+POISSON_MIN_CANDIDATES = 64  # lower bound per round (small polygons)
+POISSON_MAX_DRAWS = 3_000_000  # upper bound of random points per round (memory for very thin polygons)
 POISSON_MAX_ROUNDS = 40
-POISSON_STOP_FRACTION = 0.004  # Runden, die weniger als diesen Anteil neuer Punkte bringen, gelten als gesättigt
+POISSON_STOP_FRACTION = 0.004  # rounds that yield less than this fraction of new points count as saturated
 
 
 class ForestPointGenerator:
     """
-    Generiert Baumpositionen mit Poisson-Disk-Sampling.
+    Generates tree positions with Poisson-disk sampling.
 
-    Poisson-Disk-Sampling erzeugt eine gleichmäßige, natürlich wirkende
-    Verteilung von Punkten mit einem Mindestabstand.
+    Poisson-disk sampling produces an even, natural-looking
+    distribution of points with a minimum distance.
 
-    Optional können Punkte auf Straßen gefiltert werden durch
-    Übergabe einer road_buffer Geometrie.
+    Optionally, points on roads can be filtered by
+    passing a road_buffer geometry.
     """
 
     def __init__(self, min_distance: float = 1.5, max_attempts: int = 30, road_buffer: Optional[Polygon] = None):
         """
         Args:
-            min_distance: Mindestabstand zwischen Bäumen in Metern (default: 1.5m)
-            max_attempts: Maximale Versuche pro Punkt (default: 30)
-            road_buffer: Optional - Shapely Polygon mit bufferten Straßen (zum Filtern von Bäumen)
+            min_distance: minimum distance between trees in meters (default: 1.5m)
+            max_attempts: maximum attempts per point (default: 30)
+            road_buffer: optional - Shapely polygon with buffered roads (for filtering trees)
         """
         self.min_distance = min_distance
         self.max_attempts = max_attempts
 
-        # Vorbereitete Geometrie für schnelle Straßen-Abfragen (shapely.prepare wirkt in place)
+        # Prepared geometry for fast road queries (shapely.prepare works in place)
         self.road_buffer = self._prepared(road_buffer)
         self.has_roads = road_buffer is not None
-        self.row_exclusion = None  # nur für Baumreihen, siehe set_row_exclusion()
+        self.row_exclusion = None  # only for tree rows, see set_row_exclusion()
 
     def set_road_buffer(self, road_buffer: Optional[Polygon]) -> None:
         """
-        Setzt oder aktualisiert den Road Buffer.
+        Sets or updates the road buffer.
 
-        Kann jederzeit aufgerufen werden (z.B. vor jedem Tile).
+        Can be called at any time (e.g. before each tile).
 
         Args:
-            road_buffer: Shapely Polygon mit bufferten Straßen oder None
+            road_buffer: Shapely polygon with buffered roads or None
         """
         self.road_buffer = self._prepared(road_buffer)
         self.has_roads = road_buffer is not None
@@ -67,17 +67,17 @@ class ForestPointGenerator:
 
     def set_row_exclusion(self, exclusion) -> None:
         """
-        Ausschlussbereich nur für Baumreihen (Gebäude, Straßen mit kleinem Puffer).
+        Exclusion area for tree rows only (buildings, roads with a small buffer).
 
-        Baumreihen (Alleen) stehen näher an Straßen als Wald; der breite Wald-Straßenpuffer würde sie löschen.
+        Tree rows (avenues) stand closer to roads than forest; the wide forest road buffer would delete them.
         """
         self.row_exclusion = self._prepared(exclusion)
 
     def generate_points_along_line(self, line, spacing: float, jitter: float = 0.12) -> List[Tuple[float, float]]:
         """
-        Baumpositionen im Abstand `spacing` entlang einer (Multi-)Linie, mit leichtem Versatz entlang der Linie
-        (±jitter*spacing), damit die Reihe nicht maschinell wirkt. Eine Linie kürzer als der Abstand bekommt
-        einen Baum in der Mitte. Punkte im Ausschlussbereich für Reihen entfallen.
+        Tree positions at `spacing` intervals along a (multi-)line, with a slight offset along the line
+        (±jitter*spacing) so that the row does not look mechanical. A line shorter than the spacing gets
+        one tree in the middle. Points in the row exclusion area are dropped.
         """
         import random
 
@@ -104,32 +104,32 @@ class ForestPointGenerator:
         self, polygon: Polygon, tree_density: float, min_distance_override: Optional[float] = None
     ) -> List[Tuple[float, float]]:
         """
-        Generiere Baumpositionen innerhalb eines Polygons.
+        Generate tree positions inside a polygon.
 
-        Nutzt Poisson-Disk-Sampling für natürliche Verteilung.
+        Uses Poisson-disk sampling for a natural distribution.
 
         Args:
-            polygon: Shapely Polygon (Waldgebiet)
-            tree_density: Dichte-Faktor (0.0 - 1.0) aus forest_types
-            min_distance_override: Optional - überschreibt self.min_distance
+            polygon: Shapely polygon (forest area)
+            tree_density: density factor (0.0 - 1.0) from forest_types
+            min_distance_override: optional - overrides self.min_distance
 
         Returns:
-            Liste von (x, y) Koordinaten
+            List of (x, y) coordinates
         """
         if tree_density <= 0.0:
             return []
 
         min_dist = min_distance_override if min_distance_override is not None else self.min_distance
 
-        # Passe Mindestabstand an Dichte an (quadratisch, weil Poisson-Disk mit Fläche skaliert)
-        # Höhere Dichte → kleinerer Abstand
+        # Adjust the minimum distance to the density (quadratic, because Poisson-disk scales with area)
+        # Higher density → smaller distance
         # tree_density 1.0 → min_distance
-        # tree_density 0.25 → 2× Abstand (400 → 100 Bäume/ha)
+        # tree_density 0.25 → 2× distance (400 → 100 trees/ha)
         import math
 
         adjusted_distance = min_dist / math.sqrt(tree_density) if tree_density > 0 else min_dist
 
-        # Bounding Box des Polygons
+        # Bounding box of the polygon
         minx, miny, maxx, maxy = polygon.bounds
         width = maxx - minx
         height = maxy - miny
@@ -138,7 +138,7 @@ class ForestPointGenerator:
             logger.warning(f"Polygon with invalid bounding box: {polygon.bounds}")
             return []
 
-        # DEBUG: Prüfe Polygon-Validität
+        # DEBUG: check polygon validity
         if polygon.is_empty:
             logger.warning(f"Polygon is empty (area={polygon.area:.2f}m²)")
             return []
@@ -147,12 +147,12 @@ class ForestPointGenerator:
             logger.debug(f"Polygon too small for trees (area={polygon.area:.2f}m²)")
             return []
 
-        # Poisson-Disk-Sampling
+        # Poisson-disk sampling
         points = self._poisson_disk_sampling(
             polygon=polygon, min_distance=adjusted_distance, bounds=(minx, miny, maxx, maxy)
         )
 
-        # OPTIMIERUNG: Filtere Punkte auf Straßen (wenn road_buffer gesetzt)
+        # OPTIMIZATION: filter points on roads (if road_buffer is set)
         if self.has_roads:
             points_before = len(points)
             points = self._filter_points_on_roads(points)
@@ -175,13 +175,13 @@ class ForestPointGenerator:
 
     def _filter_points_on_roads(self, points: List[Tuple[float, float]]) -> List[Tuple[float, float]]:
         """
-        Filtert Punkte, die auf Straßen liegen (mit Puffer) - vektorisiert über alle Punkte auf einmal.
+        Filters points that lie on roads (with buffer) - vectorized over all points at once.
 
         Args:
-            points: Liste von (x, y) Punkt-Koordinaten
+            points: list of (x, y) point coordinates
 
         Returns:
-            Gefilterte Liste ohne Punkte auf Straßen
+            Filtered list without points on roads
         """
         if not self.has_roads or self.road_buffer is None or not points:
             return points
@@ -196,29 +196,29 @@ class ForestPointGenerator:
         self, polygon: Polygon, min_distance: float, bounds: Tuple[float, float, float, float]
     ) -> List[Tuple[float, float]]:
         """
-        Poisson-Disk-Sampling in vektorisierten Runden (statt Bridson mit einer Python-Schleife je Kandidat).
+        Poisson-disk sampling in vectorized rounds (instead of Bridson with a Python loop per candidate).
 
-        Jede Runde: Kandidaten gleichverteilt in der Bounding Box, alle außerhalb des Polygons oder näher als
-        `min_distance` an bereits gesetzten Punkten verworfen, aus dem Rest eine zufällige unabhängige Menge
-        (kein Paar näher als `min_distance`) gewählt. Das ist zufälliges sequentielles Setzen (Dart-Throwing) in
-        wenigen NumPy-Schritten; die Dichte liegt wie bei Bridson bei etwa 0,7 Punkten je min_distance².
-        Alle Geometrieabfragen laufen vektorisiert (shapely.contains_xy, cKDTree).
+        Each round: candidates uniformly distributed in the bounding box, all outside the polygon or closer than
+        `min_distance` to already placed points discarded, and a random independent set (no pair closer than
+        `min_distance`) chosen from the rest. This is random sequential placement (dart throwing) in
+        a few NumPy steps; the density is about 0.7 points per min_distance², as with Bridson.
+        All geometry queries run vectorized (shapely.contains_xy, cKDTree).
 
         Args:
-            polygon: Shapely Polygon
-            min_distance: Mindestabstand zwischen Punkten
+            polygon: Shapely polygon
+            min_distance: minimum distance between points
             bounds: (minx, miny, maxx, maxy)
 
         Returns:
-            Liste von (x, y) Punkten
+            List of (x, y) points
         """
         minx, miny, maxx, maxy = bounds
         area = polygon.area
         box_area = (maxx - minx) * (maxy - miny)
         shapely.prepare(polygon)
 
-        # Kandidaten je Runde: POISSON_CANDIDATES_PER_CELL je min_distance² Polygonfläche; die Bounding Box wird
-        # entsprechend der Füllung überzogen (dünne Polygone in großer Box), gedeckelt gegen Speicherspitzen.
+        # Candidates per round: POISSON_CANDIDATES_PER_CELL per min_distance² of polygon area; the bounding box is
+        # oversampled according to its fill (thin polygons in a large box), capped against memory spikes.
         inside_target = max(POISSON_MIN_CANDIDATES, int(POISSON_CANDIDATES_PER_CELL * area / min_distance**2))
         draws = int(min(POISSON_MAX_DRAWS, inside_target * box_area / max(area, 1e-9)))
 
@@ -237,7 +237,7 @@ class ForestPointGenerator:
             else:
                 fresh = candidates[self._independent_subset(candidates, min_distance)]
                 accepted = np.vstack([accepted, fresh])
-                # Sättigung: die Runde bringt kaum noch etwas
+                # Saturation: the round hardly yields anything anymore
                 idle_rounds = idle_rounds + 1 if len(fresh) < POISSON_STOP_FRACTION * len(accepted) else 0
             if idle_rounds >= 2:
                 break
@@ -253,9 +253,9 @@ class ForestPointGenerator:
     @staticmethod
     def _independent_subset(points: np.ndarray, min_distance: float) -> np.ndarray:
         """
-        Indizes einer zufälligen Teilmenge, in der kein Punktepaar näher als min_distance liegt (maximal: jeder
-        nicht gewählte Punkt hat einen gewählten Nachbarn). Zufällige Rangfolge, in jeder Runde gewinnt der
-        ranghöchste Punkt seiner verbleibenden Nachbarschaft (Luby) - vollständig vektorisiert.
+        Indices of a random subset in which no pair of points is closer than min_distance (maximal: every
+        unchosen point has a chosen neighbor). Random ranking; in each round the highest-ranked point of its
+        remaining neighborhood wins (Luby) - fully vectorized.
         """
         count = len(points)
         if count < 2:
@@ -285,38 +285,38 @@ class ForestPointGenerator:
         self, forests: List[Dict], forest_properties: Dict[str, Dict]
     ) -> Dict[int, List[Tuple[float, float]]]:
         """
-        Generiere Punkte für mehrere Waldpolygone.
+        Generate points for multiple forest polygons.
 
-        OPTIMIERUNG: Schneidet Wald-Polygon mit tile_box BEVOR Punkte generiert werden.
-        Dadurch wird nur die relevante Fläche bearbeitet, nicht die ganze Wald-Geometrie.
+        OPTIMIZATION: clips the forest polygon with tile_box BEFORE points are generated.
+        This way only the relevant area is processed, not the whole forest geometry.
 
         Args:
-            forests: Liste von Forest-Dicts aus ForestNormalizer
-                     (mit "type", "geometry", "bounds", "tile_box", ...)
-            forest_properties: Dict von forest_type → properties
-                              (mit "tree_density", ...)
+            forests: list of forest dicts from ForestNormalizer
+                     (with "type", "geometry", "bounds", "tile_box", ...)
+            forest_properties: dict of forest_type → properties
+                              (with "tree_density", ...)
 
         Returns:
-            Dict: forest_index → Liste von (x, y) Punkten (nur innerhalb tile_box!)
+            Dict: forest_index → list of (x, y) points (only inside tile_box!)
         """
         result = {}
 
         for idx, forest in enumerate(forests):
             forest_type = forest.get("type")
             geometry = forest.get("geometry")
-            tile_box = forest.get("tile_box")  # Für Filterung
+            tile_box = forest.get("tile_box")  # For filtering
 
             if not forest_type or not geometry:
                 logger.warning(f"Forest polygon {idx} without type/geometry, skipping")
                 continue
 
-            # OPTIMIERUNG: Schneide Wald mit tile_box BEVOR Punkte generiert werden
+            # OPTIMIZATION: clip the forest with tile_box BEFORE points are generated
             if tile_box:
-                # Intersection mit tile_box - verwende das Ergebnis für Punkt-Generierung
+                # Intersection with tile_box - use the result for point generation
                 clipped_geometry = geometry.intersection(tile_box)
 
                 if clipped_geometry.is_empty:
-                    # Wald ist außerhalb der Tile
+                    # Forest is outside the tile
                     result[idx] = []
                     logger.debug(f"  Forest {idx}: completely outside the tile box, no points")
                     continue
@@ -325,38 +325,38 @@ class ForestPointGenerator:
                 original_area = geometry.area if hasattr(geometry, "area") else 0
                 clipped_area = clipped_geometry.area if hasattr(clipped_geometry, "area") else 0
             else:
-                # Keine tile_box - verwende Wald wie er ist
+                # No tile_box - use the forest as it is
                 geometry_to_use = geometry
                 original_area = geometry.area if hasattr(geometry, "area") else 0
                 clipped_area = original_area
 
-            # Hole Properties
+            # Get properties
             props = forest_properties.get(forest_type, {})
             tree_density = props.get("tree_density", 0.5)
 
-            # Baumreihe: Bäume entlang der Linie statt Poisson-Verteilung in einer Fläche
+            # Tree row: trees along the line instead of a Poisson distribution in an area
             if props.get("row_spacing") and geometry_to_use.geom_type in ("LineString", "MultiLineString"):
                 points = self.generate_points_along_line(geometry_to_use, float(props["row_spacing"]))
                 logger.debug(f"  Tree row {idx}: {len(points)} points")
                 result[idx] = points
                 continue
 
-            # Generiere Punkte NUR auf der relevanten Geometrie
+            # Generate points ONLY on the relevant geometry
             if isinstance(geometry_to_use, Polygon):
                 points = self.generate_points(geometry_to_use, tree_density)
             elif isinstance(geometry_to_use, MultiPolygon):
-                # Für MultiPolygon: Generiere für jedes Teil-Polygon
+                # For MultiPolygon: generate for each sub-polygon
                 points = []
                 for poly in geometry_to_use.geoms:
                     points.extend(self.generate_points(poly, tree_density))
             else:
-                # Kann passieren wenn intersection ein Point/LineString zurückgibt
+                # Can happen if intersection returns a Point/LineString
                 logger.debug(
                     f"  Forest {idx}: no polygon after tile clipping ({type(geometry_to_use).__name__}), no points"
                 )
                 points = []
 
-            # Debug-Info
+            # Debug info
             if tile_box:
                 clipped_pct = (clipped_area / original_area * 100) if original_area > 0 else 0
                 logger.debug(

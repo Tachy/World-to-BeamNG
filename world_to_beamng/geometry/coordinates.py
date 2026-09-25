@@ -1,46 +1,46 @@
 """
-Koordinaten-Transformationen für World-to-BeamNG.
-Stellt pyproj Transformer bereit für WGS84 <-> Quell-CRS Konvertierungen.
+Coordinate transformations for World-to-BeamNG.
+Provides pyproj transformers for WGS84 <-> source CRS conversions.
 
-Das Quell-CRS ist standardmäßig EPSG:25832 (ETRS89/UTM32N, LGL Baden-Württemberg), wird aber nach
-dem Kachel-Scan ggf. durch das tatsächlich erkannte CRS der Eingabedaten überschrieben (siehe
-set_source_crs()). transformer_to_wgs84/transformer_to_utm sind Lazy-Proxys: der echte
-pyproj.Transformer wird erst beim ersten tatsächlichen Attributzugriff gebaut (und bei einem
-späteren CRS-Wechsel neu) - das ist nötig, weil mehrere Module diese Objekte per
-"from ... import transformer_to_wgs84" ZUR IMPORTZEIT binden (also bevor set_source_crs() in
-main() laufen konnte); der Proxy selbst wird nie neu zugewiesen, nur sein Inhalt wechselt lazy.
+The source CRS is EPSG:25832 by default (ETRS89/UTM32N, LGL Baden-Württemberg), but after the tile
+scan it may be overridden by the CRS actually detected in the input data (see
+set_source_crs()). transformer_to_wgs84/transformer_to_utm are lazy proxies: the real
+pyproj.Transformer is only built on the first actual attribute access (and rebuilt after a
+later CRS change) - this is necessary because several modules bind these objects via
+"from ... import transformer_to_wgs84" AT IMPORT TIME (i.e. before set_source_crs() could run in
+main()); the proxy itself is never reassigned, only its content changes lazily.
 """
 
 from pyproj import Transformer
 
 from .. import config
 
-_source_epsg: int | None = None  # None = noch nicht explizit gesetzt -> config.SOURCE_CRS_EPSG gilt
+_source_epsg: int | None = None  # None = not explicitly set yet -> config.SOURCE_CRS_EPSG applies
 
 
 def set_source_crs(epsg: int) -> None:
     """
-    Setzt die erkannte/konfigurierte Quell-CRS für die aktuelle Pipeline-Ausführung.
+    Sets the detected/configured source CRS for the current pipeline run.
 
-    Muss VOR der ersten Koordinatentransformation aufgerufen werden (world_to_beamng.py::main(),
-    direkt nach dem Kachel-Scan, vor compute_global_center()/export_complete_level()).
+    Must be called BEFORE the first coordinate transformation (world_to_beamng.py::main(),
+    right after the tile scan, before compute_global_center()/export_complete_level()).
     """
     global _source_epsg
     _source_epsg = int(epsg)
 
 
 def get_source_crs_epsg() -> int:
-    """Liefert die aktuell gesetzte Quell-CRS, oder config.SOURCE_CRS_EPSG als Fallback."""
+    """Returns the currently set source CRS, or config.SOURCE_CRS_EPSG as a fallback."""
     return _source_epsg if _source_epsg is not None else config.SOURCE_CRS_EPSG
 
 
 class _LazyTransformer:
     """
-    Baut den echten pyproj.Transformer erst beim ersten Attributzugriff, und neu, sobald sich
-    get_source_crs_epsg() seitdem geändert hat.
+    Builds the real pyproj.Transformer only on the first attribute access, and rebuilds it as soon as
+    get_source_crs_epsg() has changed since.
 
-    Reicht ALLE Attributzugriffe durch (nicht nur .transform()), da manche Aufrufer auch
-    .source_crs/.target_crs direkt abfragen (siehe workflow/forest_workflow.py).
+    Passes ALL attribute accesses through (not only .transform()), since some callers also query
+    .source_crs/.target_crs directly (see workflow/forest_workflow.py).
     """
 
     def __init__(self, src_crs_fn, dst_crs_fn):
@@ -60,8 +60,8 @@ class _LazyTransformer:
         return getattr(self._ensure(), name)
 
 
-# Transformer für Quell-CRS -> WGS84
+# Transformer for source CRS -> WGS84
 transformer_to_wgs84 = _LazyTransformer(lambda: f"EPSG:{get_source_crs_epsg()}", lambda: "EPSG:4326")
 
-# Transformer für WGS84 -> Quell-CRS
+# Transformer for WGS84 -> source CRS
 transformer_to_utm = _LazyTransformer(lambda: "EPSG:4326", lambda: f"EPSG:{get_source_crs_epsg()}")

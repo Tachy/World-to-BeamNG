@@ -1,22 +1,22 @@
 """
-Gemeinsame Bausteine der Mauer-Meshes (Mauerkörper und Abdeckplatten): Mesh-Sammler, Einheitsvektor, Randlinien.
+Shared building blocks of the wall meshes (wall body and cap slabs): mesh collector, unit vector, border lines.
 """
 
 from typing import List, Sequence, Tuple
 
 import numpy as np
 
-MAX_MITRE_FACTOR = 2.0  # spitze Ecken: Gehrungslänge höchstens doppelte halbe Dicke
+MAX_MITRE_FACTOR = 2.0  # sharp corners: miter length at most twice the half thickness
 
 
 def offset_points(points: np.ndarray, half: float, closed: bool) -> Tuple[np.ndarray, np.ndarray]:
-    """Linke und rechte Kante im Abstand `half`, an Knicken auf Gehrung geschnitten."""
+    """Left and right edge at distance `half`, mitered at bends."""
     count = len(points)
     directions = np.roll(points, -1, axis=0) - points
     if not closed:
         directions = directions[:-1]
     directions = directions / np.linalg.norm(directions, axis=1)[:, None]
-    normals = np.column_stack([-directions[:, 1], directions[:, 0]])  # links der Laufrichtung
+    normals = np.column_stack([-directions[:, 1], directions[:, 0]])  # left of the direction of travel
 
     left, right = np.zeros((count, 2)), np.zeros((count, 2))
     for i in range(count):
@@ -41,13 +41,13 @@ class MeshBuilder:
         self.faces: List[List[int]] = []
 
     def quad(self, corners: Sequence[Sequence[float]], uvs: Sequence[Sequence[float]], normal: Sequence[float]) -> None:
-        """Viereck mit eigenen Eckpunkten; der Umlaufsinn wird so gewählt, dass die Fläche zur Normalen zeigt.
+        """Quad with its own corner vertices; the winding order is chosen so that the face points along the normal.
 
-        Kreuz-/Skalarprodukt bewusst in reinem Python statt über numpy: quad() läuft in engen
-        Schleifen (Brücken/Tunnel/Mauern) mit Zehntausenden Aufrufen auf 3er-Vektoren - dort
-        dominiert numpys Dispatch-Overhead (u.a. moveaxis() in np.cross()) klar gegenüber der
-        eigentlichen Rechnung (siehe pyinstrument-Profil vom 4x4km-Export: allein MeshBuilder.quad
-        in _build_bridges() ~5s von 67s Gesamtzeit).
+        Cross/dot product deliberately in pure Python instead of numpy: quad() runs in tight
+        loops (bridges/tunnels/walls) with tens of thousands of calls on 3-vectors - there
+        numpy's dispatch overhead (among others moveaxis() in np.cross()) clearly dominates the
+        actual computation (see the pyinstrument profile of the 4x4 km export: MeshBuilder.quad
+        alone in _build_bridges() ~5 s of 67 s total time).
         """
         base = len(self.vertices)
         self.vertices.extend([list(c) for c in corners])
@@ -66,7 +66,7 @@ class MeshBuilder:
             self.faces.append([base + tri[0], base + tri[1], base + tri[2]])
 
     def triangle(self, corners: Sequence[Sequence[float]], uvs: Sequence[Sequence[float]], normal: Sequence[float]) -> None:
-        """Dreieck mit eigenen Eckpunkten, Umlaufsinn wie bei quad() passend zur Normalen."""
+        """Triangle with its own corner vertices, winding order matching the normal as in quad()."""
         base = len(self.vertices)
         self.vertices.extend([list(c) for c in corners])
         self.uvs.extend([list(u) for u in uvs])
@@ -92,13 +92,13 @@ def add_box_column(
     tile_m: float,
     direction: Tuple[float, float] = (1.0, 0.0),
 ) -> None:
-    """Rechteckige Stütze (4 Seitenflächen) von `bottom_z` bis `top_z`, quadratischer Querschnitt `size` - für
-    Brücken-Pfeiler (bridges/bridge_mesh.py) und Galerie-Stützen (tunnels/gallery_mesh.py).
+    """Rectangular column (4 side faces) from `bottom_z` to `top_z`, square cross-section `size` - for
+    bridge piers (bridges/bridge_mesh.py) and gallery columns (tunnels/gallery_mesh.py).
 
     Args:
-        direction: (dx, dy) Fahrtrichtung an der Stützen-Position (muss nicht normiert sein) - das Profil
-            ist relativ dazu ausgerichtet (Kanten parallel/quer zur Straße/Galerie), nicht an den Welt-
-            Achsen. Default (1, 0) = achsenparallel, für Aufrufer ohne Richtungsinformation.
+        direction: (dx, dy) direction of travel at the column position (need not be normalized) - the profile
+            is aligned relative to it (edges parallel/across the road/gallery), not to the world
+            axes. Default (1, 0) = axis-aligned, for callers without direction information.
     """
     half = size / 2.0
     dx, dy = float(direction[0]), float(direction[1])

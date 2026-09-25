@@ -1,10 +1,10 @@
 """
-Forest-Normalisierung: Clippe OSM-Waldpolygone auf Tile-Grenzen.
+Forest normalization: clip OSM forest polygons to tile boundaries.
 
-Pro Tile (2x2 km):
-- Extrahiere relevante OSM-Waldpolygone
-- Clippe auf Tile-Grenzen
-- Ordne Forest-Type basierend auf Konfiguration zu
+Per tile (2x2 km):
+- Extract relevant OSM forest polygons
+- Clip to tile boundaries
+- Assign the forest type based on configuration
 """
 
 from typing import Dict, List, Optional, Tuple
@@ -18,23 +18,23 @@ logger = LoggerConfig.get_logger()
 
 class ForestNormalizer:
     """
-    Normalisiert OSM-Waldpolygone für die Generierung pro Tile.
+    Normalizes OSM forest polygons for generation per tile.
 
-    Jedes OSM-Waldpolygon wird auf Tile-Grenzen gekürzt und mit
-    einem forest_type versehen.
+    Each OSM forest polygon is trimmed to tile boundaries and provided with
+    a forest_type.
     """
 
     def __init__(self, forest_config: Dict, osm_mapper: OSMMapper):
         """
         Args:
-            forest_config: Dict aus osm_to_beamng.json["forest_type_templates"] + ["forest_mappings"]
-            osm_mapper: OSMMapper-Instance mit geladenen OSM-Daten
+            forest_config: dict from osm_to_beamng.json["forest_type_templates"] + ["forest_mappings"]
+            osm_mapper: OSMMapper instance with loaded OSM data
         """
         self.forest_config = forest_config
         self.osm_mapper = osm_mapper
         self.forest_types = forest_config.get("forest_type_templates", {})
 
-        # Fallback: Hole forest_mappings aus osm_mapper wenn nicht in forest_config
+        # Fallback: get forest_mappings from osm_mapper if not in forest_config
         if "forest_mappings" in forest_config:
             self.forest_mappings = forest_config.get("forest_mappings", {})
         else:
@@ -52,19 +52,19 @@ class ForestNormalizer:
         local_offset: Optional[Tuple[float, float]] = None,
     ) -> Dict[str, List[Dict]]:
         """
-        Normalisiere OSM-Wälder für ein einzelnes Tile.
+        Normalize OSM forests for a single tile.
 
-        Blendet alle OSM-Waldpolygone ein, die sich mit dem Tile überschneiden,
-        clippt sie auf Tile-Grenzen, und ordnet einen forest_type zu.
+        Includes all OSM forest polygons that overlap the tile,
+        clips them to tile boundaries, and assigns a forest_type.
 
         Args:
-            tile_bounds: Tuple (x_min, y_min, x_max, y_max) in lokalen Koordinaten
-            tile_name: Optional - Name des Tiles für Logging
-            osm_data: Optional - OSM-Rohdaten (Liste von Elements mit tags, geometry in lat/lon)
-            local_offset: Optional - (offset_x, offset_y) für Koordinaten-Transformation
+            tile_bounds: tuple (x_min, y_min, x_max, y_max) in local coordinates
+            tile_name: optional - name of the tile for logging
+            osm_data: optional - raw OSM data (list of elements with tags, geometry in lat/lon)
+            local_offset: optional - (offset_x, offset_y) for coordinate transformation
 
         Returns:
-            Dict mit Format:
+            Dict with format:
             {
                 "status": "success" | "error",
                 "tile_bounds": (x_min, y_min, x_max, y_max),
@@ -72,7 +72,7 @@ class ForestNormalizer:
                 "forests": [
                     {
                         "type": "deciduous_dense",
-                        "geometry": Polygon (in lokalen Koordinaten!),
+                        "geometry": Polygon (in local coordinates!),
                         "bounds": (x_min, y_min, x_max, y_max),
                         "osm_tags": {...},
                         "properties": {...}
@@ -96,7 +96,7 @@ class ForestNormalizer:
                 "error": None,
             }
 
-            # Extrahiere Waldpolygone aus OSM-Rohdaten (WGS84)
+            # Extract forest polygons from raw OSM data (WGS84)
             osm_forests = self._extract_forests_from_osm(osm_data) if osm_data else []
             if not osm_forests:
                 logger.info(f"  [→] No forests in {tile_name}")
@@ -104,47 +104,47 @@ class ForestNormalizer:
 
             logger.info(f"  [→] Checking {len(osm_forests)} OSM forest polygons...")
 
-            # Jetzt: Alle Geometrien sind in lokalen Koordinaten (bereits transformiert in workflow!)
-            # Iteriere über alle OSM-Waldpolygone
+            # Now: all geometries are in local coordinates (already transformed in the workflow!)
+            # Iterate over all OSM forest polygons
             for osm_forest in osm_forests:
-                geom = osm_forest.get("geometry")  # In LOKALEN Koordinaten
+                geom = osm_forest.get("geometry")  # In LOCAL coordinates
                 tags = osm_forest.get("tags", {})
 
                 if not geom or geom.is_empty:
                     continue
 
-                # Prüfe Überschneidung mit Tile (beide in lokalen Koordinaten!)
+                # Check overlap with the tile (both in local coordinates!)
                 if not geom.intersects(tile_box):
                     continue
 
-                # WICHTIG: Behalte das GANZE Polygon ungeclippt!
-                # Die Punkt-Generierung prüft später pro Punkt, ob er im Tile liegt.
-                # Damit vermeiden wir Wald-Verlust an Tile-Rändern (z.B. Schwarzwald über mehrere Tiles)
+                # IMPORTANT: keep the WHOLE polygon unclipped!
+                # Point generation later checks per point whether it lies in the tile.
+                # This avoids forest loss at tile edges (e.g. Black Forest across several tiles)
 
-                # Bestimme Forest-Type basierend auf OSM-Tags; Lichtungen (innere Ringe) bekommen
-                # den in forest_mappings["clearings"] konfigurierten Typ (z.B. niedriger Laubwald)
+                # Determine the forest type based on OSM tags; clearings (inner rings) get
+                # the type configured in forest_mappings["clearings"] (e.g. low deciduous forest)
                 forest_type = self._map_to_forest_type(tags)
                 if osm_forest.get("is_clearing"):
                     clearings = self.forest_mappings.get("clearings", {})
                     only_for = clearings.get("only_for")
                     if only_for is not None and self._base_forest_mapping(tags)[1] not in only_for:
-                        continue  # Loch in einem Wohngebiet o.ä. ist keine Waldlichtung: nicht bepflanzen
+                        continue  # a hole in a residential area etc. is not a forest clearing: do not plant
                     forest_type = clearings.get("forest_type", forest_type)
                 if not forest_type:
                     logger.debug(f"    [i] Forest polygon mapped to no forest_type: {tags}")
                     continue
 
-                # Erstelle Forest-Eintrag mit UNGECLIPPTEM Polygon
+                # Create the forest entry with the UNCLIPPED polygon
                 forest_entry = {
                     "type": forest_type,
-                    "geometry": geom,  # UNGECLIPPT! Enthält ggf. Punkte außerhalb des Tiles
-                    "bounds": tuple(geom.bounds),  # (x_min, y_min, x_max, y_max) in lokal - Gesamt-Polygon
-                    "tile_box": tile_box,  # Für Punkt-Filterung später!
+                    "geometry": geom,  # UNCLIPPED! May contain points outside the tile
+                    "bounds": tuple(geom.bounds),  # (x_min, y_min, x_max, y_max) in local - whole polygon
+                    "tile_box": tile_box,  # For point filtering later!
                     "osm_tags": tags,
                     "properties": {
                         "name": tags.get("name", "unnamed"),
-                        "area": geom.area,  # In m² - des GANZEN Polygons
-                        "perimeter": geom.length,  # Des GANZEN Polygons
+                        "area": geom.area,  # In m² - of the WHOLE polygon
+                        "perimeter": geom.length,  # Of the WHOLE polygon
                     },
                 }
 
@@ -174,40 +174,40 @@ class ForestNormalizer:
 
     def _extract_forests_from_osm(self, osm_data: List[Dict]) -> List[Dict]:
         """
-        Extrahiere Waldpolygone aus OSM-Rohdaten.
+        Extract forest polygons from raw OSM data.
 
-        Sucht nach:
+        Searches for:
         - landuse=forest
         - landuse=wood
         - natural=wood
         - natural=forest
 
-        Verarbeitet:
-        - Einfache Ways mit Waldtags
-        - Multipolygon-Relations (type=multipolygon) mit Waldtags
+        Handles:
+        - Simple ways with forest tags
+        - Multipolygon relations (type=multipolygon) with forest tags
 
-        WICHTIG: Erwartet LOKALE Koordinaten {x, y}!
-        (Zentrale Transformation in ForestWorkflow._transform_osm_to_local() erfolgt VORHER!)
+        IMPORTANT: expects LOCAL coordinates {x, y}!
+        (The central transformation in ForestWorkflow._transform_osm_to_local() happens BEFORE!)
 
         Args:
-            osm_data: OSM-Elements mit tags und geometry (Overpass-Format, bereits transformiert!)
+            osm_data: OSM elements with tags and geometry (Overpass format, already transformed!)
 
         Returns:
-            Liste von Dicts mit "geometry" (Shapely Polygon), "tags"
+            List of dicts with "geometry" (Shapely Polygon), "tags"
         """
         from shapely.geometry import Polygon, LineString
         from shapely.ops import unary_union
 
         forests = []
 
-        # Erstelle Index: way_id → way_element (für Multipolygon-Assembly)
+        # Build index: way_id → way_element (for multipolygon assembly)
         ways_by_id = {}
         for element in osm_data:
             if element.get("type") == "way":
                 ways_by_id[element.get("id")] = element
 
         for element in osm_data:
-            # Sicherheitscheck: element muss ein Dict sein
+            # Safety check: element must be a dict
             if not isinstance(element, dict):
                 logger.error(f"  [!] Element is not a dict: {type(element)}")
                 continue
@@ -217,7 +217,7 @@ class ForestNormalizer:
                 logger.error(f"  [!] Tags are not a dict: {type(tags)}")
                 continue
 
-            # Prüfe mit OSMMapper ob es ein Wald ist
+            # Use OSMMapper to check whether it is a forest
             if not self.osm_mapper.is_forest(tags):
                 continue
 
@@ -226,7 +226,7 @@ class ForestNormalizer:
             # === CASE 1: Relation (Multipolygon) ===
             if element_type == "relation" and tags.get("type") == "multipolygon":
                 try:
-                    # Wald ohne Lichtungen + Lichtungen (innere Ringe) getrennt
+                    # Forest without clearings + clearings (inner rings) separately
                     geom, clearings = self._build_multipolygon_from_members(element, ways_by_id)
                     if geom and not geom.is_empty:
                         forests.append(
@@ -246,23 +246,23 @@ class ForestNormalizer:
                     logger.debug(f"  [!] Error in multipolygon assembly: {e}")
                     continue
 
-            # === CASE 2: Way (einfaches Polygon) ===
+            # === CASE 2: Way (simple polygon) ===
             else:
-                # Extrahiere Geometrie (BEREITS in lokalen Koordinaten!)
+                # Extract geometry (ALREADY in local coordinates!)
                 geom_data = element.get("geometry")
                 if not geom_data:
                     continue
 
                 try:
-                    # Geometrie MUSS bereits transformiert sein: {x, y}
-                    # (Zentrale Transformation in ForestWorkflow._transform_osm_to_local() erfolgte VORHER!)
+                    # Geometry MUST already be transformed: {x, y}
+                    # (The central transformation in ForestWorkflow._transform_osm_to_local() happened BEFORE!)
                     if isinstance(geom_data, list) and len(geom_data) > 0:
                         if isinstance(geom_data[0], dict) and "x" in geom_data[0] and "y" in geom_data[0]:
-                            # Lokale Koordinaten - CORRECT!
+                            # Local coordinates - CORRECT!
                             coords = [(pt["x"], pt["y"]) for pt in geom_data]
                             if self._is_row_type(tags):
-                                # Baumreihe (natural=tree_row): eine LINIE, kein Polygon - die Bäume stehen
-                                # später im Abstand row_spacing entlang der Linie
+                                # Tree row (natural=tree_row): a LINE, not a polygon - the trees later stand
+                                # along the line at row_spacing intervals
                                 if len(coords) >= 2:
                                     forests.append(
                                         {
@@ -273,7 +273,7 @@ class ForestNormalizer:
                                         }
                                     )
                                 continue
-                            if len(coords) >= 3:  # Polygon benötigt mind. 3 Punkte
+                            if len(coords) >= 3:  # a polygon needs at least 3 points
                                 geom = Polygon(coords)
 
                                 if geom.is_valid:
@@ -288,21 +288,21 @@ class ForestNormalizer:
 
     def _build_multipolygon_from_members(self, relation: Dict, ways_by_id: Dict):
         """
-        Baue Wald und Lichtungen eines Multipolygons aus seinen Member-Ways.
+        Build forest and clearings of a multipolygon from its member ways.
 
-        Die Teilstücke einer Rolle werden zu geschlossenen Ringen zusammengesetzt (OSM zerlegt
-        lange Ringe in mehrere Ways - jeden einzeln zu schließen ergäbe falsche Flächen).
-        Innere Ringe sind Lichtungen: sie werden vom Wald abgezogen und separat geliefert.
+        The segments of a role are assembled into closed rings (OSM splits long rings into
+        several ways - closing each one individually would yield wrong areas).
+        Inner rings are clearings: they are subtracted from the forest and returned separately.
 
-        WICHTIG: Erwartet lokale Koordinaten {x, y}!
-        (Zentrale Transformation in ForestWorkflow._transform_osm_to_local() erfolgt VORHER)
+        IMPORTANT: expects local coordinates {x, y}!
+        (The central transformation in ForestWorkflow._transform_osm_to_local() happens BEFORE)
 
         Args:
-            relation: Relation-Element mit members
-            ways_by_id: Index way_id → way_element
+            relation: relation element with members
+            ways_by_id: index way_id → way_element
 
         Returns:
-            (Wald-Geometrie ohne Lichtungen, Lichtungs-Geometrie oder None) - oder (None, None)
+            (forest geometry without clearings, clearing geometry or None) - or (None, None)
         """
         from shapely.geometry import LineString
         from shapely.ops import polygonize, unary_union
@@ -338,12 +338,12 @@ class ForestNormalizer:
             return None, None
 
     def _is_row_type(self, osm_tags: Dict) -> bool:
-        """True, wenn der Waldtyp der Tags eine Baumreihe ist (Vorlage mit row_spacing): Linie statt Fläche."""
+        """True if the forest type of the tags is a tree row (template with row_spacing): line instead of area."""
         base_type, _ = self._base_forest_mapping(osm_tags)
         return bool(base_type and self.forest_types.get(base_type, {}).get("row_spacing"))
 
     def _base_forest_mapping(self, osm_tags: Dict) -> Tuple[Optional[str], Optional[str]]:
-        """(Basis-Waldtyp, auslösender Tag "key=value") aus landuse/natural/leisure oder (None, None)."""
+        """(base forest type, triggering tag "key=value") from landuse/natural/leisure or (None, None)."""
         for tag_key in ["landuse", "natural", "leisure"]:
             values = self.forest_mappings.get(tag_key)
             if not values:
@@ -355,26 +355,26 @@ class ForestNormalizer:
 
     def _map_to_forest_type(self, osm_tags: Dict) -> Optional[str]:
         """
-        Mappe OSM-Tags zu forest_type.
+        Map OSM tags to forest_type.
 
-        Folgt der Logik aus forest_mappings:
-        1. Basis-Typ aus landuse/natural/leisure
-        2. tag_overrides (z.B. trees=conifer) verfeinern den Basis-Typ - aber nur, wenn der
-           Basis-Tag in "tag_overrides_only_for" steht (z.B. "landuse=forest"). Sonst könnte ein
-           natural=wood mit Nadelbaum-Tag in einen hohen Waldtyp umgeleitet werden. Fehlt der
-           Schlüssel, gelten die Overrides für alle (abwärtskompatibel).
+        Follows the logic from forest_mappings:
+        1. Base type from landuse/natural/leisure
+        2. tag_overrides (e.g. trees=conifer) refine the base type - but only if the
+           base tag is listed in "tag_overrides_only_for" (e.g. "landuse=forest"). Otherwise a
+           natural=wood with a conifer tag could be redirected to a tall forest type. If the
+           key is missing, the overrides apply to all (backward compatible).
         3. Fallback: None
 
         Args:
-            osm_tags: Dict mit OSM-Tags
+            osm_tags: dict with OSM tags
 
         Returns:
-            forest_type-String oder None
+            forest_type string or None
         """
         mappings = self.forest_mappings
         base_type, base_tag = self._base_forest_mapping(osm_tags)
 
-        # 2. Tag-Overrides (nur für erlaubte Basis-Tags)
+        # 2. Tag overrides (only for allowed base tags)
         overrides = mappings.get("tag_overrides")
         scope = mappings.get("tag_overrides_only_for")
         if overrides and (scope is None or base_tag in scope):
@@ -383,17 +383,17 @@ class ForestNormalizer:
                 if osm_tags.get(key) == value:
                     return override_value
 
-        # 3. Basis-Typ (oder None)
+        # 3. Base type (or None)
         return base_type
 
     def get_forest_properties(self, forest_type: str) -> Dict:
         """
-        Hole die Eigenschaften eines Waldtyps.
+        Get the properties of a forest type.
 
         Args:
-            forest_type: Name des Waldtyps (z.B. "deciduous_dense")
+            forest_type: name of the forest type (e.g. "deciduous_dense")
 
         Returns:
-            Dict mit tree_density, tree_distribution, average_height, etc.
+            Dict with tree_density, tree_distribution, average_height, etc.
         """
         return self.forest_types.get(forest_type, {})

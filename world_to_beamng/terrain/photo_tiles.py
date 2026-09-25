@@ -1,19 +1,19 @@
 """
-Vier-Bilder-Modus: ein Luftbild pro Foto-Kachel.
+Four-image mode: one aerial photo per photo tile.
 
-Statt EINES Gesamtfotos (bei 4x4 km nur 0,5 m/px bei 8192 px) bekommt jede Foto-Kachel ihr
-eigenes 8192-px-Foto (2 km -> 0,244 m/px). Jedes Foto ist ein eigenes Terrain-Material
-(`aerial_photo_<k>`), das nur in seiner Kachel gemalt wird.
+Instead of ONE overall photo (for 4x4 km only 0.5 m/px at 8192 px), each photo tile gets its
+own 8192 px photo (2 km -> 0.244 m/px). Each photo is its own terrain material
+(`aerial_photo_<k>`), which is painted only in its tile.
 
-Die Foto-Kachelung ist ein FESTER Raster über die Gesamtfläche (build_processing_tile_grid(),
-Kachelgröße config.PHOTO_TILE_SIZE_M) - unabhängig von der Größe/Anzahl der rohen Höhendaten-Kacheln
-(die je nach Quelle z.B. 1 km statt 2 km groß sein können, siehe utils/tile_scanner.py). Bei LGL
-Baden-Württemberg deckt sich das zufällig mit den 2x2-km-DGM1-ZIPs, ist aber kein Zusammenhang mehr.
+The photo tiling is a FIXED grid over the total area (build_processing_tile_grid(),
+tile size config.PHOTO_TILE_SIZE_M) - independent of the size/number of the raw elevation data tiles
+(which, depending on the source, can be e.g. 1 km instead of 2 km in size, see utils/tile_scanner.py). For LGL
+Baden-Württemberg this coincides by chance with the 2x2 km DGM1 ZIPs, but there is no longer any connection.
 
-Die Landnutzungs-Schichten tragen das Luftbild als Basisfarbe. Sie werden deshalb je Kachel als Variante
-`<schicht>_t<k>` geführt (Basisfarbe = Foto der Kachel). Damit die restliche Pipeline (Malen der Landnutzung,
-Masken unter Straßen/Gebäuden, Löcher) unverändert auf "logischen" Schichten arbeiten kann, wird die Layer-Map
-erst GANZ AM ENDE in diese physischen Materialien aufgeteilt (expand_layers_per_tile).
+The land use layers carry the aerial photo as base color. They are therefore kept per tile as a variant
+`<layer>_t<k>` (base color = photo of the tile). So that the rest of the pipeline (painting the land use,
+masks under roads/buildings, holes) can keep working unchanged on "logical" layers, the layer map
+is split into these physical materials only at the VERY END (expand_layers_per_tile).
 """
 
 from typing import Dict, List, Sequence, Tuple
@@ -26,19 +26,19 @@ MAX_MATERIALS = 254
 
 def build_processing_tile_grid(bbox_utm: Tuple[float, float, float, float], tile_size_m: float) -> List[Dict]:
     """
-    Fester, regelmäßiger Kachelraster über eine Gesamtfläche - unabhängig von der Größe/Anzahl der
-    rohen Höhendaten-Kacheln, die diese Fläche tatsächlich liefern (siehe Moduldocstring).
+    Fixed, regular tile grid over a total area - independent of the size/number of the
+    raw elevation data tiles that actually supply this area (see module docstring).
 
     Args:
-        bbox_utm: (x_min, x_max, y_min, y_max) der Gesamtfläche (z.B. utils.tile_scanner.compute_global_bbox())
-        tile_size_m: Kantenlänge einer Kachel in Metern (config.PHOTO_TILE_SIZE_M)
+        bbox_utm: (x_min, x_max, y_min, y_max) of the total area (e.g. utils.tile_scanner.compute_global_bbox())
+        tile_size_m: edge length of a tile in meters (config.PHOTO_TILE_SIZE_M)
 
     Returns:
-        Liste von {"bbox_utm": (x0, x1, y0, y1)} - dasselbe Schema wie die rohen Scan-Kacheln, das
-        photo_tile_specs() erwartet. Die letzte Zeile/Spalte wird auf die tatsächliche BBox-Kante
-        geklemmt statt exakt tile_size_m groß zu sein - build_tile_index_map() (unten) verträgt das,
-        da es nur mit sortierten Start-Koordinaten per searchsorted arbeitet, keine einheitliche
-        Kachelgröße voraussetzt.
+        List of {"bbox_utm": (x0, x1, y0, y1)} - the same schema as the raw scan tiles, which
+        photo_tile_specs() expects. The last row/column is clamped to the actual bbox edge
+        instead of being exactly tile_size_m in size - build_tile_index_map() (below) tolerates this,
+        since it only works with sorted start coordinates via searchsorted and does not require a
+        uniform tile size.
     """
     if tile_size_m <= 0:
         raise ValueError(f"tile_size_m must be positive, is {tile_size_m}")
@@ -56,10 +56,10 @@ def build_processing_tile_grid(bbox_utm: Tuple[float, float, float, float], tile
 
 def photo_tile_specs(tiles: Sequence[Dict], global_offset: Sequence[float]) -> List[Dict]:
     """
-    Ein Foto je Kachel in stabiler Reihenfolge (Süden zuerst, dann Westen zuerst).
+    One photo per tile in stable order (south first, then west first).
 
     Returns:
-        [{"index", "name": "aerial_photo_<k>", "bounds": (x_min, x_max, y_min, y_max) in lokalen Koordinaten}]
+        [{"index", "name": "aerial_photo_<k>", "bounds": (x_min, x_max, y_min, y_max) in local coordinates}]
     """
     ox, oy = float(global_offset[0]), float(global_offset[1])
     ordered = sorted(tiles, key=lambda t: (t["bbox_utm"][2], t["bbox_utm"][0]))
@@ -72,10 +72,10 @@ def photo_tile_specs(tiles: Sequence[Dict], global_offset: Sequence[float]) -> L
 
 def build_tile_index_map(size: int, origin_x: float, origin_y: float, square_size: float, specs: Sequence[Dict]) -> np.ndarray:
     """
-    Kachel-Index je Heightmap-Zelle (Zeile = y, Spalte = x), shape (size, size).
+    Tile index per heightmap cell (row = y, column = x), shape (size, size).
 
-    Die äußerste Datenzelle (x/y = Kachel-Maximum) und der auf die Zweierpotenz aufgefüllte Rand gehören zur
-    nächstgelegenen Randkachel - keine Zelle bleibt ohne Kachel.
+    The outermost data cell (x/y = tile maximum) and the border padded to a power of two belong to the
+    nearest edge tile - no cell is left without a tile.
     """
     xs = origin_x + np.arange(size) * square_size
     ys = origin_y + np.arange(size) * square_size
@@ -97,15 +97,15 @@ def expand_layers_per_tile(
     photo_names: Sequence[str],
 ) -> Tuple[np.ndarray, List[str], Dict[str, List[str]], Dict[str, Tuple[str, str]]]:
     """
-    Teilt die logische Layer-Map (Index 0 = Foto) pro Kachel in physische Materialien auf.
+    Splits the logical layer map (index 0 = photo) per tile into physical materials.
 
     Returns:
-        (neue layer_map, neue Materialnamen, variants, parents)
-        variants: Schicht -> ihre Kachel-Varianten (nur tatsächlich vorkommende), z.B. {"mat_grass": ["mat_grass_t0", ...]}
-        parents: Variante -> (Schicht, Foto-Material der Kachel), für die Basisfarbe der Variante
-        Löcher (255) bleiben Löcher.
+        (new layer_map, new material names, variants, parents)
+        variants: layer -> its tile variants (only those actually occurring), e.g. {"mat_grass": ["mat_grass_t0", ...]}
+        parents: variant -> (layer, photo material of the tile), for the base color of the variant
+        Holes (255) stay holes.
     """
-    names: List[str] = list(photo_names)  # Foto-Materialien zuerst: Index k = Foto der Kachel k
+    names: List[str] = list(photo_names)  # photo materials first: index k = photo of tile k
     index_of = {name: i for i, name in enumerate(names)}
     variants: Dict[str, List[str]] = {}
     parents: Dict[str, Tuple[str, str]] = {}
@@ -148,11 +148,11 @@ def split_layers_by_tile(
     square_size: float,
 ) -> Dict:
     """
-    Alles, was process_tile für den Vier-Bilder-Modus braucht, in einem Aufruf.
+    Everything process_tile needs for four-image mode, in one call.
 
     Returns:
         {"layer_map", "material_names", "photo_tile_names", "photo_extents", "layer_variants",
-         "variant_parents", "specs"}; photo_extents = Kantenlänge je Foto in Zellen (Kachelgröße)
+         "variant_parents", "specs"}; photo_extents = edge length per photo in cells (tile size)
     """
     specs = photo_tile_specs(tiles, global_offset)
     index_map = build_tile_index_map(layer_map.shape[0], origin_x, origin_y, square_size, specs)

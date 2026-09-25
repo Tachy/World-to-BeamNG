@@ -1,7 +1,7 @@
 """
-Builder für Grid- und Building-Meshes.
+Builders for grid and building meshes.
 
-Vereinfacht komplexe Mesh-Generierung mit einem klaren Builder-Pattern.
+Simplifies complex mesh generation with a clear builder pattern.
 """
 
 from typing import Optional, List, Dict, Tuple
@@ -22,9 +22,9 @@ from ..facade.roof_mesh import RoofMeshBuilder
 
 class GridBuilder:
     """
-    Builder für Terrain-Grids.
+    Builder for terrain grids.
 
-    Beispiel:
+    Example:
         >>> builder = GridBuilder()
         >>> grid = (builder
         ...     .with_points(height_points)
@@ -42,65 +42,65 @@ class GridBuilder:
 
     def with_points(self, points: np.ndarray) -> "GridBuilder":
         """
-        Setze Höhen-Punkte.
+        Set the elevation points.
 
         Args:
-            points: N×2 Array mit (x, y) Koordinaten
+            points: N×2 array of (x, y) coordinates
 
         Returns:
-            Self für Method-Chaining
+            Self for method chaining
         """
         self._points = points
         return self
 
     def with_elevations(self, elevations: np.ndarray) -> "GridBuilder":
         """
-        Setze Höhen-Werte.
+        Set the elevation values.
 
         Args:
-            elevations: N Array mit Z-Werten
+            elevations: N array of Z values
 
         Returns:
-            Self für Method-Chaining
+            Self for method chaining
         """
         self._elevations = elevations
         return self
 
     def with_spacing(self, spacing: float) -> "GridBuilder":
         """
-        Setze Grid-Spacing.
+        Set the grid spacing.
 
         Args:
-            spacing: Abstand zwischen Grid-Punkten in Metern
+            spacing: Distance between grid points in meters
 
         Returns:
-            Self für Method-Chaining
+            Self for method chaining
         """
         self._spacing = spacing
         return self
 
     def with_cache_key(self, cache_key: str) -> "GridBuilder":
         """
-        Setze den Cache-Schlüssel (Tile-Hash) für das Terrain-Grid.
+        Set the cache key (tile hash) for the terrain grid.
 
         Args:
-            cache_key: Cache-Key
+            cache_key: Cache key
 
         Returns:
-            Self für Method-Chaining
+            Self for method chaining
         """
         self._cache_key = cache_key
         return self
 
     def build(self) -> np.ndarray:
         """
-        Baue Grid.
+        Build the grid.
 
         Returns:
-            N×M×3 Grid-Array
+            N×M×3 grid array
 
         Raises:
-            ValueError: Wenn erforderliche Parameter fehlen
+            ValueError: If required parameters are missing
         """
         if self._points is None:
             raise ValueError("Points required")
@@ -122,9 +122,9 @@ class GridBuilder:
 
 class BuildingMeshBuilder:
     """
-    Builder für LoD2-Gebäude-Meshes.
+    Builder for LoD2 building meshes.
 
-    Beispiel:
+    Example:
         >>> builder = BuildingMeshBuilder()
         >>> meshes = (builder
         ...     .with_buildings(buildings)
@@ -141,50 +141,50 @@ class BuildingMeshBuilder:
 
     def with_buildings(self, buildings: List[Dict]) -> "BuildingMeshBuilder":
         """
-        Setze Gebäude-Liste.
+        Set the building list.
 
         Args:
-            buildings: Liste von Gebäude-Dicts
+            buildings: List of building dicts
 
         Returns:
-            Self für Method-Chaining
+            Self for method chaining
         """
         self._buildings = buildings
         return self
 
     def with_bounds_filter(self, bounds: Optional[Tuple[float, float, float, float]]) -> "BuildingMeshBuilder":
         """
-        Aktiviere Bounds-Filterung.
+        Enable bounds filtering.
 
         Args:
             bounds: (min_x, max_x, min_y, max_y)
 
         Returns:
-            Self für Method-Chaining
+            Self for method chaining
         """
         self._grid_bounds = bounds
         return self
 
     def build(self) -> List[Dict]:
         """
-        Baue Gebäude-Meshes.
+        Build the building meshes.
 
         Returns:
-            Liste von Mesh-Dicts für DAEExporter
+            List of mesh dicts for the DAEExporter
 
         Raises:
-            ValueError: Wenn Buildings fehlen
+            ValueError: If buildings are missing
         """
         if self._buildings is None:
             raise ValueError("Buildings required")
 
-        # Filtere nach Bounds
+        # Filter by bounds
         buildings = self._buildings
         if self._grid_bounds is not None:
             min_x, max_x, min_y, max_y = self._grid_bounds
             buildings = [b for b in buildings if self._is_in_bounds(b, min_x, max_x, min_y, max_y)]
 
-        # Konvertiere zu Mesh-Format
+        # Convert to mesh format
         meshes = []
         for bldg_idx, building in enumerate(buildings):
             mesh = self._building_to_mesh(building, bldg_idx)
@@ -194,7 +194,7 @@ class BuildingMeshBuilder:
         return meshes
 
     def _is_in_bounds(self, building: Dict, min_x: float, max_x: float, min_y: float, max_y: float) -> bool:
-        """Prüfe ob Gebäude innerhalb Bounds liegt."""
+        """Check whether the building lies within the bounds."""
         b = building.get("bounds")
         if not b:
             return False
@@ -206,10 +206,10 @@ class BuildingMeshBuilder:
 
     def _building_to_mesh(self, building: Dict, idx: int) -> Optional[Dict]:
         """
-        Konvertiere Building zu Mesh-Dict.
+        Convert a building to a mesh dict.
 
-        Wände: fugenloser Putz (Farbe je Gebäude) plus Fenster/Türen als eigene Flächen. Schrägdächer: Biberschwanz mit
-        Überstand (Stirnbrett/Untersicht als Trim). Flachdächer: Kies plus Blechrand.
+        Walls: seamless plaster (color per building) plus windows/doors as separate faces. Pitched roofs: beavertail
+        tiles with overhang (fascia board/soffit as trim). Flat roofs: gravel plus sheet-metal rim.
         """
         facade = self._facade_mapper.map_building(building)
         roof = self._roof_builder.build(building)

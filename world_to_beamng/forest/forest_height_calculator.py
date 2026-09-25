@@ -1,7 +1,7 @@
 """
-Forest Height Calculator: Optimierte Höhen-Interpolation.
+Forest Height Calculator: optimized height interpolation.
 
-Nutzt gecachte KD-Tree und vektorisierte NumPy-Operationen für Performance.
+Uses a cached KD-tree and vectorized NumPy operations for performance.
 """
 
 import logging
@@ -14,27 +14,27 @@ logger = logging.getLogger(__name__)
 
 class ForestHeightCalculator:
     """
-    Berechnet Höhen für Baumpositionen mittels optimierter Interpolation.
+    Computes heights for tree positions using optimized interpolation.
 
-    OPTIMIERUNGEN:
-    1. KD-Tree wird einmal gebaut und cached
-    2. Query wird vektorisiert (alle Punkte auf einmal, nicht in Schleife)
-    3. Nutzt NumPy für Maximum Performance
+    OPTIMIZATIONS:
+    1. The KD-tree is built once and cached
+    2. The query is vectorized (all points at once, not in a loop)
+    3. Uses NumPy for maximum performance
     """
 
     def __init__(self):
-        """Initialisiere HeightCalculator."""
+        """Initialize the HeightCalculator."""
         self._kdtree_cache = {}  # {id(height_points) → cKDTree}
 
     def _get_or_build_kdtree(self, height_points: np.ndarray) -> cKDTree:
         """
-        Baue KD-Tree einmal und cache ihn.
+        Build the KD-tree once and cache it.
 
         Args:
-            height_points: Terrain-Grid Punkte
+            height_points: terrain grid points
 
         Returns:
-            Gecachter oder neuer cKDTree
+            Cached or new cKDTree
         """
         cache_key = id(height_points)
 
@@ -52,18 +52,18 @@ class ForestHeightCalculator:
         grid_info: Optional[Dict] = None,
     ) -> List[Tuple[float, float, float]]:
         """
-        Berechne Z-Koordinaten für (x, y) Punkte - OPTIMIERT.
+        Compute Z coordinates for (x, y) points - OPTIMIZED.
 
-        Nutzt gecachte KD-Tree und vektorisierte Query.
+        Uses a cached KD-tree and a vectorized query.
 
         Args:
-            points: Liste von (x, y) Punkten
-            height_points: numpy array (N, 2) mit (x, y) vom Terrain-Grid
-            height_elevations: numpy array (N,) mit Z-Werten
-            grid_info: Optional - Grid-Metadaten (ignoriert bei NN)
+            points: list of (x, y) points
+            height_points: numpy array (N, 2) with (x, y) from the terrain grid
+            height_elevations: numpy array (N,) with Z values
+            grid_info: optional - grid metadata (ignored for NN)
 
         Returns:
-            Liste von (x, y, z) Punkten
+            List of (x, y, z) points
         """
         if not points:
             return []
@@ -72,19 +72,19 @@ class ForestHeightCalculator:
             logger.warning("No height data available, using z=0")
             return [(x, y, 0.0) for x, y in points]
 
-        # Konvertiere zu numpy
+        # Convert to numpy
         points_array = np.array(points, dtype=np.float32)
 
-        # Nutze gecachten KD-Tree - KRITISCH FÜR PERFORMANCE!
+        # Use the cached KD-tree - CRITICAL FOR PERFORMANCE!
         tree = self._get_or_build_kdtree(height_points)
 
-        # Vektorisierte Query - alle Punkte auf einmal!
-        # Das ist VIEL schneller als in Schleife
-        _, indices = tree.query(points_array, workers=-1)  # -1 = nutze alle CPU-Kerne
+        # Vectorized query - all points at once!
+        # This is MUCH faster than a loop
+        _, indices = tree.query(points_array, workers=-1)  # -1 = use all CPU cores
 
         heights = height_elevations[indices]
 
-        # Kombiniere zu (x, y, z)
+        # Combine into (x, y, z)
         result = [(float(points[i][0]), float(points[i][1]), float(heights[i])) for i in range(len(points))]
 
         logger.info(f"✓ Heights for {len(result)} points (min={np.min(heights):.1f}m, max={np.max(heights):.1f}m)")
@@ -97,14 +97,14 @@ class ForestHeightCalculator:
         height_at,
     ) -> List[Tuple[float, float, float]]:
         """
-        Z-Koordinaten aus einer Höhenabfrage der FERTIGEN Terrain-Heightmap (bilinear, nach Straßen-Einbettung).
+        Z coordinates from a height query of the FINISHED terrain heightmap (bilinear, after road embedding).
 
-        So stehen die Bäume exakt auf dem, was BeamNG rendert - nicht auf den rohen DGM1-Punkten
-        (Nearest-Neighbor wich am Hang bis über 1 m ab, an eingebetteten Straßen ebenso).
+        This way the trees stand exactly on what BeamNG renders - not on the raw DGM1 points
+        (nearest neighbor deviated by more than 1 m on slopes, and likewise on embedded roads).
 
         Args:
-            points: Liste von (x, y) Punkten
-            height_at: Callable (x_array, y_array) -> z_array (siehe make_height_sampler)
+            points: list of (x, y) points
+            height_at: callable (x_array, y_array) -> z_array (see make_height_sampler)
         """
         if not points:
             return []
@@ -121,19 +121,19 @@ class ForestHeightCalculator:
         height_at=None,
     ) -> Dict[int, List[Tuple[float, float, float]]]:
         """
-        Berechne Höhen für mehrere Waldpolygone - OPTIMIERT.
+        Compute heights for multiple forest polygons - OPTIMIZED.
 
-        Nutzt gecachten KD-Tree für alle Forests!
+        Uses the cached KD-tree for all forests!
 
         Args:
-            forest_points: Dict forest_index → Liste von (x, y) Punkten
-            height_points: Terrain-Grid Punkte
-            height_elevations: Terrain-Grid Z-Werte
-            grid_info: Optional - Grid-Metadaten
-            height_at: Optional - Höhenabfrage der fertigen Heightmap; hat Vorrang vor den rohen Punkten
+            forest_points: dict forest_index → list of (x, y) points
+            height_points: terrain grid points
+            height_elevations: terrain grid Z values
+            grid_info: optional - grid metadata
+            height_at: optional - height query of the finished heightmap; takes precedence over the raw points
 
         Returns:
-            Dict forest_index → Liste von (x, y, z) Punkten
+            Dict forest_index → list of (x, y, z) points
         """
         result = {}
 

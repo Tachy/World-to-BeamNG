@@ -1,18 +1,18 @@
 """
-Debug Network Exporter - Sammelt und exportiert Debug-Visualisierungsdaten.
+Debug Network Exporter - collects and exports debug visualization data.
 
-Singleton-Pattern zum Sammeln von Debug-Daten während des Workflows:
-- Junctions (Positionen, Verbindungen)
-- Roads (Centerlines, Metadaten)
-- Boundary-Polygone (Stitching-Visualisierung)
-- Component-Linien (Connected Components aus Stitching)
-- Universelle Primitiven (Labels, Kreise, Polygone, Linien, Punkte, Pfeile, Vektoren)
-- Grid-Farben (für Viewer)
+Singleton pattern for collecting debug data during the workflow:
+- Junctions (positions, connections)
+- Roads (centerlines, metadata)
+- Boundary polygons (stitching visualization)
+- Component lines (connected components from stitching)
+- Universal primitives (labels, circles, polygons, lines, points, arrows, vectors)
+- Grid colors (for the viewer)
 
 Usage:
     exporter = DebugNetworkExporter.get_instance()
 
-    # Universelle Primitiven:
+    # Universal primitives:
     exporter.add_label("Debug Label", position=(100, 100, 0))
     exporter.add_circle(50, center=(100, 100, 0))
     exporter.add_polygon([(0, 0, 0), (10, 0, 0), (10, 10, 0)])
@@ -34,19 +34,19 @@ logger = logging.getLogger(__name__)
 
 
 # ============================================================================
-# Utility-Funktionen für Koordinaten-Handling
+# Utility functions for coordinate handling
 # ============================================================================
 
 
 def _normalize_coordinate(coord: Union[Tuple, List, np.ndarray]) -> List[float]:
     """
-    Konvertiere verschiedene Koordinaten-Formate zu Liste [x, y, z].
+    Convert various coordinate formats to a list [x, y, z].
 
     Args:
-        coord: Tuple, Liste oder NumPy-Array mit 3 Koordinaten
+        coord: tuple, list or NumPy array with 3 coordinates
 
     Returns:
-        [x, y, z] als Liste von floats
+        [x, y, z] as a list of floats
     """
     if hasattr(coord, "tolist"):
         coord = coord.tolist()
@@ -61,16 +61,16 @@ def _normalize_coordinate(coord: Union[Tuple, List, np.ndarray]) -> List[float]:
 
 def _normalize_coordinates(coords: Union[List, np.ndarray]) -> List[List[float]]:
     """
-    Konvertiere Liste von Koordinaten zu [[x, y, z], ...].
+    Convert a list of coordinates to [[x, y, z], ...].
 
     Args:
-        coords: Liste von Tuples/Listen/Arrays oder NumPy 2D-Array
+        coords: list of tuples/lists/arrays or a NumPy 2D array
 
     Returns:
-        Liste von [x, y, z] Listen
+        list of [x, y, z] lists
     """
     if hasattr(coords, "tolist"):
-        # NumPy Array
+        # NumPy array
         coords = coords.tolist()
 
     if not isinstance(coords, (list, tuple)):
@@ -85,44 +85,44 @@ def _normalize_coordinates(coords: Union[List, np.ndarray]) -> List[List[float]]
 
 def _get_default_color(color_type: str = "standard") -> List[float]:
     """
-    Gebe Standard-Farbe für einen Typ zurück.
+    Return the default color for a type.
 
     Args:
-        color_type: "standard" (blau), "positive" (grün), "negative" (rot), etc.
+        color_type: "standard" (blue), "positive" (green), "negative" (red), etc.
 
     Returns:
-        RGB-Farbe als [r, g, b] mit Werten 0.0-1.0
+        RGB color as [r, g, b] with values 0.0-1.0
     """
     colors = {
-        "standard": [0.0, 0.0, 1.0],  # Blau
-        "positive": [0.2, 0.8, 0.2],  # Grün
-        "negative": [1.0, 0.2, 0.2],  # Rot
-        "warning": [1.0, 0.8, 0.0],  # Gelb
-        "neutral": [0.7, 0.7, 0.7],  # Grau
+        "standard": [0.0, 0.0, 1.0],  # Blue
+        "positive": [0.2, 0.8, 0.2],  # Green
+        "negative": [1.0, 0.2, 0.2],  # Red
+        "warning": [1.0, 0.8, 0.0],  # Yellow
+        "neutral": [0.7, 0.7, 0.7],  # Gray
         "highlight": [1.0, 0.0, 1.0],  # Magenta
-        "outline": [0.0, 0.0, 0.0],  # Schwarz
+        "outline": [0.0, 0.0, 0.0],  # Black
     }
     return colors.get(color_type, colors["standard"])
 
 
 class DebugNetworkExporter:
-    """Sammelt Debug-Daten für Visualisierung im DAE Viewer (Singleton)."""
+    """Collects debug data for visualization in the DAE viewer (singleton)."""
 
     _instance: Optional["DebugNetworkExporter"] = None
 
     def __init__(self):
-        """Private Constructor - verwende get_instance() stattdessen."""
+        """Private constructor - use get_instance() instead."""
         if DebugNetworkExporter._instance is not None:
             raise RuntimeError("DebugNetworkExporter is a singleton - use get_instance()")
 
-        self.primitives: List[Dict[str, Any]] = []  # Labels, Circles, Polygons, Lines, etc.
+        self.primitives: List[Dict[str, Any]] = []  # labels, circles, polygons, lines, etc.
 
-        # Grid-Farben für Viewer (standardmäßig)
+        # Grid colors for the viewer (defaults)
         self.grid_colors = self._get_default_grid_colors()
 
     @staticmethod
     def _get_default_grid_colors() -> Dict[str, Any]:
-        """Gebe Standard Grid-Farben zurück."""
+        """Return the default grid colors."""
         return {
             "terrain": {
                 "face": [0.8, 0.95, 0.8],
@@ -176,7 +176,7 @@ class DebugNetworkExporter:
 
     @classmethod
     def get_instance(cls) -> "DebugNetworkExporter":
-        """Hole die Singleton-Instanz (erstellt sie bei Bedarf)."""
+        """Get the singleton instance (creates it if needed)."""
         if cls._instance is None:
             cls._instance = cls.__new__(cls)
             cls._instance.primitives = []
@@ -185,11 +185,11 @@ class DebugNetworkExporter:
 
     @classmethod
     def reset_instance(cls) -> None:
-        """Setze Singleton-Instanz zurück (für neuen Export-Lauf)."""
+        """Reset the singleton instance (for a new export run)."""
         cls._instance = None
 
     # ========================================================================
-    # UNIVERSELLE PRIMITIVEN - Das Herz des neuen Systems
+    # UNIVERSAL PRIMITIVES - The heart of the new system
     # ========================================================================
 
     def add_line(
@@ -200,12 +200,12 @@ class DebugNetworkExporter:
         label: Optional[str] = None,
     ) -> None:
         """
-        Füge eine Linie hinzu.
+        Add a line.
 
         Args:
-            coords: Liste von (x, y, z) Koordinaten
-            color: RGB-Farbe [r, g, b] 0.0-1.0, default: Blau
-            width: Linienbreite in Pixeln
+            coords: list of (x, y, z) coordinates
+            color: RGB color [r, g, b] 0.0-1.0, default: blue
+            width: line width in pixels
         """
         if color is None:
             color = _get_default_color("standard")
@@ -222,16 +222,16 @@ class DebugNetworkExporter:
         self.primitives.append(primitive)
 
     # ========================================================================
-    # BATCH & UTILITY METHODEN
+    # BATCH & UTILITY METHODS
     # ========================================================================
 
     def export(self, cache_dir: str, filename: str = "debug_network.json") -> None:
         """
-        Exportiere gesammelte Debug-Daten in JSON-Datei.
+        Export the collected debug data to a JSON file.
 
         Args:
-            cache_dir: Zielverzeichnis für Export
-            filename: Dateiname (default: debug_network.json)
+            cache_dir: target directory for the export
+            filename: file name (default: debug_network.json)
         """
         Path(cache_dir).mkdir(parents=True, exist_ok=True)
         output_path = Path(cache_dir) / filename
@@ -241,8 +241,8 @@ class DebugNetworkExporter:
             "grid_colors": self.grid_colors,
         }
 
-        # Ohne indent: json.dump mit indent nutzt den langsamen Python-Encoder (bei ~10 MB Debug-Netz mehrere
-        # Sekunden), die Datei wird nur maschinell (tools/dae_viewer.py) gelesen.
+        # Without indent: json.dump with indent uses the slow Python encoder (several seconds for a ~10 MB debug
+        # network), the file is only read by machine (tools/dae_viewer.py).
         with open(output_path, "w", encoding="utf-8") as f:
             f.write(json.dumps(data))
 
@@ -250,7 +250,7 @@ class DebugNetworkExporter:
         logger.debug(f"  [Debug] File: {output_path}")
 
     def clear(self) -> None:
-        """Lösche alle gesammelten Daten."""
+        """Delete all collected data."""
         self.primitives.clear()
 
     def __repr__(self) -> str:

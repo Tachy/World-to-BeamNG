@@ -1,14 +1,14 @@
 """
-Kirchtürme in den LOD2-Gebäuden erkennen.
+Detects church towers in the LOD2 buildings.
 
-Die LOD2-Daten kennen keine Gebäudefunktion, und Kirchenschiff und Turm sind EIN Gebäude. Die Kirche kommt deshalb aus
-OSM (Polygone mit building=church/cathedral/chapel oder amenity=place_of_worship), die Turmwände aus der Geometrie:
-Wände, die deutlich über dem Rest des Gebäudes enden. Zusätzlich zählen Wände in OSM-Glockenturm-Polygonen
-(man_made=tower + tower:type=bell_tower/church), und ein Gebäude, das überwiegend in so einem Polygon liegt, ist ein
-alleinstehender Turm (alle Wände).
+The LOD2 data has no building function, and nave and tower are ONE building. The church therefore comes from
+OSM (polygons with building=church/cathedral/chapel or amenity=place_of_worship), the tower walls from the geometry:
+walls that end well above the rest of the building. In addition, walls inside OSM bell tower polygons count
+(man_made=tower + tower:type=bell_tower/church), and a building that lies mostly inside such a polygon is a
+free-standing tower (all walls).
 
-Das Ergebnis steht als `building["tower_walls"]` (Liste von Wand-Indizes) im Gebäude-Dict; der FacadeMapper setzt dort
-keine Fenster, sondern eine Turmuhr.
+The result is stored as `building["tower_walls"]` (list of wall indices) in the building dict; the FacadeMapper places
+no windows there, but a tower clock.
 """
 
 import logging
@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 CHURCH_BUILDINGS = ("church", "cathedral", "chapel")
 BELL_TOWER_TYPES = ("bell_tower", "church")
-_TOWER_POLYGON_BUFFER_M = 1.0  # Wände am Rand des OSM-Turmpolygons (Mauerdicke, Lagefehler) zählen dazu
+_TOWER_POLYGON_BUFFER_M = 1.0  # walls at the edge of the OSM tower polygon (wall thickness, position error) count too
 
 
 def is_church(tags: Dict) -> bool:
@@ -39,7 +39,7 @@ def is_bell_tower(tags: Dict) -> bool:
 
 
 class ChurchTowerFinder:
-    """Markiert in Gebäude-Dicts die Wände von Kirchtürmen (`tower_walls`)."""
+    """Marks the walls of church towers (`tower_walls`) in building dicts."""
 
     def __init__(self, church_polygons: Sequence, tower_polygons: Sequence):
         self._churches = list(church_polygons)
@@ -49,8 +49,8 @@ class ChurchTowerFinder:
     def from_osm(cls, osm_data: Sequence[Dict], to_local) -> "ChurchTowerFinder":
         """
         Args:
-            osm_data: rohe Overpass-Elemente (lat/lon)
-            to_local: Punktliste -> lokale Koordinaten (osm.landuse_polygons.make_local_transform)
+            osm_data: raw Overpass elements (lat/lon)
+            to_local: point list -> local coordinates (osm.landuse_polygons.make_local_transform)
         """
         from ..osm.landuse_polygons import build_landuse_polygons
 
@@ -62,7 +62,7 @@ class ChurchTowerFinder:
     def from_osm_polygons(cls, polygons: Sequence[Dict]) -> "ChurchTowerFinder":
         """
         Args:
-            polygons: [{"osm_tags": Dict, "geometry": shapely}] in lokalen Koordinaten (siehe
+            polygons: [{"osm_tags": Dict, "geometry": shapely}] in local coordinates (see
                 osm.landuse_polygons.build_landuse_polygons)
         """
         churches = [p["geometry"] for p in polygons if is_church(p["osm_tags"])]
@@ -71,10 +71,10 @@ class ChurchTowerFinder:
 
     def mark(self, buildings: Sequence[Dict]) -> int:
         """
-        Setzt `tower_walls` in allen Gebäuden mit Kirchturm.
+        Sets `tower_walls` in all buildings with a church tower.
 
         Returns:
-            Anzahl markierter Gebäude
+            Number of marked buildings
         """
         if not self._churches and not self._towers:
             return 0
@@ -87,7 +87,7 @@ class ChurchTowerFinder:
                 marked += 1
         return marked
 
-    # ------------------------------------------------------------------ Gebäude
+    # ------------------------------------------------------------------ Building
 
     def _tower_walls(self, building: Dict) -> List[int]:
         rings = [open_ring(verts) for verts, _ in building.get("walls", [])]
@@ -97,11 +97,11 @@ class ChurchTowerFinder:
         if hull.geom_type != "Polygon" or hull.area <= 0:
             return []
 
-        if self._covered(hull, self._towers):  # das ganze Gebäude ist ein Glockenturm
+        if self._covered(hull, self._towers):  # the whole building is a bell tower
             return list(range(len(rings)))
 
         walls = set()
-        for tower in self._towers:  # Wände im Glockenturm-Polygon (Turm gehört zur Kirche)
+        for tower in self._towers:  # walls inside the bell tower polygon (tower belongs to the church)
             if tower.intersects(hull):
                 area = tower.buffer(_TOWER_POLYGON_BUFFER_M)
                 walls.update(i for i, ring in enumerate(rings) if area.contains(Point(ring[:, :2].mean(axis=0))))
@@ -112,12 +112,12 @@ class ChurchTowerFinder:
 
     @staticmethod
     def _covered(hull, polygons: Sequence) -> bool:
-        """Mindestens CHURCH_OVERLAP_MIN der Grundfläche des Gebäudes liegt in einem der Polygone."""
+        """At least CHURCH_OVERLAP_MIN of the building footprint lies inside one of the polygons."""
         return any(hull.intersection(polygon).area >= config.CHURCH_OVERLAP_MIN * hull.area for polygon in polygons)
 
     @staticmethod
     def _tall_walls(rings: Sequence[np.ndarray]) -> List[int]:
-        """Wände, die weit über dem Median der Wandoberkanten enden (der Turm ragt aus dem Kirchenschiff)."""
+        """Walls that end far above the median of the wall top edges (the tower rises out of the nave)."""
         tops = np.array([float(ring[:, 2].max()) for ring in rings])
         median, highest = float(np.median(tops)), float(tops.max())
         if highest - median < config.CHURCH_TOWER_MIN_RISE_M:

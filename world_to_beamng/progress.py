@@ -1,15 +1,15 @@
 """
-Fortschritts-/Struktur-Anzeige für die Export-Pipeline.
+Progress/structure display for the export pipeline.
 
-Bündelt die Pipeline in benannte Hauptaufgaben; jede Hauptaufgabe kann
-Unteraufgaben mit Fortschrittsbalken (bekannte Stückzahl) oder Spinnern
-(unbekannte Stückzahl) öffnen. Ergebnisse werden mit farbigen UTF-8-
-Status-Symbolen markiert (✓ grün / ⚠ gelb / ✗ rot).
+Groups the pipeline into named main tasks; each main task can open
+subtasks with progress bars (known item count) or spinners
+(unknown item count). Results are marked with colored UTF-8
+status symbols (✓ green / ⚠ yellow / ✗ red).
 
-`console` ist die einzige geteilte rich-Konsole des Prozesses - auch
-logging_config.py hängt seinen Handler daran, damit normale
-logger.info()/logger.debug()-Ausgaben sauber oberhalb der aktiven
-Balken/Spinner erscheinen statt sie zu zerreißen.
+`console` is the only shared rich console of the process - logging_config.py
+also attaches its handler to it, so that normal
+logger.info()/logger.debug() output appears cleanly above the active
+bars/spinners instead of tearing them apart.
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ console = Console()
 
 
 def _status_line(style: str, symbol: str, name: str, summary: str, elapsed: float, indent: str = "") -> str:
-    """Baue eine escapte, farbige Status-Zeile (Name/Summary können beliebigen Text enthalten)."""
+    """Build an escaped, colored status line (name/summary may contain arbitrary text)."""
     text = f"[{style}]{indent}{symbol} {escape(name)}[/{style}]"
     if summary:
         text += f" - {escape(summary)}"
@@ -35,15 +35,15 @@ def _status_line(style: str, symbol: str, name: str, summary: str, elapsed: floa
 
 
 class Subtask:
-    """Handle für eine einzelne Unteraufgabe (Balken oder Spinner)."""
+    """Handle for a single subtask (bar or spinner)."""
 
     def __init__(self, progress: Progress, task_id, name: str, on_close=None, start: Optional[float] = None):
         self._progress = progress
         self._task_id = task_id
         self._name = name
         self._finalized = False
-        self._on_close = on_close  # meldet (Dauer, Endzeit) an die Hauptaufgabe
-        # Nahtlos: beginnt dort, wo die vorige Teilaufgabe endete (Vorbereitung zählt zur folgenden Teilaufgabe)
+        self._on_close = on_close  # reports (duration, end time) to the main task
+        # Seamless: starts where the previous subtask ended (preparation counts toward the following subtask)
         self._start = time.perf_counter() if start is None else start
 
     def _close(self, style: str, symbol: str, summary: str) -> None:
@@ -75,9 +75,9 @@ class Subtask:
 
 
 class PipelineTask:
-    """Handle für eine Hauptaufgabe; hält die geteilte rich-Progress-Instanz für ihre Unteraufgaben."""
+    """Handle for a main task; holds the shared rich Progress instance for its subtasks."""
 
-    # Ab dieser Lücke zwischen Gesamtzeit und Summe der Teilaufgaben wird "unassigned" gemeldet, in Sekunden
+    # From this gap between total time and the sum of the subtasks on, "unassigned" is reported, in seconds
     UNASSIGNED_REPORT_MIN = 0.1
 
     def __init__(self, name: str):
@@ -96,7 +96,7 @@ class PipelineTask:
     def __enter__(self) -> "PipelineTask":
         console.print(f"[bold cyan]▶ {escape(self.name)}[/bold cyan]")
         self._start = time.perf_counter()
-        self._mark = self._start  # Ende der zuletzt abgeschlossenen Teilaufgabe
+        self._mark = self._start  # end of the most recently completed subtask
         self._progress.start()
         return self
 
@@ -120,7 +120,7 @@ class PipelineTask:
         self._mark = end
 
     def _report_unassigned(self, elapsed: float) -> None:
-        """Hat die Aufgabe Teilaufgaben, müssen deren Zeiten die Gesamtzeit ergeben - den Rest sichtbar melden."""
+        """If the task has subtasks, their times must add up to the total time - report the remainder visibly."""
         gap = elapsed - self._subtask_time
         if self._subtask_count and gap >= self.UNASSIGNED_REPORT_MIN:
             console.print(_status_line("yellow", "⚠", "unassigned", "", gap, indent="  "))
@@ -156,14 +156,14 @@ class PipelineTask:
 
 
 def optional_subtask(task: Optional["PipelineTask"], name: str):
-    """task.subtask(name) - oder ein leerer Kontext, wenn der Aufrufer keine Hauptaufgabe mitgibt (z.B. Tests)."""
+    """task.subtask(name) - or an empty context if the caller passes no main task (e.g. tests)."""
     if task is None:
         return nullcontext(_NullSubtask())
     return task.subtask(name)
 
 
 class _NullSubtask:
-    """Stellvertreter ohne Anzeige für optional_subtask() ohne Hauptaufgabe."""
+    """Stand-in without display for optional_subtask() without a main task."""
 
     def advance(self, n: int = 1) -> None:
         pass
@@ -179,7 +179,7 @@ class _NullSubtask:
 
 
 class Pipeline:
-    """Ein Pipeline-Lauf; einziger Einstiegspunkt für Hauptaufgaben."""
+    """A pipeline run; the only entry point for main tasks."""
 
     @contextmanager
     def task(self, name: str) -> Iterator[PipelineTask]:
@@ -188,7 +188,7 @@ class Pipeline:
             yield t
 
     def banner(self, text: str) -> None:
-        """Einmalige, fett gedruckte Kopfzeile außerhalb jeder Hauptaufgabe (z.B. Lauf-Zusammenfassung)."""
+        """One-off, bold header line outside any main task (e.g. run summary)."""
         console.print(f"[bold]{text}[/bold]")
 
     def skip(self, name: str, reason: str) -> None:

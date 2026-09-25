@@ -1,7 +1,7 @@
 """
-Galerien aus OSM-Linien (highway=* mit tunnel=avalanche_protector): wie ein Tunnel, aber talseitig offen (Dach +
-Stützen statt einer zweiten Wand) - siehe Design-Spec Abschnitt 6. Keine Portal-Rahmen: Galerien sind keine in
-den Fels geschnittenen Öffnungen, sondern offene Schutzbauten entlang der Straße - ihre Enden bleiben rechtwinklig.
+Galleries from OSM lines (highway=* with tunnel=avalanche_protector): like a tunnel, but open on the valley side (roof +
+supports instead of a second wall) - see design spec section 6. No portal frames: galleries are not openings cut
+into the rock, but open protective structures along the road - their ends stay square.
 """
 
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
@@ -15,17 +15,17 @@ HeightAt = Callable[[np.ndarray, np.ndarray], np.ndarray]
 
 def resolve_open_side(osm_tags: Dict) -> Optional[str]:
     """
-    Liest die talseitig offene Wand direkt aus den OSM-Tags `avalanche_protector:left`/
-    `avalanche_protector:right` (Wert "open"), falls vorhanden - "left"/"right" folgen dabei der
-    Digitalisierungsrichtung der Way, exakt dieselbe Konvention wie offset_points()/valley_side().
+    Reads the valley-side open wall directly from the OSM tags `avalanche_protector:left`/
+    `avalanche_protector:right` (value "open"), if present - "left"/"right" follow the
+    digitization direction of the way, exactly the same convention as offset_points()/valley_side().
 
-    Deutlich zuverlässiger als der Höhenvergleich in valley_side(): das DGM erfasst am Bauwerk nicht
-    das ursprüngliche Gelände, sondern die bereits fertige Galerie samt Erdüberwurf/Dach - "natürliche"
-    Geländehöhe links/rechts der Centerline gibt es an dieser Stelle also gar nicht, die Galerie
-    verschwindet dadurch im Zweifel komplett im (in Wirklichkeit gar nicht natürlichen) "Gelände".
+    Much more reliable than the height comparison in valley_side(): at the structure the DGM does not capture
+    the original terrain, but the already finished gallery including earth cover/roof - a "natural"
+    terrain height left/right of the centerline thus does not exist at this location at all, so the gallery
+    may well disappear completely into the (in reality not natural at all) "terrain".
 
     Returns:
-        "left" | "right" | None (kein Tag vorhanden -> Aufrufer muss auf valley_side() zurückfallen)
+        "left" | "right" | None (no tag present -> caller must fall back to valley_side())
     """
     if str(osm_tags.get("avalanche_protector:left", "")).lower() == "open":
         return "left"
@@ -34,22 +34,22 @@ def resolve_open_side(osm_tags: Dict) -> Optional[str]:
     return None
 
 
-VALLEY_PROBE_OFFSETS = (10.0, 20.0, 40.0)  # Abstände über den Fahrbahnrand hinaus, in Metern
+VALLEY_PROBE_OFFSETS = (10.0, 20.0, 40.0)  # Distances beyond the carriageway edge, in meters
 
 
 def valley_score(xy: np.ndarray, ground_at: HeightAt, half_width: float) -> np.ndarray:
     """
-    Pro Punkt: Summe (Gelände links - Gelände rechts) in VALLEY_PROBE_OFFSETS Metern jenseits des Fahrbahnrands
-    (positiv = rechts tiefer = Tal rechts). Bewusst AUSSERHALB der Einbettung gemessen: direkt neben der Galerie ist
-    das Gelände nach der Einbettung flach (Fahrbahn, Bergwand-Saum, Böschung) - dort entschieden Zentimeter bzw.
-    ein Gleichstand die Seite (Nuova strada 2026-09-24: beide Galerien zum Berg hin offen).
+    Per point: sum of (terrain left - terrain right) at VALLEY_PROBE_OFFSETS meters beyond the carriageway edge
+    (positive = right lower = valley on the right). Deliberately measured OUTSIDE the embedding: directly next to the
+    gallery the terrain is flat after the embedding (carriageway, mountain wall border, embankment) - there
+    centimeters or a tie decided the side (Nuova strada 2026-09-24: both galleries open toward the mountain).
     """
     directions = np.diff(xy, axis=0)
     directions = np.vstack([directions, directions[-1:]])
     norms = np.linalg.norm(directions, axis=1, keepdims=True)
     norms[norms < 1e-9] = 1.0
     directions = directions / norms
-    # dieselbe Vorzeichen-Konvention wie offset_points(): links = Punkt + (-dy, dx)
+    # same sign convention as offset_points(): left = point + (-dy, dx)
     perp = np.column_stack([-directions[:, 1], directions[:, 0]])
     score = np.zeros(len(xy))
     for offset in VALLEY_PROBE_OFFSETS:
@@ -61,18 +61,18 @@ def valley_score(xy: np.ndarray, ground_at: HeightAt, half_width: float) -> np.n
 
 def valley_side(xy: np.ndarray, ground_at: HeightAt, half_width: float) -> np.ndarray:
     """
-    Pro Punkt: +1.0, wenn die Seite RECHTS der Laufrichtung talwärts liegt, sonst -1.0 (siehe valley_score()).
+    Per point: +1.0 if the side to the RIGHT of the direction of travel lies downhill, otherwise -1.0 (see valley_score()).
 
-    NUR ein Fallback für den Fall ohne `avalanche_protector:left`/`:right`-Tag (siehe resolve_open_side()).
+    ONLY a fallback for the case without an `avalanche_protector:left`/`:right` tag (see resolve_open_side()).
     """
     return np.where(valley_score(xy, ground_at, half_width) > 0.0, 1.0, -1.0)
 
 
 def gallery_open_side(osm_tags: Dict, coords, ground_at: HeightAt, width: float) -> str:
     """
-    Offene (Tal-)Seite einer Galerie in Digitalisierungsrichtung: aus `avalanche_protector:left/right=open`, sonst aus
-    dem Geländevergleich (Summe von valley_score() über die ganze Galerie, >= 0 -> "right"). EINE Stelle für Galerie-
-    Mesh und Böschung (terrain_workflow), damit beide dieselbe Seite nehmen.
+    Open (valley) side of a gallery in digitization direction: from `avalanche_protector:left/right=open`, otherwise from
+    the terrain comparison (sum of valley_score() over the whole gallery, >= 0 -> "right"). ONE place for the gallery
+    mesh and the embankment (terrain_workflow), so that both take the same side.
     """
     tagged = resolve_open_side(osm_tags or {})
     if tagged:
@@ -101,26 +101,26 @@ def build_gallery_mesh(
     cap_end: bool = True,
 ) -> Dict:
     """
-    Galerie-Mesh: Boden, Dach und bergseitige Wand sind echte Quader (nicht nur dünne Flächen) - Boden
-    floor_thickness nach unten, Dach roof_thickness nach oben, bergseitige Wand wall_thickness weiter in
-    den Hang hinein (bündig mit der Dach-Oberkante). Dazu ein durchlaufender Sockel (curb_height/curb_width,
-    wie der Bordstein bei Brücken) auf der talseitig offenen Seite (keine Wand dort) UND Stützen, die BÜNDIG
-    auf dem Sockel sitzen: im Grundriss auf dessen Mittellinie zentriert (curb_width == column_size ->
-    Stützen-Außenkante == Fahrbahnkante == Dachkante, alles bündig) und in der Höhe auf der Sockel-Oberkante
-    aufsetzend statt im Boden zu stecken (Stützenhöhe entsprechend um curb_height verkürzt, die Oberkante
-    bleibt bei der Dach-Unterkante). Beide Enden werden komplett verschlossen (Boden-/Dach-/Wand-Querschnitt)
-    - wirkt wie ein sauberer Schnitt durchs Bauwerk, exakt an den ursprünglichen OSM-Way-Grenzpunkten (keine
-    künstliche Verlängerung der Centerline).
+    Gallery mesh: floor, roof and mountain-side wall are real boxes (not just thin faces) - floor
+    floor_thickness downward, roof roof_thickness upward, mountain-side wall wall_thickness further into
+    the slope (flush with the roof top edge). In addition a continuous plinth (curb_height/curb_width,
+    like the curb on bridges) on the valley-side open side (no wall there) AND supports that sit FLUSH
+    on the plinth: centered on its centerline in plan (curb_width == column_size ->
+    support outer edge == carriageway edge == roof edge, everything flush) and in height resting on the plinth
+    top edge instead of sinking into the floor (support height shortened by curb_height accordingly, the top edge
+    stays at the roof bottom edge). Both ends are closed completely (floor/roof/wall cross-section)
+    - looks like a clean cut through the structure, exactly at the original OSM way boundary points (no
+    artificial extension of the centerline).
 
     Args:
-        floor_thickness, wall_thickness: siehe config.GALLERY_FLOOR_THICKNESS/GALLERY_WALL_THICKNESS
-        curb_height, curb_width: siehe config.GALLERY_CURB_HEIGHT/GALLERY_CURB_WIDTH - Sockel auf der
-            Stützenseite, curb_width nach innen von der Fahrbahnkante versetzt; column_size sollte curb_width
-            entsprechen, damit die Stütze bündig auf dem Sockel sitzt (siehe Docstring oben)
-        open_side: "left" | "right" | None - wenn gesetzt (aus resolve_open_side(), zuverlässiger OSM-Tag),
-            gilt diese Seite für die GESAMTE Galerie als offen. Ohne Tag gilt ebenfalls EINE Seite für die ganze
-            Galerie: die Mehrheit der punktweisen valley_side() (Höhenvergleich, nur Fallback).
-        cap_start, cap_end: Stirnfläche am Anfang/Ende bauen (Standard: beide).
+        floor_thickness, wall_thickness: see config.GALLERY_FLOOR_THICKNESS/GALLERY_WALL_THICKNESS
+        curb_height, curb_width: see config.GALLERY_CURB_HEIGHT/GALLERY_CURB_WIDTH - plinth on the
+            support side, curb_width offset inward from the carriageway edge; column_size should match curb_width
+            so that the support sits flush on the plinth (see docstring above)
+        open_side: "left" | "right" | None - if set (from resolve_open_side(), reliable OSM tag),
+            this side counts as open for the ENTIRE gallery. Without a tag, ONE side also applies to the whole
+            gallery: the majority of the per-point valley_side() (height comparison, fallback only).
+        cap_start, cap_end: Build the end face at the start/end (default: both).
 
     Returns:
         {"vertices", "uvs", "normals", "faces": {floor_material: [...], roof_material: [...]}}
@@ -136,29 +136,29 @@ def build_gallery_mesh(
     left, right = offset_points(xy, width / 2.0, closed=False)
     outer_left, outer_right = offset_points(xy, width / 2.0 + wall_thickness, closed=False)
     inner_left, inner_right = offset_points(xy, max(width / 2.0 - curb_width, 0.0), closed=False)
-    # Mittellinie des Sockel-Grundrisses (zwischen curb_inner und curb_edge = left/right) - die Stützen
-    # sitzen dort zentriert (bündig mit dem Sockel-Fußabdruck, siehe Stützen-Schleife unten). Elementweiser
-    # Mittelwert zweier offset_points()-Ergebnisse auf derselben (ggf. gehrungsgeschnittenen) Normalen ist
-    # exakt gleichwertig zu einem eigenen offset_points()-Aufruf mit dem gemittelten Abstand.
+    # Centerline of the plinth footprint (between curb_inner and curb_edge = left/right) - the supports
+    # sit centered there (flush with the plinth footprint, see support loop below). The element-wise
+    # mean of two offset_points() results on the same (possibly mitered) normal is
+    # exactly equivalent to a separate offset_points() call with the averaged distance.
     mid_left = (left + inner_left) / 2.0
     mid_right = (right + inner_right) / 2.0
-    # +1 = rechts offen (Tal), -1 = links offen - siehe open_side/resolve_open_side()-Docstring.
+    # +1 = open on the right (valley), -1 = open on the left - see open_side/resolve_open_side() docstring.
     if open_side == "left":
         side = np.full(len(points), -1.0)
     elif open_side == "right":
         side = np.full(len(points), 1.0)
     else:
-        # Ohne Tag: EINE Seite für die ganze Galerie (Mehrheit der punktweisen Talseite) - eine Galerie wechselt
-        # nicht mittendrin die offene Seite, der punktweise Geländevergleich kippt am Bauwerk aber leicht.
-        # Summe der Höhendifferenzen statt Punktzählung: kein stiller Gleichstand bei halb/halb
+        # Without a tag: ONE side for the whole gallery (majority of the per-point valley side) - a gallery does not
+        # switch its open side midway, but the per-point terrain comparison flips easily at the structure.
+        # Sum of the height differences instead of counting points: no silent tie at half/half
         total = float(valley_score(xy, ground_at, width / 2.0).sum())
         side = np.full(len(points), 1.0 if total >= 0.0 else -1.0)
 
     steps = np.linalg.norm(np.diff(xy, axis=0), axis=1)
     along = np.concatenate([[0.0], np.cumsum(steps)]) / tile_m
     across = width / tile_m
-    # Die Wand schließt bündig mit der Dach-OBERKANTE ab (nicht nur der Innenraum-Höhe) - reicht also
-    # height + roof_thickness hoch, nicht nur height.
+    # The wall ends flush with the roof TOP EDGE (not just the interior height) - so it reaches
+    # height + roof_thickness, not just height.
     wall_h = (height + roof_thickness) / tile_m
     floor_h = floor_thickness / tile_m
     roof_h = roof_thickness / tile_m
@@ -177,11 +177,11 @@ def build_gallery_mesh(
         direction = xy[j] - xy[i]
         direction = direction / np.linalg.norm(direction)
         side_normal = [float(-direction[1]), float(direction[0]), 0.0]
-        # bergseitige Wand: die Seite, die (an diesem Segment) NICHT talwärts liegt; bei einem Wechsel
-        # mitten im Segment (selten) gewinnt die Seite am Segment-Anfang - akzeptierte Vereinfachung.
+        # mountain-side wall: the side that (at this segment) does NOT lie downhill; on a change
+        # in the middle of a segment (rare) the side at the segment start wins - accepted simplification.
         mountain_is_left = side[i] > 0
 
-        # Boden: Fahrbahn-Oberseite (Straßenmaterial) + Unterseite + beide Randflächen (Quader).
+        # Floor: carriageway top (road material) + bottom + both side faces (box).
         floor_builder.quad(
             [p3(left[i], floor_z[i]), p3(left[j], floor_z[j]), p3(right[j], floor_z[j]), p3(right[i], floor_z[i])],
             [[u0, 0.0], [u1, 0.0], [u1, across], [u0, across]],
@@ -203,7 +203,7 @@ def build_gallery_mesh(
             [-float(side_normal[0]), -float(side_normal[1]), 0.0],
         )
 
-        # Dach: Unter-/Oberseite (wie zuvor) + jetzt zusätzlich beide Randflächen (Quader statt Platte).
+        # Roof: bottom/top (as before) + now additionally both side faces (box instead of slab).
         roof_builder.quad(
             [p3(left[i], roof_bottom_z[i]), p3(right[i], roof_bottom_z[i]), p3(right[j], roof_bottom_z[j]), p3(left[j], roof_bottom_z[j])],
             [[u0, 0.0], [u0, across], [u1, across], [u1, 0.0]],
@@ -214,9 +214,9 @@ def build_gallery_mesh(
             [[u0, 0.0], [u1, 0.0], [u1, across], [u0, across]],
             [0.0, 0.0, 1.0],
         )
-        # Dach-Randflächen (roof_bottom_z bis roof_top_z): nur auf der TALSEITE nötig - bergseitig deckt
-        # die (jetzt bis roof_top_z reichende) Wand-Innenfläche dieselbe Fläche schon ab, eine zusätzliche
-        # Dach-Randfläche dort wäre deckungsgleiche Geometrie (Z-Fighting).
+        # Roof side faces (roof_bottom_z to roof_top_z): only needed on the VALLEY SIDE - on the mountain side
+        # the wall inner face (now reaching up to roof_top_z) already covers the same area, an additional
+        # roof side face there would be coincident geometry (z-fighting).
         if not mountain_is_left:
             roof_builder.quad(
                 [p3(left[i], roof_bottom_z[i]), p3(left[j], roof_bottom_z[j]), p3(left[j], roof_top_z[j]), p3(left[i], roof_top_z[i])],
@@ -230,52 +230,52 @@ def build_gallery_mesh(
                 [-float(side_normal[0]), -float(side_normal[1]), 0.0],
             )
 
-        # Bergseitige Wand (Quader, wall_thickness weiter in den Hang hinein): schließt bündig mit der
-        # Dach-OBERKANTE ab (roof_top_z, nicht nur roof_bottom_z) - deshalb 50 cm/roof_thickness höher als
-        # die lichte Innenraum-Höhe.
+        # Mountain-side wall (box, wall_thickness further into the slope): ends flush with the
+        # roof TOP EDGE (roof_top_z, not just roof_bottom_z) - hence 50 cm/roof_thickness higher than
+        # the clear interior height.
         edge = left if mountain_is_left else right
         outer_edge = outer_left if mountain_is_left else outer_right
         wall_normal = [-side_normal[0], -side_normal[1], 0.0] if mountain_is_left else side_normal
         outward_normal = [-wall_normal[0], -wall_normal[1], 0.0]
 
-        roof_builder.quad(  # Innenfläche (sichtbar aus dem Innenraum, oberhalb der Decke von außen verdeckt)
+        roof_builder.quad(  # inner face (visible from the interior, hidden from outside above the ceiling)
             [p3(edge[i], floor_z[i]), p3(edge[j], floor_z[j]), p3(edge[j], roof_top_z[j]), p3(edge[i], roof_top_z[i])],
             [[u0, 0.0], [u1, 0.0], [u1, wall_h], [u0, wall_h]],
             wall_normal,
         )
-        roof_builder.quad(  # Außenfläche, wall_thickness weiter im Hang
+        roof_builder.quad(  # outer face, wall_thickness further into the slope
             [p3(outer_edge[i], floor_z[i]), p3(outer_edge[i], roof_top_z[i]), p3(outer_edge[j], roof_top_z[j]), p3(outer_edge[j], floor_z[j])],
             [[u0, 0.0], [u0, wall_h], [u1, wall_h], [u1, 0.0]],
             outward_normal,
         )
-        roof_builder.quad(  # Wand-Unterseite (Boden-Niveau, Innen- bis Außenkante)
+        roof_builder.quad(  # wall bottom (floor level, inner to outer edge)
             [p3(edge[i], floor_z[i]), p3(outer_edge[i], floor_z[i]), p3(outer_edge[j], floor_z[j]), p3(edge[j], floor_z[j])],
             [[u0, 0.0], [u0, wall_extra], [u1, wall_extra], [u1, 0.0]],
             [0.0, 0.0, -1.0],
         )
-        roof_builder.quad(  # Wand-Oberseite, jetzt bündig mit der Dach-Oberkante (Innen- bis Außenkante)
+        roof_builder.quad(  # wall top, now flush with the roof top edge (inner to outer edge)
             [p3(edge[i], roof_top_z[i]), p3(edge[j], roof_top_z[j]), p3(outer_edge[j], roof_top_z[j]), p3(outer_edge[i], roof_top_z[i])],
             [[u0, 0.0], [u1, 0.0], [u1, wall_extra], [u0, wall_extra]],
             [0.0, 0.0, 1.0],
         )
 
-        # Sockel (Bordstein-artig, wie bridges/bridge_mesh.py) auf der talseitig offenen Seite - curb_width
-        # nach innen von der Fahrbahnkante versetzt, curb_height hoch.
+        # Plinth (curb-like, as in bridges/bridge_mesh.py) on the valley-side open side - curb_width
+        # offset inward from the carriageway edge, curb_height high.
         curb_edge = right if mountain_is_left else left
         curb_inner = inner_right if mountain_is_left else inner_left
         curb_outward = [-side_normal[0], -side_normal[1], 0.0] if mountain_is_left else side_normal
 
-        roof_builder.quad(  # Sockel-Oberseite (Beton-Material wie Wand/Dach, nicht Fahrbahn-Material)
+        roof_builder.quad(  # plinth top (concrete material like wall/roof, not carriageway material)
             [p3(curb_edge[i], curb_top_z[i]), p3(curb_edge[j], curb_top_z[j]), p3(curb_inner[j], curb_top_z[j]), p3(curb_inner[i], curb_top_z[i])],
             [[u0, 0.0], [u1, 0.0], [u1, curb_w], [u0, curb_w]],
             [0.0, 0.0, 1.0],
         )
-        roof_builder.quad(  # Sockel-Außenfläche (zur Talseite gerichtet)
+        roof_builder.quad(  # plinth outer face (facing the valley side)
             [p3(curb_edge[i], floor_z[i]), p3(curb_edge[j], floor_z[j]), p3(curb_edge[j], curb_top_z[j]), p3(curb_edge[i], curb_top_z[i])],
             [[u0, 0.0], [u1, 0.0], [u1, curb_h], [u0, curb_h]],
             curb_outward,
         )
-        roof_builder.quad(  # Sockel-Innenfläche (zur Fahrbahn gerichtet)
+        roof_builder.quad(  # plinth inner face (facing the carriageway)
             [p3(curb_inner[i], curb_top_z[i]), p3(curb_inner[j], curb_top_z[j]), p3(curb_inner[j], floor_z[j]), p3(curb_inner[i], floor_z[i])],
             [[u0, 0.0], [u1, 0.0], [u1, curb_h], [u0, curb_h]],
             [-float(curb_outward[0]), -float(curb_outward[1]), 0.0],
@@ -296,19 +296,19 @@ def build_gallery_mesh(
     for s in column_positions:
         idx = max(1, min(int(np.searchsorted(cum, s)), len(points) - 1))
         t = (s - cum[idx - 1]) / max(cum[idx] - cum[idx - 1], 1e-9)
-        # Bündig auf dem Sockel: im Grundriss auf dessen Mittellinie zentriert (mid_left/mid_right, siehe
-        # oben) statt auf der Fahrbahnkante - Sockel und Stütze haben denselben Fußabdruck.
+        # Flush on the plinth: centered on its centerline in plan (mid_left/mid_right, see
+        # above) instead of on the carriageway edge - plinth and support have the same footprint.
         open_edge = mid_right if side[idx - 1] > 0 else mid_left
         cx = open_edge[idx - 1, 0] + t * (open_edge[idx, 0] - open_edge[idx - 1, 0])
         cy = open_edge[idx - 1, 1] + t * (open_edge[idx, 1] - open_edge[idx - 1, 1])
         floor_base = float(floor_z[idx - 1] + t * (floor_z[idx] - floor_z[idx - 1]))
-        # Basis auf Sockel-Oberkante (statt Boden-Niveau) - sonst steckt die Stütze zur Hälfte im Sockel.
-        # Oberkante bleibt bei floor_z + height (Dach-Unterkante, unverändert), die Stütze wird dadurch um
-        # curb_height kürzer als zuvor.
+        # Base on the plinth top edge (instead of floor level) - otherwise the support is half sunk into the plinth.
+        # The top edge stays at floor_z + height (roof bottom edge, unchanged), so the support becomes
+        # curb_height shorter than before.
         column_bottom = floor_base + curb_height
         column_top = floor_base + height
-        # Profil relativ zur Galerie-Richtung ausgerichtet (nicht achsenparallel zur Welt) - sonst stehen
-        # die Stützen bei diagonal verlaufenden Galerien sichtbar schief zur Wand-/Dachkante.
+        # Profile aligned relative to the gallery direction (not axis-parallel to the world) - otherwise
+        # the supports of diagonally running galleries visibly stand skewed to the wall/roof edge.
         column_direction = xy[idx] - xy[idx - 1]
         add_box_column(
             roof_builder, cx, cy, column_bottom, column_top, column_size, tile_m, direction=tuple(column_direction)
@@ -337,11 +337,11 @@ def _add_end_caps(
     side, across, floor_h, roof_h, wall_extra, wall_h, curb_h, curb_w,
 ) -> None:
     """
-    Stirnfläche an einem Ende (idx=0 oder idx=len-1): voller Boden-Querschnitt (Quader-Dicke) + voller
-    Dach-Querschnitt + Wand-Querschnitt (nur deren eigener Fußabdruck, Innen- bis Außenkante, bis
-    roof_top_z - die Wand schließt bündig mit der Dach-Oberkante ab) + Sockel-Querschnitt auf der
-    Stützenseite - macht aus dem offenen Schalen-Ende einen sauberen, massiven Schnitt statt eines
-    Blicks in den Hohlraum.
+    End face at one end (idx=0 or idx=len-1): full floor cross-section (box thickness) + full
+    roof cross-section + wall cross-section (only its own footprint, inner to outer edge, up to
+    roof_top_z - the wall ends flush with the roof top edge) + plinth cross-section on the
+    support side - turns the open shell end into a clean, solid cut instead of a
+    view into the hollow space.
     """
     norm = float(np.hypot(outward_xy[0], outward_xy[1]))
     normal = [float(outward_xy[0] / norm), float(outward_xy[1] / norm), 0.0] if norm > 1e-9 else [1.0, 0.0, 0.0]
@@ -349,12 +349,12 @@ def _add_end_caps(
     def p3(pt_xy, z):
         return [float(pt_xy[0]), float(pt_xy[1]), float(z)]
 
-    builder.quad(  # Boden-Stirnfläche
+    builder.quad(  # floor end face
         [p3(left[idx], floor_bottom_z[idx]), p3(right[idx], floor_bottom_z[idx]), p3(right[idx], floor_z[idx]), p3(left[idx], floor_z[idx])],
         [[0.0, 0.0], [across, 0.0], [across, floor_h], [0.0, floor_h]],
         normal,
     )
-    builder.quad(  # Dach-Stirnfläche
+    builder.quad(  # roof end face
         [p3(left[idx], roof_bottom_z[idx]), p3(right[idx], roof_bottom_z[idx]), p3(right[idx], roof_top_z[idx]), p3(left[idx], roof_top_z[idx])],
         [[0.0, 0.0], [across, 0.0], [across, roof_h], [0.0, roof_h]],
         normal,
@@ -363,7 +363,7 @@ def _add_end_caps(
     mountain_is_left = side[idx] > 0
     edge_pt = left[idx] if mountain_is_left else right[idx]
     outer_pt = outer_left[idx] if mountain_is_left else outer_right[idx]
-    builder.quad(  # Wand-Stirnfläche (nur der Wand-Fußabdruck: Innen- bis Außenkante, bis zur Dach-Oberkante)
+    builder.quad(  # wall end face (only the wall footprint: inner to outer edge, up to the roof top edge)
         [p3(edge_pt, floor_z[idx]), p3(outer_pt, floor_z[idx]), p3(outer_pt, roof_top_z[idx]), p3(edge_pt, roof_top_z[idx])],
         [[0.0, 0.0], [wall_extra, 0.0], [wall_extra, wall_h], [0.0, wall_h]],
         normal,
@@ -371,7 +371,7 @@ def _add_end_caps(
 
     curb_edge_pt = right[idx] if mountain_is_left else left[idx]
     curb_inner_pt = inner_right[idx] if mountain_is_left else inner_left[idx]
-    builder.quad(  # Sockel-Stirnfläche (nur der Sockel-Fußabdruck: Fahrbahnkante bis curb_width nach innen)
+    builder.quad(  # plinth end face (only the plinth footprint: carriageway edge to curb_width inward)
         [p3(curb_inner_pt, floor_z[idx]), p3(curb_edge_pt, floor_z[idx]), p3(curb_edge_pt, curb_top_z[idx]), p3(curb_inner_pt, curb_top_z[idx])],
         [[0.0, 0.0], [curb_w, 0.0], [curb_w, curb_h], [0.0, curb_h]],
         normal,
@@ -391,9 +391,9 @@ def build_galleries(
     curb_height: float = 0.5,
     curb_width: float = 0.4,
 ) -> List[Dict]:
-    """Mesh-Dicts für den DAE-Export, eines je Galerie (`galleries`: [{"id","coords","width","floor_material",
-    "osm_tags"}, ...] - "osm_tags" optional, für resolve_open_side()). Beide Enden bekommen eine Stirnfläche, auch am
-    Übergang in einen Tunnel (dort schließt das runde Portal nur den Röhrenquerschnitt, siehe
+    """Mesh dicts for the DAE export, one per gallery (`galleries`: [{"id","coords","width","floor_material",
+    "osm_tags"}, ...] - "osm_tags" optional, for resolve_open_side()). Both ends get an end face, also at the
+    transition into a tunnel (there the round portal only closes the tube cross-section, see
     tunnel_portal.transition_regions())."""
 
     meshes = []
@@ -405,7 +405,7 @@ def build_galleries(
             coords, gallery["width"], height, ground_at, gallery["floor_material"], roof_material,
             column_spacing=column_spacing, roof_thickness=roof_thickness, floor_thickness=floor_thickness,
             wall_thickness=wall_thickness, column_size=column_size, curb_height=curb_height, curb_width=curb_width,
-            # Vorgabe aus der Böschungslogik (terrain_workflow._gallery_embedding), sonst Tag bzw. Gelände
+            # Default from the embankment logic (terrain_workflow._gallery_embedding), otherwise tag or terrain
             open_side=gallery.get("open_side") or resolve_open_side(gallery.get("osm_tags", {})),
         )
         meshes.append({"id": f"gallery_{gallery['id']}", **mesh})

@@ -1,10 +1,10 @@
 """
-Abdeckplatten oben auf den Mauern: einzelne Steinplatten, die ein paar Zentimeter über den Mauerkörper überstehen.
+Cap slabs on top of the walls: individual stone slabs that project a few centimeters beyond the wall body.
 
-Jede Platte ist ein eigener Quader-Streifen (Oberseite, beide Längsseiten, Unterseite, Stirnflächen). Die Platten
-werden in Längsrichtung nach dem Zufall gestaffelt (Länge ±25 %, Fuge dazwischen) und folgen dem Geländeprofil der
-Mauerkrone. An Ecken enden sie exakt auf der Gehrung, sie knicken nicht um die Ecke; an offenen Enden stehen sie über
-die Stirnfläche über.
+Each slab is its own box strip (top, both long sides, bottom, end faces). The slabs are staggered randomly
+in the longitudinal direction (length ±25 %, joint in between) and follow the terrain profile of the wall
+crown. At corners they end exactly on the miter and do not bend around the corner; at open ends they project beyond
+the end face.
 """
 
 import math
@@ -14,19 +14,19 @@ import numpy as np
 
 from .mesh_parts import MeshBuilder, offset_points, unit_vector
 
-CORNER_DEG = 15.0  # ab diesem Richtungswechsel ist ein Knick eine Ecke (Plattenstoß auf Gehrung)
-LENGTH_VARIATION = 0.5  # Plattenlänge = Sollwert * (0.75 ... 1.25)
-MIN_REST_FRACTION = 0.3  # ein Reststück kürzer als dieser Anteil der Sollänge wird der letzten Platte zugeschlagen
+CORNER_DEG = 15.0  # from this change of direction on a bend counts as a corner (slab joint on the miter)
+LENGTH_VARIATION = 0.5  # slab length = target value * (0.75 ... 1.25)
+MIN_REST_FRACTION = 0.3  # a remainder shorter than this fraction of the target length is added to the last slab
 _EPS = 1e-9
 
 
 def corner_arcs(points: np.ndarray, closed: bool, arc: np.ndarray) -> List[float]:
     """
-    Bogenlängen der Ecken (Richtungswechsel über CORNER_DEG).
+    Arc lengths of the corners (changes of direction above CORNER_DEG).
 
     Args:
-        points: (N, 2) Mittellinie (bei `closed` ohne Schlusspunkt)
-        arc: kumulierte Bogenlänge je Punkt (bei `closed` mit Eintrag für den Schlusspunkt)
+        points: (N, 2) centerline (without closing point if `closed`)
+        arc: cumulative arc length per point (if `closed`, with an entry for the closing point)
     """
     count = len(points)
     ring = np.vstack([points, points[:1]]) if closed else points
@@ -39,8 +39,8 @@ def corner_arcs(points: np.ndarray, closed: bool, arc: np.ndarray) -> List[float
 
 def plate_spans(start: float, end: float, plate_length: float, joint: float, rng: np.random.Generator) -> List[Tuple[float, float]]:
     """
-    Bogenlängen-Intervalle der Platten zwischen `start` und `end`; zwischen zwei Platten liegt eine Fuge `joint`.
-    Kürzer als eine Platte: eine kleine Platte; ein zu kurzer Rest wird der letzten Platte zugeschlagen.
+    Arc-length intervals of the slabs between `start` and `end`; a joint `joint` lies between two slabs.
+    Shorter than one slab: a single small slab; a remainder that is too short is added to the last slab.
     """
     spans: List[Tuple[float, float]] = []
     position = start
@@ -54,11 +54,11 @@ def plate_spans(start: float, end: float, plate_length: float, joint: float, rng
 
 
 def _run_intervals(corners: Sequence[float], total: float, closed: bool, joint: float) -> List[Tuple[float, float, float, float]]:
-    """(von, bis, Fuge am Anfang, Fuge am Ende) je gerader Strecke zwischen zwei Ecken bzw. den Mauerenden."""
+    """(from, to, joint at start, joint at end) per straight run between two corners or the wall ends."""
     if not closed:
         bounds = [0.0, *corners, total]
-        return [(a, b, 0.0, 0.0) for a, b in zip(bounds[:-1], bounds[1:])]  # Plattenstoß auf der Gehrung, ohne Fuge
-    if not corners:  # Ring ohne Ecke: eine Strecke rundherum, am Ringschluss eine Fuge
+        return [(a, b, 0.0, 0.0) for a, b in zip(bounds[:-1], bounds[1:])]  # slab joint on the miter, no gap
+    if not corners:  # ring without a corner: one run all the way around, a joint at the ring closure
         return [(0.0, total, 0.0, joint)]
     wrapped = [*corners, corners[0] + total]
     return [(a, b, 0.0, 0.0) for a, b in zip(wrapped[:-1], wrapped[1:])]
@@ -78,20 +78,20 @@ def add_cap(
     rng: np.random.Generator,
 ) -> None:
     """
-    Fügt die Abdeckplatten zum Mesh hinzu.
+    Adds the cap slabs to the mesh.
 
     Args:
-        points: (N, 2) verdichtete Mittellinie der Mauer (bei `closed` ohne Schlusspunkt)
-        top: (N,) Höhe der Plattenoberseite je Punkt
-        wall_thickness: Dicke des Mauerkörpers; die Platten sind um `overhang` je Seite breiter
-        tile_m: Kachelgröße der Textur für die UVs (in Textur-Kacheln)
+        points: (N, 2) densified centerline of the wall (without closing point if `closed`)
+        top: (N,) height of the slab top per point
+        wall_thickness: thickness of the wall body; the slabs are wider by `overhang` on each side
+        tile_m: texture tile size for the UVs (in texture tiles)
     """
     half = wall_thickness / 2.0 + overhang
     if closed:
         ring, ring_top = np.vstack([points, points[:1]]), np.append(top, top[0])
         left, right = offset_points(points, half, closed=True)
         left, right = np.vstack([left, left[:1]]), np.vstack([right, right[:1]])
-    else:  # offene Enden: Platten stehen über die Stirnfläche über
+    else:  # open ends: slabs project beyond the end face
         first = unit_vector(np.append(points[1] - points[0], 0.0))[:2]
         last = unit_vector(np.append(points[-1] - points[-2], 0.0))[:2]
         ring = np.vstack([points[0] - np.array(first) * overhang, points, points[-1] + np.array(last) * overhang])
@@ -104,7 +104,7 @@ def add_cap(
     corners = corner_arcs(corner_points, closed, arc)
     runs = _run_intervals(corners, total, closed, joint)
 
-    if closed:  # zwei Runden, damit Strecken über den Ringanfang hinweg (Ecke -> Ecke) durchgehend liegen
+    if closed:  # two laps so that runs across the ring start (corner -> corner) are continuous
         arc = np.concatenate([arc, arc[1:] + total])
         left, right, ring_top = (np.concatenate([a, a[1:]]) for a in (left, right, ring_top))
 
@@ -124,7 +124,7 @@ def _add_plate(
     thickness: float,
     tile_m: float,
 ) -> None:
-    """Eine Platte zwischen den Bogenlängen `start` und `end`; Knickpunkte der Mauerkrone dazwischen bleiben erhalten."""
+    """One slab between the arc lengths `start` and `end`; bend points of the wall crown in between are kept."""
     inner = arc[(arc > start + _EPS) & (arc < end - _EPS)]
     stations = np.concatenate([[start], inner, [end]])
     lefts = np.column_stack([np.interp(stations, arc, left[:, 0]), np.interp(stations, arc, left[:, 1])])
@@ -161,7 +161,7 @@ def _add_plate(
                 normal,
             )
 
-    for index in (0, len(stations) - 1):  # Stirnflächen (Fugen): Normale zeigt aus der Platte heraus
+    for index in (0, len(stations) - 1):  # end faces (joints): normal points out of the slab
         neighbour = 1 if index == 0 else index - 1
         direction = centers[index] - centers[neighbour]
         direction = direction / np.linalg.norm(direction)

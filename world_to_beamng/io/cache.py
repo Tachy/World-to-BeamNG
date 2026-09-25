@@ -1,9 +1,9 @@
 """
-Cache-Management fuer OSM und Elevation-Daten.
+Cache management for OSM and elevation data.
 
-Für Multi-Tile-Systeme:
-- height_data_hash.txt speichert Hashes pro Datei zur Invalidierung
-- Format: "filename: hash" (z.B. "dgm1_4658000_5394000.xyz.zip: abc123")
+For multi-tile systems:
+- height_data_hash.txt stores hashes per file for invalidation
+- Format: "filename: hash" (e.g. "dgm1_4658000_5394000.xyz.zip: abc123")
 """
 
 import json
@@ -16,26 +16,26 @@ logger = LoggerConfig.get_logger()
 
 
 def get_bbox_hash(bbox):
-    """Erstellt einen eindeutigen Hash fuer eine BBox zur Cache-Identifikation."""
+    """Creates a unique hash for a bbox to identify the cache entry."""
     bbox_str = f"{bbox[0]:.6f}_{bbox[1]:.6f}_{bbox[2]:.6f}_{bbox[3]:.6f}"
     return hashlib.md5(bbox_str.encode()).hexdigest()[:12]
 
 
 def get_cache_path(bbox, data_type, height_hash=None):
-    """Gibt den Pfad zur Cache-Datei zurueck.
+    """Returns the path to the cache file.
 
     Args:
-        bbox: Bounding Box
-        data_type: Typ der Daten (osm_all, elevations, etc.)
-        height_hash: Optional - Height-Data-Hash fuer Cache-Konsistenz
+        bbox: Bounding box
+        data_type: Type of the data (osm_all, elevations, etc.)
+        height_hash: Optional - height data hash for cache consistency
 
-    Wenn height_hash gegeben ist, wird dieser fuer osm_all und elevations verwendet
-    fuer garantierte Konsistenz bei Height-Daten-Aenderungen.
+    If height_hash is given, it is used for osm_all and elevations
+    to guarantee consistency when the height data changes.
     """
     config.CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
-    # For osm_all and elevations: height_hash verwenden (wenn vorhanden)
-    # Sonst: BBox-Hash verwenden (fallback fuer alte Caches)
+    # For osm_all and elevations: use height_hash (if present)
+    # Otherwise: use the bbox hash (fallback for old caches)
     if height_hash and data_type in ["osm_all", "elevations"]:
         file_hash = height_hash
     else:
@@ -45,17 +45,17 @@ def get_cache_path(bbox, data_type, height_hash=None):
 
 
 def load_from_cache(bbox, data_type, height_hash=None):
-    """Lädt Daten aus dem Cache, falls vorhanden.
+    """Loads data from the cache, if present.
 
-    Für osm_all und elevations wird height_hash verwendet (falls vorhanden)
-    für garantierte Konsistenz bei Höhendaten-Änderungen.
+    For osm_all and elevations, height_hash is used (if present)
+    to guarantee consistency when the elevation data changes.
 
     Args:
-        bbox: Bounding Box
-        data_type: Typ der Daten (osm_all, elevations, etc.)
-        height_hash: Optional - Hash für tile-spezifische Cache-Identifikation
+        bbox: Bounding box
+        data_type: Type of the data (osm_all, elevations, etc.)
+        height_hash: Optional - hash for tile-specific cache identification
     """
-    # Verwende übergebenes height_hash oder fallback auf config.HEIGHT_HASH
+    # Use the passed height_hash or fall back to config.HEIGHT_HASH
     effective_hash = height_hash or (config.HEIGHT_HASH if hasattr(config, "HEIGHT_HASH") else None)
 
     if effective_hash and data_type in ["osm_all", "elevations"]:
@@ -75,18 +75,18 @@ def load_from_cache(bbox, data_type, height_hash=None):
 
 
 def save_to_cache(bbox, data_type, data, height_hash=None):
-    """Speichert Daten im Cache.
+    """Saves data to the cache.
 
-    Für osm_all und elevations wird height_hash verwendet (falls vorhanden)
-    für garantierte Konsistenz bei Höhendaten-Änderungen.
+    For osm_all and elevations, height_hash is used (if present)
+    to guarantee consistency when the elevation data changes.
 
     Args:
-        bbox: Bounding Box
-        data_type: Typ der Daten (osm_all, elevations, etc.)
-        data: Zu speichernde Daten
-        height_hash: Optional - Hash für tile-spezifische Cache-Identifikation
+        bbox: Bounding box
+        data_type: Type of the data (osm_all, elevations, etc.)
+        data: Data to save
+        height_hash: Optional - hash for tile-specific cache identification
     """
-    # Verwende übergebenes height_hash oder fallback auf config.HEIGHT_HASH
+    # Use the passed height_hash or fall back to config.HEIGHT_HASH
     effective_hash = height_hash or (config.HEIGHT_HASH if hasattr(config, "HEIGHT_HASH") else None)
 
     if effective_hash and data_type in ["osm_all", "elevations"]:
@@ -104,14 +104,14 @@ def save_to_cache(bbox, data_type, data, height_hash=None):
 
 def calculate_file_hash(filepath: Path, chunk_size=8192):
     """
-    Berechnet MD5-Hash einer Datei.
+    Computes the MD5 hash of a file.
 
     Args:
-        filepath: Pfad zur Datei
-        chunk_size: Größe der Chunks zum Lesen
+        filepath: Path to the file
+        chunk_size: Chunk size for reading
 
     Returns:
-        str: MD5-Hash (12 Zeichen)
+        str: MD5 hash (12 characters)
     """
     hash_obj = hashlib.md5()
 
@@ -130,32 +130,32 @@ def calculate_file_hash(filepath: Path, chunk_size=8192):
 
 def calculate_global_tiles_hash(tiles):
     """
-    Berechnet einen globalen Hash über alle Tiles.
+    Computes a global hash over all tiles.
 
-    Dieser Hash ändert sich, wenn:
-    - Tiles hinzugefügt oder entfernt werden
-    - Die Reihenfolge sich ändert
-    - Ein einzelnes Tile geändert wird
+    This hash changes when:
+    - Tiles are added or removed
+    - The order changes
+    - A single tile is changed
 
     Args:
-        tiles: Liste von Tile-Dicts mit 'filename' und 'filepath'
+        tiles: List of tile dicts with 'filename' and 'filepath'
 
     Returns:
-        str: MD5-Hash (12 Zeichen)
+        str: MD5 hash (12 characters)
     """
-    # Sortiere nach Filename für konsistente Reihenfolge
+    # Sort by filename for a consistent order
     sorted_tiles = sorted(tiles, key=lambda t: t.get("filename", ""))
 
-    # Kombiniere Filenames und Hashes
+    # Combine filenames and hashes
     hash_input = ""
     for tile in sorted_tiles:
         filename = tile.get("filename", "")
         filepath = tile.get("filepath", "")
 
-        # Berechne Hash des einzelnen Tiles
+        # Compute the hash of the individual tile
         tile_hash = calculate_file_hash(filepath) or "none"
         hash_input += f"{filename}:{tile_hash};"
 
-    # Berechne globalen Hash
+    # Compute the global hash
     global_hash = hashlib.md5(hash_input.encode()).hexdigest()[:12]
     return global_hash

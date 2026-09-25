@@ -1,12 +1,12 @@
 """
-LoD2-Gebäudedaten Verarbeitung für BeamNG.
+LoD2 building data processing for BeamNG.
 
-Lädt 3D-Gebäudemodelle aus CityGML-Dateien (LGL Baden-Württemberg),
-transformiert sie ins lokale Koordinatensystem und exportiert sie
-als TSStatic-Objekte für BeamNG.
+Loads 3D building models from CityGML files (LGL Baden-Württemberg),
+transforms them into the local coordinate system and exports them
+as TSStatic objects for BeamNG.
 
-Format: CityGML 2km x 2km Kacheln in ZIP-Archiven
-Ausgabe: .dae-Dateien pro Tile + main.items.json Einträge
+Format: CityGML 2km x 2km tiles in ZIP archives
+Output: .dae files per tile + main.items.json entries
 """
 
 import json
@@ -22,13 +22,13 @@ logger = LoggerConfig.get_logger()
 
 def load_citygml_from_zip(zip_path: Path) -> List[etree.Element]:
     """
-    Extrahiert CityGML-Dateien aus einem ZIP-Archiv.
+    Extracts CityGML files from a ZIP archive.
 
     Args:
-        zip_path: Pfad zum ZIP-Archiv
+        zip_path: Path to the ZIP archive
 
     Returns:
-        Liste von XML-ElementTree-Wurzeln
+        List of XML ElementTree roots
     """
     buildings = []
 
@@ -47,23 +47,23 @@ def load_citygml_from_zip(zip_path: Path) -> List[etree.Element]:
 
 def parse_citygml_buildings(gml_root: etree.Element, local_offset=None) -> List[Dict]:
     """
-    Parst CityGML-Daten und extrahiert Gebäudegeometrie.
+    Parses CityGML data and extracts building geometry.
 
-    WICHTIG: Diese Funktion gibt NUR die RAW UTM-Koordinaten zurück, OHNE Normalisierung!
-    Die Normalisierung erfolgt später in normalize_buildings_full() mit vollständiger 3D-Offset.
+    IMPORTANT: This function returns ONLY the RAW UTM coordinates, WITHOUT normalization!
+    The normalization happens later in normalize_buildings_full() with the full 3D offset.
 
     Args:
-        gml_root: XML-Wurzel des CityGML-Dokuments
-        local_offset: NICHT VERWENDET - nur für Rückwärtskompatibilität
+        gml_root: XML root of the CityGML document
+        local_offset: NOT USED - only for backward compatibility
 
     Returns:
-        Liste von Gebäude-Dicts mit:
-        - 'id': Gebäude-ID
-        - 'walls': List of (vertices, faces) für Wände (UTM-Koordinaten!)
-        - 'roofs': List of (vertices, faces) für Dächer (UTM-Koordinaten!)
+        List of building dicts with:
+        - 'id': Building ID
+        - 'walls': List of (vertices, faces) for walls (UTM coordinates!)
+        - 'roofs': List of (vertices, faces) for roofs (UTM coordinates!)
         - 'bounds': (min_x, min_y, min_z, max_x, max_y, max_z) in UTM
     """
-    # Namespaces für CityGML 1.0 (LGL Baden-Württemberg)
+    # Namespaces for CityGML 1.0 (LGL Baden-Württemberg)
     namespaces = {
         "gml": "http://www.opengis.net/gml",
         "bldg": "http://www.opengis.net/citygml/building/1.0",
@@ -72,7 +72,7 @@ def parse_citygml_buildings(gml_root: etree.Element, local_offset=None) -> List[
 
     buildings = []
 
-    # Finde alle Building-Objekte
+    # Find all Building objects
     for city_object in gml_root.findall(".//core:cityObjectMember", namespaces):
         building_elem = city_object.find("bldg:Building", namespaces)
         if building_elem is None:
@@ -84,7 +84,7 @@ def parse_citygml_buildings(gml_root: etree.Element, local_offset=None) -> List[
         roofs = []
         all_vertices = []
 
-        # Finde alle boundedBy-Elemente
+        # Find all boundedBy elements
         for bounded in building_elem.findall(".//bldg:boundedBy", namespaces):
             # WallSurface
             wall_surface = bounded.find("bldg:WallSurface", namespaces)
@@ -104,7 +104,7 @@ def parse_citygml_buildings(gml_root: etree.Element, local_offset=None) -> List[
                     for verts, _ in roof_geom:
                         all_vertices.append(verts)
 
-        # Berechne Bounding Box
+        # Compute the bounding box
         if all_vertices:
             all_verts_combined = np.vstack(all_vertices)
             bounds = (
@@ -125,48 +125,48 @@ def _extract_surface_geometry(
     surface_elem: etree.Element, namespaces: Dict, local_offset: Tuple[float, float]
 ) -> List[Tuple[np.ndarray, np.ndarray]]:
     """
-    Extrahiert Geometrie aus WallSurface oder RoofSurface.
+    Extracts geometry from a WallSurface or RoofSurface.
 
-    WICHTIG: Gibt RAW UTM-Koordinaten zurück, OHNE Normalisierung!
-    Die Normalisierung erfolgt später zentral in normalize_buildings_full().
+    IMPORTANT: Returns RAW UTM coordinates, WITHOUT normalization!
+    The normalization happens later, centrally, in normalize_buildings_full().
 
     Args:
-        surface_elem: XML-Element für Oberfläche
-        namespaces: XML-Namespaces
-        local_offset: WIRD NICHT VERWENDET - nur für Kompatibilität
+        surface_elem: XML element for the surface
+        namespaces: XML namespaces
+        local_offset: NOT USED - only for compatibility
 
     Returns:
-        Liste von (vertices, faces) Tupeln mit UTM-Koordinaten
+        List of (vertices, faces) tuples with UTM coordinates
     """
     geometries = []
 
-    # Finde alle Polygon-Elemente
+    # Find all Polygon elements
     for polygon in surface_elem.findall(".//gml:Polygon", namespaces):
-        # Exterior Ring (Hauptpolygon)
+        # Exterior ring (main polygon)
         exterior = polygon.find(".//gml:exterior//gml:posList", namespaces)
         if exterior is None or not exterior.text:
             continue
 
-        # Parse Koordinaten (x y z x y z ...)
+        # Parse coordinates (x y z x y z ...)
         coords_text = exterior.text.strip().split()
         coords = np.array([float(c) for c in coords_text]).reshape(-1, 3)
 
         if len(coords) < 3:
             continue
 
-        # WICHTIG: KEINE Normalisierung hier! Gib RAW UTM-Koordinaten zurück
+        # IMPORTANT: NO normalization here! Return RAW UTM coordinates
         coords_utm = coords.astype(np.float64)
 
-        # Erstelle Faces (Triangulation für Polygone)
+        # Create faces (triangulation for polygons)
         n_verts = len(coords_utm)
         if n_verts == 3:
-            # Dreieck
+            # Triangle
             faces = np.array([[0, 1, 2]])
         elif n_verts == 4:
-            # Viereck -> 2 Dreiecke
+            # Quad -> 2 triangles
             faces = np.array([[0, 1, 2], [0, 2, 3]])
         else:
-            # Polygon -> Fan-Triangulation
+            # Polygon -> fan triangulation
             faces = []
             for i in range(1, n_verts - 1):
                 faces.append([0, i, i + 1])
@@ -182,19 +182,19 @@ def normalize_buildings_full(
     local_offset: Tuple[float, float, float],
 ) -> List[Dict]:
     """
-    Normalisiert Gebäude-Vertices ins lokale Koordinatensystem (X, Y, Z).
+    Normalizes building vertices into the local coordinate system (X, Y, Z).
 
-    ZENTRALE NORMALISIERUNG nach dem Import:
-    - Alle Vertices werden sofort mit global_offset (inkl. Z) normalisiert
-    - X, Y, Z-Koordinaten werden konsistent transformiert
-    - Gebäude stehen direkt auf dem korrekten Höhenniveau
+    CENTRAL NORMALIZATION after the import:
+    - All vertices are normalized immediately with global_offset (incl. Z)
+    - X, Y, Z coordinates are transformed consistently
+    - Buildings stand directly at the correct elevation
 
     Args:
-        buildings: Liste von Gebäude-Dicts
-        local_offset: (origin_x, origin_y, z_min) - 3D-Offset
+        buildings: List of building dicts
+        local_offset: (origin_x, origin_y, z_min) - 3D offset
 
     Returns:
-        Liste von normalisierten Gebäude-Dicts
+        List of normalized building dicts
     """
     if not buildings or len(local_offset) < 3:
         return buildings
@@ -203,7 +203,7 @@ def normalize_buildings_full(
     normalized = []
 
     for building in buildings:
-        # Kopiere Gebäude-Struktur
+        # Copy the building structure
         building_norm = {
             "id": building.get("id"),
             "walls": [],
@@ -211,27 +211,27 @@ def normalize_buildings_full(
             "bounds": building.get("bounds"),
         }
 
-        # Normalisiere alle Wand-Vertices
+        # Normalize all wall vertices
         for verts, faces in building.get("walls", []):
-            # Verts: (N, 3) array - konvertiere zu float für Subtraktion
+            # Verts: (N, 3) array - convert to float for subtraction
             verts_norm = np.asarray(verts, dtype=np.float64).copy()
             verts_norm[:, 0] -= ox
             verts_norm[:, 1] -= oy
             verts_norm[:, 2] -= oz
             building_norm["walls"].append((verts_norm, faces))
 
-        # Normalisiere alle Dach-Vertices
+        # Normalize all roof vertices
         for verts, faces in building.get("roofs", []):
-            # Verts: (N, 3) array - konvertiere zu float für Subtraktion
+            # Verts: (N, 3) array - convert to float for subtraction
             verts_norm = np.asarray(verts, dtype=np.float64).copy()
             verts_norm[:, 0] -= ox
             verts_norm[:, 1] -= oy
             verts_norm[:, 2] -= oz
             building_norm["roofs"].append((verts_norm, faces))
 
-        # WICHTIG: Bounds NEU BERECHNEN aus normalisierten Vertices!
-        # (Nicht einfach vom Offset subtrahieren, da parse_citygml_buildings schon
-        # X/Y teilweise normalisiert hat)
+        # IMPORTANT: RECOMPUTE bounds from the normalized vertices!
+        # (Do not simply subtract the offset, since parse_citygml_buildings has already
+        # partially normalized X/Y)
         all_normalized_verts = []
         for verts, _ in building_norm["walls"]:
             all_normalized_verts.append(verts)
@@ -263,30 +263,30 @@ def cache_lod2_buildings(
     height_hash: str,
 ) -> str:
     """
-    Lädt und cached LoD2-Gebäudedaten - mit sofortiger 3D-Normalisierung.
+    Loads and caches LoD2 building data - with immediate 3D normalization.
 
     Args:
-        lod2_dir: Verzeichnis mit ZIP-Dateien
+        lod2_dir: Directory with ZIP files
         bbox: (min_lat, min_lon, max_lat, max_lon) in WGS84
-        local_offset: (x_offset, y_offset, z_offset) in lokalen Koordinaten - 3D!
-        cache_dir: Cache-Verzeichnis
-        height_hash: Hash für Cache-Validierung
+        local_offset: (x_offset, y_offset, z_offset) in local coordinates - 3D!
+        cache_dir: Cache directory
+        height_hash: Hash for cache validation
 
     Returns:
-        Pfad zur Cache-Datei
+        Path to the cache file
     """
     from ..geometry.coordinates import transformer_to_utm
 
-    # BBOX von WGS84 (Lat/Lon) zur Quell-CRS konvertieren (dieselbe CRS wie ueberall sonst in der
-    # Pipeline - vorher hier eine andere, hartkodierte UTM-Zonen-Variante als sonst im Code)
+    # Convert the bbox from WGS84 (lat/lon) to the source CRS (the same CRS as everywhere else in the
+    # pipeline - previously a different, hard-coded UTM zone variant than elsewhere in the code was used here)
     min_x_utm, min_y_utm = transformer_to_utm.transform(bbox[1], bbox[0])  # lon, lat
     max_x_utm, max_y_utm = transformer_to_utm.transform(bbox[3], bbox[2])
     bbox_utm = (min_x_utm, min_y_utm, max_x_utm, max_y_utm)
 
     bbox_utm = (min_x_utm, min_y_utm, max_x_utm, max_y_utm)
 
-    # Cache-Key: Verwende direkt height_hash (tile_hash) für einheitliche Konsistenz
-    # Alle Cache-Files für diesen Tile (OSM, LoD2, elevations, grid) nutzen dasselbe Hash
+    # Cache key: use height_hash (tile_hash) directly for uniform consistency
+    # All cache files for this tile (OSM, LoD2, elevations, grid) use the same hash
     cache_file = Path(cache_dir) / f"lod2_{height_hash}.pkl"
 
     if cache_file.exists():
@@ -300,7 +300,7 @@ def cache_lod2_buildings(
         logger.error(f"  [!] LoD2 directory not found: {lod2_dir}")
         return None
 
-    # Sammle alle ZIP-Dateien
+    # Collect all ZIP files
     zip_files = list(lod2_path.glob("*.zip"))
     if not zip_files:
         logger.error(f"  [!] No ZIP files found in {lod2_dir}")
@@ -308,11 +308,11 @@ def cache_lod2_buildings(
 
     logger.debug(f"  [i] {len(zip_files)} ZIP archives found")
 
-    # ZENTRALE PIPELINE: Parse → BBOX-Filter (UTM) → Normalisierung (EINMAL!)
-    all_buildings_raw_utm = []  # RAW UTM-Gebäude vor Filterung
+    # CENTRAL PIPELINE: parse → bbox filter (UTM) → normalization (ONCE!)
+    all_buildings_raw_utm = []  # RAW UTM buildings before filtering
     total_parsed = 0
 
-    # PHASE 1: Parse alle Gebäude aus ZIPs (RAW UTM-Koordinaten)
+    # PHASE 1: Parse all buildings from the ZIPs (RAW UTM coordinates)
     for zip_path in zip_files:
         gml_roots = load_citygml_from_zip(zip_path)
         for gml_root in gml_roots:
@@ -322,7 +322,7 @@ def cache_lod2_buildings(
 
     logger.debug(f"  [i] {total_parsed} buildings parsed from ZIPs")
 
-    # PHASE 2: BBOX-Filterung in UTM-Koordinaten (VOR Normalisierung!)
+    # PHASE 2: bbox filtering in UTM coordinates (BEFORE normalization!)
     buildings_in_bbox_utm = []
     for building in all_buildings_raw_utm:
         bounds = building.get("bounds")
@@ -331,17 +331,17 @@ def cache_lod2_buildings(
         # bounds = (min_x, min_y, min_z, max_x, max_y, max_z) in UTM
         center_x = (bounds[0] + bounds[3]) / 2
         center_y = (bounds[1] + bounds[4]) / 2
-        # Prüfe ob Zentrum in BBOX liegt
+        # Check whether the center lies within the bbox
         if bbox_utm[0] <= center_x <= bbox_utm[2] and bbox_utm[1] <= center_y <= bbox_utm[3]:
             buildings_in_bbox_utm.append(building)
 
     logger.debug(f"  [i] {len(buildings_in_bbox_utm)} buildings found in the UTM bbox")
 
-    # PHASE 3: ZENTRALE Normalisierung EINMAL (danach NIE WIEDER!)
+    # PHASE 3: CENTRAL normalization ONCE (NEVER again afterwards!)
     all_buildings = normalize_buildings_full(buildings_in_bbox_utm, local_offset)
     logger.info(f"  [✓] {len(all_buildings)} buildings normalized")
 
-    # Pickle-Cache schreiben
+    # Write the pickle cache
     cache_file.parent.mkdir(parents=True, exist_ok=True)
     with open(cache_file, "wb") as f:
         pickle.dump(all_buildings, f)
@@ -352,7 +352,7 @@ def cache_lod2_buildings(
 
 
 def load_buildings_from_cache(cache_file: str) -> List[Dict]:
-    """Lädt Gebäude aus Cache."""
+    """Loads buildings from the cache."""
     if not cache_file or not Path(cache_file).exists():
         return []
 
@@ -362,20 +362,20 @@ def load_buildings_from_cache(cache_file: str) -> List[Dict]:
 
 def create_items_json_entry(dae_path: str, tile_x: int, tile_y: int, item_manager, item_name: str = None) -> Dict:
     """
-    Erstellt einen items.json-Eintrag für ein Gebäude-Tile.
+    Creates an items.json entry for a building tile.
 
-    REFACTORED: Nutzt jetzt übergebenen ItemManager statt lokale Instanz.
+    REFACTORED: Now uses the passed ItemManager instead of a local instance.
 
     Args:
-        dae_path: Relativer Pfad zur .dae-Datei
-        tile_x, tile_y: Tile-Koordinaten (Welt-Koordinaten der oberen linken Ecke)
-        item_manager: ItemManager-Instanz
-        item_name: Optional - Item-Name (Standard: buildings_tile_<x>_<y>)
+        dae_path: Relative path to the .dae file
+        tile_x, tile_y: Tile coordinates (world coordinates of the upper left corner)
+        item_manager: ItemManager instance
+        item_name: Optional - item name (default: buildings_tile_<x>_<y>)
 
     Returns:
-        Dict für items.json
+        Dict for items.json
     """
-    # Registriere Item direkt im übergebenen Manager (KEIN lokaler Manager mehr)
+    # Register the item directly in the passed manager (NO local manager anymore)
     dae_filename = Path(dae_path).name
     item_name = item_name or f"buildings_tile_{tile_x}_{tile_y}"
 

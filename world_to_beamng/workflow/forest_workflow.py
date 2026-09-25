@@ -2,18 +2,18 @@
 Forest Workflow
 ===============
 
-Orchestriert Wald-Generierung pro Tile (nach Asset-Scanning durch BeamNGExporter):
-1. Tile-Initialisierung (OSM-Polygon-Normalisierung)
-2. Pro Tile:
-   - Poisson-Disk-Sampling → Tree-Positionen
-   - Bilineare Interpolation → Tree-Höhen
-   - Forest-Instance-Generierung (Rotation + Scale)
-3. Forest.json-Finalisierung nach Tile-Loop
+Orchestrates forest generation per tile (after asset scanning by BeamNGExporter):
+1. Tile initialization (OSM polygon normalization)
+2. Per tile:
+   - Poisson disk sampling → tree positions
+   - Bilinear interpolation → tree heights
+   - Forest instance generation (rotation + scale)
+3. Forest.json finalization after the tile loop
 
-Die fertigen Baum-Instanzen (Schritt 2, der teuerste Teil bei zehntausenden Bäumen) werden gecacht
-- siehe _forest_cache_key()/_load_cached_tree_instances()/_save_cached_tree_instances() - Poisson-
-Disk-Sampling und Rotation sind sonst bei jedem Lauf unterschiedlich (kein fester Seed), der Cache
-macht wiederholte Läufe über dasselbe Gebiet also nebenbei auch deterministisch.
+The finished tree instances (step 2, the most expensive part with tens of thousands of trees) are cached
+- see _forest_cache_key()/_load_cached_tree_instances()/_save_cached_tree_instances() - Poisson
+disk sampling and rotation otherwise differ on every run (no fixed seed), so the cache also makes
+repeated runs over the same area deterministic as a side effect.
 """
 
 import hashlib
@@ -33,7 +33,7 @@ logger = LoggerConfig.get_logger()
 
 
 class ForestWorkflow:
-    """Orchestriert Tile-basierte Wald-Generierung."""
+    """Orchestrates tile-based forest generation."""
 
     def __init__(self, config):
         """
@@ -44,40 +44,40 @@ class ForestWorkflow:
         """
         self.config = config
 
-        # Forest Normalizer (wird in initialize_tiling() initialisiert)
+        # Forest Normalizer (initialized in initialize_tiling())
         self.normalizer = None
         self.forest_config = {}
 
-        # Point Generator (Poisson-Disk-Sampling)
+        # Point Generator (Poisson disk sampling)
         self.point_generator = ForestPointGenerator(min_distance=5.0, max_attempts=30)
 
-        # Height Calculator (Bilineare Interpolation)
+        # Height Calculator (bilinear interpolation)
         self.height_calculator = ForestHeightCalculator()
 
-        # Instance Generator (Rotation + Scale + Type-Selection)
-        # Wird in set_forest_config() mit registered_trees initialisiert!
+        # Instance Generator (rotation + scale + type selection)
+        # Initialized in set_forest_config() with registered_trees!
         self.instance_generator = None
 
-        # JSON Writer (wird in set_forest_config initialisiert)
+        # JSON Writer (initialized in set_forest_config)
         self.json_writer = None
 
-        # Sammle Tree-Instances über alle Tiles (wird in process_tile() gefüllt)
+        # Collect tree instances across all tiles (filled in process_tile())
         self.all_tree_instances = []
 
-        # Stammfüße je Baumtyp (wird in set_forest_config() gefüllt)
+        # Trunk feet per tree type (filled in set_forest_config())
         self.trunk_feet = {}
 
     def set_forest_config(self, forest_config: Dict, osm_mapper, registered_trees: Optional[Dict] = None):
         """
-        Setze Forest-Konfiguration vor Tile-Loop.
+        Set the forest configuration before the tile loop.
 
         Args:
-            forest_config: Dict mit "forest_types" + "forest_mappings"
-            osm_mapper: OSMMapper-Instance
-            registered_trees: Optional - verfügbare Baumarten
+            forest_config: dict with "forest_types" + "forest_mappings"
+            osm_mapper: OSMMapper instance
+            registered_trees: optional - available tree species
 
         Raises:
-            ValueError: Wenn registered_trees leer ist
+            ValueError: if registered_trees is empty
         """
         if not registered_trees:
             raise ValueError("registered_trees must not be empty!")
@@ -85,36 +85,36 @@ class ForestWorkflow:
         self.forest_config = forest_config
         self.normalizer = ForestNormalizer(forest_config, osm_mapper)
 
-        # Initialisiere InstanceGenerator mit registered_trees
+        # Initialize the InstanceGenerator with registered_trees
         self.instance_generator = ForestInstanceGenerator(registered_trees)
 
         from .. import config
 
-        # BeamNG erwartet *.forest4.json Platzierungsdateien im Level-Unterordner "forest/" (nicht "main/")
+        # BeamNG expects *.forest4.json placement files in the level subfolder "forest/" (not "main/")
         output_dir = config.BEAMNG_DIR / "forest"
         self.json_writer = ForestJSONWriter(output_dir)
 
-        # Stammfüße der Baumtypen, die in Wäldern vorkommen (aus dem Kollisionsmodell der .dae): Gruppen-Assets haben
-        # Stämme bis ~9 m neben dem Ursprung, die Ausschlusszonen und der Boden müssen für jeden Stamm gelten
+        # Trunk feet of the tree types that occur in forests (from the collision model of the .dae): group assets have
+        # trunks up to ~9 m beside the origin, the exclusion zones and the ground must hold for every trunk
         used_types = {
             name
             for template in (forest_config.get("forest_type_templates") or {}).values()
             for name in template.get("preferred_trees", {})
         }
-        # dae_path ist relativ zum BeamNG-Benutzerordner ("current"), der über "levels/<level>" liegt
+        # dae_path is relative to the BeamNG user folder ("current"), which sits above "levels/<level>"
         self.trunk_feet = load_trunk_feet(
             {name: info for name, info in registered_trees.items() if name in used_types}, config.BEAMNG_DIR.parent.parent
         )
 
     def _forest_cache_key(self, tile_bounds, global_offset, height_hash) -> Optional[str]:
         """
-        Cache-Schlüssel für die fertigen Baum-Instanzen einer Fläche (Poisson-Disk-Sampling +
-        Höhen-Interpolation + Rotation/Scale/Trunk-Fitting - der teuerste Teil von process_tile()).
+        Cache key for the finished tree instances of an area (Poisson disk sampling +
+        height interpolation + rotation/scale/trunk fitting - the most expensive part of process_tile()).
 
-        None ohne height_hash (kein Cache möglich - wie bei den anderen Caches dieser Pipeline).
-        Bewusst grob (wie tile_hash/height_hash überall sonst in dieser Pipeline): eine Änderung
-        an FOREST_*/Straßen-/Terrain-Konfigurationskonstanten wird NICHT automatisch erkannt -
-        siehe README-Troubleshooting ("cache/ löschen, wenn Ergebnisse seltsam aussehen").
+        None without height_hash (no cache possible - as with the other caches of this pipeline).
+        Deliberately coarse (like tile_hash/height_hash everywhere else in this pipeline): a change
+        to FOREST_*/road/terrain configuration constants is NOT detected automatically -
+        see the README troubleshooting ("delete cache/ when results look odd").
         """
         if not height_hash:
             return None
@@ -128,10 +128,10 @@ class ForestWorkflow:
 
         ox, oy = (global_offset[0], global_offset[1]) if global_offset else (0.0, 0.0)
         managed_item_data = self.config.BEAMNG_DIR / "art" / "forest" / "managedItemData.json"
-        # height_hash bleibt sichtbar im Schlüssel (wie osm_all_<height_hash>.json,
-        # grid_v3_grid_<height_hash>_... und dgm30_horizon_<tile_hash>_... an anderer Stelle in
-        # dieser Pipeline) - macht zusammengehörige Cache-Dateien eines Laufs erkennbar; nur die
-        # restlichen, hier zusätzlichen Eingaben werden zu einem Suffix-Hash zusammengefasst.
+        # height_hash stays visible in the key (like osm_all_<height_hash>.json,
+        # grid_v3_grid_<height_hash>_... and dgm30_horizon_<tile_hash>_... elsewhere in
+        # this pipeline) - makes related cache files of one run recognizable; only the
+        # remaining, additional inputs here are combined into a suffix hash.
         signature = "|".join(
             [
                 ",".join(f"{v:.2f}" for v in tile_bounds),
@@ -147,7 +147,7 @@ class ForestWorkflow:
         return self.config.CACHE_DIR / f"forest_instances_{cache_key}.json"
 
     def _load_cached_tree_instances(self, cache_key: Optional[str]):
-        """(tree_instances, forests_count) aus dem Cache, oder None (kein Treffer/kein Cache-Key)."""
+        """(tree_instances, forests_count) from the cache, or None (no hit/no cache key)."""
         if cache_key is None:
             return None
         path = self._forest_cache_path(cache_key)
@@ -170,21 +170,21 @@ class ForestWorkflow:
 
     def _transform_osm_to_local(self, osm_data, global_offset: Tuple[float, float]):
         """
-        ZENTRALE OSM-TRANSFORMATION: Transformiert ALLE OSM-Geometrien einmalig zu lokalen Koordinaten.
+        CENTRAL OSM TRANSFORMATION: transforms ALL OSM geometries to local coordinates once.
 
-        Transformiert alle 'geometry'-Felder von WGS84 (lat/lon) zu lokalen Koordinaten.
-        Nach diesem Aufruf sind ALLE Geometrien in lokalen Koordinaten!
+        Transforms all 'geometry' fields from WGS84 (lat/lon) to local coordinates.
+        After this call ALL geometries are in local coordinates!
 
-        Unterstützt multiple Formate:
-        - {"lat": ..., "lon": ...} (Overpass-Format)
-        - [lat, lon] oder [lon, lat] (Liste/Tuple-Format)
+        Supports multiple formats:
+        - {"lat": ..., "lon": ...} (Overpass format)
+        - [lat, lon] or [lon, lat] (list/tuple format)
 
         Args:
-            osm_data: Liste von OSM-Elementen mit 'geometry' in WGS84
+            osm_data: list of OSM elements with 'geometry' in WGS84
             global_offset: (utm_x_origin, utm_y_origin)
 
         Returns:
-            OSM-Daten mit transformierten Geometrien (in-place Modifikation)
+            OSM data with transformed geometries (in-place modification)
         """
         if not osm_data:
             return osm_data
@@ -192,7 +192,7 @@ class ForestWorkflow:
         from ..geometry.coordinates import transformer_to_wgs84
         from pyproj import Transformer
 
-        # Inverse Transformer: WGS84 → UTM
+        # Inverse transformer: WGS84 → UTM
         transformer_utm = Transformer.from_proj(
             transformer_to_wgs84.target_crs,  # WGS84
             transformer_to_wgs84.source_crs,  # UTM
@@ -208,7 +208,7 @@ class ForestWorkflow:
             if not isinstance(geometry, list):
                 continue
 
-            # Transformiere jedes Geometrie-Punkt
+            # Transform each geometry point
             transformed_geometry = []
             for point in geometry:
                 lat = None
@@ -219,9 +219,9 @@ class ForestWorkflow:
                     lat = point["lat"]
                     lon = point["lon"]
 
-                # Format 2: [lat, lon] oder [lon, lat] oder (lat, lon) oder (lon, lat)
+                # Format 2: [lat, lon] or [lon, lat] or (lat, lon) or (lon, lat)
                 elif isinstance(point, (list, tuple)) and len(point) >= 2:
-                    # Heuristik: Wenn Wert in [-180, 180] → lon, wenn in [-90, 90] → lat
+                    # Heuristic: if the value is in [-180, 180] → lon, if in [-90, 90] → lat
                     val1, val2 = point[0], point[1]
                     if -90 <= val1 <= 90 and -180 <= val2 <= 180:
                         lat, lon = val1, val2  # [lat, lon]
@@ -233,31 +233,31 @@ class ForestWorkflow:
                 if lat is None or lon is None:
                     continue
 
-                # WGS84 → UTM → lokal
+                # WGS84 → UTM → local
                 utm_x, utm_y = transformer_utm.transform(lon, lat)
                 local_x = utm_x - ox
                 local_y = utm_y - oy
 
-                # Ersetze lat/lon durch x/y
+                # Replace lat/lon with x/y
                 transformed_geometry.append({"x": local_x, "y": local_y})
 
-            # Ersetze geometry in-place
+            # Replace geometry in place
             element["geometry"] = transformed_geometry
 
         return osm_data
 
     def _create_road_buffer(self, osm_data, road_margin: float = None):
         """
-        Erstellt einen gepufferten Road-Buffer aus OSM-Daten.
+        Creates a buffered road buffer from OSM data.
 
-        VORAUSSETZUNG: osm_data MUSS bereits in lokalen Koordinaten vorliegen!
+        PREREQUISITE: osm_data MUST already be in local coordinates!
 
         Args:
-            osm_data: OSM-Elemente mit 'geometry' in LOKALEN Koordinaten (x, y)
-            road_margin: Puffer um Straßen (in Metern). Wenn None, wird config.FOREST_ROAD_MARGIN verwendet
+            osm_data: OSM elements with 'geometry' in LOCAL coordinates (x, y)
+            road_margin: buffer around roads (in meters). If None, config.FOREST_ROAD_MARGIN is used
 
         Returns:
-            shapely.geometry.Polygon (gepufferte Vereinigung aller Straßen) oder None
+            shapely.geometry.Polygon (buffered union of all roads) or None
         """
         if road_margin is None:
             road_margin = self.config.FOREST_ROAD_MARGIN
@@ -275,14 +275,14 @@ class ForestWorkflow:
             logger.debug(f"  [Forest] No roads found for the road buffer")
             return None
 
-        # Konvertiere Straßen-Ways zu LineStrings (Koordinaten MÜSSEN lokal sein!)
+        # Convert road ways to LineStrings (coordinates MUST be local!)
         road_lines = []
 
         for road in roads:
             if "geometry" not in road or len(road["geometry"]) < 2:
                 continue
 
-            # Geometrie MUSS in lokalen Koordinaten sein (x, y)
+            # Geometry MUST be in local coordinates (x, y)
             coords_local = [(pt["x"], pt["y"]) for pt in road["geometry"] if "x" in pt and "y" in pt]
 
             if len(coords_local) >= 2:
@@ -292,13 +292,13 @@ class ForestWorkflow:
             logger.debug(f"  [Forest] No valid road lines created")
             return None
 
-        # Vereinige alle Straßen und erstelle Puffer
+        # Union all roads and create the buffer
         if len(road_lines) == 1:
             road_union = road_lines[0]
         else:
             road_union = unary_union(road_lines)
 
-        # Erstelle gepufferte Polygon
+        # Create the buffered polygon
         road_buffer = road_union.buffer(road_margin)
 
         logger.debug(
@@ -309,25 +309,25 @@ class ForestWorkflow:
 
         # except Exception as e:
         #     import traceback
-        #     logger.warning(f"  [Forest] Fehler beim Erstellen von Road Buffer: {e}")
+        #     logger.warning(f"  [Forest] Error creating road buffer: {e}")
         #     logger.debug(f"  [Forest] Stack Trace: {traceback.format_exc()}")
         #     return None
 
     def _create_road_surface_exclusion(self, road_slope_polygons_2d, margin: float):
         """
-        Gepufferte Vereinigung der tatsächlich eingebetteten Straßenflächen (geglättet, mit echter Breite).
+        Buffered union of the road surfaces actually embedded (smoothed, with true width).
 
-        Der OSM-Linienpuffer kennt weder die Fahrbahnbreite noch die Glättung der Mittellinie; die
-        Straßenpolygone entsprechen dem, was BeamNG als DecalRoad auf das Terrain projiziert.
+        The OSM line buffer knows neither the carriageway width nor the smoothing of the centerline; the
+        road polygons correspond to what BeamNG projects onto the terrain as a DecalRoad.
 
         Args:
-            road_slope_polygons_2d: bereits vereinigte Straßenfläche (shapely-Geometrie, siehe
-                geometry.road_surfaces.union_road_surfaces) oder eine Liste von Dicts mit "road_polygon"
-                ((M, 2) Array, lokale Koordinaten)
-            margin: Abstand zur Fahrbahnkante in Metern
+            road_slope_polygons_2d: already unioned road surface (shapely geometry, see
+                geometry.road_surfaces.union_road_surfaces) or a list of dicts with "road_polygon"
+                ((M, 2) array, local coordinates)
+            margin: distance to the road edge in meters
 
         Returns:
-            shapely-Geometrie oder None
+            shapely geometry or None
         """
         from ..geometry.road_surfaces import union_road_surfaces
 
@@ -335,19 +335,19 @@ class ForestWorkflow:
             surface = road_slope_polygons_2d
         else:
             surface = union_road_surfaces(road_slope_polygons_2d)
-        # Erst vereinigen, dann einmal puffern (Minkowski-Summe: gleiches Ergebnis wie Pufferung je Polygon)
+        # Union first, then buffer once (Minkowski sum: same result as buffering each polygon)
         return surface.buffer(margin) if surface is not None and not surface.is_empty else None
 
     def _create_building_buffer(self, osm_data, margin: float = None):
         """
-        Gepufferte Vereinigung aller OSM-Gebäudegrundrisse: dort stehen keine Bäume/Büsche.
+        Buffered union of all OSM building footprints: no trees/bushes stand there.
 
-        Wichtig für Gärten und Wohngebiete, deren Polygone die Häuser umschließen.
+        Important for gardens and residential areas whose polygons enclose the houses.
 
-        VORAUSSETZUNG: osm_data liegt bereits in lokalen Koordinaten vor.
+        PREREQUISITE: osm_data is already in local coordinates.
 
         Returns:
-            shapely-Geometrie oder None (keine Gebäude)
+            shapely geometry or None (no buildings)
         """
         if margin is None:
             margin = self.config.FOREST_BUILDING_MARGIN
@@ -373,11 +373,11 @@ class ForestWorkflow:
 
     def _create_row_exclusion(self, osm_data, building_buffer, surface_exclusion=None):
         """
-        Ausschluss für Baumreihen: Gebäude und Straßen mit dem KLEINEREN Puffer FOREST_ROW_ROAD_MARGIN
-        (Alleen stehen wenige Meter neben der Straße, nicht auf der Fahrbahn).
+        Exclusion for tree rows: buildings and roads with the SMALLER buffer FOREST_ROW_ROAD_MARGIN
+        (avenues stand a few meters beside the road, not on the carriageway).
 
         Returns:
-            shapely-Geometrie oder None
+            shapely geometry or None
         """
         from shapely.ops import unary_union
 
@@ -387,13 +387,13 @@ class ForestWorkflow:
 
     def _single_tree_points(self, osm_data, tile_bounds, global_offset, exclusion=None):
         """
-        Positionen einzelner Bäume (OSM-Punkte mit natural=tree) innerhalb des Tiles.
+        Positions of individual trees (OSM points with natural=tree) within the tile.
 
-        Die Punkte tragen noch lat/lon (nur "geometry"-Listen wurden transformiert). Punkte in
-        `exclusion` (Straßen, Gebäude) werden verworfen.
+        The points still carry lat/lon (only "geometry" lists were transformed). Points in
+        `exclusion` (roads, buildings) are discarded.
 
         Returns:
-            Liste lokaler (x, y)
+            list of local (x, y)
         """
         from shapely import intersects_xy
 
@@ -427,29 +427,29 @@ class ForestWorkflow:
         road_surfaces=None,
     ) -> Dict:
         """
-        PHASE 1b: Verarbeite Wälder für ein 2×2km Tile.
+        PHASE 1b: Process forests for a 2×2 km tile.
 
-        MUSS nach set_forest_config() aufgerufen werden!
-        Wird für JEDES Tile aufgerufen.
+        MUST be called after set_forest_config()!
+        Is called for EVERY tile.
 
-        Schritte:
-        1. Normalisiere OSM-Waldpolygone auf Tile-Grenzen
-        2. Generiere Tree-Punkte (Poisson-Disk-Sampling)
-        3. Interpoliere Höhen aus Elevation-Grid
-        4. Generiere Instances (Type, Rotation, Scale)
+        Steps:
+        1. Normalize OSM forest polygons to tile borders
+        2. Generate tree points (Poisson disk sampling)
+        3. Interpolate heights from the elevation grid
+        4. Generate instances (type, rotation, scale)
 
         Args:
-            tile_bounds: (x_min, y_min, x_max, y_max) in lokalen Koordinaten
-            tile_name: Optional - Name des Tiles für Logging
-            elevation_data: Optional - numpy array mit Höhendaten
-            height_grid_info: Optional - Dict mit "origin", "spacing", "elevations"
-            height_hash: Optional - Hash für Cache-Konsistenz (vom Terrain-Workflow)
-            global_offset: Optional - (utm_x_origin, utm_y_origin) für WGS84-Transformation
-                          WICHTIG: Muss der UTM-Ursprung sein, nicht der Tile-Zentroid!
-            height_at: Optional - Höhenabfrage (x, y) -> z der FERTIGEN Terrain-Heightmap (nach Straßen-Einbettung).
-                       Ohne sie fallen die Höhen auf die rohen DGM1-Punkte (Nearest-Neighbor) zurück.
-            road_surfaces: Optional - vereinigte eingebettete Straßenfläche (shapely, lokal) oder Liste von Dicts
-                           mit "road_polygon"; dort und in FOREST_ROAD_SURFACE_MARGIN Umgebung stehen keine Bäume
+            tile_bounds: (x_min, y_min, x_max, y_max) in local coordinates
+            tile_name: optional - name of the tile for logging
+            elevation_data: optional - numpy array with elevation data
+            height_grid_info: optional - dict with "origin", "spacing", "elevations"
+            height_hash: optional - hash for cache consistency (from the terrain workflow)
+            global_offset: optional - (utm_x_origin, utm_y_origin) for the WGS84 transformation
+                          IMPORTANT: must be the UTM origin, not the tile centroid!
+            height_at: optional - height query (x, y) -> z of the FINISHED terrain heightmap (after road embedding).
+                       Without it the heights fall back to the raw DGM1 points (nearest neighbor).
+            road_surfaces: optional - unioned embedded road surface (shapely, local) or list of dicts
+                           with "road_polygon"; no trees stand there or within FOREST_ROAD_SURFACE_MARGIN of it
 
         Returns:
             {
@@ -473,10 +473,10 @@ class ForestWorkflow:
         try:
             logger.debug(f"\n[Forest Phase 1b] Starting for {tile_name} (bounds: {tile_bounds})")
 
-            # Initialisiere osm_data
+            # Initialize osm_data
             osm_data = None
 
-            # Prüfe ob set_forest_config() aufgerufen wurde
+            # Check whether set_forest_config() was called
             if not self.normalizer or not self.instance_generator:
                 logger.error(f"[Forest ERROR] set_forest_config() not called!")
                 return {
@@ -489,9 +489,9 @@ class ForestWorkflow:
                     "error": "set_forest_config() not called",
                 }
 
-            # Cache: Poisson-Disk-Sampling + Höhen-Interpolation + Instanz-Generierung sind der
-            # teuerste Teil hier unten (zehntausende Bäume) - bei unverändertem Gebiet/Höhendaten/
-            # Config direkt die fertigen Baum-Instanzen wiederverwenden (siehe _forest_cache_key()).
+            # Cache: Poisson disk sampling + height interpolation + instance generation are the
+            # most expensive part below (tens of thousands of trees) - with unchanged area/elevation data/
+            # config directly reuse the finished tree instances (see _forest_cache_key()).
             cache_key = self._forest_cache_key(tile_bounds, global_offset, height_hash)
             cached = self._load_cached_tree_instances(cache_key)
             if cached is not None:
@@ -508,14 +508,14 @@ class ForestWorkflow:
                     "error": None,
                 }
 
-            # Phase 1b: Normalisierung (mit bereits geladenen OSM-Daten)
+            # Phase 1b: Normalization (with already loaded OSM data)
             if not osm_data:
                 logger.debug(f"  [→] Loading OSM data from cache...")
                 from ..osm.downloader import get_osm_data
                 from ..geometry.coordinates import transformer_to_wgs84
 
-                # Konvertiere lokale Bounds zurück zu UTM (einfach + offset)
-                # global_offset kann (x, y) oder (x, y, z) sein - wir brauchen nur (x, y)
+                # Convert local bounds back to UTM (simply + offset)
+                # global_offset can be (x, y) or (x, y, z) - we only need (x, y)
                 if global_offset:
                     ox, oy = global_offset[0], global_offset[1]
                 else:
@@ -525,14 +525,14 @@ class ForestWorkflow:
                 utm_x_max = tile_bounds[2] + ox
                 utm_y_max = tile_bounds[3] + oy
 
-                # Konvertiere UTM zu lat/lon für BBox (Overpass Query braucht lat/lon)
+                # Convert UTM to lat/lon for the BBox (the Overpass query needs lat/lon)
                 lat_min, lon_min = transformer_to_wgs84.transform(utm_x_min, utm_y_min)
                 lat_max, lon_max = transformer_to_wgs84.transform(utm_x_max, utm_y_max)
 
                 # Overpass BBox: (lat_min, lon_min, lat_max, lon_max)
                 bbox_tuple = (lat_min, lon_min, lat_max, lon_max)
 
-                # Nutze height_hash für Cache-Konsistenz (wie Terrain-Workflow)
+                # Use height_hash for cache consistency (like the terrain workflow)
                 osm_data = get_osm_data(bbox_tuple, height_hash=height_hash)
                 logger.debug(f"  [→] {len(osm_data) if osm_data else 0} OSM elements loaded")
 
@@ -550,21 +550,21 @@ class ForestWorkflow:
 
             logger.debug(f"  [→] Normalizing OSM forest polygons...")
 
-            # Berechne local_offset für Koordinaten-Transformation
-            # global_offset kann (x, y) oder (x, y, z) sein - wir brauchen nur (x, y)
+            # Compute local_offset for the coordinate transformation
+            # global_offset can be (x, y) or (x, y, z) - we only need (x, y)
             if global_offset:
                 ox, oy = global_offset[0], global_offset[1]
             else:
                 ox, oy = 0, 0
 
-            # ZENTRALE TRANSFORMATION: Konvertiere ALLE OSM-Geometrien einmalig zu lokalen Koordinaten
+            # CENTRAL TRANSFORMATION: convert ALL OSM geometries to local coordinates once
             logger.debug(f"  [→] Transforming OSM data to local coordinates...")
             osm_data = self._transform_osm_to_local(osm_data, (ox, oy))
 
-            # Ab jetzt: ALLE Geometrien in osm_data sind in lokalen Koordinaten!
-            # WGS84 (lat/lon) existiert nicht mehr - nur noch lokale (x, y)!
+            # From now on: ALL geometries in osm_data are in local coordinates!
+            # WGS84 (lat/lon) no longer exists - only local (x, y)!
 
-            # Nutze den echten global_offset für Waldtransformation
+            # Use the real global_offset for the forest transformation
             forest_local_offset = (ox, oy)
 
             normalized = self.normalizer.normalize_tile(
@@ -574,7 +574,7 @@ class ForestWorkflow:
                 f"  [Forest] Normalization: {normalized.get('status')} - {normalized.get('forest_count')} forests"
             )
 
-            # DEBUG: Speichere Dump wenn forest_count = 0
+            # DEBUG: save a dump if forest_count = 0
             if normalized.get("forest_count", 0) == 0:
                 import json
                 from pathlib import Path
@@ -609,10 +609,10 @@ class ForestWorkflow:
             forests = normalized["forests"]
             logger.debug(f"  [→] {len(forests)} forest polygons to process")
 
-            # Phase 2: Point Generation (Poisson-Disk-Sampling)
+            # Phase 2: Point generation (Poisson disk sampling)
             logger.debug(f"  [→] Generating tree positions (Poisson disk)...")
 
-            # Erstelle Road Buffer (OSM-Daten bereits in lokalen Koordinaten!)
+            # Create the road buffer (OSM data already in local coordinates!)
             road_buffer = self._create_road_buffer(osm_data)
             if road_buffer:
                 logger.debug(
@@ -620,7 +620,7 @@ class ForestWorkflow:
                 )
             else:
                 logger.debug(f"  [Forest] Road buffer is None!")
-            # Bäume/Büsche dürfen weder auf Straßen noch in/an Gebäuden stehen (Gärten, Wohngebiete)
+            # Trees/bushes must stand neither on roads nor in/at buildings (gardens, residential areas)
             building_buffer = self._create_building_buffer(osm_data)
             if building_buffer is not None:
                 logger.debug(f"  [Forest] Building buffer created - area: {building_buffer.area:.0f}m²")
@@ -629,7 +629,7 @@ class ForestWorkflow:
                 exclusion = unary_union([road_buffer, building_buffer]) if road_buffer else building_buffer
             else:
                 exclusion = road_buffer
-            # Tatsächlich eingebettete (geglättete, echt breite) Straßenflächen zusätzlich zum rohen OSM-Linienpuffer
+            # Actually embedded (smoothed, true-width) road surfaces in addition to the raw OSM line buffer
             surface_exclusion = self._create_road_surface_exclusion(road_surfaces, self.config.FOREST_ROAD_SURFACE_MARGIN)
             if surface_exclusion is not None:
                 from shapely.ops import unary_union
@@ -649,7 +649,7 @@ class ForestWorkflow:
                 forests=forests, forest_properties=forest_properties
             )
 
-            # Einzelbäume (OSM natural=tree als Punkt) als eigener synthetischer "Wald"-Eintrag
+            # Individual trees (OSM natural=tree as a point) as their own synthetic "forest" entry
             single_type = self.forest_config.get("forest_mappings", {}).get("single_trees", {}).get("forest_type")
             if single_type and single_type in forest_properties:
                 singles = self._single_tree_points(osm_data, tile_bounds, (ox, oy), exclusion)
@@ -661,7 +661,7 @@ class ForestWorkflow:
             total_points = sum(len(pts) for pts in forest_points.values())
             logger.debug(f"  [→] {total_points} tree positions generated")
 
-            # Phase 3: Height Interpolation (Bilineare Interpolation)
+            # Phase 3: Height interpolation (bilinear interpolation)
             logger.debug(f"  [→] Interpolating heights...")
             forest_points_3d = self.height_calculator.calculate_heights_for_forest_points(
                 forest_points=forest_points,
@@ -673,10 +673,10 @@ class ForestWorkflow:
 
             logger.debug(f"  [→] Heights interpolated for {total_points} points")
 
-            # Phase 4: Instance Generation (Type, Rotation, Scale)
+            # Phase 4: Instance generation (type, rotation, scale)
             logger.debug(f"  [→] Generating tree instances...")
-            # Die Ursprünge halten die Abstände ein; die Stämme von Gruppen-Assets (bis ~9 m daneben) müssen es auch,
-            # und sie dürfen nicht in der Luft hängen. Dieselben Zonen und Abstände wie oben, nur pro Stamm geprüft.
+            # The origins keep the distances; the trunks of group assets (up to ~9 m beside them) must do so too,
+            # and they must not hang in the air. Same zones and distances as above, only checked per trunk.
             fitter = TrunkFitter(
                 self.trunk_feet,
                 exclusion=exclusion,
@@ -695,7 +695,7 @@ class ForestWorkflow:
                 fitter=fitter,
             )
 
-            # Sammle Instances für finalen Export
+            # Collect instances for the final export
             self.all_tree_instances.extend(tree_instances)
             self._save_cached_tree_instances(cache_key, tree_instances, len(forests))
 
@@ -731,26 +731,26 @@ class ForestWorkflow:
 
     def add_instances(self, instances: List[Dict]) -> int:
         """
-        Fügt zusätzliche Forest-Instanzen hinzu (z.B. Weinberg-Reben), die nicht aus
-        Waldpolygonen stammen. Sie werden in finalize_forest_export() zusammen mit den
-        Bäumen in forest.forest4.json geschrieben.
+        Adds additional forest instances (e.g. vineyard vines) that do not come from
+        forest polygons. They are written to forest.forest4.json in finalize_forest_export() together with the
+        trees.
 
         Args:
-            instances: Instanzen im forest4-Format (type, pos, rotationMatrix, scale)
+            instances: instances in forest4 format (type, pos, rotationMatrix, scale)
 
         Returns:
-            Anzahl der hinzugefügten Instanzen
+            Number of added instances
         """
         self.all_tree_instances.extend(instances)
         return len(instances)
 
     def finalize_forest_export(self) -> Dict:
         """
-        FINALISIERUNG (nach Tile-Loop): Schreibe forest.forest4.json.
+        FINALIZATION (after the tile loop): write forest.forest4.json.
 
-        Sammelt alle Tree-Instances aus process_tile() und schreibt forest.forest4.json.
+        Collects all tree instances from process_tile() and writes forest.forest4.json.
 
-        MUSS NACH dem Tile-Loop aufgerufen werden!
+        MUST be called AFTER the tile loop!
 
         Returns:
             {
@@ -764,7 +764,7 @@ class ForestWorkflow:
         try:
             logger.debug(f"[Forest] Finalizing export ({len(self.all_tree_instances)} instances)...")
 
-            # Prüfe ob Instanzen vorhanden
+            # Check whether instances exist
             if not self.all_tree_instances:
                 logger.warning("[Forest] No tree instances generated, skipping forest.forest4.json")
                 return {
@@ -775,7 +775,7 @@ class ForestWorkflow:
                     "error": None,
                 }
 
-            # Prüfe ob JSON Writer initialisiert
+            # Check whether the JSON writer is initialized
             if not self.json_writer:
                 logger.info("[Forest ERROR] ForestJSONWriter not initialized!")
                 return {
@@ -786,7 +786,7 @@ class ForestWorkflow:
                     "error": "ForestJSONWriter not initialized",
                 }
 
-            # Schreibe forest.forest4.json
+            # Write forest.forest4.json
             write_result = self.json_writer.write_forest_json(
                 tree_instances=self.all_tree_instances, filename="forest.forest4.json"
             )
@@ -800,7 +800,7 @@ class ForestWorkflow:
                     "error": write_result.get("error"),
                 }
 
-            # Statistiken
+            # Statistics
             statistics = self.json_writer.get_statistics(self.all_tree_instances)
 
             logger.info(f"[✓] Forest export finished:")

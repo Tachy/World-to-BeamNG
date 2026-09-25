@@ -1,8 +1,8 @@
 """
-Straßensperre vor Tunneleinfahrten, deren Tunnel über die Kartengrenze reicht: dort endet die Welt mitten in der
-Röhre, also wird die Einfahrt gesperrt - eine Reihe rot-weißer Kunststoff-Barrieren (BeamNG-Standardasset
-config.ROADBLOCK_SHAPE) quer über die Zufahrt, kurz vor der Portalebene. Die Röhre selbst liegt dann flach auf
-Einfahrtshöhe (geometry/polygon.py::apply_structure_elevation_profiles).
+Roadblock in front of tunnel entrances whose tunnel extends beyond the map border: the world ends in the middle of
+the tube there, so the entrance is blocked - a row of red-and-white plastic barriers (BeamNG default asset
+config.ROADBLOCK_SHAPE) across the approach, just before the portal plane. The tube itself then lies flat at
+entrance elevation (geometry/polygon.py::apply_structure_elevation_profiles).
 """
 
 import math
@@ -23,15 +23,16 @@ def plan_roadblocks(
     entrance_tol: float = 0.5,
 ) -> List[Dict]:
     """
-    Barriere-Elemente für alle Tunnel-Pläne (tunnel_portal.plan_tunnels()), die mit genau einem Ende über die
-    Kartengrenze reichen: vor dem anderen Portal eine Reihe quer über die Fahrbahn (Fahrbahnbreite = Röhrenbreite -
-    width_margin, je Seite side_margin mehr), `distance` vor der Portalebene, Elemente im Abstand `spacing`. Nur an
-    echten Einfahrten: das Portal liegt höchstens entrance_tol von einem Punkt aus `entrances` (Endpunkte von
-    Oberflächenstraßen) - ein Kettenende an einer Verzweigung im Berg (z.B. Festungsstollen) bekommt keine Sperre.
+    Barrier elements for all tunnel plans (tunnel_portal.plan_tunnels()) that extend beyond the map border with
+    exactly one end: in front of the other portal a row across the road surface (road width = tube width -
+    width_margin, side_margin more on each side), `distance` before the portal plane, elements spaced `spacing`
+    apart. Only at real entrances: the portal is at most entrance_tol from a point in `entrances` (end points of
+    surface roads) - a chain end at a branch inside the mountain (e.g. a fortress adit) gets no roadblock.
 
     Returns:
-        [{"name", "xy", "rotation_matrix"}, ...] - Höhe setzt der Aufrufer aus dem Gelände. rotation_matrix dreht
-        die lokale Vorwärtsachse (+y) auf die Tunnelachse, die Längsachse der Barriere (lokal +x) liegt damit quer.
+        [{"name", "xy", "rotation_matrix"}, ...] - the caller sets the height from the terrain. rotation_matrix
+        turns the local forward axis (+y) onto the tunnel axis, so the longitudinal axis of the barrier (local +x)
+        lies across it.
     """
     blocks = []
     for plan in plans:
@@ -43,13 +44,13 @@ def plan_roadblocks(
         px, py = portal["xy"]
         if not any(math.hypot(ex - px, ey - py) <= entrance_tol for ex, ey in entrances):
             continue
-        ux, uy = portal["axis"]  # ins Tunnelinnere
-        across = (uy, -ux)  # rechts in Blickrichtung ins Tunnelinnere
+        ux, uy = portal["axis"]  # into the tunnel interior
+        across = (uy, -ux)  # right when looking into the tunnel interior
         road_width = plan["tube_width"] - width_margin
         count = max(2, math.ceil((road_width + 2.0 * side_margin) / spacing))
         cx, cy = px - ux * distance, py - uy * distance
-        # BeamNG: Zeilen = Bilder der lokalen Achsen (siehe ItemManager._heading_rotation_matrix()) - Zeile 0 = quer
-        # (Längsachse der Barriere), Zeile 1 = Tunnelachse, Zeile 2 = oben
+        # BeamNG: rows = images of the local axes (see ItemManager._heading_rotation_matrix()) - row 0 = across
+        # (longitudinal axis of the barrier), row 1 = tunnel axis, row 2 = up
         rotation = [across[0], across[1], 0.0, ux, uy, 0.0, 0.0, 0.0, 1.0]
         for i in range(count):
             offset = (i - (count - 1) / 2.0) * spacing

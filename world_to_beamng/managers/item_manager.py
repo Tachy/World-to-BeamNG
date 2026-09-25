@@ -1,11 +1,11 @@
 """
-ItemManager - Zentrale Verwaltung aller BeamNG-Items.
+ItemManager - central management of all BeamNG items.
 
-Verwaltet Items für:
-- Terrain-Tiles (TSStatic)
-- Gebäude (TSStatic)
-- Horizont-Layer (TSStatic)
-- Decals, Prefabs, etc.
+Manages items for:
+- Terrain tiles (TSStatic)
+- Buildings (TSStatic)
+- Horizon layer (TSStatic)
+- Decals, prefabs, etc.
 """
 
 import copy
@@ -23,33 +23,33 @@ logger = LoggerConfig.get_logger()
 
 class ItemManager:
     """
-    Zentrale Verwaltung aller BeamNG-Items (Singleton).
+    Central management of all BeamNG items (singleton).
 
     Features:
-    - Automatisches Tracking von Items
-    - Duplikat-Erkennung
-    - JSON Export/Import
-    - Item-Templates (Terrain, Buildings, etc.)
-    - Merge-Unterstützung für Multi-Tile-Workflows
-    - Bounds-Berechnung für Terrain-Tiles
-    - Singleton: Nur eine Instanz pro Export (eine items.json)
+    - Automatic tracking of items
+    - Duplicate detection
+    - JSON export/import
+    - Item templates (terrain, buildings, etc.)
+    - Merge support for multi-tile workflows
+    - Bounds calculation for terrain tiles
+    - Singleton: only one instance per export (one items.json)
     """
 
     _instance: Optional["ItemManager"] = None
 
-    # persistentId der MissionGroup (Hauptelement)
+    # persistentId of the MissionGroup (main element)
     MISSION_GROUP_ID = "6d21ca3b-3f81-4cd8-aeb9-0e780223c20e"
 
-    # MissionGroup - wird in main.level.json geschrieben
+    # MissionGroup - written to main.level.json
     MISSION_GROUP_LINE = {
         "name": "MissionGroup",
         "class": "SimGroup",
         "persistentId": MISSION_GROUP_ID,
     }
 
-    # Weitere Base-Items - werden in main/MissionGroup/items.level.json geschrieben: LevelInfo, ScatterSky (Sonne/Himmel),
-    # TimeOfDay, CloudLayer, Precipitation aus BeamNGs eigenen Vorgaben (managers/environment.py) + die PlayerDropPoints-
-    # SimGroup. Ein separates Sun-Objekt gibt es bewusst nicht: der ScatterSky liefert die Sonne (wie in den Original-Leveln).
+    # Further base items - written to main/MissionGroup/items.level.json: LevelInfo, ScatterSky (sun/sky),
+    # TimeOfDay, CloudLayer, Precipitation from BeamNG's own defaults (managers/environment.py) + the PlayerDropPoints
+    # SimGroup. There is deliberately no separate Sun object: the ScatterSky provides the sun (as in the original levels).
     OTHER_BASE_LINES = build_environment_lines(
         load_environment_defaults(),
         latitude=config.SUN_REFERENCE_LATLON[0],
@@ -62,7 +62,7 @@ class ItemManager:
         environment_map="BNG_Sky_02_cubemap",
     ) + [
         {
-            "name": "PlayerDropPoints",  # SimGroup für Spawn-Punkte (BeamNG-Standard)
+            "name": "PlayerDropPoints",  # SimGroup for spawn points (BeamNG default)
             "class": "SimGroup",
             "persistentId": "e8177ef1-0445-4ea5-811a-4eda149ca818",
             "enabled": "1",
@@ -71,7 +71,7 @@ class ItemManager:
     ]
     PLAYER_DROPPOINTS_LINE = [
         {
-            "name": "spawn",  # Spawn-Sphere unter PlayerDropPoints
+            "name": "spawn",  # Spawn sphere under PlayerDropPoints
             "class": "SpawnSphere",
             "dataBlock": "SpawnSphereMarker",
             "persistentId": "3d08e3b2-2514-49f8-8b76-8351a12dea51",
@@ -80,13 +80,13 @@ class ItemManager:
             "radius": 10,
             "sphereWeight": 100,
             "indoorWeight": 100,
-            "parentId": "PlayerDropPoints",  # Child von PlayerDropPoints!
+            "parentId": "PlayerDropPoints",  # Child of PlayerDropPoints!
         }
     ]
 
-    # Level-Info für info.json (Fallback für einen ItemManager ohne echten Export-Lauf, z.B. Tests/Tools;
-    # ein echter Export überschreibt "size" und "minimap" zur Exportzeit mit der tatsächlichen Terrain-
-    # Ausdehnung über set_info_json_fields(), siehe export/beamng_exporter.py und io/aerial.py).
+    # Level info for info.json (fallback for an ItemManager without a real export run, e.g. tests/tools;
+    # a real export overwrites "size" and "minimap" at export time with the actual terrain
+    # extent via set_info_json_fields(), see export/beamng_exporter.py and io/aerial.py).
     LEVEL_INFO = {
         "title": "World to BeamNG",
         "description": "Automatic export of OpenStreetMap elements into the BeamNG.drive format.",
@@ -95,21 +95,21 @@ class ItemManager:
         "size": [2000, 2000],
         "authors": "Tachy AI",
         "supportsTraffic": False,
-        "supportsTimeOfDay": True,  # TimeOfDay-Objekt vorhanden (managers/environment.py)
-        # Name des SpawnSphere-OBJEKTS (PLAYER_DROPPOINTS_LINE, "spawn"), NICHT der umschließenden
-        # PlayerDropPoints-SimGroup: setSpawnpoint.lua::loadDefaultSpawnpoint() liest dieses Feld direkt
-        # und übergibt es unverändert an scenetree.findObject() - zeigt es auf die SimGroup, findet das
-        # einen Nicht-Objekt ohne getPosition() und core_levels.maybeSpawnDefaultVehicle() crasht fatal
-        # beim automatischen Fahrzeug-Spawn (verifiziert gegen lua/ge/spawn.lua + setSpawnpoint.lua).
+        "supportsTimeOfDay": True,  # TimeOfDay object present (managers/environment.py)
+        # Name of the SpawnSphere OBJECT (PLAYER_DROPPOINTS_LINE, "spawn"), NOT of the enclosing
+        # PlayerDropPoints SimGroup: setSpawnpoint.lua::loadDefaultSpawnpoint() reads this field directly
+        # and passes it unchanged to scenetree.findObject() - if it points to the SimGroup, that finds
+        # a non-object without getPosition() and core_levels.maybeSpawnDefaultVehicle() crashes fatally
+        # on the automatic vehicle spawn (verified against lua/ge/spawn.lua + setSpawnpoint.lua).
         "defaultSpawnPointName": "spawn",
     }
 
     def __init__(self, beamng_dir: Path):
         """
-        Private Constructor - verwende get_instance() stattdessen.
+        Private constructor - use get_instance() instead.
 
         Args:
-            beamng_dir: Pfad zum BeamNG Level-Verzeichnis
+            beamng_dir: Path to the BeamNG level directory
         """
         if ItemManager._instance is not None:
             raise RuntimeError("ItemManager is a singleton - use get_instance()")
@@ -120,13 +120,13 @@ class ItemManager:
     @classmethod
     def get_instance(cls, beamng_dir: Path = None) -> "ItemManager":
         """
-        Hole die Singleton-Instanz (erstellt sie bei Bedarf).
+        Gets the singleton instance (creates it if needed).
 
         Args:
-            beamng_dir: Pfad zum BeamNG Level-Verzeichnis (nur beim ersten Aufruf)
+            beamng_dir: Path to the BeamNG level directory (first call only)
 
         Returns:
-            ItemManager Singleton-Instanz
+            ItemManager singleton instance
         """
         if cls._instance is None:
             if not beamng_dir:
@@ -138,22 +138,22 @@ class ItemManager:
 
     @classmethod
     def reset_instance(cls) -> None:
-        """Setze Singleton-Instanz zurück (für neuen Export-Lauf)."""
+        """Resets the singleton instance (for a new export run)."""
         cls._instance = None
 
     @property
     def base_lines(self) -> List[Dict[str, Any]]:
-        """Basis-Objekte (LevelInfo, ScatterSky, ...) dieser Instanz: eine Kopie, damit Export-Werte die Klasse nicht ändern."""
+        """Base objects (LevelInfo, ScatterSky, ...) of this instance: a copy so that export values do not change the class."""
         if not hasattr(self, "_base_lines"):
             self._base_lines = copy.deepcopy(self.OTHER_BASE_LINES)
         return self._base_lines
 
     def set_base_line_fields(self, name: str, **fields) -> None:
         """
-        Setzt Felder eines Basis-Objekts zur Exportzeit (z.B. fogAtmosphereHeight aus der Terrainhöhe).
+        Sets fields of a base object at export time (e.g. fogAtmosphereHeight from the terrain height).
 
         Raises:
-            KeyError: wenn es kein Basis-Objekt dieses Namens gibt
+            KeyError: if there is no base object of this name
         """
         for line in self.base_lines:
             if line.get("name") == name:
@@ -173,23 +173,23 @@ class ItemManager:
         **kwargs,
     ) -> bool:
         """
-        Füge Item hinzu.
+        Adds an item.
 
         Args:
-            name: Item-Name (eindeutig)
-            item_class: BeamNG Item-Klasse (z.B. "TSStatic", "DecalRoad")
-            shape_name: Pfad zur Shape-Datei (relativ oder absolut)
+            name: Item name (unique)
+            item_class: BeamNG item class (e.g. "TSStatic", "DecalRoad")
+            shape_name: Path to the shape file (relative or absolute)
             position: Position [x, y, z]
-            rotation_matrix: Ausrichtung als 3x3-Matrix (9 Werte, zeilenweise); ohne Angabe bleibt das Objekt unverdreht.
-                Es gibt bewusst kein Feld "rotation": BeamNG liest die Ausrichtung nur aus "rotationMatrix" (offizielle
-                Level schreiben nie "rotation"), und ein "rotation": [0, 0, 1, 0] hat jedes DAE-Objekt um ca. 0,04 Grad
-                um die x-Achse durch den Ursprung gekippt (Mauern am Hang 1 m zu tief).
-            scale: Skalierung [x, y, z]
-            overwrite: Überschreibe existierendes Item
-            **kwargs: Zusätzliche Properties (collisionType, dataBlock, etc.)
+            rotation_matrix: Orientation as a 3x3 matrix (9 values, row by row); if omitted the object stays unrotated.
+                There is deliberately no "rotation" field: BeamNG reads the orientation only from "rotationMatrix" (official
+                levels never write "rotation"), and a "rotation": [0, 0, 1, 0] tilted every DAE object by about 0.04 degrees
+                around the x-axis through the origin (walls on slopes 1 m too low).
+            scale: Scale [x, y, z]
+            overwrite: Overwrite an existing item
+            **kwargs: Additional properties (collisionType, dataBlock, etc.)
 
         Returns:
-            True wenn Item hinzugefügt wurde, False wenn bereits vorhanden und overwrite=False
+            True if the item was added, False if it already exists and overwrite=False
         """
         if "rotation" in kwargs:
             raise TypeError('Do not use the field "rotation": BeamNG tilts the object with it, orientation only via rotation_matrix')
@@ -208,13 +208,13 @@ class ItemManager:
         if shape_name:
             item["shapeName"] = shape_name
 
-        # Merge zusätzliche Properties
+        # Merge additional properties
         item.update(kwargs)
 
-        # Generiere persistentId (UUID v4)
+        # Generate persistentId (UUID v4)
         item["persistentId"] = str(uuid.uuid4())
 
-        # Setze parentId auf MissionGroup
+        # Set parentId to MissionGroup
         item["parentId"] = "MissionGroup"
 
         self.items[name] = item
@@ -233,26 +233,26 @@ class ItemManager:
         overwrite: bool = False,
     ) -> str:
         """
-        Registriert das native BeamNG-Terrain (TerrainBlock, .ter-Datei).
+        Registers the native BeamNG terrain (TerrainBlock, .ter file).
 
-        JSON-Schema verifiziert gegen BeamNGs eigenes template-Level
+        JSON schema verified against BeamNG's own template level
         (content/levels/template.zip).
 
         Args:
-            name: Item-Name (üblich: "theTerrain")
-            terrain_filename: Dateiname der .ter-Datei (z.B. "world_to_beamng.ter"),
-                              relativ zum Level-Root abgelegt
-            material_texture_set: Name des TerrainMaterialTextureSet
-            max_height: Höhenbereich in Metern (config.TERRAIN_MAX_HEIGHT_BUFFER
-                       + tatsächliche Elevation-Spanne)
-            z_min: absolute Welthöhe (Meter), die Heightmap-Wert 0 entspricht
-            origin_x, origin_y: Welt-Koordinaten der Terrain-Ecke [0, 0]
-            square_size: Meter pro Rasterzelle (config.TERRAIN_SQUARE_SIZE) -
-                        Torque3D TerrainBlock-Feld "squareSize"
-            overwrite: Überschreibe existierendes Item
+            name: Item name (usually: "theTerrain")
+            terrain_filename: File name of the .ter file (e.g. "world_to_beamng.ter"),
+                              placed relative to the level root
+            material_texture_set: Name of the TerrainMaterialTextureSet
+            max_height: Height range in meters (config.TERRAIN_MAX_HEIGHT_BUFFER
+                       + actual elevation span)
+            z_min: absolute world height (meters) that corresponds to heightmap value 0
+            origin_x, origin_y: World coordinates of the terrain corner [0, 0]
+            square_size: Meters per grid cell (config.TERRAIN_SQUARE_SIZE) -
+                        Torque3D TerrainBlock field "squareSize"
+            overwrite: Overwrite an existing item
 
         Returns:
-            Item-Name
+            Item name
         """
         from .. import config
 
@@ -276,17 +276,17 @@ class ItemManager:
         **fields,
     ) -> str:
         """
-        Registriert ein GroundCover-Objekt (Bodenbewuchs: Gras, Blumen, Farn ...).
+        Registers a GroundCover object (ground vegetation: grass, flowers, fern ...).
 
         Args:
-            name: Item-Name (eindeutig, z.B. "gc_mat_grass_grass_short")
-            material: Billboard-Material (Textur-Atlas) der Types
-            types: Liste von Types (billboardUVs, sizeMin/-Max, Klumpung, layer ...);
-                `layer` bindet einen Typ an den Namen eines Terrain-Materials
-            **fields: weitere Felder (radius, maxElements, gridSize, Wind ...)
+            name: Item name (unique, e.g. "gc_mat_grass_grass_short")
+            material: Billboard material (texture atlas) of the types
+            types: List of types (billboardUVs, sizeMin/-Max, clumping, layer ...);
+                `layer` binds a type to the name of a terrain material
+            **fields: further fields (radius, maxElements, gridSize, wind ...)
 
         Returns:
-            Item-Name
+            Item name
         """
         self.add_item(
             name,
@@ -308,23 +308,23 @@ class ItemManager:
         **extra,
     ) -> str:
         """
-        Registriert eine Straße als BeamNG DecalRoad (Spline-Decal, wird zur
-        Laufzeit direkt auf die Terrain-Oberfläche projiziert - siehe
-        JSON-Schema verifiziert gegen BeamNGs eigenem gridmap_v2-Level,
+        Registers a road as a BeamNG DecalRoad (spline decal, projected directly
+        onto the terrain surface at runtime - see
+        JSON schema verified against BeamNG's own gridmap_v2 level,
         main/MissionGroup/.../decalroads/items.level.json).
 
         Args:
-            name: Item-Name (eindeutig, z.B. "road_<road_id>")
-            nodes: Liste von [x, y, z, width]-Knoten entlang der Centerline
-            material: Name des Material-Datablocks (siehe
+            name: Item name (unique, e.g. "road_<road_id>")
+            nodes: List of [x, y, z, width] nodes along the centerline
+            material: Name of the material datablock (see
                       OSMMapper.generate_materials_json_entry())
-            drivability: AI-Navigations-Gewicht (-1 = nicht nutzbar, 1 = normal)
-            overwrite: Überschreibe existierendes Item
-            **extra: Zusätzliche DecalRoad-Felder (z.B. autoLanes, autoJunction,
+            drivability: AI navigation weight (-1 = not usable, 1 = normal)
+            overwrite: Overwrite an existing item
+            **extra: Additional DecalRoad fields (e.g. autoLanes, autoJunction,
                      improvedSpline, textureLength, renderPriority, distanceFade)
 
         Returns:
-            Item-Name
+            Item name
         """
         position = tuple(nodes[0][:3]) if nodes else (0.0, 0.0, 0.0)
 
@@ -348,16 +348,16 @@ class ItemManager:
         overwrite: bool = False,
     ) -> str:
         """
-        Füge Gebäude-Item hinzu (Convenience-Methode).
+        Adds a building item (convenience method).
 
         Args:
-            name: Item-Name (z.B. "building_tile_0_0")
-            dae_filename: DAE-Dateiname (z.B. "buildings_tile_0_0.dae")
+            name: Item name (e.g. "building_tile_0_0")
+            dae_filename: DAE file name (e.g. "buildings_tile_0_0.dae")
             position: Position [x, y, z]
-            overwrite: Überschreibe existierendes Item
+            overwrite: Overwrite an existing item
 
         Returns:
-            Item-Name
+            Item name
         """
         from .. import config
 
@@ -381,16 +381,16 @@ class ItemManager:
         overwrite: bool = False,
     ) -> str:
         """
-        Füge Horizont-Item hinzu (Convenience-Methode).
+        Adds a horizon item (convenience method).
 
         Args:
-            name: Item-Name
-            dae_filename: DAE-Dateiname
-            position: Position (normalerweise [0, 0, 0])
-            overwrite: Überschreibe existierendes Item
+            name: Item name
+            dae_filename: DAE file name
+            position: Position (normally [0, 0, 0])
+            overwrite: Overwrite an existing item
 
         Returns:
-            Item-Name
+            Item name
         """
         from .. import config
 
@@ -409,19 +409,19 @@ class ItemManager:
 
     def _compute_vehicle_spawn(self, road_polygons) -> Tuple[list, list]:
         """
-        Platziert das Fahrzeug auf der zur Gebietsmitte (lokal (0, 0), siehe utils.tile_scanner::
-        compute_global_center()) nächstgelegenen Straße, ausgerichtet in eine Fahrtrichtung
-        entlang dieser Straße (welche der beiden Richtungen ist beliebig).
+        Places the vehicle on the road nearest to the area center (local (0, 0), see utils.tile_scanner::
+        compute_global_center()), oriented in one driving direction
+        along this road (which of the two directions is arbitrary).
 
         Args:
-            road_polygons: Liste von Dicts mit "trimmed_centerline" ((N, 3)-Array, lokale
-                Koordinaten). Die Z-Werte sind bereits die Straßen-Centerline-Höhe, auf die das
-                Terrain später eingebettet wird (siehe terrain/road_embedding.py) - keine eigene
-                Höheninterpolation nötig.
+            road_polygons: List of dicts with "trimmed_centerline" ((N, 3) array, local
+                coordinates). The Z values are already the road centerline height that the
+                terrain is later embedded to (see terrain/road_embedding.py) - no separate
+                height interpolation needed.
 
         Returns:
-            (position [x, y, z], rotationMatrix [9 floats]). Fallback ([0, 0, 400], Identität)
-            ohne brauchbare Straßendaten (z. B. Wald-/Horizont-only-Export ohne Straßen).
+            (position [x, y, z], rotationMatrix [9 floats]). Fallback ([0, 0, 400], identity)
+            without usable road data (e.g. forest/horizon-only export without roads).
         """
         import numpy as np
 
@@ -439,21 +439,21 @@ class ItemManager:
                 continue
             coords = np.asarray(centerline, dtype=float)
 
-            # Abstand zur Gebietsmitte (lokal (0, 0)) - kein KD-Tree nötig, Centerlines haben nur
-            # Dutzende bis wenige Hundert Punkte je Straße, nicht Millionen wie die Höhendaten.
+            # Distance to the area center (local (0, 0)) - no KD-tree needed, centerlines have only
+            # dozens to a few hundred points per road, not millions like the elevation data.
             dist_sq = coords[:, 0] ** 2 + coords[:, 1] ** 2
             idx = int(np.argmin(dist_sq))
             if dist_sq[idx] >= best_dist:
                 continue
 
-            # Tangente an diesem Punkt: Richtung zum Nachbarpunkt (am Streckenende der einzig
-            # vorhandene Nachbar in die andere Richtung) - welche der beiden Richtungen ist
-            # beliebig, siehe Docstring.
+            # Tangent at this point: direction to the neighbor point (at the end of the route the only
+            # existing neighbor in the other direction) - which of the two directions is
+            # arbitrary, see docstring.
             neighbor_idx = idx + 1 if idx + 1 < len(coords) else idx - 1
             tangent = coords[neighbor_idx][:2] - coords[idx][:2]
             norm = float(np.hypot(tangent[0], tangent[1]))
             if norm < 1e-6:
-                continue  # zwei identische Punkte - keine brauchbare Richtung
+                continue  # two identical points - no usable direction
 
             best_dist = float(dist_sq[idx])
             best_point = coords[idx]
@@ -463,11 +463,11 @@ class ItemManager:
             return fallback_position, fallback_rotation
 
         dx, dy = float(best_tangent[0]), float(best_tangent[1])
-        # Fahrzeug schaut entlang der Fahrtrichtung (dx, dy, 0) - siehe _heading_rotation_matrix().
+        # Vehicle looks along the driving direction (dx, dy, 0) - see _heading_rotation_matrix().
         rotation_matrix = self._heading_rotation_matrix(dx, dy)
 
-        # Kleiner Sicherheitsabstand über der (bereits eingebetteten) Straßenhöhe, damit das
-        # Fahrzeug nicht in der Fahrbahn feststeckt.
+        # Small safety margin above the (already embedded) road height so that the
+        # vehicle does not get stuck in the road surface.
         position = [float(best_point[0]), float(best_point[1]), float(best_point[2]) + 0.3]
 
         logger.info(f"  [OK] Vehicle spawn on the road nearest to the area center: {position}")
@@ -476,10 +476,10 @@ class ItemManager:
     @staticmethod
     def _spawn_road_segments(road_polygons):
         """
-        Alle Centerline-Segmente befahrbarer Straßen als Arrays (starts, ends) mit je (M, 3) - einmal gebaut, damit
-        _nearest_road_pose() je POI nur noch eine vektorisierte Abfrage statt einer Schleife über alle Straßen braucht.
-        Tunnel (structure_type) und Wege ohne Autoverkehr (config.POI_SPAWN_EXCLUDED_HIGHWAYS) zählen nicht,
-        Segmente der Länge 0 entfallen. Reihenfolge = Straßen-Reihenfolge (bei gleichem Abstand gewinnt die erste).
+        All centerline segments of drivable roads as arrays (starts, ends), each (M, 3) - built once so that
+        _nearest_road_pose() needs only one vectorized query per POI instead of a loop over all roads.
+        Tunnels (structure_type) and paths without car traffic (config.POI_SPAWN_EXCLUDED_HIGHWAYS) do not count,
+        segments of length 0 are dropped. Order = road order (on equal distance the first one wins).
         """
         import numpy as np
 
@@ -505,17 +505,17 @@ class ItemManager:
     @staticmethod
     def _nearest_road_pose(road_polygons, target_xy, max_distance: float, segments=None):
         """
-        Nächster Punkt auf einer befahrbaren Straßen-Centerline zu `target_xy` (Lotfußpunkt auf das Segment, Höhe
-        linear entlang des Segments) und die Richtung dieses Segments als Einheitsvektor - oder None, wenn keine
-        Straße höchstens max_distance entfernt liegt. Tunnel (structure_type) und Wege ohne Autoverkehr
-        (config.POI_SPAWN_EXCLUDED_HIGHWAYS) zählen nicht.
+        Nearest point on a drivable road centerline to `target_xy` (foot of the perpendicular on the segment, height
+        linear along the segment) and the direction of this segment as a unit vector - or None if no
+        road lies within max_distance. Tunnels (structure_type) and paths without car traffic
+        (config.POI_SPAWN_EXCLUDED_HIGHWAYS) do not count.
 
         Args:
-            segments: optional vorab gebautes (starts, ends) aus _spawn_road_segments(road_polygons) - bei
-                vielen Abfragen auf dasselbe Straßennetz; sonst wird es hier gebaut
+            segments: optional prebuilt (starts, ends) from _spawn_road_segments(road_polygons) - for
+                many queries against the same road network; otherwise it is built here
 
         Returns:
-            ((x, y, z), (dx, dy)) oder None
+            ((x, y, z), (dx, dy)) or None
         """
         import numpy as np
 
@@ -535,20 +535,20 @@ class ItemManager:
 
     @staticmethod
     def _heading_rotation_matrix(dx: float, dy: float) -> list:
-        """rotationMatrix, mit der ein Fahrzeug in Richtung (dx, dy, 0) schaut.
+        """rotationMatrix with which a vehicle looks in direction (dx, dy, 0).
 
-        Die Fahrzeugfront liegt auf lokal -Y (jbeam-Konvention; im Spiel bestätigt 2026-09-24: mit lokal +Y auf dem
-        Heading standen die Tunnel-Spawns parallel zur Straße, schauten aber vom Tunnel weg). Also lokal +Y -> -(dx, dy).
+        The vehicle front lies on local -Y (jbeam convention; confirmed in game 2026-09-24: with local +Y on the
+        heading the tunnel spawns stood parallel to the road but looked away from the tunnel). So local +Y -> -(dx, dy).
 
-        BeamNG speichert die Bilder der lokalen Achsen in den ZEILEN (Zeile 0 = lokal +X, Zeile 1 = lokal +Y, Zeile 2 =
-        lokal +Z) - abgeleitet aus Vanilla-Spawnpunkten auf diagonalen Straßen (20 von 24 mit Zeile 1 parallel zur
-        Straße) und bestätigt durch den Vanilla-Tunnel in jungle_rock_island (Portale exakt auf Zeile 1 der Zone). Die
-        frühere Spalten-Variante spiegelte jede Ausrichtung an der Nord-Süd-Achse (im Spiel: Autos quer zur Straße)."""
+        BeamNG stores the images of the local axes in the ROWS (row 0 = local +X, row 1 = local +Y, row 2 =
+        local +Z) - derived from vanilla spawn points on diagonal roads (20 of 24 with row 1 parallel to the
+        road) and confirmed by the vanilla tunnel in jungle_rock_island (portals exactly on row 1 of the zone). The
+        earlier column variant mirrored every orientation on the north-south axis (in game: cars across the road)."""
         return [-dy, dx, 0.0, -dx, -dy, 0.0, 0.0, 0.0, 1.0]
 
     @staticmethod
     def _slugify_spawn_object_name(display_name: str) -> str:
-        """Anzeigename -> gültiger, lesbarer SpawnSphere-Objektname (z.B. "Hospental" -> "spawn_hospental")."""
+        """Display name -> valid, readable SpawnSphere object name (e.g. "Hospental" -> "spawn_hospental")."""
         slug = re.sub(r"[^A-Za-z0-9]+", "_", display_name).strip("_").lower()
         return f"spawn_{slug}" if slug else "spawn_unnamed"
 
@@ -560,35 +560,35 @@ class ItemManager:
         road_polygons=None,
     ) -> List[Dict]:
         """
-        Ein zusätzlicher, in der BeamNG-Fahrzeugauswahl wählbarer Spawn-Punkt je POI (Ort oder großer
-        Parkplatz, siehe osm/poi_points.py) - ergänzt den automatischen Standard-Spawn
-        (_compute_vehicle_spawn()), ersetzt ihn nicht.
+        One additional spawn point per POI (place or large parking lot, see osm/poi_points.py) selectable in the
+        BeamNG vehicle selection - supplements the automatic default spawn
+        (_compute_vehicle_spawn()), does not replace it.
 
-        Frühere Version (bis inkl. Commit a424cbf) hat stattdessen einen Spawn je eindeutig benannter
-        OSM-Straße gebaut - als Label in der Fahrzeugauswahl aber wenig aussagekräftig ("Nuova strada
-        del Passo del San Gottardo"). Orte/Parkplätze sind für Spieler leichter wiederzuerkennen.
+        Earlier version (up to and including commit a424cbf) built one spawn per uniquely named
+        OSM road instead - but as a label in the vehicle selection that is not very meaningful ("Nuova strada
+        del Passo del San Gottardo"). Places/parking lots are easier for players to recognize.
 
-        Rangfolge bei mehr Kandidaten als max_points: zuerst alle "place"-POIs (Orte), sortiert nach
-        Bekanntheit (osm.poi_points.PLACE_RANK: Stadt vor Dorf vor Weiler), danach "parking"-POIs
-        sortiert nach Fläche - ein Ort ist als Spawn-Landmarke aussagekräftiger als jeder Parkplatz.
-        Das Fahrzeug steht nicht auf dem OSM-Punkt des Orts (oft mitten zwischen Häusern oder auf einer Wiese),
-        sondern auf der nächsten befahrbaren Straße, mit Heading parallel zu deren Centerline (siehe
-        _nearest_road_pose()). Liegt keine Straße näher als config.POI_SPAWN_MAX_ROAD_DISTANCE (z.B. eine Alp nur
-        mit Wanderwegen), entfällt der POI - vor der Begrenzung auf max_points, der nächste Kandidat rückt nach.
-        Ohne Straßendaten entfallen alle POIs (es bleibt nur der Standard-Spawn).
+        Ranking when there are more candidates than max_points: first all "place" POIs (places), sorted by
+        prominence (osm.poi_points.PLACE_RANK: city before village before hamlet), then "parking" POIs
+        sorted by area - a place is a more meaningful spawn landmark than any parking lot.
+        The vehicle does not stand on the OSM point of the place (often in the middle of houses or on a meadow),
+        but on the nearest drivable road, with heading parallel to its centerline (see
+        _nearest_road_pose()). If no road is closer than config.POI_SPAWN_MAX_ROAD_DISTANCE (e.g. an alp with only
+        hiking trails), the POI is dropped - before the limit to max_points, the next candidate moves up.
+        Without road data all POIs are dropped (only the default spawn remains).
 
         Args:
-            poi_points: Liste von Dicts {"name", "position": [x, y, z], "kind": "place"|"parking",
-                "rank": float} - siehe TerrainWorkflow._collect_poi_points()
-            max_points: höchstens so viele Punkte (Default: config.MAX_POI_SPAWN_POINTS)
-            preview_builder: optional (object_name, (x, y)) -> Vorschaubild-Pfad (relativ zum Level-
-                Root) oder None - siehe io/aerial.py::build_poi_preview_image(). Ohne Vorschaubild
-                fällt BeamNG auf das Level-Vorschaubild zurück (siehe levels.lua imageExistsDefault()).
-                Zentriert auf den (auf die Straße gesetzten) Spawn.
-            road_polygons: Straßen-Dicts mit "trimmed_centerline", "osm_tags", "structure_type" (optional)
+            poi_points: List of dicts {"name", "position": [x, y, z], "kind": "place"|"parking",
+                "rank": float} - see TerrainWorkflow._collect_poi_points()
+            max_points: at most this many points (default: config.MAX_POI_SPAWN_POINTS)
+            preview_builder: optional (object_name, (x, y)) -> preview image path (relative to the level
+                root) or None - see io/aerial.py::build_poi_preview_image(). Without a preview image
+                BeamNG falls back to the level preview image (see levels.lua imageExistsDefault()).
+                Centered on the spawn (placed on the road).
+            road_polygons: Road dicts with "trimmed_centerline", "osm_tags", "structure_type" (optional)
 
         Returns:
-            Liste von Dicts: {"object_name", "display_name", "position", "rotationMatrix", "preview"}
+            List of dicts: {"object_name", "display_name", "position", "rotationMatrix", "preview"}
         """
         if max_points is None:
             max_points = config.MAX_POI_SPAWN_POINTS
@@ -601,7 +601,7 @@ class ItemManager:
         kind_priority = {"place": 0, "parking": 1}
         ranked = sorted(poi_points, key=lambda p: (kind_priority.get(p.get("kind"), 2), -(p.get("rank") or 0.0)))
 
-        # Spawn-Pose je POI: auf der nächsten Straße, oder POI weglassen, wenn keine in Reichweite liegt
+        # Spawn pose per POI: on the nearest road, or omit the POI if none is within reach
         candidates = []  # (poi, ((x, y, z), (dx, dy)))
         segments = self._spawn_road_segments(road_polygons)
         for poi in ranked:
@@ -614,8 +614,8 @@ class ItemManager:
                 continue
             candidates.append((poi, pose))
 
-        # Doppelte Anzeigenamen (v.a. unbenannte Parkplätze -> "Parkplatz") durchnummerieren, damit die
-        # Fahrzeugauswahl sie unterscheidbar auflistet - erstes Auftreten bleibt unnummeriert.
+        # Number duplicate display names (mainly unnamed parking lots -> "Parkplatz") so that the
+        # vehicle selection lists them distinguishably - the first occurrence stays unnumbered.
         name_occurrence: Dict[str, int] = {}
         display_names = []
         for poi, _ in candidates:
@@ -628,7 +628,7 @@ class ItemManager:
         result = []
         for (poi, ((x, y, z), (dx, dy))), display_name in zip(candidates, display_names):
             rotation = self._heading_rotation_matrix(dx, dy)
-            # Kleiner Sicherheitsabstand, damit das Fahrzeug nicht in Straße/Gelände feststeckt
+            # Small safety margin so that the vehicle does not get stuck in the road/terrain
             position = [x, y, z + 0.3]
 
             object_name = base_name = self._slugify_spawn_object_name(display_name)
@@ -657,12 +657,12 @@ class ItemManager:
         preview_builder: Optional[Callable[[str, Tuple[float, float]], Optional[str]]] = None,
     ) -> List[Dict]:
         """
-        Wählbare Spawn-Punkte mit fest vorgegebener Pose (z.B. vor Tunneleinfahrten, siehe
-        tunnels/entrance_spawns.py) - gleiches Ausgabeformat wie _compute_poi_spawn_points().
+        Selectable spawn points with a fixed pose (e.g. in front of tunnel entrances, see
+        tunnels/entrance_spawns.py) - same output format as _compute_poi_spawn_points().
 
         Args:
-            fixed_spawns: [{"name", "position": (x, y, z) auf der Fahrbahn, "heading": (dx, dy)}, ...]
-            used_object_names: bereits vergebene Objektnamen (wird ergänzt)
+            fixed_spawns: [{"name", "position": (x, y, z) on the road surface, "heading": (dx, dy)}, ...]
+            used_object_names: already assigned object names (is extended)
         """
         result = []
         for spawn in fixed_spawns or ():
@@ -692,29 +692,29 @@ class ItemManager:
         fixed_spawns=None,
     ) -> None:
         """
-        Exportiere Items in die richtige BeamNG-Struktur.
+        Exports items into the correct BeamNG structure.
 
-        Erzeugt:
+        Produces:
         - main/items.level.json: MissionGroup
-        - main/MissionGroup/items.level.json: OTHER_BASE_LINES + Terrain/Building Items
-        - main/MissionGroup/PlayerDropPoints/items.level.json: Spawn-Points
+        - main/MissionGroup/items.level.json: OTHER_BASE_LINES + terrain/building items
+        - main/MissionGroup/PlayerDropPoints/items.level.json: spawn points
 
         Args:
-            filepath: Optionaler custom Pfad, ansonsten aus config.ITEMS_JSON
-            road_polygons: Straßen-Dicts mit "trimmed_centerline" für die automatische
-                Fahrzeug-Spawn-Position (optional) - siehe _compute_vehicle_spawn()
-            poi_points: POI-Dicts (Orte, große Parkplätze) für zusätzliche, wählbare Spawn-Punkte
-                (optional) - siehe _compute_poi_spawn_points()
-            preview_builder: optional (object_name, (x, y)) -> Vorschaubild-Pfad, an
-                _compute_poi_spawn_points() durchgereicht
-            fixed_spawns: zusätzliche Spawn-Punkte mit fester Pose (optional) - siehe _fixed_spawn_points()
+            filepath: Optional custom path, otherwise from config.ITEMS_JSON
+            road_polygons: Road dicts with "trimmed_centerline" for the automatic
+                vehicle spawn position (optional) - see _compute_vehicle_spawn()
+            poi_points: POI dicts (places, large parking lots) for additional, selectable spawn points
+                (optional) - see _compute_poi_spawn_points()
+            preview_builder: optional (object_name, (x, y)) -> preview image path, passed through to
+                _compute_poi_spawn_points()
+            fixed_spawns: additional spawn points with a fixed pose (optional) - see _fixed_spawn_points()
         """
         from .. import config
 
-        # BeamNG erwartet folgende Struktur:
-        # 1. main/items.level.json - nur MissionGroup
-        # 2. main/MissionGroup/items.level.json - LevelInfo, Sky, Sun + alle Terrain/Building Items
-        # 3. main/MissionGroup/PlayerDropPoints/items.level.json - Spawn-Points
+        # BeamNG expects the following structure:
+        # 1. main/items.level.json - MissionGroup only
+        # 2. main/MissionGroup/items.level.json - LevelInfo, Sky, Sun + all terrain/building items
+        # 3. main/MissionGroup/PlayerDropPoints/items.level.json - spawn points
 
         main_items_dir = self.beamng_dir / "main"
         missiongroup_dir = main_items_dir / "MissionGroup"
@@ -728,37 +728,37 @@ class ItemManager:
         poi_spawns = self._compute_poi_spawn_points(poi_points, preview_builder=preview_builder, road_polygons=road_polygons)
         poi_spawns += self._fixed_spawn_points(fixed_spawns, {ps["object_name"] for ps in poi_spawns}, preview_builder)
 
-        # Schreibe main/items.level.json im JSONL-Format (nur MissionGroup)
-        # (json.dumps statt json.dump auf die Datei: der C-Encoder ist ~5x schneller)
+        # Write main/items.level.json in JSONL format (MissionGroup only)
+        # (json.dumps instead of json.dump to the file: the C encoder is ~5x faster)
         encode = json.JSONEncoder(ensure_ascii=False).encode
         main_items_dir.mkdir(exist_ok=True)
         with open(main_items, "w", encoding="utf-8") as f:
             f.write(encode(self.MISSION_GROUP_LINE) + "\n")
 
-        # Schreibe main/MissionGroup/items.level.json im JSONL-Format
+        # Write main/MissionGroup/items.level.json in JSONL format
         missiongroup_dir.mkdir(exist_ok=True)
         with open(missiongroup_items, "w", encoding="utf-8") as f:
             # OTHER_BASE_LINES (the_level_info, the_sky, tod, clouds1, rain_coverage, PlayerDropPoints-SimGroup)
             for base_line in self.base_lines:
                 f.write(encode(base_line) + "\n")
 
-            # Alle neu hinzugefügten Items (Terrain, Buildings, etc.)
+            # All newly added items (terrain, buildings, etc.)
             for item in self.items.values():
                 f.write(encode(item) + "\n")
 
-        # Schreibe main/MissionGroup/PlayerDropPoints/items.level.json im JSONL-Format
+        # Write main/MissionGroup/PlayerDropPoints/items.level.json in JSONL format
         playerdroppoints_dir.mkdir(exist_ok=True)
         with open(playerdroppoints_items, "w", encoding="utf-8") as f:
-            # PLAYER_DROPPOINTS_LINE mit berechneter Spawn-Position
+            # PLAYER_DROPPOINTS_LINE with the computed spawn position
             for spawn_line in self.PLAYER_DROPPOINTS_LINE:
                 if spawn_line.get("name") == "spawn":
-                    # Überschreibe Position/Ausrichtung mit der berechneten Fahrzeug-Spawn-Position
+                    # Overwrite position/orientation with the computed vehicle spawn position
                     spawn_line = spawn_line.copy()
                     spawn_line["position"] = spawn_position
                     spawn_line["rotationMatrix"] = spawn_rotation
                 f.write(encode(spawn_line) + "\n")
 
-            # Zusätzliche POI-Spawn-Punkte (ein SpawnSphere je Ort/großem Parkplatz)
+            # Additional POI spawn points (one SpawnSphere per place/large parking lot)
             for poi_spawn in poi_spawns:
                 f.write(
                     encode(
@@ -779,8 +779,8 @@ class ItemManager:
                     + "\n"
                 )
 
-        # info.json-Liste für die BeamNG-Fahrzeugauswahl: der Standard-Spawn ("spawn") zuerst (bekommt
-        # dadurch das 'default'-Flag, siehe lua/ge/extensions/core/levels.lua), dann die POI-Spawns.
+        # info.json list for the BeamNG vehicle selection: the default spawn ("spawn") first (thereby gets
+        # the 'default' flag, see lua/ge/extensions/core/levels.lua), then the POI spawns.
         if poi_spawns:
             self.set_info_json_fields(
                 spawnPoints=[{"objectname": "spawn"}]
@@ -796,28 +796,28 @@ class ItemManager:
 
     @property
     def info_json(self) -> Dict[str, Any]:
-        """info.json-Inhalt dieser Instanz: eine Kopie, damit Export-Werte (Terrain-Größe, Minimap) die Klasse nicht ändern."""
+        """info.json content of this instance: a copy so that export values (terrain size, minimap) do not change the class."""
         if not hasattr(self, "_info_json"):
             self._info_json = copy.deepcopy(self.LEVEL_INFO)
         return self._info_json
 
     def set_info_json_fields(self, **fields) -> None:
-        """Setzt/überschreibt Felder von info.json zur Exportzeit (z.B. "size"/"minimap" aus der echten Terrain-Ausdehnung)."""
+        """Sets/overwrites fields of info.json at export time (e.g. "size"/"minimap" from the real terrain extent)."""
         self.info_json.update(fields)
 
     def save_info_json(self) -> None:
         """
-        Schreibe info.json ins Level-Root-Verzeichnis.
+        Writes info.json into the level root directory.
 
-        Diese Datei enthält Metadaten für BeamNG (Titel, Autor, Spawn-Point, etc.).
-        Kopiert auch data/preview.jpg ins Level-Verzeichnis.
+        This file contains metadata for BeamNG (title, author, spawn point, etc.).
+        Also copies data/preview.jpg into the level directory.
         """
         info_path = self.beamng_dir / "info.json"
 
         with open(info_path, "w", encoding="utf-8") as f:
             json.dump(self.info_json, f, ensure_ascii=False, indent=4)
 
-        # Kopiere preview.jpg von data/ nach BEAMNG_DIR
+        # Copy preview.jpg from data/ to BEAMNG_DIR
         preview_src = Path("data/preview.jpg")
         preview_dst = self.beamng_dir / "preview.jpg"
 
@@ -832,10 +832,10 @@ class ItemManager:
 
     def load(self, filepath: Optional[Path] = None) -> None:
         """
-        Lade Items aus items.json im JSONL-Format (Line-JSON).
+        Loads items from items.json in JSONL format (line JSON).
 
         Args:
-            filepath: Optionaler custom Pfad, ansonsten aus config.ITEMS_JSON
+            filepath: Optional custom path, otherwise from config.ITEMS_JSON
         """
         from .. import config
 
@@ -848,10 +848,10 @@ class ItemManager:
 
         self.items = {}
 
-        # Namen der BASE_LINES die beim Load übersprungen werden sollen
+        # Names of the BASE_LINES that are skipped on load
         base_line_names = {line.get("name") for line in self.base_lines}
-        base_line_names.add("PlayerDropPoint")  # Alter Name falls noch vorhanden
-        base_line_names.add("spawn")  # Auch spawn überspringen (wird mit OTHER_BASE_LINES geschrieben)
+        base_line_names.add("PlayerDropPoint")  # Old name, if still present
+        base_line_names.add("spawn")  # Also skip spawn (it is written with OTHER_BASE_LINES)
 
         with open(load_path, "r", encoding="utf-8") as f:
             for line in f:
@@ -862,7 +862,7 @@ class ItemManager:
                     item = json.loads(line)
                     item_name = item.get("name", "")
 
-                    # Überspringe BASE_LINES - diese werden beim save() automatisch geschrieben
+                    # Skip BASE_LINES - these are written automatically on save()
                     if item_name in base_line_names:
                         continue
 
@@ -872,24 +872,24 @@ class ItemManager:
                     continue
 
     def clear(self) -> None:
-        """Lösche alle Items."""
+        """Deletes all items."""
         self.items.clear()
 
     def get_statistics(self) -> Dict[str, Any]:
         """
-        Gebe Statistiken zurück.
+        Returns statistics.
 
         Returns:
-            Dict mit Statistiken
+            Dict with statistics
         """
         stats = {"total": len(self.items), "by_class": {}, "by_type": {}}
 
         for item in self.items.values():
-            # Zähle nach Klasse
+            # Count by class
             item_class = item.get("class", "Unknown")
             stats["by_class"][item_class] = stats["by_class"].get(item_class, 0) + 1
 
-            # Zähle nach Typ (terrain, building, etc.)
+            # Count by type (terrain, building, etc.)
             name = item.get("name", "")
             if name.startswith("terrain_"):
                 stats["by_type"]["terrain"] = stats["by_type"].get("terrain", 0) + 1
@@ -901,7 +901,7 @@ class ItemManager:
         return stats
 
     def __len__(self) -> int:
-        """Anzahl der Items."""
+        """Number of items."""
         return len(self.items)
 
     def __repr__(self) -> str:

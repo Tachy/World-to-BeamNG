@@ -1,11 +1,11 @@
 """
-Weiche Breitenübergänge zwischen aneinanderstoßenden DecalRoads.
+Smooth width transitions between abutting DecalRoads.
 
-Ändert sich an einem Stoßpunkt zweier Straßen, die geradeaus ineinander übergehen, die Breite (z.B. lanes=2 ->
-lanes=3), springt sie nicht mehr hart um: über ROAD_WIDTH_TRANSITION_LENGTH (je die Hälfte vor und nach dem
-Stoßpunkt) wird sie mit einem kubischen Hermite-Spline (smoothstep, Steigung 0 an beiden Zonenenden) übergeblendet.
-Die Breite steckt im 4. Eintrag jedes DecalRoad-Knotens [x, y, z, width]; BeamNG interpoliert zwischen den Knoten,
-deshalb bekommt die Übergangszone zusätzliche Knoten im Abstand `step`.
+If the width changes (e.g. lanes=2 -> lanes=3) at the joint of two roads that continue straight into each other, it
+no longer jumps abruptly: over ROAD_WIDTH_TRANSITION_LENGTH (half before and half after the joint) it is blended
+with a cubic Hermite spline (smoothstep, slope 0 at both ends of the zone).
+The width is stored in the 4th entry of each DecalRoad node [x, y, z, width]; BeamNG interpolates between the nodes,
+so the transition zone gets additional nodes at spacing `step`.
 """
 
 from typing import Dict, List, Optional, Sequence, Set, Tuple
@@ -13,11 +13,11 @@ from typing import Dict, List, Optional, Sequence, Set, Tuple
 import numpy as np
 from scipy.spatial import cKDTree
 
-Endpoint = Tuple[int, str]  # (Index der Straße, "start" | "end")
+Endpoint = Tuple[int, str]  # (road index, "start" | "end")
 
 
 def smoothstep(t: float) -> float:
-    """Kubischer Hermite-Spline 3t^2 - 2t^3 auf [0, 1] (außerhalb geklemmt)."""
+    """Cubic Hermite spline 3t^2 - 2t^3 on [0, 1] (clamped outside)."""
     t = min(max(float(t), 0.0), 1.0)
     return t * t * (3.0 - 2.0 * t)
 
@@ -28,7 +28,7 @@ def _arc_lengths(nodes: Sequence[Sequence[float]]) -> np.ndarray:
 
 
 def outward_direction(nodes: Sequence[Sequence[float]], end: str) -> Optional[np.ndarray]:
-    """Einheitsvektor vom Stoßpunkt in die Straße hinein (None bei einer Straße ohne Ausdehnung)."""
+    """Unit vector from the joint into the road (None for a road with zero extent)."""
     xy = np.asarray(nodes, dtype=float)[:, :2]
     if end == "end":
         xy = xy[::-1]
@@ -44,9 +44,9 @@ def find_continuations(
     roads: Sequence[Sequence[Sequence[float]]], endpoint_tol: float, max_angle_deg: float
 ) -> List[Tuple[Endpoint, Endpoint]]:
     """
-    Paare von Straßenenden, die am selben Punkt liegen (Abstand <= endpoint_tol) und geradeaus ineinander übergehen
-    (Knick <= max_angle_deg). An einer Einmündung gewinnt das gestreckteste Paar; eine schräg abzweigende Rampe
-    bleibt ungepaart. Eine Straße wird nie mit sich selbst gepaart (Ring).
+    Pairs of road ends that lie at the same point (distance <= endpoint_tol) and continue straight into each other
+    (kink <= max_angle_deg). At a T-junction the straightest pair wins; a ramp branching off at an angle
+    stays unpaired. A road is never paired with itself (ring).
     """
     endpoints = []  # ((road_idx, end), (x, y), outward_direction)
     for road_idx, nodes in enumerate(roads):
@@ -84,7 +84,7 @@ def find_continuations(
                 a, b = endpoints[members[x]], endpoints[members[y]]
                 if a[0][0] == b[0][0]:
                     continue
-                opposition = -float(np.dot(a[2], b[2]))  # 1 = exakt geradeaus
+                opposition = -float(np.dot(a[2], b[2]))  # 1 = exactly straight
                 if opposition >= min_opposition:
                     candidates.append((opposition, members[x], members[y]))
         used = set()
@@ -97,7 +97,7 @@ def find_continuations(
 
 
 def continuation_partners(pairs: Sequence[Tuple[Endpoint, Endpoint]]) -> Dict[int, Set[int]]:
-    """Straßen-Index -> Indizes der Straßen, in die sie geradeaus übergeht."""
+    """Road index -> indices of the roads it continues straight into."""
     partners: Dict[int, Set[int]] = {}
     for (a, _), (b, _) in pairs:
         partners.setdefault(a, set()).add(b)
@@ -106,8 +106,8 @@ def continuation_partners(pairs: Sequence[Tuple[Endpoint, Endpoint]]) -> Dict[in
 
 
 def _insert_nodes(nodes: List[List[float]], distances: Sequence[float], min_spacing: float) -> List[List[float]]:
-    """Zusätzliche Knoten bei den Bogenlängen `distances` (ab nodes[0]), linear interpoliert (x, y, z, Breite).
-    Wo schon ein Knoten näher als min_spacing liegt, wird nichts eingefügt (BeamNG verwirft zu kurze Segmente)."""
+    """Additional nodes at the arc lengths `distances` (from nodes[0]), linearly interpolated (x, y, z, width).
+    Where a node is already closer than min_spacing, nothing is inserted (BeamNG discards too-short segments)."""
     arr = np.asarray(nodes, dtype=float)
     cum = _arc_lengths(nodes)
     entries = [(float(cum[i]), [float(v) for v in arr[i]]) for i in range(len(arr))]
@@ -124,7 +124,7 @@ def _insert_nodes(nodes: List[List[float]], distances: Sequence[float], min_spac
 
 
 def _blend_end(nodes, end, own_width, other_width, half, step, min_spacing):
-    """Breiten in der Übergangszone am Ende `end`: Spline von der mittleren Breite (Stoßpunkt) zur eigenen (half)."""
+    """Widths in the transition zone at end `end`: spline from the mean width (joint) to its own width (half)."""
     work = [list(n) for n in (nodes if end == "start" else nodes[::-1])]
     distances = [float(d) for d in np.arange(step, half, step)] + [half]
     work = _insert_nodes(work, distances, min_spacing)
@@ -144,10 +144,10 @@ def apply_width_transitions(
     min_spacing: float,
 ) -> List[List[List[float]]]:
     """
-    Neue Knotenlisten ([x, y, z, width] je Knoten) mit weichen Breitenübergängen an allen Geradeaus-Stößen, deren
-    Breiten sich um mindestens min_delta unterscheiden. Am Stoßpunkt liegt die mittlere Breite, transition_length / 2
-    davor und dahinter wieder die eigene. Ist eine der beiden Straßen kürzer als transition_length, schrumpft die Zone
-    auf beiden Seiten symmetrisch auf die halbe Länge der kürzeren Straße.
+    New node lists ([x, y, z, width] per node) with smooth width transitions at all straight joints whose widths
+    differ by at least min_delta. The mean width applies at the joint, and transition_length / 2 before and after
+    it the road's own width applies again. If one of the two roads is shorter than transition_length, the zone
+    shrinks symmetrically on both sides to half the length of the shorter road.
     """
     result = [[[float(v) for v in n] for n in nodes] for nodes in roads]
     for (ia, ea), (ib, eb) in find_continuations(roads, endpoint_tol, max_angle_deg):
@@ -167,12 +167,12 @@ def close_continuation_gaps(
     roads: Sequence[Sequence[Sequence[float]]], endpoint_tol: float, max_angle_deg: float, min_angle_deg: float = 1.0
 ) -> List[List[List[float]]]:
     """
-    Neue Knotenlisten, in denen an jedem geknickten Geradeaus-Stoß beide Enden über den Stoßpunkt hinaus verlängert
-    sind. Ein DecalRoad endet mit einer flachen Kante senkrecht zu seinem eigenen letzten Segment; bei einem Knick um t
-    bleibt deshalb außen ein Keil frei, der bis zur Fahrbahnkante reicht (im Spiel sichtbar). Der Endknoten wird dafür
-    um (Breite / 2) * tan(t) + 5 cm in seiner eigenen Richtung verschoben - verschoben statt angehängt, damit kein
-    Segment unter DECAL_ROAD_MIN_NODE_SPACING entsteht (BeamNG verwirft sonst das ganze Decal). Innen überlappen die
-    Decals; Stöße mit weniger als min_angle_deg Knick bleiben unverändert.
+    New node lists in which both ends are extended past the joint at every kinked straight joint. A DecalRoad ends
+    with a flat edge perpendicular to its own last segment; with a kink of t, a wedge therefore stays uncovered on the
+    outside, reaching up to the road edge (visible in game). To fix this, the end node is shifted by
+    (width / 2) * tan(t) + 5 cm in its own direction - shifted instead of appended, so that no segment shorter than
+    DECAL_ROAD_MIN_NODE_SPACING arises (BeamNG otherwise discards the whole decal). On the inside the decals
+    overlap; joints with a kink of less than min_angle_deg stay unchanged.
     """
     result = [[[float(v) for v in n] for n in nodes] for nodes in roads]
     for (ia, ea), (ib, eb) in find_continuations(roads, endpoint_tol, max_angle_deg):

@@ -1,17 +1,17 @@
 """
-WORLD-TO-BEAMNG - OSM zu BeamNG Straßen-Generator
+WORLD-TO-BEAMNG - OSM to BeamNG road generator
 
-Refactored Version mit modularer Architektur.
-Main Entry Point für die Anwendung.
+Refactored version with a modular architecture.
+Main entry point for the application.
 
-Benötigte Pakete:
+Required packages:
   pip install requests numpy scipy pyproj pyvista shapely rtree rich
 """
 
 import sys
 import time
 
-# UTF-8 Encoding für Windows Console
+# UTF-8 encoding for the Windows console
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 from world_to_beamng import config
@@ -26,7 +26,7 @@ from world_to_beamng.utils.tile_scanner import scan_elevation_tiles, compute_glo
 
 
 def main():
-    """Hauptfunktion - verwendet neue BeamNGExporter API."""
+    """Main function - uses the new BeamNGExporter API."""
 
     start_time = time.time()
 
@@ -40,18 +40,18 @@ def main():
             task.fail("no DGM1 tiles found")
             return
 
-        # Quell-CRS auflösen (aus GeoTIFF-Kacheln automatisch erkannt, sonst config.SOURCE_CRS_EPSG) -
-        # MUSS vor jeder weiteren Koordinatentransformation gesetzt werden (OSM-BBox, LoD2, Horizont, ...)
+        # Resolve the source CRS (detected automatically from the GeoTIFF tiles, otherwise config.SOURCE_CRS_EPSG) -
+        # MUST be set before any further coordinate transformation (OSM bbox, LoD2, horizon, ...)
         source_epsg = resolve_source_crs_epsg(tiles)
         coordinates.set_source_crs(source_epsg)
 
         global_center = compute_global_center(tiles)
-        # 3-Tupel: (x, y, z) - z ist der Mittelwert der Höhen oder 0
+        # 3-tuple: (x, y, z) - z is the mean of the heights or 0
         global_offset = (global_center[0], global_center[1], global_center[2] if len(global_center) > 2 else 0.0)
 
         task.done(f"{len(tiles)} Tiles, EPSG:{source_epsg}, Offset {global_offset}")
 
-    # Export durchführen
+    # Run the export
     try:
         stats = exporter.export_complete_level(
             tiles=tiles,
@@ -60,13 +60,13 @@ def main():
             include_horizon=config.PHASE5_ENABLED,
         )
     except MissingTexturesError:
-        # Die volle Fehlermeldung steht bereits in der "✗ Texturen - ..."-Zeile der Hauptaufgabe
-        # (siehe PipelineTask.__exit__ in progress.py) - hier nicht nochmal ausgeben.
+        # The full error message is already in the "✗ Textures - ..." line of the main task
+        # (see PipelineTask.__exit__ in progress.py) - do not print it again here.
         logger.error("Export aborted - see the error message above.")
         sys.exit(1)
 
-    # Statistiken - über console.print() statt logger, damit die Box nicht durch RichHandlers
-    # Level-Spalte verrutscht (mehrzeilige logger.info()-Aufrufe wurden dort falsch eingerückt).
+    # Statistics - via console.print() instead of logger, so the box is not shifted by the RichHandler's
+    # level column (multi-line logger.info() calls were indented incorrectly there).
     elapsed = time.time() - start_time
     console.print()
     console.print("[bold]" + "=" * 60 + "[/bold]")

@@ -1,16 +1,16 @@
 """
-Wände der LOD2-Gebäude: fugenloser Putz plus Fenster/Türen als eigene Flächen.
+Walls of the LOD2 buildings: seamless plaster plus windows/doors as separate faces.
 
-Jede Wand bleibt EIN ungeschnittenes Polygon mit metrisch gekachelter Putztextur (keine Zellen, keine Fugen im Putz).
-Fenster, Türen und Kellerfenster sind kleine Flächen (Sprites aus dem Fenster-Atlas), die config.FACADE_WINDOW_OFFSET_M
-vor der Wand liegen.
+Each wall stays ONE uncut polygon with a metrically tiled plaster texture (no cells, no seams in the plaster).
+Windows, doors and basement windows are small faces (sprites from the window atlas) that sit
+config.FACADE_WINDOW_OFFSET_M in front of the wall.
 
-Die Geschosse werden von der Traufe nach UNTEN gezählt (config.FACADE_STOREY_HEIGHT_M). Bleibt unten ein Rest von
-mindestens config.FACADE_BASEMENT_MIN_REMAINDER_M, ist das ein erhöhter Keller: dort entstehen Kellerfenster in
-Bodennähe. Türen gibt es nur, wo der Boden des Erdgeschosses (fast) auf Geländehöhe liegt.
+Storeys are counted DOWNWARD from the eave (config.FACADE_STOREY_HEIGHT_M). If a remainder of at least
+config.FACADE_BASEMENT_MIN_REMAINDER_M is left at the bottom, it is a raised basement: basement windows are placed
+there near ground level. Doors exist only where the ground-floor level is (almost) at terrain height.
 
-Kirchtürme (`building["tower_walls"]`, siehe church_towers.py) bekommen keine Fenster, Türen oder Kellerfenster. Ihre
-Frontwand trägt stattdessen eine Turmuhr: die Turmwand, die vom Kirchenschiff wegzeigt (ohne Schiff nach Westen).
+Church towers (`building["tower_walls"]`, see church_towers.py) get no windows, doors or basement windows. Their
+front wall carries a tower clock instead: the tower wall that points away from the nave (west if there is no nave).
 """
 
 import math
@@ -28,22 +28,22 @@ from .triangulate import triangulate_ccw
 from .window_atlas import WindowAtlasLayout, WindowSprite
 
 _MIN_WALL_AREA_M2 = 0.05
-_HORIZONTAL_FACE_NZ = 0.95  # |Nz| darüber: fast waagerechte "Wand", ohne Wandrahmen
-_WINDOW_MAX_NZ = 0.2  # |Nz| ab hier gilt eine Wand als geneigt: keine Fenster
-_EDGE_MARGIN_M = 0.05  # Fenster müssen so weit innerhalb der Wandkante liegen
-_CLOCK_EDGE_MARGIN_M = 0.3  # die Turmuhr braucht mehr Luft zur Wandkante
-_GROUND_CLEARANCE_M = 0.25  # Unterkante eines Fensters mindestens so hoch über dem Wandfuß
-_DOOR_BELOW_GROUND_M = 0.3  # Erdgeschossboden darf so weit unter dem Wandfuß liegen, damit noch eine Tür entsteht
-_SHUTTER_SIDE_MARGIN_M = 0.3  # Achse muss um so viel breiter sein als ein Sprite mit Fensterläden
+_HORIZONTAL_FACE_NZ = 0.95  # |Nz| above this: almost horizontal "wall", without wall frame
+_WINDOW_MAX_NZ = 0.2  # |Nz| from here on a wall counts as inclined: no windows
+_EDGE_MARGIN_M = 0.05  # windows must lie this far inside the wall edge
+_CLOCK_EDGE_MARGIN_M = 0.3  # the tower clock needs more clearance to the wall edge
+_GROUND_CLEARANCE_M = 0.25  # lower edge of a window at least this high above the wall base
+_DOOR_BELOW_GROUND_M = 0.3  # ground-floor level may be this far below the wall base for a door to still be created
+_SHUTTER_SIDE_MARGIN_M = 0.3  # bay must be this much wider than a sprite with shutters
 _WINDOW_KIND_PLAIN_PERMILLE = 450
-_WINDOW_KIND_TRANSOM_PERMILLE = 750  # darüber: Fensterläden (soweit die Achse breit genug ist)
+_WINDOW_KIND_TRANSOM_PERMILLE = 750  # above: shutters (as far as the bay is wide enough)
 
 
 @dataclass
 class FacadeMesh:
-    """Wandgeometrie eines Gebäudes: Putzfläche und Fensterflächen (getrennte Materialien)."""
+    """Wall geometry of a building: plaster face and window faces (separate materials)."""
 
-    plaster: int  # Index in PLASTER_COLORS
+    plaster: int  # index into PLASTER_COLORS
     vertices: np.ndarray  # (N, 3)
     uvs: np.ndarray  # (N, 2)
     wall_faces: List[List[int]]
@@ -57,13 +57,13 @@ class FacadeMesh:
 @dataclass
 class _Wall:
     index: int
-    verts: np.ndarray  # Original-Vertices (Ring mit Schlusspunkt); Index-Basis von `faces`
+    verts: np.ndarray  # original vertices (ring with closing point); index base of `faces`
     faces: np.ndarray
-    ring: np.ndarray  # Ring ohne Schlusspunkt
-    out: np.ndarray  # nach außen zeigende Einheitsnormale
-    x: np.ndarray  # Meter entlang der Wand (Betrachter-rechts)
-    y: np.ndarray  # absolute Höhe der Ringpunkte
-    to_world: np.ndarray  # (3, 3): [x, y, 1] @ to_world = Punkt im Raum
+    ring: np.ndarray  # ring without closing point
+    out: np.ndarray  # outward-pointing unit normal
+    x: np.ndarray  # meters along the wall (viewer-right)
+    y: np.ndarray  # absolute height of the ring points
+    to_world: np.ndarray  # (3, 3): [x, y, 1] @ to_world = point in space
     width: float
     min_z: float
     windows_allowed: bool
@@ -82,7 +82,7 @@ class _Building:
 
 
 class FacadeMapper:
-    """Erzeugt Wandgeometrie samt UVs für ein Gebäude-Dict (`walls`, `roofs`, `id`, `bounds`)."""
+    """Generates wall geometry including UVs for a building dict (`walls`, `roofs`, `id`, `bounds`)."""
 
     def __init__(
         self,
@@ -112,7 +112,7 @@ class FacadeMapper:
         tower = set(building.get("tower_walls", ()))
         for wall in walls:
             if wall.index in tower:
-                wall.windows_allowed = False  # Kirchturm: keine Fenster, Türen, Kellerfenster
+                wall.windows_allowed = False  # church tower: no windows, doors, basement windows
         context = _Building(
             key=key,
             z_eave=z_eave,
@@ -147,11 +147,11 @@ class FacadeMapper:
             return FacadeMesh.empty(plaster)
         return FacadeMesh(plaster, np.vstack(vertices), np.vstack(uvs), wall_faces, window_faces)
 
-    # ------------------------------------------------------------------ Gebäude
+    # ------------------------------------------------------------------ Building
 
     @staticmethod
     def _eave_z(building: Dict, wall_points: np.ndarray) -> float:
-        """Traufhöhe: tiefster Dachpunkt; ohne Dach die höchste Wandkante."""
+        """Eave height: lowest roof point; without a roof, the highest wall edge."""
         roofs = [verts for verts, _ in building.get("roofs", [])]
         if roofs:
             return float(np.vstack(roofs)[:, 2].min())
@@ -159,10 +159,10 @@ class FacadeMapper:
 
     def _storeys(self, height: float) -> Tuple[int, float]:
         """
-        Anzahl voller Geschosse von der Traufe abwärts und Rest darunter.
+        Number of full storeys counted down from the eave, and the remainder below.
 
-        Das unterste Geschoss darf um config.FACADE_STOREY_ROUNDING Geschosshöhen zu kurz sein. Der Rest (kann leicht
-        negativ sein) ist der erhöhte Keller, sofern er groß genug ist.
+        The lowest storey may be too short by config.FACADE_STOREY_ROUNDING storey heights. The remainder (can be
+        slightly negative) is the raised basement, provided it is large enough.
         """
         storeys = max(0, int(math.floor(height / self._storey_h + config.FACADE_STOREY_ROUNDING)))
         return storeys, height - storeys * self._storey_h
@@ -170,16 +170,16 @@ class FacadeMapper:
     @staticmethod
     def _rings_point_inward(rings: List[np.ndarray], normals: List[np.ndarray], points: np.ndarray) -> bool:
         """
-        CityGML garantiert die Ringrichtung nicht. Mehrheitsentscheid nach Fläche über das ganze Gebäude:
-        zeigen die Ring-Normalen (flächengewichtet) zum Schwerpunkt hin, sind alle Ringe nach innen orientiert.
+        CityGML does not guarantee the ring direction. Majority vote by area over the whole building:
+        if the ring normals (area-weighted) point toward the centroid, all rings are oriented inward.
         """
         centre = points[:, :2].mean(axis=0)
         score = 0.0
-        for ring, normal in zip(rings, normals):  # Normalenbetrag = 2 * Fläche
+        for ring, normal in zip(rings, normals):  # normal magnitude = 2 * area
             score += float(normal[:2] @ (ring[:, :2].mean(axis=0) - centre))
         return score < 0
 
-    # ------------------------------------------------------------------ Wände
+    # ------------------------------------------------------------------ Walls
 
     def _build_walls(self, source_walls, rings, normals, flip: bool) -> List[_Wall]:
         walls = []
@@ -193,7 +193,7 @@ class FacadeMapper:
         return walls
 
     def _wall_frame(self, index, verts, faces, ring, out) -> Optional[_Wall]:
-        u_axis = unit_or_none(np.array([-out[1], out[0], 0.0]))  # up x out = Betrachter-rechts
+        u_axis = unit_or_none(np.array([-out[1], out[0], 0.0]))  # up x out = viewer-right
         flat = abs(out[2]) >= _HORIZONTAL_FACE_NZ or u_axis is None
         if flat:
             zeros = np.zeros(len(ring))
@@ -202,7 +202,7 @@ class FacadeMapper:
         x = (ring - ring[0]) @ u_axis
         y = ring[:, 2]
         to_world, _, rank, _ = np.linalg.lstsq(np.column_stack([x, y, np.ones(len(ring))]), ring, rcond=None)
-        if rank < 3:  # im (x, y)-Rahmen eine Linie
+        if rank < 3:  # a line in the (x, y) frame
             return None
         return _Wall(
             index=index,
@@ -220,15 +220,15 @@ class FacadeMapper:
         )
 
     def _front_wall_index(self, walls: List[_Wall]) -> Optional[int]:
-        """Längste Wand mit Fenstern trägt die Tür."""
+        """The longest wall with windows carries the door."""
         candidates = [w for w in walls if not w.flat and w.windows_allowed and w.width >= self._narrow]
         return max(candidates, key=lambda w: w.width).index if candidates else None
 
     @staticmethod
     def _clock_candidates(walls: List[_Wall], tower: set) -> List[_Wall]:
         """
-        Turmwände für die Turmuhr, die Frontwand zuerst: die Wand, die vom Kirchenschiff wegzeigt. Ohne Schiff
-        (alleinstehender Turm) oder bei mittigem Turm zeigt die Front nach Westen (-x), wie bei Kirchen üblich.
+        Tower walls for the tower clock, front wall first: the wall that points away from the nave. Without a nave
+        (free-standing tower) or with a centered tower the front points west (-x), as is usual for churches.
         """
         candidates = [w for w in walls if w.index in tower and not w.flat and w.width >= config.CHURCH_CLOCK_MIN_WALL_M]
         if not candidates:
@@ -245,14 +245,14 @@ class FacadeMapper:
                 front = away / np.linalg.norm(away)
         return sorted(candidates, key=lambda w: -float(w.out[:2] @ front))
 
-    # ------------------------------------------------------------------ Putz
+    # ------------------------------------------------------------------ Plaster
 
     def _plaster(self, wall: _Wall, building: _Building):
-        """Wand als ein Polygon; UVs metrisch (config.FACADE_PLASTER_REPEAT_M), je Wand gegeneinander versetzt."""
+        """Wall as one polygon; UVs metric (config.FACADE_PLASTER_REPEAT_M), offset against each other per wall."""
         repeat = config.FACADE_PLASTER_REPEAT_M
         shift = np.array([choice(building.key, f"u{wall.index}", 1000), choice(building.key, f"v{wall.index}", 1000)]) / 1000.0
 
-        if wall.flat:  # Unterseite/Sims: Grundriss-Koordinaten
+        if wall.flat:  # underside/ledge: plan-view coordinates
             uv = wall.verts[:, :2] / repeat + shift
             faces = np.asarray(wall.faces, dtype=np.int64).reshape(-1, 3)
             return wall.verts, uv, faces.tolist()
@@ -266,10 +266,10 @@ class FacadeMapper:
             triangles = [[a, c, b] for a, b, c in triangles]
         return wall.ring, uv, triangles
 
-    # ------------------------------------------------------------------ Fenster
+    # ------------------------------------------------------------------ Windows
 
     def _windows(self, wall: _Wall, building: _Building):
-        """Fenster, Türen und Kellerfenster einer Wand als Rechtecke vor der Wand."""
+        """Windows, doors and basement windows of a wall as rectangles in front of the wall."""
         empty = np.zeros((0, 3)), np.zeros((0, 2)), []
         if wall.index == building.clock_wall:
             return self._clock(wall, building) or empty
@@ -291,9 +291,9 @@ class FacadeMapper:
 
     def _clock_box(self, wall: _Wall) -> Optional[np.ndarray]:
         """
-        Rechteck der Turmuhr: mittig auf der Wand, so hoch wie die Wandkontur es zulässt (höchstens
-        CHURCH_CLOCK_BELOW_TOP_M unter der Oberkante, mindestens CHURCH_CLOCK_MIN_HEIGHT_M über dem Wandfuß); None, wenn
-        sie nirgends passt.
+        Rectangle of the tower clock: centered on the wall, as high as the wall outline allows (at most
+        CHURCH_CLOCK_BELOW_TOP_M below the top edge, at least CHURCH_CLOCK_MIN_HEIGHT_M above the wall base); None if
+        it fits nowhere.
         """
         width, height = self._layout.size_m(WindowSprite.TOWER_CLOCK)
         centre_x = (float(wall.x.min()) + float(wall.x.max())) / 2
@@ -313,7 +313,7 @@ class FacadeMapper:
         return self._quads(wall, building, box[None, :], [WindowSprite.TOWER_CLOCK]) if box is not None else None
 
     def _boxes(self, wall: _Wall, building: _Building, centres: np.ndarray, bay_w: float):
-        """Rechtecke (x0, y0, x1, y1) und Sprite je Fenster/Tür/Kellerfenster; noch ungeprüft gegen die Wandkontur."""
+        """Rectangles (x0, y0, x1, y1) and sprite per window/door/basement window; not yet checked against the outline."""
         boxes: List[Tuple[float, float, float, float]] = []
         sprites: List[WindowSprite] = []
         key, storey_h = building.key, self._storey_h
@@ -331,7 +331,7 @@ class FacadeMapper:
             and -_DOOR_BELOW_GROUND_M <= ground_floor - wall.min_z <= config.FACADE_DOOR_MAX_HEIGHT_ABOVE_BASE_M
         )
 
-        for storey in range(building.storeys):  # 0 = oberstes Geschoss (Traufe), von oben nach unten
+        for storey in range(building.storeys):  # 0 = top storey (eave), from top to bottom
             floor = building.z_eave - (storey + 1) * storey_h
             is_ground = storey == building.storeys - 1
             for bay, centre in enumerate(centres):
@@ -340,7 +340,7 @@ class FacadeMapper:
                     add(door, float(centre), max(floor, wall.min_z))
                     continue
                 bottom = floor + config.FACADE_WINDOW_SILL_M
-                if bottom - wall.min_z < _GROUND_CLEARANCE_M:  # Geschoss liegt (teilweise) unter dem Gelände
+                if bottom - wall.min_z < _GROUND_CLEARANCE_M:  # storey lies (partly) below the terrain
                     continue
                 add(window_sprite, float(centre), bottom)
 
@@ -351,7 +351,7 @@ class FacadeMapper:
         return boxes, sprites
 
     def _window_sprite(self, wall: _Wall, building: _Building, bay_w: float) -> WindowSprite:
-        """Fensterart je Wand (Fensterläden nur, wenn die Achse breit genug ist)."""
+        """Window type per wall (shutters only if the bay is wide enough)."""
         roll = choice(building.key, f"window{wall.index}", 1000)
         if roll < _WINDOW_KIND_PLAIN_PERMILLE:
             return WindowSprite.WINDOW_PLAIN
@@ -365,7 +365,7 @@ class FacadeMapper:
 
     @staticmethod
     def _door_bay(bays: int, key: str) -> int:
-        """Tür nicht in den Randachsen, sofern die Wand dafür breit genug ist."""
+        """Door not in the outer bays, provided the wall is wide enough for that."""
         if bays >= 3:
             return 1 + choice(key, "door_bay", bays - 2)
         if bays == 2:
@@ -374,21 +374,21 @@ class FacadeMapper:
 
     @staticmethod
     def _inside_wall(wall: _Wall, boxes: np.ndarray, margin: float = _EDGE_MARGIN_M) -> np.ndarray:
-        """Welche Rechtecke liegen (mit Randabstand) vollständig innerhalb der Wandkontur?"""
+        """Which rectangles lie completely (with edge margin) inside the wall outline?"""
         polygon = Polygon(np.column_stack([wall.x, wall.y]))
         if not polygon.is_valid:
             polygon = polygon.buffer(0)
         if polygon.is_empty:
             return np.zeros(len(boxes), dtype=bool)
         m = margin
-        # Eine Tür steht mit der Schwelle auf dem Wandfuß: dort kein Randabstand
+        # A door stands with its threshold on the wall base: no edge margin there
         bottom_margin = np.where(boxes[:, 1] <= wall.min_z + 1e-6, 0.0, m)
         grown = shapely.box(boxes[:, 0] - m, boxes[:, 1] - bottom_margin, boxes[:, 2] + m, boxes[:, 3] + m)
         shapely.prepare(polygon)
         return np.asarray(shapely.contains(polygon, grown))
 
     def _quads(self, wall: _Wall, building: _Building, boxes: np.ndarray, sprites: List[WindowSprite]):
-        """Vier Eckpunkte je Fenster, vor die Wand gesetzt, mit den Atlas-UVs des Sprites."""
+        """Four corner points per window, placed in front of the wall, with the sprite's atlas UVs."""
         xs = np.stack([boxes[:, 0], boxes[:, 2], boxes[:, 2], boxes[:, 0]], axis=1)
         ys = np.stack([boxes[:, 1], boxes[:, 1], boxes[:, 3], boxes[:, 3]], axis=1)
         points = np.stack([xs, ys, np.ones_like(xs)], axis=-1).reshape(-1, 3) @ wall.to_world

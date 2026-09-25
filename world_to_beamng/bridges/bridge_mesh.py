@@ -1,12 +1,12 @@
 """
-Brücken aus OSM-Linien (highway=* mit bridge=*): Beton-Deck mit einem echten Straßenbrücken-Querschnitt
-(Fahrbahn mit Straßenmaterial, beidseits ein Bordstein, darauf ein Geländer aus Pfosten + Handlauf) und
-rechteckigen Stützpfeilern zum natürlichen Gelände darunter (siehe Design-Spec Abschnitt 4).
+Bridges from OSM lines (highway=* with bridge=*): concrete deck with a real road-bridge cross section
+(carriageway with road material, a curb on both sides, on top of it a railing made of posts + handrail) and
+rectangular support piers down to the natural terrain below (see design spec section 4).
 
-Das Deck folgt NICHT dem Gelände (im Gegensatz zu den Mauern) - seine Höhe kommt aus dem linear interpolierten
-Brücken-Höhenprofil (geometry/road_structures.py + geometry/polygon.py), das schon in den übergebenen `coords`
-steckt. Nur die Pfeiler reichen bis zum natürlichen Gelände darunter (`ground_at`). Bordstein und Geländer
-folgen dem Deck-Höhenprofil, nicht dem Gelände.
+The deck does NOT follow the terrain (unlike the walls) - its height comes from the linearly interpolated
+bridge height profile (geometry/road_structures.py + geometry/polygon.py), which is already contained in the
+passed `coords`. Only the piers reach down to the natural terrain below (`ground_at`). Curb and railing
+follow the deck height profile, not the terrain.
 """
 
 from typing import Callable, Dict, List, Sequence, Tuple
@@ -24,23 +24,23 @@ def _arc_length(xy: np.ndarray) -> np.ndarray:
 
 
 def _interp_at(cum: np.ndarray, arr: np.ndarray, s: float):
-    """Interpoliert `arr` (1D oder 2D, ein Wert je Punkt von `cum`) an der Bogenlänge `s`."""
+    """Interpolates `arr` (1D or 2D, one value per point of `cum`) at the arc length `s`."""
     idx = max(1, min(int(np.searchsorted(cum, s)), len(cum) - 1))
     t = (s - cum[idx - 1]) / max(cum[idx] - cum[idx - 1], 1e-9)
     return arr[idx - 1] + t * (arr[idx] - arr[idx - 1])
 
 
 def _direction_at(cum: np.ndarray, xy: np.ndarray, s: float) -> Tuple[float, float]:
-    """Fahrtrichtung (nicht normiert) an der Bogenlänge `s` - für add_box_column()'s `direction`, damit
-    Pfeiler-/Pfosten-Profile relativ zur Brücke ausgerichtet sind statt achsenparallel zur Welt."""
+    """Direction of travel (not normalized) at the arc length `s` - for add_box_column()'s `direction`, so that
+    pier/post profiles are aligned relative to the bridge instead of axis-parallel to the world."""
     idx = max(1, min(int(np.searchsorted(cum, s)), len(xy) - 1))
     d = xy[idx] - xy[idx - 1]
     return float(d[0]), float(d[1])
 
 
 def _build_edge_beam(xy_line: np.ndarray, top_z: np.ndarray, thickness: float, tile_m: float) -> MeshBuilder:
-    """Dünner, rechteckiger Balken entlang `xy_line` (Handlauf): Ober-/Unterseite plus beide Seitenflächen.
-    `top_z` gibt die Oberkante je Punkt von `xy_line` an (folgt damit demselben Höhenprofil wie das Deck)."""
+    """Thin, rectangular beam along `xy_line` (handrail): top/bottom plus both side faces.
+    `top_z` gives the top edge per point of `xy_line` (so it follows the same height profile as the deck)."""
     edge_left, edge_right = offset_points(xy_line, thickness / 2.0, closed=False)
     bottom_z = top_z - thickness
     cum = _arc_length(xy_line)
@@ -100,11 +100,11 @@ def build_bridge_mesh(
     tile_m: float = 5.0,
 ) -> Dict:
     """
-    Deck-, Bordstein-, Geländer- und Pfeiler-Mesh für eine Brücke entlang `coords` (bereits das
-    Brücken-Höhenprofil, x,y,z je Punkt).
+    Deck, curb, railing and pier mesh for a bridge along `coords` (already the
+    bridge height profile, x,y,z per point).
 
-    Querschnitt von außen nach innen: Geländer (Pfosten + Handlauf) - Bordstein (curb_width/curb_height,
-    pier_material) - Fahrbahn (deck_material, um 2x curb_width schmaler als `width`).
+    Cross section from outside to inside: railing (posts + handrail) - curb (curb_width/curb_height,
+    pier_material) - carriageway (deck_material, narrower than `width` by 2x curb_width).
 
     Returns:
         {"vertices": (N,3), "uvs": (N,2), "normals": (N,3),
@@ -137,19 +137,19 @@ def build_bridge_mesh(
         side_normal = [float(-direction[1]), float(direction[0]), 0.0]
         inward = [-side_normal[0], -side_normal[1], 0.0]
 
-        # Fahrbahn (Oberseite, zwischen den Bordsteinen)
+        # Carriageway (top side, between the curbs)
         deck_builder.quad(
             [p3(inner_left[i], top[i]), p3(inner_left[j], top[j]), p3(inner_right[j], top[j]), p3(inner_right[i], top[i])],
             [[u0, 0.0], [u1, 0.0], [u1, carriageway_across], [u0, carriageway_across]],
             [0.0, 0.0, 1.0],
         )
-        # Unterseite (volle Breite)
+        # Underside (full width)
         deck_builder.quad(
             [p3(outer_left[i], bottom[i]), p3(outer_right[i], bottom[i]), p3(outer_right[j], bottom[j]), p3(outer_left[j], bottom[j])],
             [[u0, 0.0], [u0, width / tile_m], [u1, width / tile_m], [u1, 0.0]],
             [0.0, 0.0, -1.0],
         )
-        # Fascia links/rechts (Deck-Unterkante bis Fahrbahnniveau)
+        # Fascia left/right (deck bottom edge up to carriageway level)
         deck_builder.quad(
             [p3(outer_left[i], bottom[i]), p3(outer_left[j], bottom[j]), p3(outer_left[j], top[j]), p3(outer_left[i], top[i])],
             [[u0, 0.0], [u1, 0.0], [u1, deck_thickness / tile_m], [u0, deck_thickness / tile_m]],
@@ -161,7 +161,7 @@ def build_bridge_mesh(
             [-side_normal[0], -side_normal[1], 0.0],
         )
 
-        # Bordstein links: Oberseite, Außen- (Fortsetzung der Fascia) und Innenfläche (zur Fahrbahn hin)
+        # Curb left: top, outer (continuation of the fascia) and inner face (toward the carriageway)
         pier_builder.quad(
             [p3(outer_left[i], curb_top[i]), p3(outer_left[j], curb_top[j]), p3(inner_left[j], curb_top[j]), p3(inner_left[i], curb_top[i])],
             [[u0, 0.0], [u1, 0.0], [u1, curb_across], [u0, curb_across]],
@@ -177,7 +177,7 @@ def build_bridge_mesh(
             [[u0, 0.0], [u1, 0.0], [u1, curb_height / tile_m], [u0, curb_height / tile_m]],
             inward,
         )
-        # Bordstein rechts (gespiegelt)
+        # Curb right (mirrored)
         pier_builder.quad(
             [p3(inner_right[i], curb_top[i]), p3(inner_right[j], curb_top[j]), p3(outer_right[j], curb_top[j]), p3(outer_right[i], curb_top[i])],
             [[u0, 0.0], [u1, 0.0], [u1, curb_across], [u0, curb_across]],
@@ -194,7 +194,7 @@ def build_bridge_mesh(
             side_normal,
         )
 
-    # Stirnflächen an den beiden Enden (Deck volle Höhe + Bordstein-Aufsatz beidseits)
+    # End faces at both ends (deck full height + curb top on both sides)
     for index, sign, neighbour in ((0, -1.0, 1), (len(points) - 1, 1.0, len(points) - 2)):
         direction = xy[1] - xy[0] if index == 0 else xy[-1] - xy[neighbour]
         direction = direction / np.linalg.norm(direction)
@@ -211,7 +211,7 @@ def build_bridge_mesh(
                 face_normal,
             )
 
-    # Pfeiler: alle pier_spacing Meter entlang der Bogenlänge, nur wenn ausreichend Abstand zum Gelände besteht
+    # Piers: every pier_spacing meters along the arc length, only if there is enough clearance above the terrain
     total_len = float(cum[-1])
     pier_positions = np.arange(pier_spacing, total_len, pier_spacing) if total_len > pier_spacing else np.array([])
     for s in pier_positions:
@@ -222,7 +222,7 @@ def build_bridge_mesh(
             continue
         add_box_column(pier_builder, cx, cy, ground_z, deck_bottom_z, pier_size, tile_m, direction=_direction_at(cum, xy, s))
 
-    # Geländer: Pfosten + durchlaufender Handlauf beidseits, auf der Bordstein-Oberkante
+    # Railing: posts + continuous handrail on both sides, on the curb top edge
     railing_builder = MeshBuilder()
     rail_top = curb_top + railing_height + railing_post_size / 2.0
     post_positions = np.arange(0.0, total_len + 1e-6, railing_post_spacing) if total_len > 0 else np.array([])
@@ -274,7 +274,7 @@ def build_bridges(
     railing_post_spacing: float = 2.0,
     railing_post_size: float = 0.08,
 ) -> List[Dict]:
-    """Mesh-Dicts für den DAE-Export, eines je Brücke (`bridges`: [{"id","coords","width","deck_material"}, ...])."""
+    """Mesh dicts for the DAE export, one per bridge (`bridges`: [{"id","coords","width","deck_material"}, ...])."""
     meshes = []
     for bridge in bridges:
         coords = bridge["coords"]

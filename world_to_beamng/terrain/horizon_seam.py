@@ -1,20 +1,20 @@
 """
-Horizont-Mesh mit exakt passendem Loch für den Terrain-Block.
+Horizon mesh with an exactly fitting hole for the terrain block.
 
-Das Terrain ist ein TerrainBlock (Heightmap), kein Mesh - der Horizont kann deshalb nicht
-mehr mit Terrain-Vertices "vernäht" werden. Stattdessen wird die Horizont-Geometrie direkt
-aus der Heightmap abgeleitet:
+The terrain is a TerrainBlock (heightmap), not a mesh - the horizon can therefore no longer
+be "stitched" to terrain vertices. Instead, the horizon geometry is derived directly
+from the heightmap:
 
-1. Das 200-m-Raster ist an den Kanten des Terrain-Lochs verankert (anchored_axis), das Loch
-   ist also exakt N Quads breit und nicht mehr "irgendwo zwischen zwei Rasterlinien".
-2. Die Höhen des Horizonts werden zum Loch hin auf die Terrainhöhe an der Kante gezogen
-   (blend_to_terrain) und gehen nach außen sanft in die DGM30-Höhen über. So gibt es keine
-   Stufe zwischen Terrain und Horizont (DGM30 ist ein grobes Oberflächenmodell und weicht
-   vom DGM1 um bis zu ~50 m ab).
-3. Direkt am Loch sitzt ein feiner Randring (seam_step, Standard 10 m) mit den exakten
-   Terrain-Randhöhen, der per Dreiecksfächer an das grobe Raster anschließt. Ein schmaler
-   "Flansch" unter dem Terrain (flange_inset/flange_sink) deckt Restrisse ab, weil das
-   Terrain feiner ist als der Randring.
+1. The 200 m grid is anchored to the edges of the terrain hole (anchored_axis), so the hole
+   is exactly N quads wide and no longer "somewhere between two grid lines".
+2. The horizon heights are pulled toward the hole to the terrain height at the edge
+   (blend_to_terrain) and blend smoothly outward into the DGM30 heights. This way there is no
+   step between terrain and horizon (DGM30 is a coarse surface model and deviates
+   from DGM1 by up to ~50 m).
+3. Directly at the hole sits a fine edge ring (seam_step, default 10 m) with the exact
+   terrain edge heights, which connects to the coarse grid via a triangle fan. A narrow
+   "flange" below the terrain (flange_inset/flange_sink) covers residual cracks, because the
+   terrain is finer than the edge ring.
 """
 
 from typing import Callable, Tuple
@@ -28,11 +28,11 @@ Hole = Tuple[float, float, float, float]  # (x_min, y_min, x_max, y_max)
 
 def anchored_axis(lo: float, hi: float, hole_lo: float, hole_hi: float, spacing: float) -> np.ndarray:
     """
-    Rasterlinien-Koordinaten, die hole_lo und hole_hi exakt enthalten.
+    Grid line coordinates that contain hole_lo and hole_hi exactly.
 
-    Das Loch wird in round((hole_hi - hole_lo) / spacing) gleich große Schritte geteilt
-    (Schrittweite <= ca. spacing); nach außen läuft das Raster mit derselben Schrittweite
-    bis zum Datenbereich [lo, hi].
+    The hole is divided into round((hole_hi - hole_lo) / spacing) equally sized steps
+    (step size <= approx. spacing); outward, the grid continues with the same step size
+    up to the data range [lo, hi].
     """
     cells = max(1, int(round((hole_hi - hole_lo) / spacing)))
     step = (hole_hi - hole_lo) / cells
@@ -41,7 +41,7 @@ def anchored_axis(lo: float, hi: float, hole_lo: float, hole_hi: float, spacing:
     k_min = min(k_min, -1)
     k_max = max(k_max, cells + 1)
     axis = hole_lo + step * np.arange(k_min, k_max + 1)
-    axis[np.argmin(np.abs(axis - hole_lo))] = hole_lo  # Rundungsfehler an den Ankern vermeiden
+    axis[np.argmin(np.abs(axis - hole_lo))] = hole_lo  # avoid rounding errors at the anchors
     axis[np.argmin(np.abs(axis - hole_hi))] = hole_hi
     return axis
 
@@ -55,8 +55,8 @@ def blend_to_terrain(
     blend_distance: float,
 ) -> np.ndarray:
     """
-    Horizont-Höhe: am Loch die Terrainhöhe der nächstgelegenen Terrainkante, ab
-    blend_distance Abstand die reine DGM30-Höhe, dazwischen Smoothstep.
+    Horizon height: at the hole the terrain height of the nearest terrain edge, from
+    blend_distance away the pure DGM30 height, smoothstep in between.
     """
     x0, y0, x1, y1 = hole
     cx, cy = np.clip(x, x0, x1), np.clip(y, y0, y1)
@@ -69,9 +69,9 @@ def blend_to_terrain(
 
 def _fan_triangles(coarse: np.ndarray, fine: np.ndarray, per_cell: int) -> list:
     """
-    Dreiecksfächer zwischen einer groben Polylinie (n+1 Punkte) und einer feinen (n*per_cell+1
-    Punkte, deren Eckpunkte mit den groben zusammenfallen können): pro grober Zelle fächert die
-    erste Hälfte vom vorderen, die zweite vom hinteren groben Punkt, ein Dreieck schließt die Mitte.
+    Triangle fan between a coarse polyline (n+1 points) and a fine one (n*per_cell+1
+    points, whose corner points may coincide with the coarse ones): per coarse cell the
+    first half fans from the front, the second from the rear coarse point, one triangle closes the middle.
     """
     triangles = []
     mid = per_cell // 2
@@ -96,20 +96,20 @@ def build_horizon_geometry(
     flange_sink: float = 15.0,
 ):
     """
-    Baut die Horizont-Geometrie um ein rechteckiges Terrain-Loch.
+    Builds the horizon geometry around a rectangular terrain hole.
 
     Args:
-        points: (N, 2) DGM30-Stützpunkte (lokale Koordinaten)
-        elevations: (N,) zugehörige Höhen
-        hole: (x_min, y_min, x_max, y_max) des Terrain-Bereichs (echte Daten, ohne Padding)
-        terrain_height_at: Höhenabfrage der fertigen Terrain-Heightmap
-        spacing: Rasterabstand des groben Horizonts
-        seam_step: Punktabstand des feinen Randrings am Loch
-        blend_distance: Länge des Höhenübergangs Terrain -> DGM30
-        flange_inset, flange_sink: Breite/Tiefe des Flansches unter dem Terrain (0 = kein Flansch)
+        points: (N, 2) DGM30 support points (local coordinates)
+        elevations: (N,) corresponding heights
+        hole: (x_min, y_min, x_max, y_max) of the terrain area (real data, without padding)
+        terrain_height_at: height query of the finished terrain heightmap
+        spacing: grid spacing of the coarse horizon
+        seam_step: point spacing of the fine edge ring at the hole
+        blend_distance: length of the height transition terrain -> DGM30
+        flange_inset, flange_sink: width/depth of the flange below the terrain (0 = no flange)
 
     Returns:
-        (vertices (V,3), faces (F,3) nach oben orientiert, nx, ny des groben Rasters)
+        (vertices (V,3), faces (F,3) oriented upward, nx, ny of the coarse grid)
     """
     x0, y0, x1, y1 = hole
     xs = anchored_axis(points[:, 0].min(), points[:, 0].max(), x0, x1, spacing)
@@ -129,18 +129,18 @@ def build_horizon_geometry(
     def vid(i, j):
         return j * nx + i
 
-    # --- grobe Quads: Loch und der direkt angrenzende Ring (den übernimmt der Randring) entfallen
+    # --- coarse quads: the hole and the directly adjacent ring (taken over by the edge ring) are dropped
     keep = np.ones((ny - 1, nx - 1), dtype=bool)
-    keep[jy0 - 1 : jy1 + 1, ix0 : ix1] = False  # Süd-Ring, Loch, Nord-Ring (Spalten über dem Loch)
-    keep[jy0:jy1, ix0 - 1 : ix1 + 1] = False  # West-Ring, Loch, Ost-Ring (Zeilen neben dem Loch)
+    keep[jy0 - 1 : jy1 + 1, ix0 : ix1] = False  # south ring, hole, north ring (columns above the hole)
+    keep[jy0:jy1, ix0 - 1 : ix1 + 1] = False  # west ring, hole, east ring (rows beside the hole)
     quad_j, quad_i = np.nonzero(keep)
     v0 = quad_j * nx + quad_i
     v1, v2, v3 = v0 + 1, v0 + nx, v0 + nx + 1
     faces = [np.column_stack([v0, v1, v2]), np.column_stack([v1, v3, v2])]
 
-    # --- feiner Randring: pro Seite feine Punkte auf der Lochkante, Fächer zur groben Außenspalte
+    # --- fine edge ring: per side fine points on the hole edge, fan to the coarse outer column
     def side_points(coarse_along):
-        """Feine Punkte entlang einer Kante (auf- oder absteigend); Zellgrenzen = grobe Rasterlinien."""
+        """Fine points along an edge (ascending or descending); cell boundaries = coarse grid lines."""
         per_cell = max(1, int(round(abs(coarse_along[1] - coarse_along[0]) / seam_step)))
         pts = []
         for c in range(len(coarse_along) - 1):
@@ -149,7 +149,7 @@ def build_horizon_geometry(
         pts.append(coarse_along[-1])
         return np.array(pts), per_cell
 
-    ring = []  # geordnete Schleife der Randring-Vertex-Indizes (gegen den Uhrzeigersinn)
+    ring = []  # ordered loop of the edge ring vertex indices (counterclockwise)
     new_vertices = []
 
     def add_vertex(px, py):
@@ -160,7 +160,7 @@ def build_horizon_geometry(
         return next_index - 1
 
     sides = [
-        # (feste Achse, fester Wert, laufende Koordinaten, Index-Funktion der Ecke, Außenspalte)
+        # (fixed axis, fixed value, running coordinates, index function of the corner, outer column)
         ("x", x0, ys[jy0 : jy1 + 1], lambda j: vid(ix0, jy0 + j), [vid(ix0 - 1, jy0 + j) for j in range(jy1 - jy0 + 1)]),
         ("y", y1, xs[ix0 : ix1 + 1], lambda i: vid(ix0 + i, jy1), [vid(ix0 + i, jy1 + 1) for i in range(ix1 - ix0 + 1)]),
         ("x", x1, ys[jy0 : jy1 + 1][::-1], lambda j: vid(ix1, jy1 - j), [vid(ix1 + 1, jy1 - j) for j in range(jy1 - jy0 + 1)]),
@@ -171,7 +171,7 @@ def build_horizon_geometry(
         pts, per_cell = side_points(along)
         fine_ids = []
         for n, p in enumerate(pts):
-            # Ecken (erster/letzter Punkt der Seite) sind bestehende Rasterknoten
+            # Corners (first/last point of the side) are existing grid nodes
             if n == 0:
                 fine_ids.append(corner_vid(0))
             elif n == len(pts) - 1:
@@ -179,12 +179,12 @@ def build_horizon_geometry(
             else:
                 fine_ids.append(add_vertex(fixed, p) if axis == "x" else add_vertex(p, fixed))
         triangles.extend(_fan_triangles(coarse_ids, fine_ids, per_cell))
-        ring.extend(fine_ids[:-1])  # letzter Punkt = erste Ecke der nächsten Seite
+        ring.extend(fine_ids[:-1])  # last point = first corner of the next side
 
-    # --- Flansch unter dem Terrain
+    # --- Flange below the terrain
     if flange_inset > 0 and flange_sink > 0:
         all_vertices_so_far = np.vstack([vertices[0], np.array(new_vertices)]) if new_vertices else vertices[0]
-        inner_by_position = {}  # Randpunkte nahe einer Ecke landen auf demselben Innenpunkt -> ein Vertex
+        inner_by_position = {}  # edge points near a corner end up on the same inner point -> one vertex
         inner_ids = []
         for idx in ring:
             px, py, _ = all_vertices_so_far[idx]
@@ -202,7 +202,7 @@ def build_horizon_geometry(
             a_in, b_in = inner_ids[k], inner_ids[(k + 1) % len(ring)]
             triangles.append((a, b, b_in))
             triangles.append((a, b_in, a_in))
-        # Fällt ein Innenpunkt zusammen, entartet eines der beiden Dreiecke -> weglassen
+        # If an inner point coincides, one of the two triangles degenerates -> omit it
         triangles = [t for t in triangles if len(set(t)) == 3]
 
     if new_vertices:
@@ -210,7 +210,7 @@ def build_horizon_geometry(
     vertices = np.vstack(vertices)
     faces_array = np.vstack(faces + [np.array(triangles, dtype=int).reshape(-1, 3)]).astype(int)
 
-    # Einheitlich nach oben orientieren (Fächer/Flansch je Seite sonst gemischt)
+    # Orient uniformly upward (fan/flange per side would otherwise be mixed)
     a, b, c = (vertices[faces_array[:, k], :2] for k in range(3))
     area = (b[:, 0] - a[:, 0]) * (c[:, 1] - a[:, 1]) - (b[:, 1] - a[:, 1]) * (c[:, 0] - a[:, 0])
     flip = area < 0

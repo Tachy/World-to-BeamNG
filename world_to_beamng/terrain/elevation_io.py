@@ -1,22 +1,22 @@
 """
-Einheitlicher Reader für Höhendaten-Kacheln.
+Unified reader for elevation data tiles.
 
-Erkennt den Inhalt einer Kachel-Datei (lose Datei ODER ZIP) am TATSÄCHLICHEN Format, nicht am
-Dateinamen - es gibt nur zwei Format-Zweige, kein bevorzugter LGL-Sonderpfad:
+Detects the content of a tile file (loose file OR ZIP) by its ACTUAL format, not by its file
+name - there are only two format branches, no preferred LGL special path:
 
-- ASCII-XYZ-Punktwolke (z.B. LGL Baden-Württemberg: ZIP mit *.xyz-Dateien). Hat nie ein
-  eingebettetes CRS.
-- GeoTIFF-Raster (lose *.tif/*.tiff-Datei ODER GeoTIFF-Member in einem ZIP). Hat ein eingebettetes
-  CRS, das automatisch gelesen wird.
+- ASCII XYZ point cloud (e.g. LGL Baden-Württemberg: ZIP with *.xyz files). Never has an
+  embedded CRS.
+- GeoTIFF raster (loose *.tif/*.tiff file OR GeoTIFF member in a ZIP). Has an embedded CRS,
+  which is read automatically.
 
-Beide Zweige liefern dasselbe Rückgabeformat (points, elevations, crs_epsg, bbox_utm), damit
-tile_scanner.py und workflow/tile_processor.py nicht zwischen Formaten unterscheiden müssen.
+Both branches return the same result format (points, elevations, crs_epsg, bbox_utm), so that
+tile_scanner.py and workflow/tile_processor.py do not have to distinguish between formats.
 
-WICHTIG zu bbox_utm: Punkte/Pixel repräsentieren ZELLMITTELPUNKTE (bei GeoTIFF: Pixel-Mittelpunkte,
-bei XYZ: die Rasterzelle, für die der Punkt steht). Die tatsächlich abgedeckte Fläche reicht daher
-eine halbe Zellgröße über den äußersten Punkt hinaus - bbox_utm ist NICHT einfach points.min()/max(),
-sonst würde die Kachel um eine halbe Zelle zu klein berechnet (das hat vor dieser Korrektur die
-Luftbild-Kachelgrenzen um 0.5 m gegenüber der echten Terrain-Fläche verschoben).
+IMPORTANT regarding bbox_utm: points/pixels represent CELL CENTERS (for GeoTIFF: pixel centers,
+for XYZ: the raster cell the point stands for). The area actually covered therefore extends
+half a cell size beyond the outermost point - bbox_utm is NOT simply points.min()/max(),
+otherwise the tile would be computed half a cell too small (before this fix, that shifted the
+aerial photo tile boundaries by 0.5 m relative to the real terrain area).
 """
 
 import zipfile
@@ -40,18 +40,18 @@ ReadResult = Tuple[Optional[np.ndarray], Optional[np.ndarray], Optional[int], Op
 
 def read_elevation_tile_cached(filepath, cache_manager, tile_hash: Optional[str] = None) -> ReadResult:
     """
-    Wie read_elevation_tile(), aber mit demselben dateibasierten Cache (CacheManager, Key
-    "height_raw_<hash>"), den auch workflow/tile_processor.py und die Scan-Phase
-    (utils/tile_scanner.py::scan_elevation_tiles()) nutzen - eine Datei wird dadurch effektiv nur
-    einmal geparst, egal wie oft/wo sie gebraucht wird.
+    Like read_elevation_tile(), but with the same file-based cache (CacheManager, key
+    "height_raw_<hash>") that workflow/tile_processor.py and the scan phase
+    (utils/tile_scanner.py::scan_elevation_tiles()) also use - a file is thereby effectively parsed
+    only once, no matter how often/where it is needed.
 
     Args:
-        filepath: siehe read_elevation_tile()
+        filepath: see read_elevation_tile()
         cache_manager: core.cache_manager.CacheManager
-        tile_hash: optionaler, bereits berechneter Datei-Hash (spart ein erneutes Hashen)
+        tile_hash: optional, already computed file hash (saves hashing again)
 
     Returns:
-        wie read_elevation_tile()
+        same as read_elevation_tile()
     """
     filepath = Path(filepath)
     if tile_hash is None:
@@ -59,10 +59,10 @@ def read_elevation_tile_cached(filepath, cache_manager, tile_hash: Optional[str]
     cache_key = f"{CACHE_KEY_PREFIX}{tile_hash}"
 
     cached = cache_manager.get_npz(cache_key)
-    # "bbox_utm" fehlt in Cache-Einträgen aus einer Zeit vor dieser Funktion (nur points/elevations,
-    # evtl. crs_epsg) - so ein unvollständiger Treffer wird wie ein Cache-Miss behandelt (frisch
-    # gelesen und mit dem vollständigen Format neu geschrieben), statt bbox_utm=None zurückzugeben
-    # und die Kachel dadurch stillschweigend unbrauchbar zu machen (siehe utils.tile_scanner).
+    # "bbox_utm" is missing in cache entries from before this function existed (only
+    # points/elevations, possibly crs_epsg) - such an incomplete hit is treated like a cache miss
+    # (read fresh and rewritten in the full format), instead of returning bbox_utm=None and
+    # thereby silently making the tile unusable (see utils.tile_scanner).
     if cached is not None and "bbox_utm" in cached:
         crs_epsg = int(cached["crs_epsg"]) if "crs_epsg" in cached else -1
         bbox_utm = tuple(cached["bbox_utm"].tolist())
@@ -82,17 +82,17 @@ def read_elevation_tile_cached(filepath, cache_manager, tile_hash: Optional[str]
 
 def read_elevation_tile(filepath) -> ReadResult:
     """
-    Liest eine einzelne Höhendaten-Datei vollständig ein.
+    Reads a single elevation data file completely.
 
     Args:
-        filepath: lose GeoTIFF-Datei ODER ZIP (mit XYZ-Punktdateien ODER GeoTIFF-Member)
+        filepath: loose GeoTIFF file OR ZIP (with XYZ point files OR GeoTIFF member)
 
     Returns:
-        (points Nx2, elevations N, crs_epsg, bbox_utm) - crs_epsg ist None bei ASCII-XYZ (nie
-        eingebettetes CRS vorhanden, unabhängig vom Dateinamen -> config.SOURCE_CRS_EPSG-Fallback
-        gilt), sonst das aus dem GeoTIFF gelesene EPSG (None, falls das CRS kein EPSG-Code ist -
-        bekannte Grenze, siehe Plan). bbox_utm = tatsächlich abgedeckte Fläche (x_min, x_max, y_min,
-        y_max), siehe Modul-Docstring. (None, None, None, None) bei Fehlern oder unbekanntem Format.
+        (points Nx2, elevations N, crs_epsg, bbox_utm) - crs_epsg is None for ASCII XYZ (never has
+        an embedded CRS, regardless of the file name -> the config.SOURCE_CRS_EPSG fallback
+        applies), otherwise the EPSG read from the GeoTIFF (None if the CRS is not an EPSG code -
+        known limitation, see plan). bbox_utm = area actually covered (x_min, x_max, y_min,
+        y_max), see module docstring. (None, None, None, None) on errors or unknown format.
     """
     filepath = Path(filepath)
     try:
@@ -147,7 +147,7 @@ def _read_zip(zip_path: Path) -> ReadResult:
 
 
 def _read_xyz_members(zf: zipfile.ZipFile, members) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
-    """ASCII-XYZ-Punktdateien aus einem ZIP (LGL-Format: X Y Z, leerzeichengetrennt)."""
+    """ASCII XYZ point files from a ZIP (LGL format: X Y Z, space-separated)."""
     all_points, all_elevations = [], []
     for name in members:
         with zf.open(name) as f:
@@ -163,13 +163,13 @@ def _read_xyz_members(zf: zipfile.ZipFile, members) -> Tuple[Optional[np.ndarray
 
 def _point_grid_bbox(points: np.ndarray) -> BBox:
     """
-    Schätzt die tatsächliche Abdeckungsfläche einer regelmäßigen Punktwolke aus Zellmittelpunkten
-    (z.B. LGL-DGM1: 1x1m-Zellen). Jeder Punkt vertritt eine Zelle mit einer halben Gitterweite Rand
-    um sich herum - die reine Punkt-BBox (min/max) wäre um eine halbe Zelle je Seite zu klein.
+    Estimates the actual coverage area of a regular point cloud of cell centers
+    (e.g. LGL DGM1: 1x1m cells). Each point stands for a cell with a half grid spacing of border
+    around it - the plain point bbox (min/max) would be half a cell too small on each side.
 
-    Die Gitterweite wird aus den Daten selbst abgeleitet (kleinster positiver Abstand zwischen
-    unterschiedlichen X- bzw. Y-Werten), nicht aus config.GRID_SPACING angenommen - funktioniert
-    damit für jede native Punktdichte.
+    The grid spacing is derived from the data itself (smallest positive distance between
+    distinct X or Y values), not assumed from config.GRID_SPACING - so it works
+    for any native point density.
     """
     x_min, x_max = float(points[:, 0].min()), float(points[:, 0].max())
     y_min, y_max = float(points[:, 1].min()), float(points[:, 1].max())
@@ -191,17 +191,17 @@ def _half_spacing(values: np.ndarray) -> float:
 
 def _read_raster(path_or_vsi: str) -> ReadResult:
     """
-    Einzelband-Raster (GeoTIFF o.ä.) via rasterio.
+    Single-band raster (GeoTIFF or similar) via rasterio.
 
-    Wird die native Auflösung feiner als config.GRID_SPACING gelesen, liest GDAL bereits
-    verkleinert (average-Resampling) - vermeidet unnötig große Punktwolken und hält die
-    Zielauflösung unabhängig von der Quelle konstant (siehe Plan, Abschnitt 2). Native Auflösung
-    gröber oder gleich GRID_SPACING wird unverändert gelesen; das nachgelagerte
-    NearestNDInterpolator-Resampling in terrain/grid.py übernimmt dort wie bisher das Hochskalieren.
+    If the native resolution is finer than config.GRID_SPACING, GDAL already reads it
+    downscaled (average resampling) - avoids needlessly large point clouds and keeps the
+    target resolution constant regardless of the source (see plan, section 2). A native resolution
+    coarser than or equal to GRID_SPACING is read unchanged; the downstream
+    NearestNDInterpolator resampling in terrain/grid.py handles the upscaling there as before.
 
-    NoData-Pixel werden vor der Rückgabe entfernt (per src.nodata bzw. NaN/Inf). bbox_utm ist die
-    ECHTE Raster-Abdeckung (aus Transform+Shape, rasterio.transform.array_bounds) - nicht aus den
-    (NoData-bereinigten) Pixel-Mittelpunkten abgeleitet, bleibt also auch bei Löchern am Rand korrekt.
+    NoData pixels are removed before returning (via src.nodata or NaN/Inf). bbox_utm is the
+    REAL raster coverage (from transform+shape, rasterio.transform.array_bounds) - not derived from
+    the (NoData-cleaned) pixel centers, so it stays correct even with holes at the edge.
     """
     import rasterio
     from rasterio.enums import Resampling
@@ -235,8 +235,8 @@ def _read_raster(path_or_vsi: str) -> ReadResult:
             return None, None, crs_epsg, bbox_utm
 
         a, b, c, d, e, f = transform.a, transform.b, transform.c, transform.d, transform.e, transform.f
-        # Pixel-Mittelpunkte, vektorisiert (kein Python-Loop über rasterio.transform.xy() - bei
-        # Millionen Pixeln zu langsam)
+        # Pixel centers, vectorized (no Python loop over rasterio.transform.xy() - too slow for
+        # millions of pixels)
         xs = a * (cols + 0.5) + b * (rows + 0.5) + c
         ys = d * (cols + 0.5) + e * (rows + 0.5) + f
         points = np.column_stack([xs, ys])

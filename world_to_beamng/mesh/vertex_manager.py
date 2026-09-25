@@ -1,5 +1,5 @@
 """
-Zentrale Verwaltung aller Mesh-Vertices mit automatischer Deduplication.
+Central management of all mesh vertices with automatic deduplication.
 """
 
 import numpy as np
@@ -7,41 +7,41 @@ import numpy as np
 
 class VertexManager:
     """
-    Verwaltet alle Mesh-Vertices zentral mit automatischer Deduplizierung.
+    Manages all mesh vertices centrally with automatic deduplication.
 
-    Verhindert doppelte Vertices innerhalb einer definierten Toleranz und
-    gibt konsistente globale Indices zurueck.
+    Prevents duplicate vertices within a defined tolerance and
+    returns consistent global indices.
 
-    OPTIMIZATION: Vertices werden intern als NumPy-Array gehalten für Performance!
+    OPTIMIZATION: Vertices are kept internally as a NumPy array for performance!
     """
 
     def __init__(self, tolerance=0.001):
         """
-        Initialisiert den VertexManager.
+        Initializes the VertexManager.
 
         Args:
-            tolerance: Minimaler Abstand zwischen Vertices (in Metern).
-                      Vertices näher als dieser Wert werden als identisch behandelt.
+            tolerance: Minimum distance between vertices (in meters).
+                      Vertices closer than this value are treated as identical.
         """
-        # OPTIMIZATION: Vertices als NumPy-Array statt Liste
-        # Startet mit kapazität für ~1000 Vertices, wird bei Bedarf erweitert
+        # OPTIMIZATION: Vertices as a NumPy array instead of a list
+        # Starts with capacity for ~1000 vertices, grows as needed
         self.vertices = np.empty((0, 3), dtype=np.float32)
         self.tolerance = tolerance
         self.tolerance_sq = tolerance * tolerance
 
-        # Schnelles räumliches Hash: cell -> [vertex_indices]
+        # Fast spatial hash: cell -> [vertex_indices]
         self.cell_size = tolerance
         self.spatial_hash = {}
 
     def add_vertex(self, x, y, z):
         """
-        Fuegt einen Vertex hinzu oder gibt Index eines existierenden zurueck.
+        Adds a vertex or returns the index of an existing one.
 
         Args:
-            x, y, z: Koordinaten des Vertex
+            x, y, z: Coordinates of the vertex
 
         Returns:
-            int: Globaler Index des Vertex (0-basiert)
+            int: Global index of the vertex (0-based)
         """
         new_point = np.array([x, y, z], dtype=np.float32)
 
@@ -50,30 +50,30 @@ class VertexManager:
             return existing_idx
 
         new_idx = len(self.vertices)
-        # OPTIMIZATION: Append zu NumPy-Array durch vstack statt append zu Liste
+        # OPTIMIZATION: Append to NumPy array via vstack instead of appending to a list
         self.vertices = np.vstack([self.vertices, new_point.reshape(1, 3)])
         self._add_to_hash(new_idx, new_point)
         return new_idx
 
     def add_vertices_direct_nohash(self, coords):
-        """Fuegt viele Vertices ohne Dedup und ohne Hash/KDTree-Update hinzu (maximale Speed).
+        """Adds many vertices without dedup and without hash/KDTree update (maximum speed).
 
-        Nur nutzen, wenn danach keine Dedup-Queries mehr noetig sind und keine Überschneidungen
-        zu bestehenden Vertices zu erwarten sind.
+        Only use when no dedup queries are needed afterwards and no overlaps
+        with existing vertices are expected.
         """
         coords_arr = np.asarray(coords, dtype=np.float32)
         if coords_arr.size == 0:
             return []
 
         start_idx = len(self.vertices)
-        # OPTIMIZATION: Single vstack statt Loop
+        # OPTIMIZATION: Single vstack instead of a loop
         if len(coords_arr.shape) == 1:
             coords_arr = coords_arr.reshape(1, -1)
         self.vertices = np.vstack([self.vertices, coords_arr])
         end_idx = start_idx + len(coords_arr)
         return list(range(start_idx, end_idx))
 
-    # --- Interne Helfer fuer Spatial Hash ---
+    # --- Internal helpers for the spatial hash ---
     def _cell_key(self, point):
         return (
             int(np.floor(point[0] / self.cell_size)),
@@ -92,7 +92,7 @@ class VertexManager:
     def _find_existing(self, point):
         key = self._cell_key(point)
         px, py, pz = point
-        # Pruefe eigene und Nachbarzellen (3x3x3)
+        # Check own and neighboring cells (3x3x3)
         for dx in (-1, 0, 1):
             for dy in (-1, 0, 1):
                 for dz in (-1, 0, 1):
@@ -109,15 +109,15 @@ class VertexManager:
 
     def get_count(self):
         """
-        Gibt Anzahl der Vertices zurueck.
+        Returns the number of vertices.
 
         Returns:
-            int: Anzahl Vertices
+            int: Number of vertices
         """
         return len(self.vertices)
 
     def __len__(self):
-        """Gibt Anzahl der Vertices zurueck."""
+        """Returns the number of vertices."""
         return len(self.vertices)
 
     def __repr__(self):

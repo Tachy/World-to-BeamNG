@@ -1,15 +1,15 @@
 """
-Register aller Texturen aus `data/textures`, die der Export braucht, samt Vorab-Prüfung.
+Registry of all textures from `data/textures` that the export needs, including the pre-flight check.
 
-Jeder Eintrag sagt, welches Objekt die Textur nutzt und woher sie kommt:
-- prozedural (`generate` gesetzt): fehlt sie, wird sie einmalig erzeugt und in `data/textures` abgelegt
-  (deterministisch, gehört ins Repository)
-- Foto (`generate` = None): kann die Pipeline nicht erzeugen; fehlt sie, bricht der Export ab (MissingTexturesError)
-  mit dem Befehl, der sie aus einem Foto macht
+Each entry says which object uses the texture and where it comes from:
+- procedural (`generate` set): if it is missing, it is generated once and stored in `data/textures`
+  (deterministic, belongs in the repository)
+- photo (`generate` = None): the pipeline cannot generate it; if it is missing, the export aborts (MissingTexturesError)
+  with the command that turns a photo into it
 
-`prepare_textures()` läuft einmal zu Beginn des Exports (vor allem Rechenaufwand), wandelt alles in DDS um und
-liefert die Pfade für die Materialien; `prepared_textures()` gibt sie später den Materialien (Flachdach, Mauer).
-Eine neue Textur = Eintrag in REGISTRY plus Ordner in `data/textures`.
+`prepare_textures()` runs once at the start of the export (before the heavy computation), converts everything to DDS and
+returns the paths for the materials; `prepared_textures()` later hands them to the materials (flat roof, wall).
+A new texture = entry in REGISTRY plus a folder in `data/textures`.
 """
 
 import logging
@@ -28,15 +28,15 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class TextureSpec:
-    name: str  # Ordnername in data/textures
-    used_by: str  # welches Objekt die Textur nutzt (für Meldungen)
-    required: Callable[[], bool]  # nur geprüft, solange das Objekt exportiert wird
-    generate: Optional[Callable[[Optional[Path]], object]] = None  # None = Foto-Textur, nicht erzeugbar
-    hint: str = ""  # Befehl für Foto-Texturen
+    name: str  # folder name in data/textures
+    used_by: str  # which object uses the texture (for messages)
+    required: Callable[[], bool]  # only checked while the object is being exported
+    generate: Optional[Callable[[Optional[Path]], object]] = None  # None = photo texture, cannot be generated
+    hint: str = ""  # command for photo textures
 
 
 class MissingTexturesError(RuntimeError):
-    """Eine vom Export benötigte Foto-Textur fehlt in data/textures."""
+    """A photo texture required by the export is missing in data/textures."""
 
 
 REGISTRY: Sequence[TextureSpec] = (
@@ -85,13 +85,13 @@ def prepare_textures(
     registry: Optional[Sequence[TextureSpec]] = None,
 ) -> Dict[str, Dict[str, str]]:
     """
-    Prüft alle benötigten Texturen, erzeugt fehlende prozedurale einmalig und wandelt alle in DDS um.
+    Checks all required textures, generates missing procedural ones once and converts all of them to DDS.
 
     Returns:
-        {Textur-Name: {"baseColorMap", "normalMap", "roughnessMap"}} für die benötigten Texturen
+        {texture name: {"baseColorMap", "normalMap", "roughnessMap"}} for the required textures
 
     Raises:
-        MissingTexturesError: mindestens eine Foto-Textur fehlt (nichts wurde ins Level geschrieben)
+        MissingTexturesError: at least one photo texture is missing (nothing was written into the level)
     """
     global _prepared
     specs = [spec for spec in (REGISTRY if registry is None else registry) if spec.required()]
@@ -112,18 +112,18 @@ def prepare_textures(
     paths = library.ensure_library_textures(output_dir, library_dir)
     result = {spec.name: paths[spec.name] for spec in specs}
     for spec in specs:
-        kind = "prozedural" if spec.generate else "Foto"
+        kind = "procedural" if spec.generate else "photo"
         logger.debug(f"  [OK] Texture {spec.name:<22} {library.texture_tile_m(spec.name, 0.0, library_dir):5.2f} m  ({kind})  -> {spec.used_by}")
     _prepared = result
     return result
 
 
 def prepared_textures() -> Dict[str, Dict[str, str]]:
-    """Ergebnis der Vorab-Prüfung dieses Exports; läuft sie hier zum ersten Mal, wird sie jetzt durchgeführt."""
+    """Result of this export's pre-flight check; if it runs here for the first time, it is performed now."""
     return _prepared if _prepared is not None else prepare_textures()
 
 
 def reset_cache() -> None:
-    """Vergisst das Ergebnis der Vorab-Prüfung (für Tests)."""
+    """Forgets the result of the pre-flight check (for tests)."""
     global _prepared
     _prepared = None

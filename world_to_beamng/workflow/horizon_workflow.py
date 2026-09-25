@@ -1,7 +1,7 @@
 """
-Horizon-Layer Workflow.
+Horizon layer workflow.
 
-Orchestriert die Horizon-Layer-Generierung.
+Orchestrates the horizon layer generation.
 """
 
 from typing import Tuple, Optional
@@ -18,12 +18,12 @@ logger = logging.getLogger(__name__)
 
 class HorizonWorkflow:
     """
-    Orchestriert den Horizon-Layer-Workflow.
+    Orchestrates the horizon layer workflow.
 
-    Verantwortlich für:
-    - Horizon-Mesh-Generierung
-    - Textur-Verwaltung
-    - DAE-Export
+    Responsible for:
+    - Horizon mesh generation
+    - Texture management
+    - DAE export
     """
 
     def __init__(
@@ -45,19 +45,19 @@ class HorizonWorkflow:
         task=None,
     ) -> Optional[str]:
         """
-        Generiere Horizon-Layer (wie in multitile.py phase5_generate_horizon_layer).
+        Generate the horizon layer (as in multitile.py phase5_generate_horizon_layer).
 
         Args:
-            global_offset: (origin_x, origin_y, origin_z) - UTM Offset
-            tile_hash: Optional - Hash für Cache
-            tile_bounds: Optional - Liste von (x_min, y_min, x_max, y_max) Tuples
-            terrain_height_at: Optional - Höhenabfrage der Terrain-Heightmap (x, y) -> z. Damit
-                bekommt der Horizont ein exakt passendes Loch samt Randring und Höhenübergang
-                (terrain/horizon_seam.py) - ganz ohne Terrain-Mesh-Stitching.
-            task: Optional - PipelineTask; jeder Schritt wird dann als Teilaufgabe angezeigt
+            global_offset: (origin_x, origin_y, origin_z) - UTM offset
+            tile_hash: Optional - hash for the cache
+            tile_bounds: Optional - list of (x_min, y_min, x_max, y_max) tuples
+            terrain_height_at: Optional - elevation lookup of the terrain heightmap (x, y) -> z. This gives
+                the horizon an exactly fitting hole including a border ring and elevation transition
+                (terrain/horizon_seam.py) - without any terrain mesh stitching.
+            task: Optional - PipelineTask; each step is then shown as a subtask
 
         Returns:
-            Pfad der Horizont-DAE oder None (Horizont deaktiviert oder DGM30 fehlt)
+            Path of the horizon DAE or None (horizon disabled or DGM30 missing)
         """
         from ..terrain.horizon import (
             load_dgm30_tiles,
@@ -69,12 +69,12 @@ class HorizonWorkflow:
         from ..terrain.dgm30_fetch import ensure_dgm30_coverage
         from ..terrain.sentinel2_fetch import ensure_horizon_texture
 
-        # Prüfe ob Phase 5 aktiviert ist
+        # Check whether phase 5 is enabled
         if not config.PHASE5_ENABLED:
             logger.info("  [i] Phase 5 is disabled")
             return None
 
-        # Berechne Horizont-BBOX (config.HORIZON_HALF_SIZE_M um das Kerngebiet)
+        # Compute the horizon BBOX (config.HORIZON_HALF_SIZE_M around the core area)
         ox, oy, oz = global_offset
         horizon_bbox = horizon_area(global_offset)
         x_min, x_max, y_min, y_max = horizon_bbox
@@ -83,7 +83,7 @@ class HorizonWorkflow:
         logger.debug(f"      UTM (EPSG:25832): X=[{x_min:.0f}..{x_max:.0f}], Y=[{y_min:.0f}..{y_max:.0f}]")
         logger.debug(f"      Width: {x_max - x_min:.0f}m, height: {y_max - y_min:.0f}m")
 
-        # === DGM30 laden ===
+        # === Load DGM30 ===
         with optional_subtask(task, "Load DGM30") as sub:
             dgm30_dir = config.DGM30_CACHE_DIR
             if config.DGM30_AUTO_DOWNLOAD:
@@ -101,10 +101,10 @@ class HorizonWorkflow:
                 return None
             sub.finish(f"{len(height_points)} points")
 
-        # === STEP 1: Generiere Horizont-Mesh (separater VM, OHNE UVs noch) ===
+        # === STEP 1: Generate the horizon mesh (separate VM, WITHOUT UVs yet) ===
         logger.debug("  [i] Generating horizon mesh...")
 
-        # WICHTIG: IMMER separater VM
+        # IMPORTANT: ALWAYS a separate VM
         with optional_subtask(task, "Horizon mesh"):
             horizon_mesh, nx, ny = generate_horizon_mesh(
                 height_points,
@@ -115,9 +115,9 @@ class HorizonWorkflow:
             )
 
         with optional_subtask(task, "Sentinel-2 texture"):
-            # === Sentinel-2 laden (optional) ===
-            # Rein automatisch - ensure_horizon_texture() liefert einen gebietsabhängigen Cache-Pfad
-            # unter config.EOX_TEXTURE_CACHE_DIR oder None (Auto-Download deaktiviert/fehlgeschlagen).
+            # === Load Sentinel-2 (optional) ===
+            # Fully automatic - ensure_horizon_texture() returns an area-dependent cache path
+            # under config.EOX_TEXTURE_CACHE_DIR or None (auto-download disabled/failed).
             sentinel2_file = None
             if config.EOX_AUTO_DOWNLOAD:
                 logger.debug("  [i] Checking Sentinel-2 texture (loads automatically if needed)...")
@@ -135,7 +135,7 @@ class HorizonWorkflow:
             else:
                 horizon_image, bounds_utm, transform = sentinel2_data
 
-                # Zeige Koordinaten-Übereinstimmung mit Mesh
+                # Show the coordinate match with the mesh
                 vertices = horizon_mesh.vertex_manager.vertices
                 mesh_x_min, mesh_x_max = vertices[:, 0].min(), vertices[:, 0].max()
                 mesh_y_min, mesh_y_max = vertices[:, 1].min(), vertices[:, 1].max()
@@ -147,12 +147,12 @@ class HorizonWorkflow:
                     f"      Texture bounds (UTM): X=[{bounds_utm[0]:.0f}..{bounds_utm[2]:.0f}], Y=[{bounds_utm[1]:.0f}..{bounds_utm[3]:.0f}]"
                 )
 
-                # === Texturierung ===
+                # === Texturing ===
                 logger.debug("  [i] Texturing horizon mesh...")
                 texture_info = texture_horizon_mesh(vertices, horizon_image, nx, ny, bounds_utm, transform, global_offset)
 
         with optional_subtask(task, "UVs + DAE export"):
-            # === STEP 2: UVs generieren (für alle Vertices) ===
+            # === STEP 2: Generate UVs (for all vertices) ===
             logger.debug("  [i] Generating UVs for the horizon mesh...")
             horizon_vertices = horizon_mesh.vertex_manager.vertices
             mesh_x_min = horizon_vertices[:, 0].min()
@@ -163,7 +163,7 @@ class HorizonWorkflow:
             mesh_width = mesh_x_max - mesh_x_min
             mesh_height = mesh_y_max - mesh_y_min
 
-            # Generiere UVs für ALLE Vertices
+            # Generate UVs for ALL vertices
             horizon_mesh.uvs = []
             for vertex in horizon_vertices:
                 u = (vertex[0] - mesh_x_min) / max(mesh_width, 1e-10)

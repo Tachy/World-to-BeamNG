@@ -1,7 +1,7 @@
 """
-Wählbare Spawnpunkte vor den Einfahrten von Tunnelketten: an jedem Ende einer Kette aus Tunneln/Galerien (mit
-mindestens einem benannten Tunnel für Autos), an das eine normale Straße anschließt, steht `distance` Meter davor auf der
-Zufahrt ein Spawnpunkt mit Blick in den Tunnel. Der Name kommt aus `tunnel:name` des Bauwerks an diesem Ende.
+Selectable spawn points in front of the entrances of tunnel chains: at every end of a chain of tunnels/galleries (with
+at least one named tunnel for cars) to which a normal road connects, a spawn point facing into the tunnel is placed
+`distance` meters in front of it on the access road. The name comes from `tunnel:name` of the structure at that end.
 """
 
 from typing import Collection, Dict, List, Sequence
@@ -11,11 +11,11 @@ import numpy as np
 from ..geometry.polygon import structure_chains
 from ..geometry.road_structures import classify_structure
 
-ENDPOINT_TOL = 0.5  # so nah müssen Kettenende und Straßenende beieinander liegen, in Metern
+ENDPOINT_TOL = 0.5  # how close the chain end and the road end must be to each other, in meters
 
 
 def _approach_point(coords: np.ndarray, from_start: bool, distance: float):
-    """(Punkt, Blickrichtung) `distance` Meter vom Ende `from_start` weg auf der Straße, Blick zurück zu diesem Ende."""
+    """(point, viewing direction) `distance` meters away from the `from_start` end along the road, looking back toward that end."""
     ordered = coords if from_start else coords[::-1]
     seg = np.diff(ordered[:, :2], axis=0)
     seg_len = np.linalg.norm(seg, axis=1)
@@ -30,14 +30,14 @@ def _approach_point(coords: np.ndarray, from_start: bool, distance: float):
 
 def plan_entrance_spawns(roads: Sequence[Dict], distance: float, excluded_highways: Collection[str]) -> List[Dict]:
     """
-    Spawnpunkte vor Tunneleinfahrten.
+    Spawn points in front of tunnel entrances.
 
     Args:
-        roads: road_slope_polygons_2d-Dicts ("road_id", "trimmed_centerline" (N, 3), "osm_tags", "structure_type")
-        excluded_highways: Straßentypen ohne Autoverkehr (Stollen/Zufahrten dieser Typen zählen nicht)
+        roads: road_slope_polygons_2d dicts ("road_id", "trimmed_centerline" (N, 3), "osm_tags", "structure_type")
+        excluded_highways: Road types without car traffic (adits/access roads of these types do not count)
 
     Returns:
-        [{"name", "position" (x, y, z) auf der Fahrbahn, "heading" (dx, dy) zum Tunnel}, ...]
+        [{"name", "position" (x, y, z) on the carriageway, "heading" (dx, dy) toward the tunnel}, ...]
     """
     light = [
         {"id": r["road_id"], "coords": [tuple(p) for p in np.asarray(r["trimmed_centerline"], dtype=float)], "osm_tags": r.get("osm_tags", {})}
@@ -52,7 +52,7 @@ def plan_entrance_spawns(roads: Sequence[Dict], distance: float, excluded_highwa
     spawns = []
     for chain in structure_chains(light):
         tags = [road["osm_tags"] for road, _ in chain]
-        # Nur benannte Tunnel für Autos - unbenannte Feldweg-Unterführungen sind keine Kette, die man anfahren will
+        # Only named tunnels for cars - unnamed field-path underpasses are not a chain one wants to drive to
         if not any(
             classify_structure(t) == "tunnel" and t.get("highway") not in excluded_highways and (t.get("tunnel:name") or t.get("name"))
             for t in tags

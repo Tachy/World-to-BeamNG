@@ -1,3 +1,3 @@
 """
-Geometrie Module
+Geometry module
 """
