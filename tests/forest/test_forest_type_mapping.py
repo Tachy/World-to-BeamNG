@@ -11,7 +11,6 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
-sys.path.insert(0, str(Path(__file__).parent.parent.parent / "tools"))
 
 import pytest
 
@@ -107,7 +106,7 @@ def test_low_deciduous_scale_keeps_trees_low(forest_config):
 
 
 def test_generator_produces_the_same_rules_as_the_committed_json(forest_config):
-    import generate_forest_assets as gen
+    from world_to_beamng.forest import forest_types as gen
 
     trees_by_type = {k: [k] for k in json.loads(
         (Path(__file__).parent.parent.parent / "data" / "osm_to_beamng.json").read_text(encoding="utf-8")
@@ -301,7 +300,7 @@ def test_holes_of_non_forest_relations_are_not_planted_as_clearings(forest_confi
 
 
 def test_generator_produces_garden_rules_too(forest_config):
-    import generate_forest_assets as gen
+    from world_to_beamng.forest import forest_types as gen
 
     every_tree = set()
     for name in (GARDEN, RESIDENTIAL, SINGLE, LOW, TALL_MIXED, TALL_DECIDUOUS, "german_sparse_deciduous"):
@@ -357,7 +356,7 @@ def test_orchard_spacing_looks_like_an_orchard_not_a_forest(forest_config):
 
 
 def test_generator_emits_the_same_orchard_rules(forest_config):
-    import generate_forest_assets as gen
+    from world_to_beamng.forest import forest_types as gen
 
     every_tree = set()
     for template in forest_config["forest_type_templates"].values():
