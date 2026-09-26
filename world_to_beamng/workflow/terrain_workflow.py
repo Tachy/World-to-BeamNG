@@ -130,7 +130,9 @@ def _bridge_footprints(bridge_roads: List[Dict], extra: float) -> List[Dict]:
 
 def _bridge_photo_areas(structure_roads: List[Dict]) -> List[np.ndarray]:
     """Outlines ((N, 2) arrays) of the bridges plus curbs and config.BRIDGE_PHOTO_FILL_MARGIN - the aerial photo shows
-    the deck there, see io/aerial_bridge_fill.py."""
+    the deck there, see io/aerial_bridge_fill.py. Empty with config.AERIAL_BRIDGE_RETOUCH switched off."""
+    if not config.AERIAL_BRIDGE_RETOUCH:
+        return []
     bridges = [r for r in structure_roads if r.get("structure_type") == "bridge"]
     extra = config.BRIDGE_CURB_WIDTH + config.BRIDGE_PHOTO_FILL_MARGIN
     return [np.asarray(footprint["road_polygon"])[:, :2] for footprint in _bridge_footprints(bridges, extra)]

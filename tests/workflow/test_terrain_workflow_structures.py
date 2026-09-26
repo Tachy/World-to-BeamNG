@@ -210,6 +210,7 @@ def test_bridge_photo_areas_cover_deck_curbs_and_the_photo_margin(monkeypatch):
     from world_to_beamng import config
     from world_to_beamng.workflow.terrain_workflow import _bridge_photo_areas
 
+    monkeypatch.setattr(config, "AERIAL_BRIDGE_RETOUCH", True)
     monkeypatch.setattr(config, "BRIDGE_CURB_WIDTH", 0.4)
     monkeypatch.setattr(config, "BRIDGE_PHOTO_FILL_MARGIN", 2.0)
     bridge = {
@@ -281,3 +282,17 @@ def test_bridge_stems_only_where_the_trunk_itself_is_a_bridge():
     assert stems[2]["width"] == 13.0 and stems[2]["path"][0][:2] == node and len(stems[2]["path"]) == 31
     assert stems[2]["deck_material"].endswith("_structure")
     assert 3 not in stems  # its trunk is no bridge: the split lies on the ground
+
+
+def test_bridge_photo_areas_are_empty_when_the_retouch_is_switched_off(monkeypatch):
+    from world_to_beamng import config
+    from world_to_beamng.workflow.terrain_workflow import _bridge_photo_areas
+
+    monkeypatch.setattr(config, "AERIAL_BRIDGE_RETOUCH", False)
+    bridge = {
+        "structure_type": "bridge",
+        "road_polygon": np.array([[0.0, -3.25], [40.0, -3.25], [40.0, 3.25], [0.0, 3.25]]),
+        "trimmed_centerline": np.array([[0.0, 0.0, 100.0], [40.0, 0.0, 100.0]]),
+    }
+
+    assert _bridge_photo_areas([bridge]) == []
