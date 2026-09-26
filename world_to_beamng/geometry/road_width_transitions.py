@@ -145,27 +145,27 @@ def _walk(roads, partner, fixed, road, entry, own_width, min_delta, needed, free
     """
     Pieces a transition zone may cover, starting at `road` (entered at `entry`, the joint): along straight
     continuations of the same width, never into a structure (fixed). Returns ([(road, entry, offset), ...], available
-    length). The last piece counts only half if its far end continues into a piece of another width or a structure -
-    that joint may get a transition of its own; at a free end (junction without continuation) it counts free_end_share
-    (0.5 for the symmetric zone, which then shrinks to half the shorter road; 1.0 where the whole zone lies on one
-    side of a structure).
+    length, shared) - `shared` is True if another joint limits the stretch. The walk goes on until the far end of the stretch (or 2 * `needed`, where no other zone can interfere):
+    if the stretch ends in a piece of another width or a structure, that joint gets a zone of its own and the two share
+    the stretch - this zone may take half of it; at a free end (junction without continuation) it may take
+    free_end_share of it (0.5 for the symmetric zone, which then shrinks to half the shorter road; 1.0 where the whole
+    zone lies on one side of a structure).
     """
     pieces, offset, visited = [], 0.0, set()
     while True:
         visited.add(road)
-        length = float(_arc_lengths(roads[road])[-1])
+        total = offset + float(_arc_lengths(roads[road])[-1])
         pieces.append((road, entry, offset))
         far = "end" if entry == "start" else "start"
         nxt = partner.get((road, far))
         if nxt is None:
-            return pieces, offset + length * free_end_share
+            return pieces, total * free_end_share, False
         width = float(roads[nxt[0]][0 if nxt[1] == "start" else -1][3])
-        blocked = nxt[0] in visited or (fixed is not None and fixed[nxt[0]]) or abs(width - own_width) >= min_delta
-        if blocked:
-            return pieces, offset + length / 2.0
-        if offset + length >= needed:
-            return pieces, offset + length
-        offset += length
+        if nxt[0] in visited or (fixed is not None and fixed[nxt[0]]) or abs(width - own_width) >= min_delta:
+            return pieces, total / 2.0, True
+        if total >= 2.0 * needed:
+            return pieces, total, False
+        offset = total
         road, entry = nxt
 
 
@@ -216,7 +216,7 @@ def apply_width_transitions(
         if fixed_a or fixed_b:
             road, end, own, joint = (ib, eb, wb, wa) if fixed_a else (ia, ea, wa, wb)
             wanted = fixed_transition_length or transition_length
-            pieces, available = _walk(roads, partner, fixed, road, end, own, min_delta, wanted, 1.0)
+            pieces, available, _ = _walk(roads, partner, fixed, road, end, own, min_delta, wanted, 1.0)
             length = min(wanted, available)
             if length > 0.0:
                 apply(pieces, length, lambda s, own=own, joint=joint, length=length:
@@ -227,14 +227,21 @@ def apply_width_transitions(
             la, lb = lanes[ia], lanes[ib]
             if la is not None and lb is not None and la != lb and max(la, lb) >= 3:
                 zone = lane_change_length
-        pieces_a, available_a = _walk(roads, partner, fixed, ia, ea, wa, min_delta, zone / 2.0, 0.5)
-        pieces_b, available_b = _walk(roads, partner, fixed, ib, eb, wb, min_delta, zone / 2.0, 0.5)
-        half = min(zone / 2.0, available_a, available_b)
-        if half <= 0.0:
+        pieces_a, available_a, shared_a = _walk(roads, partner, fixed, ia, ea, wa, min_delta, zone / 2.0, 0.5)
+        pieces_b, available_b, shared_b = _walk(roads, partner, fixed, ib, eb, wb, min_delta, zone / 2.0, 0.5)
+        if shared_a or shared_b:
+            # Another transition lies on one side within reach: the two share the stretch between them (half each),
+            # the far side of each keeps its full length - the zone is asymmetric around the joint
+            length_a, length_b = min(zone / 2.0, available_a), min(zone / 2.0, available_b)
+        else:
+            length_a = length_b = min(zone / 2.0, available_a, available_b)  # short road: shrinks symmetrically
+        if length_a <= 0.0 or length_b <= 0.0:
             continue
-        for pieces, own, other in ((pieces_a, wa, wb), (pieces_b, wb, wa)):
-            apply(pieces, half, lambda s, own=own, other=other, half=half:
-                  own + (other - own) * smoothstep((half - s) / (2.0 * half)))
+        total = length_a + length_b
+        apply(pieces_a, length_a, lambda d, wa=wa, wb=wb, la=length_a, total=total:
+              wa + (wb - wa) * smoothstep((la - d) / total))
+        apply(pieces_b, length_b, lambda d, wa=wa, wb=wb, la=length_a, total=total:
+              wa + (wb - wa) * smoothstep((la + d) / total))
     return result
 
 

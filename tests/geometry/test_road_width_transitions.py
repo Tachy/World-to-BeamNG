@@ -303,3 +303,41 @@ def test_zone_stops_halfway_along_a_piece_whose_far_end_has_another_width_change
     _, ra, _ = apply_width_transitions([before, a, b], lanes=[1, 2, 3], **LANE_KW)
 
     assert _width_at(ra, -20.0) == pytest.approx(6.5)  # the lane-change zone takes only half of this piece
+
+
+# --- two joints close together: the stretch between them is shared, the outer sides keep their 50 m ------------------------
+def _profile(roads):
+    widths = {}
+    for nodes in roads:
+        for n in nodes:
+            widths.setdefault(round(n[0]), n[3])
+    return widths
+
+
+def test_two_lane_changes_within_100_m_share_the_stretch_and_keep_50_m_on_their_outer_sides():
+    # A2 at the Tremola ramp: 4 lanes -> (bridge) 3 lanes for only 66 m -> 2 lanes. Each zone takes half of the stretch
+    # between the joints (33 m); on the far side of each joint the full 50 m stay.
+    four = _road([(x, 0.0) for x in range(-200, 1)], 13.0)
+    three_a = _road([(x, 0.0) for x in range(0, 29)], 9.75)
+    three_b = _road([(x, 0.0) for x in range(28, 67)], 9.75)
+    two = _road([(x, 0.0) for x in range(66, 267)], 6.5)
+
+    widths = _profile(apply_width_transitions([four, three_a, three_b, two], lanes=[4, 3, 3, 2], **LANE_KW))
+
+    assert widths[-51] == pytest.approx(13.0) and widths[-50] == pytest.approx(13.0)  # outer side of joint 1: 50 m
+    assert widths[-25] < 13.0 - 0.1  # ... and it really blends there
+    assert widths[33] == pytest.approx(9.75)  # the shared stretch: each zone ends in its middle
+    assert widths[66 + 50] == pytest.approx(6.5) and widths[66 + 40] > 6.5 + 0.01  # outer side of joint 2: 50 m
+    steps = np.abs(np.diff([widths[x] for x in sorted(widths)]))
+    assert steps.max() < 0.3  # no jump where two zones used to overwrite each other
+    inside = [widths[x] for x in range(0, 34)]
+    assert all(b <= a + 1e-9 for a, b in zip(inside, inside[1:]))  # narrowing monotonically toward the middle
+
+
+def test_zone_next_to_a_free_end_still_shrinks_symmetrically():
+    a = _road([(0, 0), (20, 0)], 6.5)
+    b = _road([(20, 0), (24, 0)], 9.75)
+
+    new_a, new_b = apply_width_transitions([a, b], **KW)
+
+    assert _width_at(new_a, 18.0) == pytest.approx(6.5) and _width_at(new_b, 22.0) == pytest.approx(9.75)
