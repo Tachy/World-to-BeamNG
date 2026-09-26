@@ -89,6 +89,20 @@ def _guardrail_instances(specs: List[Tuple[Dict, Dict, List]], node_lists: List[
     return items
 
 
+def _bridge_footprints(bridge_roads: List[Dict], extra: float) -> List[Dict]:
+    """Bridge outlines for vegetation rules: {"road_polygon" (carriageway polygon widened by `extra` - curbs plus margin),
+    "trimmed_centerline"} per bridge (see road_embedding.near_deck_mask())."""
+    from shapely.geometry import Polygon
+
+    footprints = []
+    for road in bridge_roads:
+        polygon = Polygon(np.asarray(road["road_polygon"], dtype=float)[:, :2]).buffer(extra, join_style="mitre")
+        if polygon.is_empty or polygon.geom_type != "Polygon":
+            continue
+        footprints.append({"road_polygon": np.asarray(polygon.exterior.coords), "trimmed_centerline": road["trimmed_centerline"]})
+    return footprints
+
+
 def _invisible_road_material(name: str) -> Dict:
     """materials.json entry of the invisible DecalRoad on structures: alpha-tested, fully transparent texture
     (TerrainWorkflow._export_structure_road_assets() writes it) - schema like vanilla "road_invisible"
@@ -823,6 +837,27 @@ class TerrainWorkflow:
                 buffer=config.GROUND_COVER_BUILDING_MARGIN,
             )
 
+        # Bridges: no grass where the terrain lies so close below the deck that it would grow through it (hillside
+        # bridges); under bridges spanning a valley the grass stays. No trees anywhere under a bridge.
+        bridge_footprints = _bridge_footprints(bridge_roads, config.BRIDGE_CURB_WIDTH + config.BRIDGE_UNDERGROWTH_MARGIN)
+        if config.GROUND_COVER_ENABLED and bridge_footprints:
+            from ..terrain.road_embedding import near_deck_mask
+
+            near_deck = near_deck_mask(
+                heights, terrain_origin_x, terrain_origin_y, config.TERRAIN_SQUARE_SIZE, bridge_footprints,
+                clearance=config.BRIDGE_UNDERGROWTH_CLEARANCE,
+            )
+            layer_map = layer_map.copy()
+            layer_map[near_deck] = 0  # aerial photo layer: nothing grows on it
+        tree_exclusion = road_surface_union
+        bridge_tree_areas = _bridge_footprints(bridge_roads, config.BRIDGE_CURB_WIDTH + config.BRIDGE_TREE_MARGIN)
+        if bridge_tree_areas:
+            from shapely import union_all
+            from shapely.geometry import Polygon
+
+            parts = [Polygon(b["road_polygon"]) for b in bridge_tree_areas]
+            tree_exclusion = union_all(parts + ([road_surface_union] if road_surface_union is not None else []))
+
         # Excess border of the power-of-two heightmap (extrapolation only) as a hole: the visible
         # terrain ends exactly at the data edge, the horizon covers the strip behind it.
         # Last, so that painting/masking above run unchanged on the full layer map.
@@ -971,6 +1006,7 @@ class TerrainWorkflow:
             "road_slope_polygons_2d": road_slope_polygons_2d,  # For DecalRoad export
             "structure_road_polygons": structure_road_polygons,  # Bridges/tunnels/galleries - for export_bridges()/export_tunnels()
             "road_surface_union": road_surface_union,  # unioned road surface for exclusion zones (or None)
+            "tree_exclusion": tree_exclusion,  # road surfaces plus the areas under bridges: no trees there (or None)
             "grid_bounds_local": grid_bounds_local,
             "global_offset": global_offset,
             "buildings_data": buildings_data,  # Pass on the building data

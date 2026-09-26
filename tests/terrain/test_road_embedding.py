@@ -681,3 +681,18 @@ def test_embankment_cut_ends_flush_at_the_cut_line():
     assert result[24, 22] == 100.0 and result[25, 21] == 100.0
     assert result[24, 19] < 100.0  # still blended in front of the line
     assert result[24, 0] < 100.0  # the uncut start is blended as before
+
+
+def test_near_deck_mask_marks_only_terrain_close_below_the_bridge_deck():
+    from world_to_beamng.terrain.road_embedding import near_deck_mask
+
+    # Hillside bridge along x at y=20, deck at z=100: terrain z = 90 + 0.5 * y rises across the (wide) footprint
+    heights = np.tile((90.0 + 0.5 * np.arange(41.0))[:, None], (1, 60))
+    bridge = _road([(10, 10), (50, 10), (50, 30), (10, 30)], [(10, 20, 100.0), (50, 20, 100.0)])
+
+    mask = near_deck_mask(heights, 0.0, 0.0, 1.0, [bridge], clearance=2.5)
+
+    assert mask[20, 30] and mask[26, 30]  # at / above deck level
+    assert mask[16, 30]  # 2 m below the deck: grass would still reach through
+    assert not mask[14, 30] and not mask[11, 30]  # 3 m / 4.5 m below: grass stays
+    assert not mask[20, 55] and not mask[35, 30]  # outside the footprint

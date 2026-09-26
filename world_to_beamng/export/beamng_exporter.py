@@ -398,7 +398,7 @@ class BeamNGExporter:
                             # Trees stand on the finished heightmap (after road embedding), not on raw DGM1 points,
                             # and avoid the road surfaces that were actually embedded
                             height_at=terrain_height_at_1d,
-                            road_surfaces=result.get("road_surface_union"),
+                            road_surfaces=result.get("tree_exclusion", result.get("road_surface_union")),
                         )
                         if forest_result["status"] == "success":
                             stats["trees_generated"] += forest_result.get("tree_count", 0)

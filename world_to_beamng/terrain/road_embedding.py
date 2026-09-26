@@ -67,6 +67,38 @@ def embed_roads_into_heightmap(
     return result
 
 
+def near_deck_mask(
+    heights: np.ndarray, origin_x: float, origin_y: float, square_size: float, bridges: List[Dict], clearance: float
+) -> np.ndarray:
+    """
+    (size_y, size_x) bool raster: cells inside a bridge footprint ("road_polygon") whose terrain lies less than
+    `clearance` below the deck (centerline height projected like in _embed_road()). There ground cover would grow
+    through the deck of a hillside bridge; under a bridge spanning a valley the terrain lies deeper and keeps its grass.
+    """
+    mask = np.zeros(heights.shape, dtype=bool)
+    size_y, size_x = heights.shape
+    for bridge in bridges:
+        polygon = np.asarray(bridge["road_polygon"], dtype=np.float64)
+        centerline = np.asarray(bridge["trimmed_centerline"], dtype=np.float64)
+        if len(polygon) < 3 or len(centerline) < 2:
+            continue
+        col0 = max(0, int(np.floor((polygon[:, 0].min() - origin_x) / square_size)))
+        col1 = min(size_x - 1, int(np.ceil((polygon[:, 0].max() - origin_x) / square_size)))
+        row0 = max(0, int(np.floor((polygon[:, 1].min() - origin_y) / square_size)))
+        row1 = min(size_y - 1, int(np.ceil((polygon[:, 1].max() - origin_y) / square_size)))
+        if col0 > col1 or row0 > row1:
+            continue
+        grid_x, grid_y = np.meshgrid(origin_x + np.arange(col0, col1 + 1) * square_size, origin_y + np.arange(row0, row1 + 1) * square_size)
+        inside = _cells_in_polygon(grid_x, grid_y, polygon)
+        if not np.any(inside):
+            continue
+        deck_z = _project_onto_polyline(grid_x[inside], grid_y[inside], centerline[:, 0], centerline[:, 1], centerline[:, 2])
+        sub = mask[row0 : row1 + 1, col0 : col1 + 1]
+        near = heights[row0 : row1 + 1, col0 : col1 + 1][inside] > deck_z - clearance
+        sub[inside] |= near
+    return mask
+
+
 def _points_in_polygon_2d(qx: np.ndarray, qy: np.ndarray, polygon: np.ndarray) -> np.ndarray:
     """Vectorized point-in-polygon test (ray casting/crossing number)."""
     polygon = np.asarray(polygon, dtype=np.float64)

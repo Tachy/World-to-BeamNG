@@ -315,6 +315,12 @@ BRIDGE_MATERIAL_NAME = "bridge_concrete"  # pier/curb material (texture: CONCRET
 # simple railing (posts + continuous handrail), instead of an edgeless deck slab.
 BRIDGE_CURB_WIDTH = 0.4  # width of the curb per side, in meters (stands outside the carriageway width, the deck slab is wider)
 BRIDGE_CURB_HEIGHT = 0.2  # height of the curb above the carriageway, in meters
+# Vegetation at bridges (the terrain under a bridge is not embedded): no grass where the terrain lies less than
+# BRIDGE_UNDERGROWTH_CLEARANCE below the deck (it would grow through the deck of a hillside bridge - deck 0.6 m + grass
+# up to 1.2 m + reserve), no trees in the whole bridge outline plus BRIDGE_TREE_MARGIN (they reach any deck).
+BRIDGE_UNDERGROWTH_CLEARANCE = 2.5  # in meters below the carriageway
+BRIDGE_UNDERGROWTH_MARGIN = 0.5  # beyond the curbs, in meters
+BRIDGE_TREE_MARGIN = 3.0  # beyond the curbs, in meters
 BRIDGE_RAILING_HEIGHT = 0.9  # handrail height above the curb top edge, in meters
 BRIDGE_RAILING_POST_SPACING = 2.0  # post spacing along the bridge, in meters
 BRIDGE_RAILING_POST_SIZE = 0.08  # cross-section of the (square) posts and the handrail, in meters

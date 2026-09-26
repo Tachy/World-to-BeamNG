@@ -166,3 +166,20 @@ def test_roads_away_from_galleries_keep_their_round_end_caps():
     _gallery_embankment_cuts([road], [gallery], tol=0.5)
 
     assert "embankment_cuts" not in road
+
+
+def test_bridge_footprint_covers_deck_curbs_and_margin():
+    from shapely.geometry import Polygon
+
+    from world_to_beamng.workflow.terrain_workflow import _bridge_footprints
+
+    bridge = {
+        "road_polygon": np.array([[0.0, -3.25], [40.0, -3.25], [40.0, 3.25], [0.0, 3.25]]),
+        "trimmed_centerline": np.array([[0.0, 0.0, 100.0], [40.0, 0.0, 100.0]]),
+    }
+
+    (footprint,) = _bridge_footprints([bridge], extra=0.9)
+    polygon = Polygon(footprint["road_polygon"])
+
+    assert polygon.bounds[1] == pytest.approx(-4.15) and polygon.bounds[3] == pytest.approx(4.15)
+    assert footprint["trimmed_centerline"] is bridge["trimmed_centerline"]
