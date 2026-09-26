@@ -1,7 +1,8 @@
 """
 Road markings as separate, narrow DecalRoads above the carriageway - the way BeamNG's own levels do it
 (west_coast_usa: ~3100 `line_white` and ~200 `line_dashed_short` DecalRoads with 0.15-0.2 m width). White
-edge lines on the left and right, dashed lane dividers at the lane boundaries. The lines follow the node width
+edge lines on the left and right, dashed lane dividers at the lane boundaries; on two-way roads with three or more
+lanes a solid double line separates the directions. The lines follow the node width
 of the carriageway (including the smooth width transitions from road_width_transitions.py). For background and rules
 see docs/OSM_ROAD_ANALYSIS.md.
 """
@@ -13,6 +14,7 @@ import numpy as np
 
 EDGE = "edge"
 DIVIDER = "divider"
+CENTER = "center"  # one of the two solid lines between the directions
 MAX_MITRE_FACTOR = 2.0  # sharp kinks: offset at most twice as far as requested
 BOUNDARY_EPS = 0.01  # shrink obstacle areas by 1 cm, see junction_obstacles()
 
@@ -20,6 +22,7 @@ BOUNDARY_EPS = 0.01  # shrink obstacle areas by 1 cm, see junction_obstacles()
 @dataclass(frozen=True)
 class MarkingLayout:
     lanes: int
+    forward: Optional[int] = None  # lanes in digitization direction if a double centre line separates the directions
 
 
 def parse_lanes(value) -> Optional[int]:
@@ -38,29 +41,62 @@ def marking_layout(
     marked_highways: Collection[str],
     marked_surface: str,
     min_two_lane_width: float,
+    double_center_min_lanes: Optional[int] = None,
 ) -> Optional[MarkingLayout]:
     """
     Marking layout of a road, or None (no marking): only road types from `marked_highways` with the surface
     `marked_surface` (asphalt) and without `lane_markings=no`. Lanes come from `lanes`; if the tag is missing, a
     ramp (*_link) or a road narrower than min_two_lane_width is single-lane, everything else is two-lane.
+
+    double_center_min_lanes: two-way roads (not oneway) with at least this many lanes get a solid double line between
+    the directions; `forward` (lanes in digitization direction) from lanes:forward / lanes:backward, otherwise the
+    larger half.
     """
     tags = tags or {}
     highway = str(tags.get("highway", ""))
     if tags.get("lane_markings") == "no" or highway not in marked_highways or internal_name != marked_surface:
         return None
+    lanes = lane_count(tags, width, min_two_lane_width)
+    oneway = str(tags.get("oneway", "")).lower() in ("yes", "true", "1", "-1")
+    if double_center_min_lanes is None or oneway or lanes < double_center_min_lanes:
+        return MarkingLayout(lanes=lanes)
+    forward, backward = parse_lanes(tags.get("lanes:forward")), parse_lanes(tags.get("lanes:backward"))
+    if forward is None or forward >= lanes:
+        forward = lanes - backward if backward is not None and backward < lanes else (lanes + 1) // 2
+    return MarkingLayout(lanes=lanes, forward=forward)
+
+
+def lane_count(tags: dict, width: float, min_two_lane_width: float) -> int:
+    """Lanes from `lanes`; without the tag a ramp (*_link) or a road narrower than min_two_lane_width has one lane,
+    everything else two."""
+    tags = tags or {}
     lanes = parse_lanes(tags.get("lanes"))
     if lanes is None:
-        lanes = 1 if highway.endswith("_link") or width < min_two_lane_width else 2
-    return MarkingLayout(lanes=lanes)
+        lanes = 1 if str(tags.get("highway", "")).endswith("_link") or width < min_two_lane_width else 2
+    return lanes
 
 
-def line_offsets(widths: np.ndarray, lanes: int, edge_inset: float) -> List[Tuple[str, np.ndarray]]:
+def line_offsets(
+    widths: np.ndarray,
+    lanes: int,
+    edge_inset: float,
+    forward: Optional[int] = None,
+    center_gap: float = 0.0,
+    line_width: float = 0.0,
+) -> List[Tuple[str, np.ndarray]]:
     """(kind, lateral offset per node), positive = left of the travel direction. Edge lines at +-(width/2 -
-    edge_inset), dividers at the lanes-1 lane boundaries."""
+    edge_inset), dividers at the lanes-1 lane boundaries. With `forward` (right-hand traffic: the forward lanes lie on
+    the right) the boundary after `forward` lanes from the right edge becomes two CENTER lines, `center_gap` apart."""
     widths = np.asarray(widths, dtype=float)
     half = widths / 2.0
     lines = [(EDGE, half - edge_inset), (EDGE, -(half - edge_inset))]
-    lines += [(DIVIDER, -half + k * widths / lanes) for k in range(1, lanes)]
+    for k in range(1, lanes):
+        boundary = -half + k * widths / lanes
+        if k == forward:
+            shift = (center_gap + line_width) / 2.0
+            lines += [(CENTER, boundary - shift), (CENTER, boundary + shift)]
+        else:
+            lines.append((DIVIDER, boundary))
     return lines
 
 
@@ -122,6 +158,8 @@ def build_marking_lines(
     edge_inset: float,
     start_normal: Optional[np.ndarray] = None,
     end_normal: Optional[np.ndarray] = None,
+    center_gap: float = 0.0,
+    line_width: float = 0.0,
 ) -> List[Tuple[str, np.ndarray]]:
     """(kind, (N, 3) line) for all marking lines of a road from its DecalRoad nodes [x, y, z, width];
     z per line node from the corresponding carriageway node (BeamNG projects the line onto the terrain anyway).
@@ -130,7 +168,7 @@ def build_marking_lines(
     arr = np.asarray(nodes, dtype=float)
     center_xy = arr[:, :2]
     lines = []
-    for kind, offsets in line_offsets(arr[:, 3], layout.lanes, edge_inset):
+    for kind, offsets in line_offsets(arr[:, 3], layout.lanes, edge_inset, layout.forward, center_gap, line_width):
         offset_xy = offset_polyline(center_xy, offsets, start_normal, end_normal)
         kept = forward_indices(offset_xy, center_xy)
         if len(kept) >= 2:

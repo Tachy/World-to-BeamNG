@@ -266,6 +266,11 @@ ROAD_MARKING_LINE_WIDTH = 0.15  # line width in meters (vanilla: 0.15-0.2 m)
 ROAD_MARKING_EDGE_INSET = 0.25  # distance of the edge line center from the carriageway edge, in meters
 ROAD_MARKING_EDGE_MATERIAL = "line_edge_white"  # entries in data/osm_to_beamng.json -> road_markings
 ROAD_MARKING_DIVIDER_MATERIAL = "line_divider_dashed"
+# Two-way roads with at least this many lanes: solid double line between the directions (lanes:forward/backward,
+# otherwise the larger half forward), two solid lines ROAD_MARKING_CENTER_GAP apart
+ROAD_MARKING_CENTER_MIN_LANES = 3
+ROAD_MARKING_CENTER_MATERIAL = "line_edge_white"
+ROAD_MARKING_CENTER_GAP = 0.1  # gap between the two lines, in meters
 # renderPriority of DecalRoads: BeamNG/Torque3D draws them in DESCENDING order - the smallest value comes
 # last and lies on top (confirmed in game: lines with 20 lay under the asphalt with 8; vanilla: lines 1-2,
 # roads up to 12; Road Architect gives the carriageway decal the highest value). Carriageways get

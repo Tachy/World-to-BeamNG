@@ -216,3 +216,17 @@ def test_road_decals_overlap_at_kinked_continuation_but_markings_still_meet():
     road_1 = sorted(name for name in roads if name == "road_1" or name.startswith("road_1_"))
     assert roads[road_1[-1]]["nodes"][-1][0] > 0.5  # extended beyond the joint point (closes the outer wedge)
     assert roads["marking_1_0_0"]["nodes"][-1][:2] == pytest.approx(roads["marking_2_0_0"]["nodes"][0][:2], abs=1e-6)
+
+
+def test_three_lane_two_way_primary_gets_a_solid_double_centre_line():
+    points = [(x, 0) for x in range(0, 31, 10)]
+    _, roads, _ = _export([_poly(1, points, highway="primary", lanes="3", **{"lanes:forward": "1", "lanes:backward": "2"})])
+
+    solid = [r for r in _markings(roads).values() if r["material"] == config.ROAD_MARKING_CENTER_MATERIAL]
+    dashed = [r for r in _markings(roads).values() if r["material"] == config.ROAD_MARKING_DIVIDER_MATERIAL]
+    width = 3 * 3.25
+    boundary = -width / 2.0 + width / 3.0  # after the one forward lane (right-hand traffic: right side)
+    shift = (config.ROAD_MARKING_CENTER_GAP + config.ROAD_MARKING_LINE_WIDTH) / 2.0
+    centre_ys = sorted(r["nodes"][0][1] for r in solid if abs(r["nodes"][0][1]) < width / 2.0 - 0.5)
+    assert centre_ys == pytest.approx([boundary - shift, boundary + shift])
+    assert len(dashed) == 1  # between the two backward lanes

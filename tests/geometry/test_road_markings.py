@@ -227,3 +227,48 @@ def test_edge_lines_of_kinked_partners_meet_at_the_joint(reverse_second):
     a_ends = sorted(tuple(np.round(line[-1, :2], 6)) for _, line in lines_a)
     b_ends = sorted(tuple(np.round(line[-1 if reverse_second else 0, :2], 6)) for _, line in lines_b)
     assert a_ends == b_ends
+
+
+# --- solid double centre line from three lanes on ----------------------------------------------------------------------
+from world_to_beamng.geometry.road_markings import CENTER  # noqa: E402
+
+
+def _center_layout(tags, width=9.75):
+    return marking_layout(tags, width, "asphalt_road_standard", MARKED, "asphalt_road_standard", 5.5,
+                          double_center_min_lanes=3)
+
+
+def test_three_lane_two_way_road_gets_the_direction_split_from_lanes_forward():
+    assert _center_layout({"highway": "primary", "lanes": "3", "lanes:forward": "1", "lanes:backward": "2"}) == \
+        MarkingLayout(lanes=3, forward=1)
+    assert _center_layout({"highway": "primary", "lanes": "3", "lanes:backward": "1"}) == MarkingLayout(lanes=3, forward=2)
+
+
+def test_four_lanes_without_direction_tags_split_in_the_middle():
+    assert _center_layout({"highway": "primary", "lanes": "4"}) == MarkingLayout(lanes=4, forward=2)
+
+
+def test_oneway_and_two_lane_roads_get_no_double_centre_line():
+    assert _center_layout({"highway": "primary", "lanes": "3", "oneway": "yes"}) == MarkingLayout(lanes=3)
+    assert _center_layout({"highway": "primary", "lanes": "2"}, width=6.5) == MarkingLayout(lanes=2)
+
+
+def test_double_centre_line_replaces_the_divider_between_the_directions():
+    # 9.75 m, 3 lanes, 1 forward: forward lane on the right (-4.875 .. -1.625), the two backward lanes on the left
+    lines = line_offsets(np.array([9.75, 9.75]), 3, 0.25, forward=1, center_gap=0.1, line_width=0.15)
+
+    kinds = [k for k, _ in lines]
+    assert kinds.count(CENTER) == 2 and kinds.count(DIVIDER) == 1
+    centers = sorted(float(o[0]) for k, o in lines if k == CENTER)
+    assert centers == pytest.approx([-1.625 - 0.125, -1.625 + 0.125])  # 0.1 m gap between two 0.15 m lines
+    divider = next(o for k, o in lines if k == DIVIDER)
+    assert divider == pytest.approx([1.625, 1.625])  # between the two backward lanes, still dashed
+
+
+def test_build_marking_lines_draws_the_double_centre_line():
+    nodes = [[x, 0.0, 100.0, 9.75] for x in (0.0, 10.0, 20.0)]
+
+    lines = build_marking_lines(nodes, MarkingLayout(lanes=4, forward=2), 0.25, center_gap=0.1, line_width=0.15)
+
+    centers = [line for kind, line in lines if kind == CENTER]
+    assert sorted(float(c[0, 1]) for c in centers) == pytest.approx([-0.125, 0.125])

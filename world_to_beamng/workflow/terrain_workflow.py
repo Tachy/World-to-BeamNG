@@ -352,6 +352,7 @@ def _road_marking_lines(specs: List[Tuple[Dict, Dict, List]], node_lists: List[L
 
     from ..geometry.polygon import drop_close_nodes
     from ..geometry.road_markings import (
+        CENTER,
         EDGE,
         build_marking_lines,
         clip_line,
@@ -384,6 +385,7 @@ def _road_marking_lines(specs: List[Tuple[Dict, Dict, List]], node_lists: List[L
             config.ROAD_MARKING_HIGHWAYS,
             config.ROAD_MARKING_SURFACE,
             config.ROAD_MARKING_MIN_TWO_LANE_WIDTH,
+            double_center_min_lanes=config.ROAD_MARKING_CENTER_MIN_LANES,
         )
         if layout is None:
             continue
@@ -401,9 +403,12 @@ def _road_marking_lines(specs: List[Tuple[Dict, Dict, List]], node_lists: List[L
             config.ROAD_MARKING_EDGE_INSET,
             start_normal=normals.get((index, "start")),
             end_normal=normals.get((index, "end")),
+            center_gap=config.ROAD_MARKING_CENTER_GAP,
+            line_width=config.ROAD_MARKING_LINE_WIDTH,
         )
+        materials = {EDGE: config.ROAD_MARKING_EDGE_MATERIAL, CENTER: config.ROAD_MARKING_CENTER_MATERIAL}
         for line_idx, (kind, line) in enumerate(marking_lines):
-            material = config.ROAD_MARKING_EDGE_MATERIAL if kind == EDGE else config.ROAD_MARKING_DIVIDER_MATERIAL
+            material = materials.get(kind, config.ROAD_MARKING_DIVIDER_MATERIAL)
             for piece_idx, piece in enumerate(clip_line(line, obstacles, config.ROAD_MARKING_MIN_PIECE_LENGTH)):
                 line_nodes = [[x, y, z, config.ROAD_MARKING_LINE_WIDTH] for x, y, z in piece.tolist()]
                 # Inside curves the line nodes bunch up - same minimum segment length as for the road surface
