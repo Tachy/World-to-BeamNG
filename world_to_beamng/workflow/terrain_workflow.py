@@ -195,7 +195,7 @@ def _bridge_groups(bridge_roads: List[Dict], reach: float, endpoint_tol: float =
 def _bridge_stems(bridge_roads: List[Dict]) -> Dict[object, Dict]:
     """
     road id -> stem (bridges/bridge_mesh.py build_bridge_group_mesh()) for every branch of a lane split whose trunk is a
-    bridge too: the trunk's deck goes on past the node over the hold length before it is cut into the branches. A split
+    bridge too: the trunk's deck goes on past the node over the stem length before it is cut into the branches. A split
     on the ground has no stem - its branches that become bridges further on stay separate bridges.
     """
     def key(node):
@@ -208,13 +208,13 @@ def _bridge_stems(bridge_roads: List[Dict]) -> Dict[object, Dict]:
     stems = {}
     for road in bridge_roads:
         mark = road.get("lane_split_branch")
-        if not mark or key(mark["node"]) not in trunks:
+        if not mark or key(mark["node"]) not in trunks or mark.get("stem_length", 0.0) < 1.0:
             continue
         trunk = trunks[key(mark["node"])]
         internal_name = config.OSM_MAPPER.get_road_properties(trunk.get("osm_tags", {})).get("internal_name", "road_default")
         stems[road["road_id"]] = {
             "node": tuple(mark["node"]), "axis": tuple(mark["axis"]), "left_normal": tuple(mark["left_normal"]),
-            "hold": float(mark["hold"]), "width": float(mark["trunk_width"]), "deck_material": f"{internal_name}_structure",
+            "hold": float(mark["stem_length"]), "width": float(mark["trunk_width"]), "deck_material": f"{internal_name}_structure",
         }
     return stems
 
@@ -864,7 +864,7 @@ class TerrainWorkflow:
             ),
         )
         shift_branches_into_slots(
-            lane_splits, road_polygons, hold=config.ROAD_LANE_SPLIT_HOLD_LENGTH, length=config.ROAD_LANE_SPLIT_LENGTH
+            lane_splits, road_polygons, max_connector=config.ROAD_LANE_SPLIT_MAX_CONNECTOR, length=config.ROAD_LANE_SPLIT_LENGTH
         )
         if lane_splits:
             logger.info(f"  [OK] {len(lane_splits)} lane split(s): branches moved into the trunk's lanes")
@@ -1468,7 +1468,7 @@ class TerrainWorkflow:
         bridge_roads = [road for road in structure_road_polygons if road.get("structure_type") == "bridge"]
         groups = _bridge_groups(
             bridge_roads,
-            reach=config.ROAD_LANE_SPLIT_HOLD_LENGTH + config.ROAD_LANE_SPLIT_LENGTH + config.BRIDGE_GROUP_EXTRA_REACH,
+            reach=config.ROAD_LANE_SPLIT_MAX_CONNECTOR + config.ROAD_LANE_SPLIT_LENGTH + config.BRIDGE_GROUP_EXTRA_REACH,
         )
         stems = _bridge_stems(bridge_roads)
         bridges = [

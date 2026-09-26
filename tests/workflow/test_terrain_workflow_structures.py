@@ -270,7 +270,7 @@ def test_bridge_stems_only_where_the_trunk_itself_is_a_bridge():
     from world_to_beamng.workflow.terrain_workflow import _bridge_stems
 
     node = (0.0, 0.0)
-    mark = {"node": node, "axis": (1.0, 0.0), "left_normal": (0.0, 1.0), "hold": 30.0, "trunk_width": 13.0}
+    mark = {"node": node, "axis": (1.0, 0.0), "left_normal": (0.0, 1.0), "hold": 12.0, "stem_length": 30.0, "trunk_width": 13.0}
     trunk = {"road_id": 1, "osm_tags": {"highway": "primary", "lanes": "4"}, "lane_split_trunk_nodes": [node]}
     branch = {"road_id": 2, "osm_tags": {"highway": "primary_link"}, "lane_split_branch": mark}
     lonely = {"road_id": 3, "osm_tags": {"highway": "primary_link"}, "lane_split_branch": {**mark, "node": (500.0, 0.0)}}
