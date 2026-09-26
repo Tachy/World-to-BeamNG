@@ -145,3 +145,26 @@ def test_build_bridges_skips_non_bridge_roads():
     road = {"road_id": 1, "trimmed_centerline": np.array([[0.0, 0.0, 200.0], [5.0, 0.0, 200.0]]), "osm_tags": {}, "structure_type": "tunnel"}
 
     assert TerrainWorkflow._build_bridges(SimpleNamespace(), [road], heights, 0.0, 0.0) == []
+
+
+def test_export_builds_the_bridge_meshes_once_with_the_blended_widths(shapes_dir):
+    # process_tile() does not build them any more (the widths come from the transitions in export_decal_roads())
+    stub = _stub()
+    calls = []
+    stub._build_bridges = lambda roads, heights, ox, oy, widths=None: calls.append(widths) or [_mesh("bridge_1")]
+    widths = {1: [[0.0, 0.0, 200.0, 8.0], [50.0, 0.0, 200.0, 6.5]]}
+
+    count = TerrainWorkflow.export_bridges(stub, {
+        "structure_road_polygons": [_road(1)], "heightmap": np.zeros((4, 4)), "terrain_origin_x": 0.0,
+        "terrain_origin_y": 0.0, "bridge_widths": widths,
+    })
+
+    assert count == 1 and calls == [widths]
+
+
+def test_process_tile_does_not_build_bridge_meshes_itself():
+    import inspect
+
+    from world_to_beamng.workflow import terrain_workflow
+
+    assert "self._build_bridges(" not in inspect.getsource(terrain_workflow.TerrainWorkflow.process_tile)

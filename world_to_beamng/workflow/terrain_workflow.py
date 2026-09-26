@@ -1012,10 +1012,8 @@ class TerrainWorkflow:
                 road_slope_polygons_2d,
             )
 
-        # Bridges (deck + piers) on the finished heightmap - see bridges/bridge_mesh.py
-        bridge_meshes = []
-        if config.BRIDGES_ENABLED:
-            bridge_meshes = self._build_bridges(structure_road_polygons, heights, terrain_origin_x, terrain_origin_y)
+        # Bridges (deck + piers) are built in export_bridges(): their width follows the blended widths of the transitions,
+        # which export_decal_roads() computes first - see bridges/bridge_mesh.py
 
         # Tunnels (tube + portals) and galleries (roof + supports) on the finished heightmap - see tunnels/
         tunnel_meshes = []
@@ -1066,7 +1064,6 @@ class TerrainWorkflow:
             "vineyard_instances": vineyard_instances,  # Forest-Items (grape_vine)
             "water": water,  # {"rivers": [...], "ponds": [...]} for export_water()
             "wall_meshes": wall_meshes,  # Mesh dicts of the rubble stone walls for export_walls()
-            "bridge_meshes": bridge_meshes,  # Bridge mesh dicts for export_bridges()
             "tunnel_meshes": tunnel_meshes,  # Tunnel/gallery mesh dicts for export_tunnels()
             "tunnel_spawns": tunnel_spawns,  # Spawn points in front of tunnel entrances for ItemManager.save(fixed_spawns=...)
             "roadblocks": roadblocks,  # Roadblocks in front of entrances of tunnels beyond the map border, for export_roadblocks()
@@ -1238,13 +1235,15 @@ class TerrainWorkflow:
             Number of exported bridges
         """
         bridges_dir = config.BEAMNG_DIR_SHAPES / "bridges"
-        meshes = mesh_data.get("bridge_meshes") or []
-        if mesh_data.get("bridge_widths") and mesh_data.get("heightmap") is not None:
-            # Rebuild with the widths of the transitions computed in export_decal_roads() (the deck follows them)
-            meshes = self._build_bridges(
-                mesh_data["structure_road_polygons"], mesh_data["heightmap"], mesh_data["terrain_origin_x"],
-                mesh_data["terrain_origin_y"], mesh_data["bridge_widths"],
-            )
+        meshes = mesh_data.get("bridge_meshes")  # ready-made mesh dicts (tests, callers that build them themselves)
+        if meshes is None:
+            # Built once, with the widths of the transitions from export_decal_roads() (the deck follows them)
+            meshes = []
+            if config.BRIDGES_ENABLED and mesh_data.get("heightmap") is not None:
+                meshes = self._build_bridges(
+                    mesh_data["structure_road_polygons"], mesh_data["heightmap"], mesh_data["terrain_origin_x"],
+                    mesh_data["terrain_origin_y"], mesh_data.get("bridge_widths"),
+                )
         if not config.BRIDGES_ENABLED or not meshes:
             for suffix in (".dae", ".cdae"):
                 (bridges_dir / f"bridges{suffix}").unlink(missing_ok=True)
