@@ -217,31 +217,38 @@ def structure_boundary_shifts(roads, layouts, fixed, pairs, span: float, done_at
 def _zone_pieces(roads, partner, fixed, own_widths, road, end, sign, eps):
     """
     Pieces of a taper zone starting at end `end` of `road`: (piece, mask of the nodes inside the zone, side sign of the
-    lane in the piece's own frame). The zone is where the width differs from the road's own width, plus the first node
-    with its own width (the zone end); it continues into the next piece along straight continuations while a piece is
-    entirely inside. Structures (fixed) keep their width and are never part of a zone.
+    lane in the piece's own frame). From the joint outward the width approaches the road's own width; the zone ends at
+    the first node with its own width - or where the deviation starts to grow again, which is the start of another zone on
+    the same stretch (two joints within 100 m share the stretch, and the node at the exact end may not exist). It
+    continues into the next piece along straight continuations of the same width while a piece is entirely inside.
+    Structures (fixed) keep their width and are never part of a zone.
     """
-    pieces, seen = [], set()
+    pieces, seen, previous = [], set(), None
     while road is not None and road not in seen and not fixed[road]:
         seen.add(road)
         nodes = np.asarray(roads[road], dtype=float)
-        deviating = np.abs(nodes[:, 3] - own_widths[road]) > eps
+        deviation = np.abs(nodes[:, 3] - own_widths[road])
         order = list(range(len(nodes))) if end == "start" else list(range(len(nodes) - 1, -1, -1))
-        if not deviating[order[0]]:
+        if deviation[order[0]] <= eps:
             break
         mask = np.zeros(len(nodes), dtype=bool)
         ended = False
         for index in order:
+            if previous is not None and deviation[index] > previous + 1e-9:
+                ended = True  # the deviation grows again: another zone begins here
+                break
             mask[index] = True
-            if not deviating[index]:
+            previous = deviation[index]
+            if deviation[index] <= eps:
                 ended = True
                 break
-        pieces.append((road, mask, sign))
+        if mask.any():
+            pieces.append((road, mask, sign))
         if ended:
             break
         far = "end" if end == "start" else "start"
         nxt = partner.get((road, far))
-        if nxt is None:
+        if nxt is None or abs(own_widths[nxt[0]] - own_widths[road]) > 0.05:
             break
         sign = sign if far != nxt[1] else -sign
         road, end = nxt

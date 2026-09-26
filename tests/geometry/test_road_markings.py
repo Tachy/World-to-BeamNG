@@ -614,3 +614,46 @@ def test_shift_is_zero_outside_the_zone_and_mirrored_for_a_forward_extra_lane():
         -roads[0][-1][3] / 2.0 + 2 * roads[0][-1][3] / 3 + forward["shifts"][0][-1]
     )
     assert boundary_from_left == pytest.approx(3.25)  # the single backward lane on the left keeps 3.25 m
+
+
+# --- two zones on one stretch (A2 ramp: 4 -> 3 -> 2 lanes within 66 m) -------------------------------------------------------
+from world_to_beamng.geometry.road_width_transitions import apply_width_transitions, find_continuations  # noqa: E402
+
+
+def _ramp_sequence(spacing=1.0):
+    def road(x0, x1, width):
+        xs = np.linspace(x0, x1, int(round((x1 - x0) / spacing)) + 1)  # irregular spacing: no node at the exact zone ends
+        return [[float(x), 0.0, 100.0, float(width)] for x in xs]
+
+    raw = [road(-200, 0, 13.0), road(0, 28, 9.75), road(28, 66, 9.75), road(66, 266, 6.5)]
+    lanes = [4, 3, 3, 2]
+    blended = apply_width_transitions(raw, transition_length=10.0, step=1.0, endpoint_tol=0.5, max_angle_deg=30.0,
+                                      min_delta=0.05, min_spacing=0.5, lanes=lanes, lane_change_length=100.0)
+    layouts = [MarkingLayout(lanes=4, forward=2), MarkingLayout(lanes=3, forward=1), MarkingLayout(lanes=3, forward=1),
+               MarkingLayout(lanes=2, forward=1)]
+    pairs = find_continuations(blended, 0.5, 30.0)
+    return blended, layouts, [13.0, 9.75, 9.75, 6.5], [False] * 4, pairs
+
+
+@pytest.mark.parametrize("spacing", [1.0, 1.3, 2.7])
+def test_each_of_two_zones_on_a_shared_stretch_stays_on_its_own_half(spacing):
+    roads, layouts, own, fixed, pairs = _ramp_sequence(spacing)
+
+    zones = taper_zones(roads, layouts, own, fixed, pairs)
+
+    assert len(zones) == 2
+    four_to_three = next(z for z in zones if 0 in [p for p, _, _ in z["pieces"]])
+    three_to_two = next(z for z in zones if 3 in [p for p, _, _ in z["pieces"]])
+    def xs(zone):
+        return sorted(round(n[0]) for piece, mask, _ in zone["pieces"] for n, keep in zip(roads[piece], mask) if keep)
+    assert min(xs(four_to_three)) == -50 and max(xs(four_to_three)) <= 36  # 50 m on the 4-lane side, half of the stretch
+    assert max(xs(three_to_two)) == 116 and min(xs(three_to_two)) >= 30  # half of the stretch, 50 m on the 2-lane side
+    assert 3 not in [p for p, _, _ in four_to_three["pieces"]] and 0 not in [p for p, _, _ in three_to_two["pieces"]]
+
+
+def test_a_zone_does_not_continue_into_a_piece_of_another_road_width():
+    roads, layouts, own, fixed, pairs = _ramp_sequence()
+
+    for zone in taper_zones(roads, layouts, own, fixed, pairs):
+        widths = {own[p] for p, _, _ in zone["pieces"]}
+        assert len(widths) == 2  # the wide and the narrow road of this joint, nothing else
