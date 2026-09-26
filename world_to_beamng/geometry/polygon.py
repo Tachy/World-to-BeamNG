@@ -3,6 +3,7 @@ Polygon operations and road extraction.
 """
 
 import numpy as np
+from scipy.spatial import cKDTree
 from shapely.geometry import Polygon
 
 from ..terrain.elevation import get_elevations_for_points
@@ -539,6 +540,99 @@ def _chain_profile(chain, roof_offset, min_end_distance, min_spacing, window, bo
         road["coords"][idx] = (float(x), float(y), float(z[point_idx]))
 
 
+def _settle_bridge_network_nodes(road_polygons) -> None:
+    """
+    Deck height for bridge end points that are no abutment: where only bridge ways meet (a bridge split into several
+    ways, a junction on a bridge), the raw DGM height is the valley floor below the deck. Abutments - ends at a
+    non-bridge road or free ends - keep their height; every other shared end node gets the length-weighted mean of
+    its neighbours in the bridge network (edge weight 1 / way length), which is the linear interpolation along the
+    arc length for a simple chain. The end points are written back, the linear per-way profile follows afterwards.
+    """
+    bridges = [
+        r for r in road_polygons if classify_structure(r.get("osm_tags", {})) == "bridge" and len(r["coords"]) >= 2
+    ]
+    if len(bridges) < 2:
+        return
+    others = [r for r in road_polygons if classify_structure(r.get("osm_tags", {})) != "bridge"]
+
+    nodes = []  # representative (x, y) per end node
+    members = []  # [(road, end index)] per node
+
+    def node_of(point):
+        for index, xy in enumerate(nodes):
+            if _xy_match(xy, point):
+                return index
+        nodes.append((point[0], point[1]))
+        members.append([])
+        return len(nodes) - 1
+
+    edges = []
+    for road in bridges:
+        coords = road["coords"]
+        a, b = node_of(coords[0]), node_of(coords[-1])
+        members[a].append((road, 0))
+        members[b].append((road, -1))
+        length = float(np.sum(np.linalg.norm(np.diff(np.asarray(coords, dtype=float)[:, :2], axis=0), axis=1)))
+        if a != b and length > 1e-6:
+            edges.append((a, b, 1.0 / length))
+
+    other_points = [point[:2] for road in others for point in road["coords"]]
+    other_tree = cKDTree(np.asarray(other_points, dtype=float)) if other_points else None
+
+    def touches_other_road(xy):
+        return other_tree is not None and bool(other_tree.query_ball_point(xy, 1e-3))
+
+    inner = [i for i, xy in enumerate(nodes) if len(members[i]) >= 2 and not touches_other_road(xy)]
+    if not inner:
+        return
+    heights = np.array([members[i][0][0]["coords"][members[i][0][1]][2] for i in range(len(nodes))], dtype=float)
+    unknown = {node: k for k, node in enumerate(inner)}
+    matrix = np.zeros((len(inner), len(inner)))
+    rhs = np.zeros(len(inner))
+    for a, b, weight in edges:
+        for node, other in ((a, b), (b, a)):
+            if node not in unknown:
+                continue
+            row = unknown[node]
+            matrix[row, row] += weight
+            if other in unknown:
+                matrix[row, unknown[other]] -= weight
+            else:
+                rhs[row] += weight * heights[other]
+    # Rows without an abutment in reach (a closed ring of bridges) stay singular - keep the raw height there
+    solution, *_ = np.linalg.lstsq(matrix, rhs, rcond=None)
+    reachable = _reaches_abutment(inner, edges, unknown)
+    for node, k in unknown.items():
+        if not reachable[k]:
+            continue
+        for road, end in members[node]:
+            x, y, _ = road["coords"][end]
+            road["coords"][end] = (x, y, float(solution[k]))
+
+
+def _reaches_abutment(inner, edges, unknown) -> list:
+    """Per inner node: whether the bridge network connects it to at least one abutment (a node not in `unknown`)."""
+    neighbours = {node: [] for node in inner}
+    for a, b, _ in edges:
+        if a in neighbours:
+            neighbours[a].append(b)
+        if b in neighbours:
+            neighbours[b].append(a)
+    result = [False] * len(inner)
+    for start in inner:
+        seen, stack = {start}, [start]
+        while stack:
+            node = stack.pop()
+            if node not in unknown:
+                result[unknown[start]] = True
+                break
+            for nxt in neighbours[node]:
+                if nxt not in seen:
+                    seen.add(nxt)
+                    stack.append(nxt)
+    return result
+
+
 def apply_structure_elevation_profiles(
     road_polygons, roof_offset=None, min_end_distance=None, min_spacing=None, window=None, bounds=None, edge_margin=None
 ):
@@ -567,6 +661,7 @@ def apply_structure_elevation_profiles(
     if edge_margin is None:
         edge_margin = config.MAP_EDGE_TUNNEL_MARGIN
 
+    _settle_bridge_network_nodes(road_polygons)
     for road in road_polygons:
         if classify_structure(road.get("osm_tags", {})) == "bridge" and len(road["coords"]) >= 2:
             road["coords"] = _linear_elevation_profile(road["coords"])
