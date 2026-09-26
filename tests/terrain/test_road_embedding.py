@@ -653,3 +653,31 @@ def test_slope_width_override_may_vary_per_centerline_point():
     # DEFAULT "left" = -x (direction of travel +y) and affects "right_*" of this function
     assert np.allclose(road["right_slope_width"], widths)
     assert np.allclose(road["right_natural_z"], 20.0 - 3.0 - widths)
+
+
+def _blend_straight_road(cuts=None):
+    """Road along x 0..20 at y=20 (6 m wide, z=95) on flat terrain at 100, embankment 5 m on both sides."""
+    heights = np.full((40, 40), 100.0)
+    centerline = np.column_stack([np.linspace(0.0, 20.0, 21), np.full(21, 20.0), np.full(21, 95.0)])
+    road = {"trimmed_centerline": centerline, "osm_tags": {"width": "6"}}
+    if cuts is not None:
+        road["embankment_cuts"] = cuts
+    from world_to_beamng import config
+
+    profiles = build_road_embankment_profiles([road], heights, 0.0, 0.0, 1.0, config.OSM_MAPPER, 45.0, 5.0, max_slope_width=5.0)
+    return apply_embankment_blend(heights, 0.0, 0.0, 1.0, profiles)
+
+
+def test_embankment_extends_past_an_uncut_road_end():
+    result = _blend_straight_road()
+
+    assert result[24, 22] < 100.0  # x=22 beyond the end, beside the edge: round cap of the last edge point
+
+
+def test_embankment_cut_ends_flush_at_the_cut_line():
+    # A cut (point, outward normal) at the road end: nothing beyond the line is touched, the rest blends as before
+    result = _blend_straight_road(cuts=[((20.0, 20.0), (1.0, 0.0))])
+
+    assert result[24, 22] == 100.0 and result[25, 21] == 100.0
+    assert result[24, 19] < 100.0  # still blended in front of the line
+    assert result[24, 0] < 100.0  # the uncut start is blended as before

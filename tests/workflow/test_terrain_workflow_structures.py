@@ -8,6 +8,7 @@ from types import SimpleNamespace
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 import numpy as np
+import pytest
 
 from world_to_beamng.geometry.road_structures import split_by_structure_type
 from world_to_beamng.terrain.road_embedding import embed_roads_into_heightmap
@@ -121,3 +122,47 @@ def test_invisible_road_material_is_alpha_tested_like_vanilla_road_invisible():
     # material ignores it, has no alpha to test and rendered black on the terrain above the tunnel (in game 2026-09-26)
     assert entry.get("version", 1) == 1
     assert entry["castShadows"] is False
+
+
+def _line(*points):
+    return {"trimmed_centerline": np.array([[x, y, 100.0] for x, y in points]), "osm_tags": {}}
+
+
+def test_gallery_and_approach_road_end_flush_at_the_same_line():
+    from world_to_beamng.workflow.terrain_workflow import _gallery_embankment_cuts
+
+    road = _line((-30.0, 0.0), (0.0, 0.0))
+    gallery = _line((0.0, 0.0), (50.0, 0.0))
+
+    _gallery_embankment_cuts([road], [gallery], tol=0.5)
+
+    assert road["embankment_cuts"] == [((0.0, 0.0), pytest.approx((1.0, 0.0)))]
+    starts = {c[0]: c[1] for c in gallery["embankment_cuts"]}
+    assert starts[(0.0, 0.0)] == pytest.approx((-1.0, 0.0))
+    assert starts[(50.0, 0.0)] == pytest.approx((1.0, 0.0))  # free end (e.g. tunnel transition): perpendicular
+
+
+def test_kinked_transition_is_cut_on_the_bisector_so_no_wedge_stays_open():
+    from world_to_beamng.workflow.terrain_workflow import _gallery_embankment_cuts
+
+    road = _line((-30.0, -30.0), (0.0, 0.0))  # reaches the gallery at 45 degrees
+    gallery = _line((50.0, 0.0), (0.0, 0.0))  # digitized toward the road
+
+    _gallery_embankment_cuts([road], [gallery], tol=0.5)
+
+    (_, road_n), = road["embankment_cuts"]
+    gallery_n = dict(gallery["embankment_cuts"])[(0.0, 0.0)]
+    assert gallery_n == pytest.approx(tuple(-v for v in road_n))  # one shared line
+    road_out, gallery_out = np.array([1.0, 1.0]) / np.sqrt(2.0), np.array([-1.0, 0.0])
+    assert np.dot(road_n, road_out) == pytest.approx(-np.dot(road_n, gallery_out))  # bisector: same angle to both
+
+
+def test_roads_away_from_galleries_keep_their_round_end_caps():
+    from world_to_beamng.workflow.terrain_workflow import _gallery_embankment_cuts
+
+    road = _line((100.0, 0.0), (130.0, 0.0))
+    gallery = _line((0.0, 0.0), (50.0, 0.0))
+
+    _gallery_embankment_cuts([road], [gallery], tol=0.5)
+
+    assert "embankment_cuts" not in road

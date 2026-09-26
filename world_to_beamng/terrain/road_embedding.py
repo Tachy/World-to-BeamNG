@@ -294,6 +294,11 @@ def build_road_embankment_profiles(
         min_slope_width: config.MIN_SLOPE_WIDTH
         max_slope_width: upper limit of the embankment width (meters)
 
+    Optional field per road dict: "embankment_cuts" - [(point_xy, outward_normal_xy), ...]: the embankment ends flush
+    at these lines (cells on the outward side are not touched). Without a cut the corridor of the first/last edge
+    point reaches around the road end like a round cap - at a gallery end that cap overwrote the approach road's
+    embankment with the gallery's valley-side slope (pit beside the road, see terrain_workflow._gallery_embankment_cuts()).
+
     Optional field per road dict: "slope_width_override" (dict, keys "left"/"right", value = fixed
     embankment width in meters, as a number or as an array per centerline point) - replaces the computed
     embankment width on the respective side with a fixed value instead of deriving it from the height
@@ -414,6 +419,7 @@ def build_road_embankment_profiles(
                 "right_slope_width": right_slope_width,
                 "left_natural_z": left_natural_z,
                 "right_natural_z": right_natural_z,
+                "cuts": list(poly.get("embankment_cuts") or ()),
             }
         )
 
@@ -453,9 +459,9 @@ def apply_embankment_blend(heights: np.ndarray, origin_x: float, origin_y: float
 
     for road in roads:
         _blend_one_side(result, origin_x, origin_y, square_size, size_x, size_y,
-                         road["left_edge_xyz"], road["left_slope_width"], road["left_natural_z"])
+                         road["left_edge_xyz"], road["left_slope_width"], road["left_natural_z"], road.get("cuts"))
         _blend_one_side(result, origin_x, origin_y, square_size, size_x, size_y,
-                         road["right_edge_xyz"], road["right_slope_width"], road["right_natural_z"])
+                         road["right_edge_xyz"], road["right_slope_width"], road["right_natural_z"], road.get("cuts"))
 
     return result
 
@@ -464,8 +470,9 @@ BLEND_BLOCK = 8  # Edge length of the cell blocks _blend_one_side pre-checks for
 # only 2-8.5 m wide: 32-cell blocks queried 7 million cells, 8-cell blocks only 3 million - smaller ones gain nothing)
 
 
-def _blend_one_side(heights, origin_x, origin_y, square_size, size_x, size_y, edge_xyz, slope_width, natural_z):
-    """Blends one road side (left or right) in place into heights."""
+def _blend_one_side(heights, origin_x, origin_y, square_size, size_x, size_y, edge_xyz, slope_width, natural_z, cuts=None):
+    """Blends one road side (left or right) in place into heights. `cuts`: [(point_xy, outward_normal_xy), ...] - cells
+    on the outward side of a cut line stay untouched (see build_road_embankment_profiles())."""
     if len(edge_xyz) == 0:
         return
 
@@ -535,6 +542,9 @@ def _blend_one_side(heights, origin_x, origin_y, square_size, size_x, size_y, ed
     blended = nearest_edge_z + (nearest_natural_z - nearest_edge_z) * t
 
     in_corridor = (dist > 0) & (dist <= nearest_slope_width)
+    for point, normal in cuts or ():
+        cell_xy = query_points[near]
+        in_corridor &= (cell_xy[:, 0] - point[0]) * normal[0] + (cell_xy[:, 1] - point[1]) * normal[1] <= 0.0
 
     target_rows = rows[near][in_corridor]
     target_cols = cols[near][in_corridor]

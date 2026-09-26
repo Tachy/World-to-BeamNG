@@ -181,6 +181,44 @@ def _gallery_embedding(road: Dict, ground_at) -> Tuple[Dict, set]:
     return {open_side: valley_widths, mountain: config.GALLERY_MOUNTAIN_EMBED_MARGIN}, {mountain}
 
 
+def _gallery_embankment_cuts(surface_roads: List[Dict], gallery_roads: List[Dict], tol: float) -> None:
+    """
+    Lets the terrain adaptation of galleries end flush with the gallery, and that of the approach roads flush with the
+    transition (road dict field "embankment_cuts", see road_embedding.build_road_embankment_profiles()). Without cuts
+    the corridor of the last edge point reaches around a road end like a round cap; the gallery (blended after the
+    surface roads) thus overwrote the approach road's embankment with its valley-side slope - a pit of up to 3 m beside
+    the road just before the gallery (in game 2026-09-26).
+
+    Each gallery end gets a cut; a surface road end within `tol` of it gets the same line with the opposite normal. The
+    line is the bisector of both end directions, so no wedge stays open and nothing overlaps at a kink; a gallery end
+    without an approach (e.g. transition into a tunnel) is cut perpendicular. In place.
+    """
+    def ends(road):
+        points = np.asarray(road["trimmed_centerline"], dtype=float)[:, :2]
+        for index, neighbour in ((0, 1), (-1, -2)):
+            outward = points[index] - points[neighbour]
+            yield points[index], outward / np.linalg.norm(outward)
+
+    road_ends = [(road, point, outward) for road in surface_roads if len(road["trimmed_centerline"]) >= 2
+                 for point, outward in ends(road)]
+    for gallery in gallery_roads:
+        if len(gallery["trimmed_centerline"]) < 2:
+            continue
+        cuts = []
+        for point, outward in ends(gallery):
+            normal = outward
+            for road, road_point, road_outward in road_ends:
+                if np.hypot(*(road_point - point)) <= tol:
+                    bisector = outward - road_outward
+                    if np.linalg.norm(bisector) > 1e-9:
+                        normal = bisector / np.linalg.norm(bisector)
+                    road.setdefault("embankment_cuts", []).append(
+                        ((float(point[0]), float(point[1])), (float(-normal[0]), float(-normal[1])))
+                    )
+            cuts.append(((float(point[0]), float(point[1])), (float(normal[0]), float(normal[1]))))
+        gallery["embankment_cuts"] = cuts
+
+
 def _gallery_valley_slope_widths(centerline, ground_at, half_width: float, open_side: str) -> np.ndarray:
     """
     Valley-side embankment width per centerline point of a gallery: above the gallery the DGM shows its roof (~5 m above
@@ -591,6 +629,8 @@ class TerrainWorkflow:
             return {**r, "slope_width_override": override, "flat_shoulder_sides": flat_sides}
 
         gallery_roads = [_gallery_road(r) for r in structure_road_polygons if r.get("structure_type") == "gallery"]
+        # Gallery embankments end flush with the gallery, the approach roads' flush with the transition
+        _gallery_embankment_cuts(surface_road_polygons, gallery_roads, config.ROAD_CONTINUATION_ENDPOINT_TOL)
         embeddable_roads = surface_road_polygons + gallery_roads
 
         embankment_profiles = build_road_embankment_profiles(
