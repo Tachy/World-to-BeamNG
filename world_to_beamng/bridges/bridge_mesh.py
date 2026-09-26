@@ -135,6 +135,8 @@ def build_bridge_mesh(
     cap_start: bool = True,
     cap_end: bool = True,
     piers: bool = True,
+    start_normal: Optional[Sequence[float]] = None,
+    end_normal: Optional[Sequence[float]] = None,
 ) -> Dict:
     """
     Deck, curb, railing and pier mesh for a bridge along `coords` (already the
@@ -153,7 +155,8 @@ def build_bridge_mesh(
     Parts of a bridge that splits (see build_bridge_group_mesh()): joined_left / joined_right give per coordinate how
     far the deck reaches beyond the carriageway edge to meet the neighbouring part (half the gap between the two
     carriageways, carriageway material, no curb), NaN where the side is free and has its curb as usual (the cut);
-    railing_left / railing_right = False leaves out the railing of that side; cap_start / cap_end = False
+    railing_left / railing_right = False leaves out the railing of that side; start_normal / end_normal (a left
+    normal) turn the first / last cross-section onto the edge of the part it continues; cap_start / cap_end = False
     leaves out the end face where the part continues in another one; piers=False leaves the piers to the caller.
 
     Returns:
@@ -178,6 +181,11 @@ def build_bridge_mesh(
     half = (np.full(count, width) if widths is None else np.asarray(widths, dtype=float)) / 2.0
     unit = {}
     unit["left"], unit["right"] = offset_points(xy, 1.0, closed=False)  # the miter offset is linear in the distance
+    for index, given in ((0, start_normal), (count - 1, end_normal)):
+        if given is not None:
+            normal = np.asarray(given, dtype=float)[:2]
+            normal = normal / max(float(np.linalg.norm(normal)), 1e-9)
+            unit["left"][index], unit["right"][index] = xy[index] + normal, xy[index] - normal
 
     def offset_by(side, distance):
         return xy + (unit[side] - xy) * distance[:, None]
@@ -345,6 +353,16 @@ def _densified(member: Dict, step: float) -> Dict:
     return result
 
 
+def _before_node(points: np.ndarray, node_end: int, path: np.ndarray) -> bool:
+    """Whether the way ending at the node with its `node_end` comes from behind the stem (the trunk) instead of
+    running on along it (a branch)."""
+    from ..geometry.lane_splits import path_frame
+
+    other = points[-1 if node_end == 0 else 0, :2]
+    along, _ = path_frame(path, other[None, :])
+    return bool(along[0] < -1e-3)
+
+
 def _cut_off_stem(member: Dict, path: np.ndarray, half_width: float):
     """
     The part of `member` beyond the stem (along its `path` over its whole length, `half_width` to both sides), with the
@@ -475,16 +493,39 @@ def build_bridge_group_mesh(
         path = np.asarray(stem["path"], dtype=float)
         node = path[0, :2]
         half_width = float(stem["width"]) / 2.0
-        stem_part = ([tuple(float(v) for v in p) for p in path], float(stem["width"]), None, stem["deck_material"],
-                     {"cap_start": False, "cap_end": False})
+        direction = path[-1, :2] - path[-2, :2]
+        direction = direction / max(float(np.linalg.norm(direction)), 1e-9)
+        end_left = np.array([-direction[1], direction[0]])  # left normal of the stem's end edge
+        stem_coords = [tuple(float(v) for v in p) for p in path]
+        stem_widths = [float(stem["width"])] * len(stem_coords)
+        stem_flags = {"cap_start": False, "cap_end": False}
         for member in members:
+            points = np.array(member["coords"], dtype=float)
+            at_node = [end for end in (0, -1) if np.linalg.norm(points[end, :2] - node) <= endpoint_tol]
+            if at_node and not stem_flags.get("trunk") and _before_node(points, at_node[0], path):
+                # the trunk: it runs into the stem as ONE deck, a miter at the node instead of two end edges
+                trunk = points if at_node[0] == -1 else points[::-1]
+                widths = member.get("widths")
+                trunk_widths = [float(member["width"])] * len(trunk) if widths is None else list(
+                    np.asarray(widths, dtype=float) if at_node[0] == -1 else np.asarray(widths, dtype=float)[::-1])
+                stem_coords = [tuple(float(v) for v in p) for p in trunk[:-1]] + stem_coords
+                stem_widths = trunk_widths[:-1] + stem_widths
+                stem_flags = {"cap_end": False, "trunk": True}  # its far end keeps its end face
+                continue
             rest, cut_end = _cut_off_stem(member, path, half_width)
             if rest is None or len(rest["coords"]) < 2:
                 continue
             flags = {}
             if cut_end is not None:
                 flags["cap_start" if cut_end == "start" else "cap_end"] = False
+                # the cut edge lies on the stem's end edge
+                cut = np.array(rest["coords"], dtype=float)
+                own = cut[1, :2] - cut[0, :2] if cut_end == "start" else cut[-1, :2] - cut[-2, :2]
+                own_left = np.array([-own[1], own[0]])
+                flags["start_normal" if cut_end == "start" else "end_normal"] = end_left if float(own_left @ end_left) >= 0.0 else -end_left
             parts.append((rest["coords"], rest["width"], rest.get("widths"), rest["deck_material"], flags))
+        stem_flags.pop("trunk", None)
+        stem_part = (stem_coords, float(stem["width"]), stem_widths, stem["deck_material"], stem_flags)
         _join_neighbours(parts, curb_width)  # the stem's sides are outer sides: it takes no part in that
         parts.append(stem_part)
         # The trunk end at the node continues in the stem: no end face there

@@ -345,3 +345,34 @@ def test_a_branch_piece_lying_completely_in_the_stem_adds_nothing():
     rail = _points(mesh, RAIL)
     stem_rail = rail[(rail[:, 0] > 1.0) & (rail[:, 0] < HOLD - 1.0)]
     assert np.all(np.abs(np.abs(stem_rail[:, 1]) - 6.7) < 0.1)  # nothing on the stem between its outer railings
+
+
+def _covered(mesh, points, z_tol=0.05):
+    """Which of the (x, y) `points` lie under an upward face of the deck (at road level)."""
+    v, n = np.asarray(mesh["vertices"]), np.asarray(mesh["normals"])
+    polygons = []
+    for faces in mesh["faces"].values():
+        for face in faces:
+            if n[face[0]][2] > 0.5 and np.all(np.abs(v[face][:, 2] - 200.0) < z_tol + 0.2):
+                polygons.append(Polygon(v[face][:, :2]).buffer(1e-4))
+    union = unary_union(polygons)
+    return [union.contains(Point(p)) for p in points]
+
+
+def test_the_trunk_runs_into_the_stem_without_a_gap_where_the_main_axis_turns_off():
+    members = _split_group()
+    members[0]["coords"] = [(-40.0, 3.5, 200.0), (-20.0, 1.75, 200.0), (0.0, 0.0, 200.0)]  # trunk 5 degrees off the axis
+
+    mesh = build_bridge_group_mesh(members, ground_at=_flat_ground(150.0), pier_material=PIER, railing_material=RAIL,
+                                   pier_spacing=1000.0, stem=STEM)
+
+    grid = [(x, y) for x in np.arange(-1.0, 1.01, 0.25) for y in np.arange(-6.2, 6.21, 0.4)]
+    assert all(_covered(mesh, grid))
+
+
+def test_the_branch_decks_start_exactly_on_the_end_edge_of_the_stem():
+    mesh = _group_mesh(pier_spacing=1000.0)
+
+    # the ramps turn away right behind the stem end (x = 30): no wedge between their decks and the stem
+    grid = [(x, y) for x in np.arange(29.5, 30.51, 0.1) for y in list(np.arange(-6.2, -3.3, 0.3)) + list(np.arange(3.4, 6.21, 0.3))]
+    assert all(_covered(mesh, grid))
