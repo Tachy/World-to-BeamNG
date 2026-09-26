@@ -357,6 +357,11 @@ BRIDGE_RAILING_MATERIAL_NAME = "bridge_railing"  # texture: RAILING_TEXTURE_NAME
 # (see geometry.polygon.extend_short_bridges_to_natural_grade).
 BRIDGE_APPROACH_SLOPE_THRESHOLD = 0.10  # gradient at which the extension stops (10 % ≈ 5.7°)
 BRIDGE_APPROACH_MAX_EXTENSION = 40.0  # the bridge is extended into the neighboring road at most this far, in meters
+# Roads under a bridge: the terrain model does not resolve the underpass and shows the deck there. Their height is
+# interpolated from UNDERPASS_MARGIN meters before the deck to the same distance behind it (geometry/road_structures.py::
+# fix_underpass_elevations()), if the sampled heights rise by at least UNDERPASS_MIN_RISE above that interpolation.
+UNDERPASS_MARGIN = 4.0  # in meters
+UNDERPASS_MIN_RISE = 1.0  # in meters
 
 # Tunnels (OSM highway=* with tunnel=yes/culvert/building_passage) and galleries (tunnel=avalanche_protector):
 # tube or valley-side open gallery along the linearly interpolated height profile. For these roads

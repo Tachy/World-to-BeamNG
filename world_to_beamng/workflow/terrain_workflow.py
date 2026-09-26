@@ -636,6 +636,19 @@ class TerrainWorkflow:
         # (they lie on a different level, never form junctions - see build_junction_network())
         road_polygons, junctions = build_junction_network(road_polygons)
 
+        # Roads that pass under a bridge: the terrain model shows the deck there, so their sampled height climbs to it -
+        # interpolate from before to behind the bridge (the embedding below then cuts them in with slopes on both sides)
+        from ..geometry.road_structures import fix_underpass_elevations
+
+        underpasses = fix_underpass_elevations(
+            road_polygons,
+            lambda road: config.OSM_MAPPER.get_road_properties(road.get("osm_tags", {}))["width"] / 2.0,
+            margin=config.UNDERPASS_MARGIN,
+            min_rise=config.UNDERPASS_MIN_RISE,
+        )
+        if underpasses:
+            logger.debug(f"  [OK] {underpasses} road(s) under bridges: height interpolated")
+
         # Convert road_polygons into road_slope_polygons_2d (for classification)
         # IMPORTANT: AFTER junction detection, so that the split roads are used!
         # IMPORTANT: Create actual road polygons (buffer around the centerline)
