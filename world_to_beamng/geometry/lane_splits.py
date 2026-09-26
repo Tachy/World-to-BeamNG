@@ -192,9 +192,9 @@ def _smoothstep(t: np.ndarray) -> np.ndarray:
     return t * t * (3.0 - 2.0 * t)
 
 
-def _branch_pieces(roads, first, at_start, length, endpoint_tol, max_angle_deg):
+def _branch_pieces(roads, first, at_start, length, endpoint_tol, max_angle_deg, keep=None):
     """[(road, enters_at_start, arc offset from the node)] along the branch and its straight continuations until
-    `length` is covered or the branch ends; plus the covered length."""
+    `length` is covered or the branch ends (or the next piece fails `keep`); plus the covered length."""
     min_opposition = float(np.cos(np.radians(max_angle_deg)))
     pieces, offset, road, entry, visited = [], 0.0, first, at_start, set()
     while True:
@@ -223,7 +223,7 @@ def _branch_pieces(roads, first, at_start, length, endpoint_tol, max_angle_deg):
                 opposition = -float(np.dot(direction, other_dir))
                 if opposition >= min_opposition and (best is None or opposition > best[0]):
                     best = (opposition, other, other_start)
-        if best is None:
+        if best is None or (keep is not None and not keep(best[1])):
             return pieces, offset
         road, entry = best[1], best[2]
 
@@ -281,9 +281,94 @@ class _Reference:
         return np.column_stack([-tangent[:, 1], tangent[:, 0]])
 
 
+class _SideProfile:
+    """
+    Lateral offset of a side branch from the main axis along its arc length: its slot while it waits beside the main
+    axis, then its OSM offset - without a kink. The rest between the slot and OSM's lane centre fades out over `blend`
+    meters, the change of direction where the branch leaves its slot over `turn` meters (C1: no corner in the outline);
+    OSM's own corners in that zone are rounded by a Gaussian of `smoothing` meters, which hands back to the exact OSM
+    offset over `smoothing_end` meters behind the zone.
+    """
+
+    def __init__(self, chain: Dict, main_xy: np.ndarray, slot: float, connector: float, blend: float, smoothing: float,
+                 turn: float = 10.0, smoothing_end: float = 10.0):
+        from scipy.ndimage import gaussian_filter1d
+
+        _, raw = path_frame(main_xy, chain["xy"])
+        self.grid = np.arange(0.0, float(chain["arc"][-1]) + 1.0, 1.0)
+        profile = np.interp(self.grid, chain["arc"], raw)
+        # OSM's symbolic connector is ignored: it must not bend the smoothed course behind it
+        profile[self.grid < connector] = float(np.interp(connector, chain["arc"], raw))
+        self.smooth = gaussian_filter1d(profile, sigma=smoothing, mode="nearest")
+        self.slot, self.connector, self.blend, self.turn, self.smoothing_end = slot, connector, blend, turn, smoothing_end
+        at_lane = float(np.interp(connector, self.grid, self.smooth))
+        self.offset = slot - at_lane
+        self.slope = (float(np.interp(connector + 2.0, self.grid, self.smooth)) - at_lane) / 2.0
+
+    def lateral(self, arc: np.ndarray, raw: np.ndarray) -> np.ndarray:
+        smooth = np.interp(arc, self.grid, self.smooth)
+        osm = smooth + (raw - smooth) * _smoothstep((arc - self.connector - self.blend) / self.smoothing_end)
+        since = arc - self.connector
+        fade = 1.0 - (_smoothstep(since / self.blend) if self.blend > 0.0 else (since > 0.0).astype(float))
+        turning = 1.0 - _smoothstep(since / self.turn)
+        target = osm + self.offset * fade - self.slope * since * turning
+        return np.where(since < 0.0, self.slot, target)
+
+
+def _is_bridge(road: Dict) -> bool:
+    from .road_structures import classify_structure
+
+    return classify_structure(road.get("osm_tags", {})) == "bridge"
+
+
+def _level_side_bridge(roads, chain, main, main_z, endpoint_tol, max_angle_deg) -> None:
+    """
+    Heights of a side branch on a bridge: while it is part of the main deck (up to where it leaves it, see
+    chain["leaves_at"]) it lies at the main deck's height - one flat cross-section; from there to the end of its bridge
+    (its abutment) it runs linear, like every bridge between its supports.
+    """
+    branch = chain["branch"]
+    pieces, _ = _branch_pieces(roads, branch.road, branch.at_start, float("inf"), endpoint_tol, max_angle_deg, keep=_is_bridge)
+    oriented = []
+    for road, entry, _ in pieces:
+        coords = np.asarray(road["coords"], dtype=float)
+        oriented.append((road, entry, coords if entry else coords[::-1]))
+    lengths = [float(np.sum(np.linalg.norm(np.diff(o[2][:, :2], axis=0), axis=1))) for o in oriented]
+    total = float(sum(lengths))
+    abutment_z = float(oriented[-1][2][-1, 2])
+    leaves_at = min(chain["leaves_at"], total)
+    offset = 0.0
+    for (road, entry, piece), piece_length in zip(oriented, lengths):
+        arc = offset + np.concatenate([[0.0], np.cumsum(np.linalg.norm(np.diff(piece[:, :2], axis=0), axis=1))])
+        along, _ = path_frame(main["xy"], piece[:, :2])
+        on_deck = main_z(along)
+        if leaves_at >= total:
+            z = on_deck  # never leaves the deck on the bridge: one piece up to the abutment
+        else:
+            leave_z = float(main_z(path_frame(main["xy"], _point_at(oriented, lengths, leaves_at)[None, :])[0])[0])
+            z = np.where(arc <= leaves_at, on_deck, leave_z + (abutment_z - leave_z) * (arc - leaves_at) / (total - leaves_at))
+        piece = piece.copy()
+        piece[:, 2] = z
+        result = piece if entry else piece[::-1]
+        road["coords"] = [tuple(float(v) for v in point) for point in result]
+        offset += piece_length
+
+
+def _point_at(oriented, lengths, s: float) -> np.ndarray:
+    """(x, y) at arc length `s` along the oriented pieces."""
+    offset = 0.0
+    for (_, _, piece), piece_length in zip(oriented, lengths):
+        if s <= offset + piece_length or piece is oriented[-1][2]:
+            arc = offset + np.concatenate([[0.0], np.cumsum(np.linalg.norm(np.diff(piece[:, :2], axis=0), axis=1))])
+            return np.array([np.interp(s, arc, piece[:, 0]), np.interp(s, arc, piece[:, 1])])
+        offset += piece_length
+    return oriented[-1][2][-1, :2]
+
+
 def shift_branches_into_slots(
     splits: List[LaneSplit], roads: List[Dict], max_connector: float, length: float, endpoint_tol: float = 0.5,
-    max_angle_deg: float = 60.0, step: float = 2.0,
+    max_angle_deg: float = 60.0, step: float = 2.0, smoothing: float = 5.0, smoothing_end: float = 10.0,
+    leave_gap: float = 0.8,
 ) -> None:
     """
     The main axis of a split - the branch that continues the trunk most straight - keeps its OSM course everywhere; its
@@ -293,11 +378,14 @@ def shift_branches_into_slots(
     OSM draws every other branch from the node to the centre of its lane first - a symbolic connector. It is replaced
     by a run beside the main axis in the branch's slot (its lanes of the trunk's cross-section) up to where OSM's branch
     reaches its lane centre (at most max_connector meters, see _connector_length()); from there the branch follows its
-    OSM course again - only the small difference between OSM's lane centre and the slot fades out over `length` meters.
+    OSM course again - smoothly, see _SideProfile: the small difference between OSM's lane centre and the slot fades
+    out over `length` meters, the turn out of the slot has no corner, and OSM's corners in that zone are rounded.
 
     The stem - where the trunk goes on as one piece - follows the main axis as far as the shortest connector of the
-    side branches; on it all branches share one height (their mean, the cross-section is one surface), which blends
-    back into each branch's own profile over `length` meters.
+    side branches. Heights: the main axis keeps its own (a bridge is linear between its abutments). A side branch on a
+    bridge lies at the main deck's height until it has moved `leave_gap` out of its slot (where it leaves the deck - the
+    cut) and then runs linear to its abutment (_level_side_bridge()); on the ground it takes the main road's height on
+    the stem and returns to its own over `length` meters.
 
     The branches are followed along straight continuations where one piece is shorter (the kink where OSM's connector
     turns into the lane may be up to max_angle_deg); bridges and ground roads are treated alike. Marks the first piece
@@ -340,7 +428,8 @@ def shift_branches_into_slots(
         stem_length = min(side) if side else 0.0
 
         def stem_z(arc: np.ndarray) -> np.ndarray:
-            return np.mean([np.interp(arc, c["arc"], c["z"]) for c in chains], axis=0)
+            """Height of the main deck along the main axis - the cross-section of the stem is one surface."""
+            return np.interp(arc, main["arc"], main["z"])
 
         stations = np.linspace(0.0, stem_length, max(2, int(np.ceil(stem_length)) + 1)) if stem_length > 0.0 else np.zeros(0)
         stem_path = [(float(x), float(y), float(z)) for (x, y), z in zip(reference.position(stations), stem_z(stations))]
@@ -355,30 +444,39 @@ def shift_branches_into_slots(
                 "trunk_width": split.trunk_width,
             }
             slot = chain["slot"]
-            if chain is main:
-                correction = None
-            else:
-                at_lane = np.array([np.interp(connector, chain["arc"], chain["xy"][:, 0]), np.interp(connector, chain["arc"], chain["xy"][:, 1])])
-                beside = reference.position([connector])[0] + slot * reference.normal([connector])[0]
-                correction = beside - at_lane
+            profile = None if chain is main else _SideProfile(chain, main["xy"], slot, connector, blend, smoothing)
+            if profile is not None:
+                # where the branch has moved `leave_gap` out of its slot, it leaves the main deck (the cut on a bridge)
+                probe = np.arange(connector, float(chain["arc"][-1]), 0.5)
+                _, raw = path_frame(main["xy"], np.column_stack([np.interp(probe, chain["arc"], chain["xy"][:, k]) for k in (0, 1)]))
+                away = np.abs(profile.lateral(probe, raw) - slot) >= leave_gap
+                chain["leaves_at"] = float(probe[np.argmax(away)]) if away.any() else float(chain["arc"][-1])
+                branch.road["lane_split_branch"]["leaves_at"] = chain["leaves_at"]
+            zone_end = connector + blend + smoothing_end
             for road, entry, offset, piece, _ in chain["pieces"]:
-                piece = _densify(piece, offset, max(connector, stem_length) + length, step)
+                piece = _densify(piece, offset, max(connector, stem_length) + length + smoothing_end, step)
                 arc = offset + np.concatenate([[0.0], np.cumsum(np.linalg.norm(np.diff(piece[:, :2], axis=0), axis=1))])
                 if chain is main:
                     # the slot offset of the main axis at the node fades out along its own OSM course
                     fade = 1.0 - (_smoothstep(arc / blend) if blend > 0.0 else np.ones(len(arc)))
                     shifted = piece[:, :2] + (fade * slot)[:, None] * reference.normal(arc)
                 else:
-                    fade = 1.0 - (_smoothstep((arc - connector) / blend) if blend > 0.0 else (arc > connector).astype(float))
-                    shifted = piece[:, :2] + fade[:, None] * correction[None, :]
-                    waiting = arc < connector
-                    shifted[waiting] = reference.position(arc[waiting]) + slot * reference.normal(arc[waiting])
-                own_height = _smoothstep((arc - stem_length) / length) if length > 0.0 else (arc > stem_length).astype(float)
+                    shifted = piece[:, :2].copy()
+                    zone = arc < zone_end
+                    along, lateral = path_frame(main["xy"], piece[zone, :2])
+                    target = profile.lateral(arc[zone], lateral)
+                    shifted[zone] = reference.position(along) + target[:, None] * reference.normal(along)
                 piece = piece.copy()
                 piece[:, :2] = shifted
-                piece[:, 2] = stem_z(arc) * (1.0 - own_height) + piece[:, 2] * own_height
+                if chain is not main and not _is_bridge(road):
+                    # on the ground the branch takes the main road's height on the stem and returns to its own
+                    own_height = _smoothstep((arc - stem_length) / length) if length > 0.0 else (arc > stem_length).astype(float)
+                    along, _ = path_frame(main["xy"], piece[:, :2])
+                    piece[:, 2] = stem_z(along) * (1.0 - own_height) + piece[:, 2] * own_height
                 result = piece if entry else piece[::-1]
                 road["coords"] = [tuple(float(v) for v in point) for point in result]
+            if chain is not main and _is_bridge(branch.road):
+                _level_side_bridge(roads, chain, main, stem_z, endpoint_tol, max_angle_deg)
 
 
 def path_frame(path_xy, points) -> Tuple[np.ndarray, np.ndarray]:

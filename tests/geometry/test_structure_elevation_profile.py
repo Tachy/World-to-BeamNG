@@ -111,3 +111,20 @@ def test_a_bridge_end_at_a_surface_road_keeps_its_terrain_height():
     assert bridge["coords"][0][2] == pytest.approx(80.0)  # free end
     assert bridge["coords"][-1][2] == pytest.approx(90.0)
     assert bridge["coords"][1][2] == pytest.approx(85.0)
+
+
+
+def test_a_ramp_does_not_bend_the_through_span_at_a_shared_node():
+    # through span: abutment 100 m (20 m before the node) to abutment 110 m (20 m behind it) - straight on
+    trunk = _bridge([(-20.0, 0.0, 100.0), (0.0, 0.0, 50.0)], road_id=1)
+    main = _bridge([(0.0, 0.0, 50.0), (20.0, 0.0, 110.0)], road_id=2)
+    ramp = _bridge([(0.0, 0.0, 50.0), (8.66, -5.0, 60.0)], road_id=3)  # branching off at 30 degrees to a low abutment
+    roads = [trunk, main, ramp,
+             _surface([(-30.0, 0.0, 100.0), (-20.0, 0.0, 100.0)], 101), _surface([(20.0, 0.0, 110.0), (30.0, 0.0, 110.0)], 102),
+             _surface([(8.66, -5.0, 60.0), (17.0, -10.0, 60.0)], 103)]
+
+    apply_structure_elevation_profiles(roads)
+
+    assert trunk["coords"][-1][2] == pytest.approx(105.0)  # linear between the through span's abutments
+    assert ramp["coords"][0][2] == pytest.approx(105.0)
+    assert ramp["coords"][-1][2] == pytest.approx(60.0)

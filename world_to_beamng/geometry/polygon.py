@@ -546,7 +546,9 @@ def _settle_bridge_network_nodes(road_polygons) -> None:
     ways, a junction on a bridge), the raw DGM height is the valley floor below the deck. Abutments - ends at a
     non-bridge road or free ends - keep their height; every other shared end node gets the length-weighted mean of
     its neighbours in the bridge network (edge weight 1 / way length), which is the linear interpolation along the
-    arc length for a simple chain. The end points are written back, the linear per-way profile follows afterwards.
+    arc length for a simple chain. Where a way goes on straight through a node shared by more ways (the main road of a
+    junction on a bridge), only that through span sets the node's height - it stays straight between its abutments and
+    a ramp does not bend it. The end points are written back, the linear per-way profile follows afterwards.
     """
     bridges = [
         r for r in road_polygons if classify_structure(r.get("osm_tags", {})) == "bridge" and len(r["coords"]) >= 2
@@ -574,7 +576,7 @@ def _settle_bridge_network_nodes(road_polygons) -> None:
         members[b].append((road, -1))
         length = float(np.sum(np.linalg.norm(np.diff(np.asarray(coords, dtype=float)[:, :2], axis=0), axis=1)))
         if a != b and length > 1e-6:
-            edges.append((a, b, 1.0 / length))
+            edges.append((a, b, 1.0 / length, id(road)))
 
     other_points = [point[:2] for road in others for point in road["coords"]]
     other_tree = cKDTree(np.asarray(other_points, dtype=float)) if other_points else None
@@ -589,9 +591,10 @@ def _settle_bridge_network_nodes(road_polygons) -> None:
     unknown = {node: k for k, node in enumerate(inner)}
     matrix = np.zeros((len(inner), len(inner)))
     rhs = np.zeros(len(inner))
-    for a, b, weight in edges:
+    through = {node: _through_span(members[node]) for node in inner}
+    for a, b, weight, road_id in edges:
         for node, other in ((a, b), (b, a)):
-            if node not in unknown:
+            if node not in unknown or (through[node] and road_id not in through[node]):
                 continue
             row = unknown[node]
             matrix[row, row] += weight
@@ -610,10 +613,30 @@ def _settle_bridge_network_nodes(road_polygons) -> None:
             road["coords"][end] = (x, y, float(solution[k]))
 
 
+def _through_span(members, max_kink_deg: float = 30.0) -> set:
+    """ids of the two bridge ways that go on straight through a node shared by three or more (kink at most
+    max_kink_deg, the straightest pair wins) - empty for a plain joint of two ways or without a straight pair."""
+    if len(members) < 3:
+        return set()
+    directions = []
+    for road, end in members:
+        coords = np.asarray(road["coords"], dtype=float)[:, :2]
+        vector = coords[1] - coords[0] if end == 0 else coords[-2] - coords[-1]  # away from the node
+        length = float(np.linalg.norm(vector))
+        directions.append(vector / length if length > 1e-9 else vector)
+    best, pair = float(np.cos(np.radians(max_kink_deg))), set()
+    for i in range(len(members)):
+        for j in range(i + 1, len(members)):
+            opposition = -float(directions[i] @ directions[j])
+            if opposition >= best and members[i][0] is not members[j][0]:
+                best, pair = opposition, {id(members[i][0]), id(members[j][0])}
+    return pair
+
+
 def _reaches_abutment(inner, edges, unknown) -> list:
     """Per inner node: whether the bridge network connects it to at least one abutment (a node not in `unknown`)."""
     neighbours = {node: [] for node in inner}
-    for a, b, _ in edges:
+    for a, b, *_ in edges:
         if a in neighbours:
             neighbours[a].append(b)
         if b in neighbours:

@@ -175,7 +175,7 @@ def test_a_branch_turning_away_at_once_takes_its_course_where_it_passes_its_lane
     turn = _turn_split(turn_xy=[(0.0, 0.0), (20.0, -10.0), (40.0, -20.0)])  # a loop ramp leaving at once
 
     assert _y_at(turn["coords"], 3.0) == pytest.approx(-LANE)  # connector in the slot
-    assert _y_at(turn["coords"], 20.0) == pytest.approx(-10.0, abs=0.1)  # then OSM's course, not a long straight run
+    assert _y_at(turn["coords"], 20.0) == pytest.approx(-10.0, abs=0.15)  # then OSM's course (rounded), no long straight run
     assert _y_at(turn["coords"], 40.0) == pytest.approx(-20.0)
 
 
@@ -261,7 +261,7 @@ def test_on_the_stem_the_edge_lines_between_branches_become_one_block_marking():
     assert 0 not in masks or not masks[0]["blocks"]
 
 
-def test_on_the_stem_all_branches_share_one_height_and_blend_back_into_their_own_profile():
+def test_on_the_ground_the_branches_take_the_main_road_height_on_the_stem_and_blend_back():
     trunk = _road(1, [(-40.0, 0.0), (0.0, 0.0)], highway="primary", lanes="4", oneway="yes")
     straight = _road(2, [(0.0, 0.0), (80.0, 0.0)], highway="primary", lanes="2", oneway="yes")
     turn = _road(3, [(0.0, 0.0), (10.0, -3.0), (80.0, -20.0)], highway="primary_link", lanes="2", oneway="yes")
@@ -274,7 +274,7 @@ def test_on_the_stem_all_branches_share_one_height_and_blend_back_into_their_own
     stem = turn["lane_split_branch"]["stem_length"]
     for road in (straight, turn):
         coords = np.asarray(road["coords"])
-        assert np.allclose(coords[coords[:, 0] < stem - 0.5, 2], 101.0)  # one cross-section on the stem
+        assert np.allclose(coords[coords[:, 0] < stem - 0.5, 2], 102.0)  # one cross-section: the main road's height
     assert np.asarray(straight["coords"])[-1, 2] == pytest.approx(102.0)
     assert np.asarray(turn["coords"])[-1, 2] == pytest.approx(100.0)
 
@@ -332,3 +332,53 @@ def test_side_branches_wait_parallel_to_the_curved_main_axis():
     assert near_node and all(abs(osm_main.distance(Point(*p)) - 1.5 * LANE) < 0.05 for p in near_node)
     stem = np.asarray(roads[2]["lane_split_branch"]["stem_path"])
     assert max(osm_main.distance(Point(*p[:2])) for p in stem) < 1e-6  # the stem follows the main axis
+
+
+def _max_kink_deg(coords, until):
+    xy = np.asarray(coords)[:, :2]
+    arc = np.concatenate([[0.0], np.cumsum(np.linalg.norm(np.diff(xy, axis=0), axis=1))])
+    xy = xy[arc <= until]
+    d = np.diff(xy, axis=0)
+    d = d[np.linalg.norm(d, axis=1) > 1e-6]
+    angles = np.degrees(np.arctan2(d[:, 1], d[:, 0]))
+    return float(np.max(np.abs((np.diff(angles) + 180.0) % 360.0 - 180.0)))
+
+
+def test_the_side_branch_leaves_its_slot_without_a_kink():
+    # OSM: to the lane centre within 8 m, along it, then turning away by 6 degrees at a sharp vertex at 20 m
+    turn_xy = [(0.0, 0.0), (8.0, -3.0), (20.0, -3.0), (40.0, -5.1), (80.0, -9.3)]
+    turn = _turn_split(turn_xy=turn_xy, length=20.0)
+
+    assert _max_kink_deg(turn["coords"], until=60.0) < 1.5  # smooth, the densified points bend a little each
+    assert _y_at(turn["coords"], 80.0) == pytest.approx(-9.3)  # back on OSM's course behind the zone
+
+
+
+def test_a_side_bridge_stays_on_the_main_deck_height_until_it_leaves_and_then_runs_linear_to_its_abutment():
+    def bridge(road_id, points, z_of, **tags):
+        return {"id": road_id, "coords": [(x, y, z_of(x)) for x, y in points], "osm_tags": {"bridge": "yes", **tags}}
+
+    main_z = lambda x: 100.0 + 0.05 * x  # the through span climbs
+    trunk = bridge(1, [(-40.0, 0.0), (0.0, 0.0)], main_z, highway="primary", lanes="4", oneway="yes")
+    straight = bridge(2, [(0.0, 0.0), (80.0, 0.0)], main_z, highway="primary", lanes="2", oneway="yes")
+    # the turn lanes' own abutment is low (90 m at x = 60): OSM drew them from the node to their lane, then away
+    turn_xy = [(0.0, 0.0), (8.0, -3.0), (20.0, -3.0), (60.0, -20.0)]
+    turn = bridge(3, turn_xy, lambda x: 100.0 - x / 6.0, highway="primary_link", lanes="2", oneway="yes")
+    ground = _road(4, [(60.0, -20.0), (90.0, -35.0)], highway="primary_link", lanes="2", oneway="yes")
+    ground["coords"] = [(x, y, 90.0) for x, y, _ in ground["coords"]]
+    roads = [trunk, straight, turn, ground]
+    splits = find_lane_splits(roads, _width)
+
+    shift_branches_into_slots(splits, roads, max_connector=30.0, length=20.0)
+
+    coords = np.asarray(turn["coords"])
+    attached = coords[coords[:, 0] < 10.0]
+    assert np.allclose(attached[:, 2], main_z(attached[:, 0]), atol=0.02)  # on the main deck: flat cross-section
+    leave = turn["lane_split_branch"]["leaves_at"]
+    beyond = coords[np.hypot(coords[:, 0], coords[:, 1]) > leave + 1.0]
+    arc = np.concatenate([[0.0], np.cumsum(np.linalg.norm(np.diff(coords[:, :2], axis=0), axis=1))])
+    tail = arc >= leave
+    slope = np.diff(coords[tail, 2]) / np.maximum(np.diff(arc[tail]), 1e-9)
+    assert np.allclose(slope, slope[0], atol=1e-6)  # linear from where it leaves the deck ...
+    assert coords[-1, 2] == pytest.approx(90.0)  # ... to its abutment
+    assert np.allclose(np.asarray(ground["coords"])[:, 2], 90.0)  # the road behind the abutment is not touched

@@ -864,7 +864,8 @@ class TerrainWorkflow:
             ),
         )
         shift_branches_into_slots(
-            lane_splits, road_polygons, max_connector=config.ROAD_LANE_SPLIT_MAX_CONNECTOR, length=config.ROAD_LANE_SPLIT_LENGTH
+            lane_splits, road_polygons, max_connector=config.ROAD_LANE_SPLIT_MAX_CONNECTOR, length=config.ROAD_LANE_SPLIT_LENGTH,
+            leave_gap=2.0 * config.BRIDGE_CURB_WIDTH,  # a branch leaves the bridge deck where both have room for a curb
         )
         if lane_splits:
             logger.info(f"  [OK] {len(lane_splits)} lane split(s): branches moved into the trunk's lanes")
