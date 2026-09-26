@@ -538,6 +538,9 @@ def _road_marking_lines(specs: List[Tuple[Dict, Dict, List]], node_lists: List[L
             divider_keep=masks.get(index),
             blocks=blocks.get(index),
             double_keep=double_lines.get(index),
+            # half the double line (gap + line) plus half the block stripe: closer and the block would paint over it
+            block_clearance=(config.ROAD_MARKING_CENTER_GAP + config.ROAD_MARKING_LINE_WIDTH) / 2.0
+            + config.ROAD_MARKING_LINE_WIDTH / 2.0 + config.ROAD_MARKING_BLOCK_WIDTH / 2.0,
         )
         materials = {EDGE: config.ROAD_MARKING_EDGE_MATERIAL, CENTER: config.ROAD_MARKING_CENTER_MATERIAL,
                      BLOCK: config.ROAD_MARKING_BLOCK_MATERIAL}

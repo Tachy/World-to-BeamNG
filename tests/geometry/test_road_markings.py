@@ -701,3 +701,22 @@ def test_double_line_replaces_the_dashed_centre_line_only_where_the_mask_says():
     assert all(line[:, 0].min() == 0.0 and line[:, 0].max() == pytest.approx(150.0) for line in centers)
     assert dividers[0][:, 0].min() <= 150.0 and dividers[0][:, 0].max() == pytest.approx(250.0)  # takes over, no gap
     assert abs(centers[0][0, 1] - centers[1][0, 1]) == pytest.approx(0.25)  # the two lines of the double line
+
+
+def test_block_stripe_stops_before_it_would_paint_over_the_double_line():
+    roads, layouts, own, fixed, pairs = _symmetric_pair()
+    zone = taper_zones(roads, layouts, own, fixed, pairs)
+    blocks = block_inputs(zone)
+    clearance = 0.35  # half the double line + half the block stripe
+
+    kwargs = dict(center_gap=0.1, line_width=0.15, blocks=blocks.get(1), boundary_shift=zone[0]["shifts"][1])
+    lines = build_marking_lines(roads[1], layouts[1], 0.25, block_clearance=clearance, **kwargs)
+    unclipped = build_marking_lines(roads[1], layouts[1], 0.25, **kwargs)
+
+    block = next(line for kind, line in lines if kind == BLOCK)
+    full = next(line for kind, line in unclipped if kind == BLOCK)
+    centers = [line for kind, line in lines if kind == CENTER]
+    assert full[:, 0].max() == pytest.approx(50.0) and block[:, 0].max() < 50.0  # the end at the double line is cut off
+    for x, y, _ in block:
+        boundary = np.mean([c[np.argmin(np.abs(c[:, 0] - x)), 1] for c in centers])
+        assert abs(y - boundary) >= clearance - 1e-6

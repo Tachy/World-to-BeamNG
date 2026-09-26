@@ -462,6 +462,7 @@ def build_marking_lines(
     divider_keep: Optional[Dict[float, np.ndarray]] = None,
     blocks: Optional[Sequence] = None,
     double_keep: Optional[np.ndarray] = None,
+    block_clearance: float = 0.0,
 ) -> List[Tuple[str, np.ndarray]]:
     """(kind, (N, 3) line) for all marking lines of a road from its DecalRoad nodes [x, y, z, width];
     z per line node from the corresponding carriageway node (BeamNG projects the line onto the terrain anyway).
@@ -488,11 +489,19 @@ def build_marking_lines(
                 kept = kept[np.asarray(keep, dtype=bool)[kept]]  # the dashed divider ends where the taper zone starts
         if len(kept) >= 2:
             lines.append((kind, np.column_stack([offset_xy[kept], arr[kept, 2]])))
+    # where the road has a double line, the lateral position of the boundary between the directions (its centre)
+    boundary = -arr[:, 3] / 2.0 + (layout.forward if layout.forward is not None else layout.lanes // 2) * arr[:, 3] / layout.lanes
+    if boundary_shift is not None:
+        boundary = boundary + np.asarray(boundary_shift, dtype=float)
+    has_double = np.ones(len(arr), dtype=bool) if layout.forward is not None else (double if double is not None else np.zeros(len(arr), dtype=bool))
     for mask, sign, lane_width in blocks or ():
         # outer lane at full width: the stripe stays one lane width inside the edge on its side
-        offset_xy = offset_polyline(center_xy, sign * (arr[:, 3] / 2.0 - lane_width), start_normal, end_normal)
+        block_offset = sign * (arr[:, 3] / 2.0 - lane_width)
+        offset_xy = offset_polyline(center_xy, block_offset, start_normal, end_normal)
         kept = forward_indices(offset_xy, center_xy)
         kept = kept[np.asarray(mask, dtype=bool)[kept]]
+        # no block stripe over the double line: it ends where it comes closer than `block_clearance` to it
+        kept = kept[~(has_double & (np.abs(block_offset - boundary) < block_clearance))[kept]]
         if len(kept) >= 2:
             lines.append((BLOCK, np.column_stack([offset_xy[kept], arr[kept, 2]])))
     return lines

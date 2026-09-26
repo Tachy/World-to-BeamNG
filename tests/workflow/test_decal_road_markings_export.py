@@ -384,12 +384,13 @@ def test_third_lane_is_dropped_before_a_two_lane_tunnel_with_a_block_stripe_over
     edges = [r for r in marks.values() if r["material"] == config.ROAD_MARKING_EDGE_MATERIAL]
     assert len(block) == 1 and len(dashed) == 1
     xs = [n[0] for n in block[0]["nodes"]]
-    assert min(xs) == pytest.approx(-100.0, abs=1.5) and max(xs) == pytest.approx(0.0, abs=1.5)  # the whole 100 m
+    # from the start of the 100 m zone up to where the stripe would touch the double line (it does not paint over it)
+    assert min(xs) == pytest.approx(-100.0, abs=1.5) and -40.0 < max(xs) < -10.0
     assert max(n[0] for n in dashed[0]["nodes"]) == pytest.approx(-100.0, abs=1.5)  # the dashed divider ends where it starts
     assert block[0]["nodes"][0][3] == config.ROAD_MARKING_BLOCK_WIDTH
     assert max(n[0] for r in edges for n in r["nodes"]) > -2.0  # edge lines run up to the tunnel
     ys = [n[1] for n in block[0]["nodes"]]
-    assert ys[0] > ys[-1] and ys[-1] == pytest.approx(0.0, abs=0.1)  # runs into the centre line at the tunnel
+    assert ys[0] > ys[-1] > 0.1  # runs towards the centre line at the tunnel, but stops before it
 
 
 def test_road_road_lane_drop_gets_block_stripes_on_both_sides_of_the_joint():
@@ -401,7 +402,7 @@ def test_road_road_lane_drop_gets_block_stripes_on_both_sides_of_the_joint():
 
     blocks = {n: r for n, r in _markings(roads).items() if r["material"] == config.ROAD_MARKING_BLOCK_MATERIAL}
     xs = sorted(x for r in blocks.values() for x in (r["nodes"][0][0], r["nodes"][-1][0]))
-    assert xs[0] == pytest.approx(-50.0, abs=1.5) and xs[-1] == pytest.approx(50.0, abs=1.5)
+    assert xs[0] == pytest.approx(-50.0, abs=1.5) and 20.0 < xs[-1] < 45.0  # the narrow end stops short of the double line
     assert sorted(n.split("_")[1] for n in blocks) == ["1", "2"]
 
 
