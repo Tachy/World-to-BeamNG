@@ -292,6 +292,10 @@ ROAD_MARKING_NO_OVERTAKING_EXTRA = 100.0
 ROAD_MARKING_BLOCK_WIDTH = 0.3  # width of the block stripe, in meters
 # Blocks have the length and gap of the dashes of the dashed divider (stock texture: 6 m dash, 6 m gap per 24 m repeat), only
 # the width differs
+# Colour and opacity of the block texture like the stock dash texture (t_line_white_dashed: grey ~201 at opacity ~240 on the
+# dashes) - pure white looked much brighter than the dashed decals
+ROAD_MARKING_BLOCK_GREY = 201
+ROAD_MARKING_BLOCK_OPACITY = 240
 ROAD_MARKING_BLOCK_LENGTH = 6.0  # length of one block, in meters
 ROAD_MARKING_BLOCK_GAP = 6.0  # gap between two blocks, in meters
 # Two-lane tunnels and galleries get the double centre line too (structure_type values)

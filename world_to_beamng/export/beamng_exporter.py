@@ -162,7 +162,8 @@ class BeamNGExporter:
             from ..textures.marking_blocks import write_block_stripe_textures
 
             write_block_stripe_textures(
-                config.BEAMNG_DIR_TEXTURES, config.ROAD_MARKING_BLOCK_LENGTH, config.ROAD_MARKING_BLOCK_GAP
+                config.BEAMNG_DIR_TEXTURES, config.ROAD_MARKING_BLOCK_LENGTH, config.ROAD_MARKING_BLOCK_GAP,
+                grey=config.ROAD_MARKING_BLOCK_GREY, opacity=config.ROAD_MARKING_BLOCK_OPACITY,
             )
 
         # Check all textures from data/textures (generate procedural ones once if needed); if a photo texture is missing,
