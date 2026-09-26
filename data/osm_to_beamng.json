@@ -206,7 +206,7 @@
         },
         "line_block_white": {
             "annotation": "SOLID_LINE",
-            "textureLength": 2.0,
+            "textureLength": 12.0,
             "textures": {
                 "baseColorMap": "levels/world_to_beamng/art/shapes/textures/line_block_white_b.color.png",
                 "opacityMap": "levels/world_to_beamng/art/shapes/textures/line_block_white_o.data.png"

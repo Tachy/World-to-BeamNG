@@ -287,8 +287,10 @@ ROAD_MARKING_CENTER_GAP = 0.1  # gap between the two lines, in meters
 # "line_block_white" in data/osm_to_beamng.json.
 ROAD_MARKING_BLOCK_MATERIAL = "line_block_white"
 ROAD_MARKING_BLOCK_WIDTH = 0.3  # width of the block stripe, in meters
-ROAD_MARKING_BLOCK_LENGTH = 1.0  # length of one block, in meters
-ROAD_MARKING_BLOCK_GAP = 1.0  # gap between two blocks, in meters
+# Blocks have the length and gap of the dashes of the dashed divider (stock texture: 6 m dash, 6 m gap per 24 m repeat), only
+# the width differs
+ROAD_MARKING_BLOCK_LENGTH = 6.0  # length of one block, in meters
+ROAD_MARKING_BLOCK_GAP = 6.0  # gap between two blocks, in meters
 # Two-lane tunnels and galleries get the double centre line too (structure_type values)
 ROAD_MARKING_CENTER_STRUCTURES = frozenset({"tunnel", "gallery"})
 # renderPriority of DecalRoads: BeamNG/Torque3D draws them in DESCENDING order - the smallest value comes
