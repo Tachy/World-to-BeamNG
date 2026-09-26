@@ -14,6 +14,7 @@ from .. import config
 from ..core.cache_manager import CacheManager
 from ..managers import MaterialManager, ItemManager, DAEExporter
 from ..io.beamng_assets import ensure_shared_textures, ensure_tree_assets, install_dir_or_none
+from ..io.guardrail_assets import GUARDRAIL_ITEMS, ensure_guardrail_assets
 from ..io.vineyard_assets import ITEM_NAMES as VINEYARD_ITEM_NAMES, ensure_vineyard_assets
 from ..workflow import TileProcessor, TerrainWorkflow, BuildingWorkflow, HorizonWorkflow, ForestWorkflow
 from world_to_beamng.logging_config import LoggerConfig
@@ -181,6 +182,7 @@ class BeamNGExporter:
         # NEW: Phase 0 - forest asset initialization (DIRECTLY BEFORE the tile loop)
         registered_trees = {}
         vineyard_assets_ready = False
+        guardrail_assets_ready = False
         if forests_enabled:
             with self.pipeline.task("Forest assets") as task:
                 # Tree shapes + managedItemData.json from the BeamNG installation (idempotent), then the vine assets,
@@ -198,6 +200,12 @@ class BeamNGExporter:
                             vineyard_assets_ready = True
                         except Exception as e:
                             logger.warning(f"Vine assets not available - vineyards stay without vines: {e}")
+                if config.GUARDRAILS_ENABLED:
+                    try:
+                        ensure_guardrail_assets(config.BEAMNG_DIR, config.LEVEL_NAME)
+                        guardrail_assets_ready = True
+                    except Exception as e:
+                        logger.warning(f"Guard rail assets not available - roads stay without guard rails: {e}")
 
                 # Load managedItemData.json (trees + vines, see above)
                 forest_item_data_path = config.BEAMNG_DIR / "art" / "forest" / "managedItemData.json"
@@ -213,7 +221,7 @@ class BeamNGExporter:
                             internal_name = item_info.get("internalName", item_key)
                             # Vines are not forest trees: otherwise the fallback of the
                             # tree species selection ("first available tree") could plant them in the forest.
-                            if internal_name in VINEYARD_ITEM_NAMES:
+                            if internal_name in VINEYARD_ITEM_NAMES or internal_name in GUARDRAIL_ITEMS.values():
                                 continue
                             registered_trees[internal_name] = {
                                 "name": internal_name,
@@ -401,7 +409,15 @@ class BeamNGExporter:
                             vine_segments = self.forests.add_instances(result["vineyard_instances"])
                             stats["vine_segments"] += vine_segments
 
-                        sub.finish(f"{forest_result.get('tree_count', 0)} trees, {vine_segments} vine row segments")
+                        # Guard rails (forest items, planned in TerrainWorkflow.export_decal_roads())
+                        guardrail_items = 0
+                        if guardrail_assets_ready and result.get("guardrail_instances"):
+                            guardrail_items = self.forests.add_instances(result["guardrail_instances"])
+
+                        sub.finish(
+                            f"{forest_result.get('tree_count', 0)} trees, {vine_segments} vine row segments, "
+                            f"{guardrail_items} guard rail items"
+                        )
 
                 # Collect building data (exported later, grouped by tiles)
                 if include_buildings and result.get("buildings_data"):

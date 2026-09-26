@@ -53,6 +53,42 @@ def _gets_decal_road(road: Dict) -> bool:
     return True
 
 
+def _guardrail_instances(specs: List[Tuple[Dict, Dict, List]], node_lists: List[List[List[float]]], mesh_data: Dict) -> List[Dict]:
+    """Guard rail forest items along the surface roads (geometry/guardrails.py), planned on the finished heightmap.
+    `specs`/`node_lists` as in export_decal_roads(); structures are left out, so a rail ends at a structure."""
+    from ..geometry.guardrails import place_guardrail_items, plan_guardrail_runs
+    from ..io.guardrail_assets import GUARDRAIL_ITEMS
+    from ..terrain.road_embedding import sample_heightmap_bilinear
+
+    heights = mesh_data["heightmap"]
+    origin_x, origin_y = mesh_data["terrain_origin_x"], mesh_data["terrain_origin_y"]
+
+    def height_at(x, y):
+        xy = np.column_stack([np.atleast_1d(x), np.atleast_1d(y)])
+        return sample_heightmap_bilinear(heights, origin_x, origin_y, config.TERRAIN_SQUARE_SIZE, xy)
+
+    surface = [(poly, nodes) for (poly, _, _), nodes in zip(specs, node_lists) if poly.get("structure_type", "surface") == "surface"]
+    runs = plan_guardrail_runs(
+        [nodes for _, nodes in surface],
+        [(poly.get("osm_tags") or {}).get("highway") not in config.GUARDRAIL_EXCLUDED_HIGHWAYS for poly, _ in surface],
+        height_at,
+        probe_offset=config.GUARDRAIL_PROBE_OFFSET,
+        min_drop=config.GUARDRAIL_MIN_DROP,
+        edge_gap=config.GUARDRAIL_EDGE_GAP,
+        extension=config.GUARDRAIL_EXTENSION,
+        junction_clearance=config.GUARDRAIL_JUNCTION_CLEARANCE,
+        endpoint_tol=config.ROAD_CONTINUATION_ENDPOINT_TOL,
+        max_angle_deg=config.ROAD_CONTINUATION_MAX_ANGLE_DEG,
+        min_length=config.GUARDRAIL_SEGMENT_LENGTH,
+    )
+    items = place_guardrail_items(
+        runs, config.GUARDRAIL_SEGMENT_LENGTH, config.GUARDRAIL_BEAM_OFFSET,
+        GUARDRAIL_ITEMS["segment"], GUARDRAIL_ITEMS["start"], GUARDRAIL_ITEMS["end"],
+    )
+    logger.debug(f"  [OK] {len(runs)} guard rail run(s), {len(items)} forest item(s)")
+    return items
+
+
 def _invisible_road_material(name: str) -> Dict:
     """materials.json entry of the invisible DecalRoad on structures: alpha-tested, fully transparent texture
     (TerrainWorkflow._export_structure_road_assets() writes it) - schema like vanilla "road_invisible"
@@ -1517,6 +1553,9 @@ class TerrainWorkflow:
             min_delta=config.ROAD_WIDTH_TRANSITION_MIN_DELTA,
             min_spacing=config.DECAL_ROAD_MIN_NODE_SPACING,
         )
+
+        if config.GUARDRAILS_ENABLED and mesh_data.get("heightmap") is not None:
+            mesh_data["guardrail_instances"] = _guardrail_instances(specs, node_lists, mesh_data)
 
         # Extend the carriageway decals at kinked straight-through joints past the joint point (otherwise a wedge gap
         # on the outside, see close_continuation_gaps()). Only for the carriageway - the markings keep using node_lists.

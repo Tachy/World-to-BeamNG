@@ -223,6 +223,25 @@ ROAD_DECAL_TEXTURE_LENGTH = 5.0  # BeamNG's DecalRoad default: one texture repea
 ROAD_DECAL_MAX_AREA = 250.0
 ROAD_DECAL_MIN_TAIL_LENGTH = 5.0
 
+# === GUARD RAILS ===
+# Where the finished terrain GUARDRAIL_PROBE_OFFSET beside the carriageway edge lies more than GUARDRAIL_MIN_DROP below
+# the road, that side gets BeamNG's stock guard rail (forest items, see io/guardrail_assets.py), traffic face
+# GUARDRAIL_EDGE_GAP beside the edge. Each guarded stretch is extended by GUARDRAIL_EXTENSION in both directions, at most
+# to the next structure or junction without straight continuation; joining roads interrupt the rail
+# (geometry/guardrails.py). Needs the forest export (FOREST_ENABLED).
+GUARDRAILS_ENABLED = True
+GUARDRAIL_PROBE_OFFSET = 4.0  # in meters beyond the carriageway edge
+GUARDRAIL_MIN_DROP = 2.0  # in meters below the road
+GUARDRAIL_EDGE_GAP = 0.2  # traffic face beside the carriageway edge, in meters
+GUARDRAIL_EXTENSION = 20.0  # transition in both directions, in meters
+GUARDRAIL_JUNCTION_CLEARANCE = 0.5  # gap between a joining carriageway and the rail end, in meters
+GUARDRAIL_SEGMENT_LENGTH = 3.0  # length of the stock segment (italy_guardrails_basic), in meters
+GUARDRAIL_BEAM_OFFSET = 0.065  # traffic face of the stock segment in front of its origin, in meters
+# No guard rails along ways without car traffic
+GUARDRAIL_EXCLUDED_HIGHWAYS = frozenset({
+    "path", "footway", "cycleway", "bridleway", "steps", "pedestrian", "track", "corridor", "via_ferrata",
+})
+
 # === WIDTH TRANSITIONS / ROAD MARKINGS ===
 # See docs/OSM_ROAD_ANALYSIS.md.
 # Width transition at straight-through joints of two DecalRoads (geometry/road_width_transitions.py): over 10 m,
