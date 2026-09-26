@@ -523,14 +523,15 @@ def apply_embankment_blend(heights: np.ndarray, origin_x: float, origin_y: float
     """
     result = heights.copy()
     size_y, size_x = heights.shape
+    nearest = np.full(heights.shape, np.inf)  # distance to the nearest edge that wrote a cell (sides with `outward`)
 
     for road in roads:
         _blend_one_side(result, origin_x, origin_y, square_size, size_x, size_y,
                          road["left_edge_xyz"], road["left_slope_width"], road["left_natural_z"], road.get("cuts"),
-                         road.get("left_outward"))
+                         road.get("left_outward"), nearest)
         _blend_one_side(result, origin_x, origin_y, square_size, size_x, size_y,
                          road["right_edge_xyz"], road["right_slope_width"], road["right_natural_z"], road.get("cuts"),
-                         road.get("right_outward"))
+                         road.get("right_outward"), nearest)
 
     return result
 
@@ -539,11 +540,14 @@ BLEND_BLOCK = 8  # Edge length of the cell blocks _blend_one_side pre-checks for
 # only 2-8.5 m wide: 32-cell blocks queried 7 million cells, 8-cell blocks only 3 million - smaller ones gain nothing)
 
 
-def _blend_one_side(heights, origin_x, origin_y, square_size, size_x, size_y, edge_xyz, slope_width, natural_z, cuts=None, outward=None):
+def _blend_one_side(heights, origin_x, origin_y, square_size, size_x, size_y, edge_xyz, slope_width, natural_z, cuts=None, outward=None, nearest=None):
     """Blends one road side (left or right) in place into heights. `cuts`: [(point_xy, outward_normal_xy), ...] - cells
     on the outward side of a cut line stay untouched (see build_road_embankment_profiles()). `outward` (per edge point,
     unit vector away from the road): only cells on that side of the nearest edge point are blended - the corridor of a
-    narrow road's one side otherwise reaches across the road and overwrites the other side's terrain."""
+    narrow road's one side otherwise reaches across the road and overwrites the other side's terrain. With `nearest`
+    (per cell: distance of the edge that wrote it last) such a side only writes cells that are nearer to its edge than to
+    the edge that wrote them before - wide slopes of neighbouring pieces meeting at a bridge otherwise overwrite each
+    other in processing order."""
     if len(edge_xyz) == 0:
         return
 
@@ -623,4 +627,10 @@ def _blend_one_side(heights, origin_x, origin_y, square_size, size_x, size_y, ed
 
     target_rows = rows[near][in_corridor]
     target_cols = cols[near][in_corridor]
-    heights[target_rows, target_cols] = blended[in_corridor]
+    values = blended[in_corridor]
+    if outward is not None and nearest is not None:
+        target_dist = dist[in_corridor]
+        closer = target_dist < nearest[target_rows, target_cols]
+        target_rows, target_cols, values = target_rows[closer], target_cols[closer], values[closer]
+        nearest[target_rows, target_cols] = target_dist[closer]
+    heights[target_rows, target_cols] = values

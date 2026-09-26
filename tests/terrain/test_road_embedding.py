@@ -767,3 +767,23 @@ def test_slope_corridors_of_an_underpass_do_not_reach_across_a_narrow_road():
     assert blended[25, 30] == 93.0 and blended[26, 30] == 93.0  # beyond its slope: natural - not raised by the south corridor
     for distance in (1, 2, 3, 4, 5):  # south side: 45 degrees up to its 6 m wall
         assert blended[19 - distance, 30] == pytest.approx(90.0 + distance, abs=0.8)
+
+
+def test_slope_corridors_of_two_underpass_roads_give_the_cell_to_the_nearer_edge():
+    # Two 2 m roads at y=20 and y=32 with a 96 m plateau between them (the deck of a bridge in the terrain model): each
+    # slope is 6 m wide, so the corridors meet in the middle. A cell belongs to the slope of the nearer road, not to the
+    # one that is processed last.
+    heights = np.full((60, 60), 90.0)
+    heights[22:31, :] = 96.0
+    polys = [
+        {"trimmed_centerline": np.array([[x, y, 90.0] for x in range(10, 51)], dtype=float),
+         "osm_tags": {"highway": "service"}, "daylight_slopes": True}
+        for y in (20.0, 32.0)
+    ]
+
+    roads = build_road_embankment_profiles(polys, heights, 0.0, 0.0, 1.0, _Mapper2m(), slope_angle_deg=45.0,
+                                           min_slope_width=2.0, max_slope_width=30.0)
+    blended = apply_embankment_blend(heights, 0.0, 0.0, 1.0, roads)
+
+    assert blended[25, 30] == pytest.approx(94.0, abs=0.8)  # 4 m from the south road's edge (y=21), 6 m from the other
+    assert blended[27, 30] == pytest.approx(94.0, abs=0.8)  # 4 m from the north road's edge (y=31)
