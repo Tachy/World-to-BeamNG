@@ -696,3 +696,74 @@ def test_near_deck_mask_marks_only_terrain_close_below_the_bridge_deck():
     assert mask[16, 30]  # 2 m below the deck: grass would still reach through
     assert not mask[14, 30] and not mask[11, 30]  # 3 m / 4.5 m below: grass stays
     assert not mask[20, 55] and not mask[35, 30]  # outside the footprint
+
+
+# --- roads under a bridge: 45 degree slopes cut to the height where the terrain is met ---------------------------------------
+class _Mapper6m:
+    def get_road_properties(self, tags):
+        return {"width": 6.0}
+
+
+def _underpass_terrain():
+    """Terrain at 90 except beside the road: a wall (deck level 96) starts 1 m from each edge (3 m from the centerline y=20)."""
+    heights = np.full((60, 60), 90.0)
+    rows = np.arange(60)
+    wall = np.abs(rows - 20) >= 4  # the road polygon covers |y-20| <= 3, the wall starts at y-20 = 4
+    heights[wall, :] = 96.0
+    return heights
+
+
+def _profiles(daylight, heights=None):
+    heights = _underpass_terrain() if heights is None else heights
+    centerline = np.array([[x, 20.0, 90.0] for x in range(10, 51)], dtype=float)
+    poly = {"trimmed_centerline": centerline, "osm_tags": {"highway": "service"}, "daylight_slopes": daylight}
+    return heights, build_road_embankment_profiles(
+        [poly], heights, 0.0, 0.0, 1.0, _Mapper6m(), slope_angle_deg=45.0, min_slope_width=2.0, max_slope_width=30.0
+    )
+
+
+def test_default_embankment_width_follows_the_terrain_at_the_edge_only():
+    _, roads = _profiles(daylight=False)
+
+    # at the edge (y = 23 / 17) the terrain is still 90 m: the width falls to the minimum - the wall beside stays steep
+    assert np.allclose(roads[0]["left_slope_width"], 2.0) and np.allclose(roads[0]["right_slope_width"], 2.0)
+
+
+def test_daylight_slopes_meet_the_terrain_at_45_degrees_on_both_sides():
+    heights, roads = _profiles(daylight=True)
+
+    assert np.allclose(roads[0]["left_slope_width"], 6.0, atol=0.5) and np.allclose(roads[0]["right_slope_width"], 6.0, atol=0.5)
+    blended = apply_embankment_blend(heights, 0.0, 0.0, 1.0, roads)
+    for distance in range(1, 6):
+        assert blended[23 + distance, 30] == pytest.approx(90.0 + distance, abs=0.75)  # 45 degrees up to the wall height
+        assert blended[17 - distance, 30] == pytest.approx(90.0 + distance, abs=0.75)
+
+
+def test_daylight_slope_stays_minimal_where_the_terrain_is_already_at_road_level():
+    heights, roads = _profiles(daylight=True, heights=np.full((60, 60), 90.0))
+
+    assert np.allclose(roads[0]["left_slope_width"], 2.0) and np.allclose(roads[0]["right_slope_width"], 2.0)
+
+
+class _Mapper2m:
+    def get_road_properties(self, tags):
+        return {"width": 2.0}
+
+
+def test_slope_corridors_of_an_underpass_do_not_reach_across_a_narrow_road():
+    # 2 m wide road at y=20 (edges y=19 / y=21). South wall 96 m starts at y<=18 (6 m of slope), north wall 93 m at y>=22 (3 m).
+    heights = np.full((60, 60), 90.0)
+    heights[:19, :] = 96.0
+    heights[22:, :] = 93.0
+    centerline = np.array([[x, 20.0, 90.0] for x in range(10, 51)], dtype=float)
+    poly = {"trimmed_centerline": centerline, "osm_tags": {"highway": "service"}, "daylight_slopes": True}
+
+    roads = build_road_embankment_profiles([poly], heights, 0.0, 0.0, 1.0, _Mapper2m(), slope_angle_deg=45.0,
+                                           min_slope_width=2.0, max_slope_width=30.0)
+    blended = apply_embankment_blend(heights, 0.0, 0.0, 1.0, roads)
+
+    for distance in (1, 2, 3):  # north side: 45 degrees up to its 3 m wall
+        assert blended[21 + distance, 30] == pytest.approx(90.0 + distance, abs=0.8)
+    assert blended[25, 30] == 93.0 and blended[26, 30] == 93.0  # beyond its slope: natural - not raised by the south corridor
+    for distance in (1, 2, 3, 4, 5):  # south side: 45 degrees up to its 6 m wall
+        assert blended[19 - distance, 30] == pytest.approx(90.0 + distance, abs=0.8)

@@ -689,6 +689,7 @@ class TerrainWorkflow:
                     "trimmed_centerline": coords,
                     "osm_tags": osm_tags,
                     "structure_type": classify_structure(osm_tags),
+                    "daylight_slopes": bool(road.get("underpass")),  # road under a bridge: slopes up to the terrain
                 }
             )
 

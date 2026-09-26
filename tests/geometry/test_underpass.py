@@ -185,3 +185,13 @@ def test_unstable_terrain_within_the_search_distance_leaves_the_road_alone():
 
     assert fix_underpass_elevations([_bridge(), road], _half, **KW) == 0
     assert np.array_equal(road["coords"], before)
+
+
+def test_corrected_roads_are_marked_for_daylight_slopes():
+    road = _road_across(lambda y: 98.0 if abs(y) <= HALF else 90.0)
+    untouched = _road_across(lambda y: 90.0, road_id=5)
+    untouched["coords"] = untouched["coords"] + np.array([200.0, 0.0, 0.0])  # far from the bridge
+
+    fix_underpass_elevations([_bridge(), road, untouched], _half, **KW)
+
+    assert road["underpass"] is True and "underpass" not in untouched

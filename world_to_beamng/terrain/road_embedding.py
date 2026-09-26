@@ -443,8 +443,24 @@ def build_road_embankment_profiles(
         if "right" in override:
             left_slope_width, left_natural_z = overridden("right", -1.0, left_slope_width, left_natural_z)
 
+        if poly.get("daylight_slopes"):
+            # Road under a bridge: the terrain model shows a wall beside it (the deck level), often starting a few meters
+            # from the edge - the height AT the edge says nothing about it. Both sides: slope up to where the slope line meets
+            # the terrain.
+            left_slope_width, left_natural_z = _daylight_slope(
+                heights, origin_x, origin_y, square_size, left_xy, -perp, z, tan_angle, min_slope_width, max_slope_width
+            )
+            right_slope_width, right_natural_z = _daylight_slope(
+                heights, origin_x, origin_y, square_size, right_xy, perp, z, tan_angle, min_slope_width, max_slope_width
+            )
+
+        outward = {}
+        if poly.get("daylight_slopes"):
+            outward = {"left_outward": -perp, "right_outward": perp}
+
         roads.append(
             {
+                **outward,
                 "left_edge_xyz": np.column_stack([left_xy, z]),
                 "right_edge_xyz": np.column_stack([right_xy, z]),
                 "left_slope_width": left_slope_width,
@@ -456,6 +472,25 @@ def build_road_embankment_profiles(
         )
 
     return roads
+
+
+def _daylight_slope(heights, origin_x, origin_y, square_size, edge_xy, outward, edge_z, tan_angle, min_width, max_width):
+    """
+    (slope width, natural height at the far end) per edge point for a slope of the given angle that runs from the road edge
+    outward until it meets the terrain ("daylighting"): the largest distance d where the terrain is still farther from the
+    road height than the slope line (|terrain(d) - edge_z| > d * tan) - beyond it the slope line is inside/above the terrain
+    again. Without such a distance the minimum width applies. The natural height sampled at the returned width makes the
+    blend of apply_embankment_blend() exactly the slope angle.
+    """
+    distances = np.arange(square_size, max_width + 1e-9, square_size)
+    width = np.full(len(edge_xy), float(min_width))
+    for distance in distances:
+        terrain = sample_heightmap_bilinear(heights, origin_x, origin_y, square_size, edge_xy + outward * distance)
+        exceeds = np.abs(terrain - edge_z) > distance * tan_angle + 0.05
+        width = np.where(exceeds, np.maximum(width, distance + square_size), width)
+    width = np.clip(width, min_width, max_width)
+    far = edge_xy + outward * width[:, None]
+    return width, sample_heightmap_bilinear(heights, origin_x, origin_y, square_size, far)
 
 
 def apply_embankment_blend(heights: np.ndarray, origin_x: float, origin_y: float, square_size: float, roads: list) -> np.ndarray:
@@ -491,9 +526,11 @@ def apply_embankment_blend(heights: np.ndarray, origin_x: float, origin_y: float
 
     for road in roads:
         _blend_one_side(result, origin_x, origin_y, square_size, size_x, size_y,
-                         road["left_edge_xyz"], road["left_slope_width"], road["left_natural_z"], road.get("cuts"))
+                         road["left_edge_xyz"], road["left_slope_width"], road["left_natural_z"], road.get("cuts"),
+                         road.get("left_outward"))
         _blend_one_side(result, origin_x, origin_y, square_size, size_x, size_y,
-                         road["right_edge_xyz"], road["right_slope_width"], road["right_natural_z"], road.get("cuts"))
+                         road["right_edge_xyz"], road["right_slope_width"], road["right_natural_z"], road.get("cuts"),
+                         road.get("right_outward"))
 
     return result
 
@@ -502,9 +539,11 @@ BLEND_BLOCK = 8  # Edge length of the cell blocks _blend_one_side pre-checks for
 # only 2-8.5 m wide: 32-cell blocks queried 7 million cells, 8-cell blocks only 3 million - smaller ones gain nothing)
 
 
-def _blend_one_side(heights, origin_x, origin_y, square_size, size_x, size_y, edge_xyz, slope_width, natural_z, cuts=None):
+def _blend_one_side(heights, origin_x, origin_y, square_size, size_x, size_y, edge_xyz, slope_width, natural_z, cuts=None, outward=None):
     """Blends one road side (left or right) in place into heights. `cuts`: [(point_xy, outward_normal_xy), ...] - cells
-    on the outward side of a cut line stay untouched (see build_road_embankment_profiles())."""
+    on the outward side of a cut line stay untouched (see build_road_embankment_profiles()). `outward` (per edge point,
+    unit vector away from the road): only cells on that side of the nearest edge point are blended - the corridor of a
+    narrow road's one side otherwise reaches across the road and overwrites the other side's terrain."""
     if len(edge_xyz) == 0:
         return
 
@@ -574,6 +613,10 @@ def _blend_one_side(heights, origin_x, origin_y, square_size, size_x, size_y, ed
     blended = nearest_edge_z + (nearest_natural_z - nearest_edge_z) * t
 
     in_corridor = (dist > 0) & (dist <= nearest_slope_width)
+    if outward is not None:
+        away = query_points[near] - edge_xyz[idx, :2]
+        # half a cell of tolerance: the cells right at the edge keep the edge height instead of a leftover wall step
+        in_corridor &= np.einsum("ij,ij->i", away, np.asarray(outward)[idx]) > -0.5 * square_size
     for point, normal in cuts or ():
         cell_xy = query_points[near]
         in_corridor &= (cell_xy[:, 0] - point[0]) * normal[0] + (cell_xy[:, 1] - point[1]) * normal[1] <= 0.0

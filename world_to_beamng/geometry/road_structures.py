@@ -121,7 +121,8 @@ def fix_underpass_elevations(
     centerline, flat ends) over at least `min_length` meters, that have a stable reference on both sides and whose sampled
     heights rise by at least `min_rise` above the interpolation - approach roads that merely touch the bridge end, roads
     ending under it and correctly sampled crossings stay untouched. Junction detection splits the road at the
-    crossing, so the pieces are chained along straight continuations first. Modifies road["coords"] in place.
+    crossing, so the pieces are chained along straight continuations first. Modifies road["coords"] in place and marks
+    the corrected pieces with road["underpass"] = True.
 
     Returns:
         Number of corrected road pieces
@@ -182,4 +183,5 @@ def fix_underpass_elevations(
             position += count - 1
     for k in changed:
         road_polygons[surface[k]]["coords"] = arrays[k]
+        road_polygons[surface[k]]["underpass"] = True  # the embankment then cuts 45 degree slopes up to the terrain
     return len(changed)
