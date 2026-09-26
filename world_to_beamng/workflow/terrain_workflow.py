@@ -1142,9 +1142,17 @@ class TerrainWorkflow:
         tunnel_zones = []
         tunnel_lights = []
         if config.TUNNELS_ENABLED:
+            from ..tunnels.tunnel_lights import build_lamp_mesh
+
             tunnel_zones = _tunnel_zone_items(tunnel_plans)
             tunnel_lights = _tunnel_light_items(tunnel_plans)
             tunnel_meshes = self._build_tunnels(structure_road_polygons, tunnel_plans, heights, terrain_origin_x, terrain_origin_y)
+            lamps = build_lamp_mesh(
+                tunnel_lights, config.TUNNEL_LAMP_MATERIAL_NAME, config.TUNNEL_LAMP_LENGTH, config.TUNNEL_LAMP_WIDTH,
+                config.TUNNEL_LAMP_HEIGHT, config.TUNNEL_LIGHT_CEILING_MARGIN,
+            )
+            if lamps is not None:
+                tunnel_meshes.append({"id": "tunnel_lamps", **lamps})
             roadblocks = _roadblock_items(
                 tunnel_plans, heights, terrain_origin_x, terrain_origin_y, grid_bounds_local, surface_road_polygons
             )
@@ -1583,6 +1591,22 @@ class TerrainWorkflow:
             materialTag0=hints.get("materialTag0", "beamng"),
             materialTag1=hints.get("materialTag1", "Building"),
         )
+
+        # Lamp bodies: glowing without a texture (PBR stage like vanilla's emissive materials)
+        self.materials.materials[config.TUNNEL_LAMP_MATERIAL_NAME] = {
+            "name": config.TUNNEL_LAMP_MATERIAL_NAME,
+            "mapTo": config.TUNNEL_LAMP_MATERIAL_NAME,
+            "class": "Material",
+            "version": 1.5,
+            "Stages": [{
+                "baseColorFactor": [*config.TUNNEL_LAMP_COLOR, 1.0],
+                "emissive": True,
+                "emissiveFactor": list(config.TUNNEL_LAMP_COLOR),
+                "emissiveIntensityNits": config.TUNNEL_LAMP_EMISSIVE_NITS,
+                "roughnessFactor": 0.4,
+            }, {}, {}, {}],
+            "castShadows": False,
+        }
 
         unique_floor_materials: Dict[str, Dict] = {}
         for road in mesh_data.get("structure_road_polygons", []):

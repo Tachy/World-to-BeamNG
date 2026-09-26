@@ -446,7 +446,7 @@ TUNNEL_LIGHT_SPACING = 11.0  # in meters (italy.zip: median 11.2 m)
 TUNNEL_LIGHT_START_INSET = 5.0  # kept clear at an open portal so the fixture does not clip into the collar, in meters
 TUNNEL_LIGHT_CEILING_MARGIN = 0.3  # fixture mounted this far below the crown apex, in meters
 TUNNEL_LIGHT_FIELDS = {
-    "brightness": 4,
+    "brightness": 8,  # twice the vanilla value (4) - user's choice 2026-09-26, the tubes were too dark
     "color": [1, 0.62263, 0.35778, 1],
     "innerAngle": 100,
     "outerAngle": 160,
@@ -455,6 +455,14 @@ TUNNEL_LIGHT_FIELDS = {
     "castShadows": True,
     "useColorTemperature": "true",
 }
+# Visible lamp bodies (tunnels/tunnel_lights.py::build_lamp_mesh): the SpotLights alone have no geometry. Flat glowing
+# boxes under the crown, an emissive material without texture (PBR stage fields like vanilla's trafficLight material).
+TUNNEL_LAMP_MATERIAL_NAME = "tunnel_lamp"
+TUNNEL_LAMP_LENGTH = 1.2  # along the tunnel, in meters
+TUNNEL_LAMP_WIDTH = 0.4  # across the tunnel, in meters
+TUNNEL_LAMP_HEIGHT = 0.15  # in meters
+TUNNEL_LAMP_COLOR = [1.0, 0.75, 0.45]  # warm white, matches the SpotLight colour
+TUNNEL_LAMP_EMISSIVE_NITS = 6000
 TUNNEL_ZONE_PORTAL_DEPTH = 3.0  # depth of the portal objects at the zone ends (vanilla: 3.6-5.9 m), in meters
 GALLERY_HEIGHT = 5.0  # clear height of the (rectangular, not circular) gallery, in meters
 GALLERY_COLUMN_SPACING = 6.0  # column spacing on the open valley side, in meters

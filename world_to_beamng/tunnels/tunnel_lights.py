@@ -8,9 +8,11 @@ verified against italy.zip's tunnelLight sample, where row 1 (Y) equals world [0
 equals cross(row0, row1) exactly for a light aligned along the tunnel's local x axis.
 """
 
-from typing import Dict, List, Sequence
+from typing import Dict, List, Optional, Sequence
 
 import numpy as np
+
+from ..walls.mesh_parts import MeshBuilder, add_box_column
 
 DOWN = np.array([0.0, 0.0, -1.0])
 
@@ -68,3 +70,35 @@ def plan_tunnel_lights(
                 "fields": dict(fields),
             })
     return lights
+
+
+def build_lamp_mesh(lights: Sequence[Dict], material: str, length: float, width: float, height: float, ceiling_margin: float) -> Optional[Dict]:
+    """
+    Mesh of the visible lamp bodies for the SpotLights of plan_tunnel_lights(): one flat box per light hanging directly
+    under the crown (`ceiling_margin` above the light, 1 cm clear of the tube surface), `length` along the tunnel, `width`
+    across it. `material` is the emissive lamp material, so the fixtures glow. None without lights.
+    """
+    if not lights:
+        return None
+    builder = MeshBuilder()
+    for light in lights:
+        cx, cy, light_z = light["position"]
+        direction = light["rotation_matrix"][:2]  # local x axis = horizontal direction of the tunnel
+        top = light_z + ceiling_margin - 0.01
+        bottom = top - height
+        add_box_column(builder, cx, cy, bottom, top, length, 1.0, direction=direction, across=width)
+        half, half_across = length / 2.0, width / 2.0
+        dx, dy = direction[0] / np.hypot(*direction), direction[1] / np.hypot(*direction)
+        corners = [
+            [cx - dx * half + dy * half_across, cy - dy * half - dx * half_across, bottom],
+            [cx + dx * half + dy * half_across, cy + dy * half - dx * half_across, bottom],
+            [cx + dx * half - dy * half_across, cy + dy * half + dx * half_across, bottom],
+            [cx - dx * half - dy * half_across, cy - dy * half + dx * half_across, bottom],
+        ]
+        builder.quad(corners, [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]], [0.0, 0.0, -1.0])
+    return {
+        "vertices": np.array(builder.vertices, dtype=float),
+        "uvs": np.array(builder.uvs, dtype=float),
+        "normals": np.array(builder.normals, dtype=float),
+        "faces": {material: builder.faces},
+    }

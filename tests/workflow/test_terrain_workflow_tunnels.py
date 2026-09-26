@@ -27,6 +27,7 @@ class _Items:
 class _Materials:
     def __init__(self):
         self.added = {}
+        self.materials = {}  # raw materials.json entries
 
     def get_templates(self):
         return {"buildings": {"wall": {"material_hints": {"groundType": "concrete", "materialTag0": "beamng", "materialTag1": "Building"}}}}
@@ -98,6 +99,8 @@ def test_export_tunnels_writes_one_dae_one_item_and_registers_floor_and_concrete
     assert config.TUNNEL_MATERIAL_NAME in stub.materials.added
     assert "asphalt_road_standard_structure" in stub.materials.added
     assert stub.materials.added["asphalt_road_standard_structure"]["groundType"] == "ASPHALT"
+    lamp_stage = stub.materials.materials[config.TUNNEL_LAMP_MATERIAL_NAME]["Stages"][0]
+    assert lamp_stage["emissive"] is True and lamp_stage["emissiveIntensityNits"] > 0  # the lamp bodies glow
 
 
 def test_export_tunnels_takes_the_concrete_texture_from_the_registry_check_and_never_falls_back(shapes_dir, monkeypatch):

@@ -13,7 +13,7 @@ from world_to_beamng.tunnels.tunnel_lights import plan_tunnel_lights
 from world_to_beamng.tunnels.tunnel_portal import plan_tunnels
 
 FIELDS = {
-    "brightness": 4, "color": [1, 0.62263, 0.35778, 1], "innerAngle": 100, "outerAngle": 160, "intensity": 20000,
+    "brightness": 8, "color": [1, 0.62263, 0.35778, 1], "innerAngle": 100, "outerAngle": 160, "intensity": 20000,
     "range": 15, "castShadows": True, "useColorTemperature": "true",
 }
 KW = dict(spacing=11.0, start_inset=5.0, ceiling_margin=0.3, fields=FIELDS)
@@ -79,3 +79,27 @@ def test_chain_too_short_for_the_insets_gets_no_lights():
     plans = _plans([(0.0, 0.0, 500.0), (9.0, 0.0, 500.0)])  # 9 m < 2 * 5 m inset
 
     assert plan_tunnel_lights(plans, **KW) == []
+
+
+def test_lamp_bodies_hang_under_the_crown_at_every_light():
+    from world_to_beamng.tunnels.tunnel_lights import build_lamp_mesh
+
+    plans = _plans([(0.0, 0.0, 500.0), (0.0, 100.0, 500.0)])  # tunnel along +y
+    lights = plan_tunnel_lights(plans, **KW)
+
+    mesh = build_lamp_mesh(lights, "lamp", length=1.2, width=0.4, height=0.15, ceiling_margin=0.3)
+
+    vertices = np.array(mesh["vertices"])
+    assert len(vertices) == 20 * len(lights)  # 4 sides + the underside per lamp
+    assert set(mesh["faces"]) == {"lamp"}
+    first = vertices[:20]
+    assert np.ptp(first[:, 1]) == pytest.approx(1.2)  # along the tunnel
+    assert np.ptp(first[:, 0]) == pytest.approx(0.4)  # across it
+    assert first[:, 2].max() == pytest.approx(lights[0]["position"][2] + 0.3 - 0.01)  # just below the crown
+    assert first[:, 2].min() == pytest.approx(first[:, 2].max() - 0.15)
+
+
+def test_no_lamp_mesh_without_lights():
+    from world_to_beamng.tunnels.tunnel_lights import build_lamp_mesh
+
+    assert build_lamp_mesh([], "lamp", length=1.2, width=0.4, height=0.15, ceiling_margin=0.3) is None
