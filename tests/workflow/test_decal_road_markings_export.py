@@ -435,7 +435,8 @@ def test_uninvolved_lane_keeps_a_constant_width_through_a_three_to_two_lane_tape
 
 def test_lane_split_stem_gets_one_block_marking_and_the_edge_lines_start_behind_it():
     node = (0.0, 0.0)
-    mark = {"end": "start", "slot_width": 3.25, "hold": 30.0, "stem_length": 30.0, "length": 20.0, "node": node, "axis": (1.0, 0.0),
+    mark = {"end": "start", "slot_width": 3.25, "hold": 30.0, "stem_length": 30.0, "length": 20.0, "node": node,
+            "stem_path": [(float(x), 0.0, 100.0) for x in range(0, 31)],
             "left_normal": (0.0, 1.0), "slot_offset": (0.0, 4.875), "trunk_width": 13.0}
     xs = list(range(0, 61, 5))
     trunk = _poly(1, [(-40, 0), (0, 0)], highway="primary", lanes="4")

@@ -263,27 +263,47 @@ def _connector_length(arc: np.ndarray, lateral: np.ndarray, slot: float, max_con
     return limit
 
 
+class _Reference:
+    """The main axis as a function of the arc length from the node: position and left normal (clamped at its ends)."""
+
+    def __init__(self, arc: np.ndarray, xy: np.ndarray):
+        keep = np.concatenate([[True], np.diff(arc) > 1e-9])
+        self.arc, self.xy = arc[keep], xy[keep]
+
+    def position(self, s: np.ndarray) -> np.ndarray:
+        s = np.clip(np.asarray(s, dtype=float), self.arc[0], self.arc[-1])
+        return np.column_stack([np.interp(s, self.arc, self.xy[:, 0]), np.interp(s, self.arc, self.xy[:, 1])])
+
+    def normal(self, s: np.ndarray) -> np.ndarray:
+        s = np.asarray(s, dtype=float)
+        tangent = self.position(s + 0.5) - self.position(s - 0.5)
+        tangent /= np.maximum(np.linalg.norm(tangent, axis=1), 1e-9)[:, None]
+        return np.column_stack([-tangent[:, 1], tangent[:, 0]])
+
+
 def shift_branches_into_slots(
     splits: List[LaneSplit], roads: List[Dict], max_connector: float, length: float, endpoint_tol: float = 0.5,
     max_angle_deg: float = 60.0, step: float = 2.0,
 ) -> None:
     """
-    OSM draws every branch from the node to the centre of its lane first - a symbolic connector - and only from there
-    along the lane. That connector is replaced by a straight run in the branch's slot (its lanes of the trunk's
-    cross-section, starting at the node) up to where OSM's branch reaches its lane centre (at most max_connector meters,
-    see _connector_length()); from there the branch follows its OSM course, so the lanes stay together or move apart
-    the way OSM draws them. Only the small difference between OSM's lane centre and the slot fades out with a smoothstep
-    over `length` meters.
+    The main axis of a split - the branch that continues the trunk most straight - keeps its OSM course everywhere; its
+    OSM line goes on from the trunk's centre line. Only where its lanes do not lie in the middle of the trunk, that
+    offset fades out with a smoothstep over `length` meters.
 
-    The stem - where the trunk goes on as one piece - reaches as far as the shortest connector of the branches beside
-    the middle; on it all branches share one height (their mean, the cross-section is one surface), which blends back
-    into each branch's own profile over `length` meters.
+    OSM draws every other branch from the node to the centre of its lane first - a symbolic connector. It is replaced
+    by a run beside the main axis in the branch's slot (its lanes of the trunk's cross-section) up to where OSM's branch
+    reaches its lane centre (at most max_connector meters, see _connector_length()); from there the branch follows its
+    OSM course again - only the small difference between OSM's lane centre and the slot fades out over `length` meters.
 
-    The branch is followed along straight continuations where one piece is shorter (the kink where OSM's connector
+    The stem - where the trunk goes on as one piece - follows the main axis as far as the shortest connector of the
+    side branches; on it all branches share one height (their mean, the cross-section is one surface), which blends
+    back into each branch's own profile over `length` meters.
+
+    The branches are followed along straight continuations where one piece is shorter (the kink where OSM's connector
     turns into the lane may be up to max_angle_deg); bridges and ground roads are treated alike. Marks the first piece
     of every branch with "lane_split_branch" (node end, slot width and offset, connector length as "hold", fade length,
-    stem length, node, axis, left normal and trunk width) and the trunk with "lane_split_trunk" (its ends at split
-    nodes) and "lane_split_trunk_nodes".
+    stem length and path [(x, y, z)], node, left normal and trunk width) and the trunk with "lane_split_trunk" (its
+    ends at split nodes) and "lane_split_trunk_nodes".
     """
     for split in splits:
         split.trunk.setdefault("lane_split_trunk", set()).add("start" if split.trunk_at_start else "end")
@@ -303,41 +323,92 @@ def shift_branches_into_slots(
             chain_arc = np.concatenate([o[4] for o in oriented])
             chain_xy = np.vstack([o[3][:, :2] for o in oriented])
             chain_z = np.concatenate([o[3][:, 2] for o in oriented])
-            slot = float(branch.slot_offset @ normal)
-            connector = _connector_length(chain_arc, (chain_xy - node) @ normal, slot, max_connector)
-            chains.append((branch, reach, oriented, chain_arc, chain_xy, chain_z, slot, connector))
+            probe = np.array([np.interp(BRANCH_PROBE, chain_arc, chain_xy[:, 0]), np.interp(BRANCH_PROBE, chain_arc, chain_xy[:, 1])]) - node
+            straightness = float(probe @ axis) / max(float(np.linalg.norm(probe)), 1e-9)
+            chains.append({"branch": branch, "reach": reach, "pieces": oriented, "arc": chain_arc, "xy": chain_xy,
+                           "z": chain_z, "slot": float(branch.slot_offset @ normal), "straightness": straightness})
 
-        side = [c[7] for c in chains if abs(c[6]) >= 0.25]
+        main = max(chains, key=lambda c: (round(c["straightness"], 3), c["branch"].slot_width))
+        reference = _Reference(main["arc"], main["xy"])
+        for chain in chains:
+            if chain is main:
+                chain["connector"] = 0.0
+                continue
+            lateral = np.einsum("ij,ij->i", chain["xy"] - reference.position(chain["arc"]), reference.normal(chain["arc"]))
+            chain["connector"] = _connector_length(chain["arc"], lateral, chain["slot"], max_connector)
+        side = [c["connector"] for c in chains if c is not main]
         stem_length = min(side) if side else 0.0
 
         def stem_z(arc: np.ndarray) -> np.ndarray:
-            return np.mean([np.interp(arc, c[3], c[5]) for c in chains], axis=0)
+            return np.mean([np.interp(arc, c["arc"], c["z"]) for c in chains], axis=0)
 
-        for branch, reach, oriented_pieces, chain_arc, chain_xy, _, slot, connector in chains:
-            blend = max(0.0, min(length, reach - connector))
+        stations = np.linspace(0.0, stem_length, max(2, int(np.ceil(stem_length)) + 1)) if stem_length > 0.0 else np.zeros(0)
+        stem_path = [(float(x), float(y), float(z)) for (x, y), z in zip(reference.position(stations), stem_z(stations))]
+
+        for chain in chains:
+            branch, connector = chain["branch"], chain["connector"]
+            blend = max(0.0, min(length, chain["reach"] - connector))
             branch.road["lane_split_branch"] = {
                 "end": "start" if branch.at_start else "end", "slot_width": branch.slot_width, "hold": connector,
-                "length": blend, "stem_length": stem_length, "node": split.node, "axis": (float(axis[0]), float(axis[1])),
+                "length": blend, "stem_length": stem_length, "stem_path": stem_path, "node": split.node,
                 "left_normal": split.left_normal, "slot_offset": (float(branch.slot_offset[0]), float(branch.slot_offset[1])),
                 "trunk_width": split.trunk_width,
             }
-            at_lane = np.array([np.interp(connector, chain_arc, chain_xy[:, 0]), np.interp(connector, chain_arc, chain_xy[:, 1])])
-            correction = (slot - float((at_lane - node) @ normal)) * normal
-            start, lane_point = node + branch.slot_offset, at_lane + correction
-            for road, entry, offset, piece, _ in oriented_pieces:
+            slot = chain["slot"]
+            if chain is main:
+                correction = None
+            else:
+                at_lane = np.array([np.interp(connector, chain["arc"], chain["xy"][:, 0]), np.interp(connector, chain["arc"], chain["xy"][:, 1])])
+                beside = reference.position([connector])[0] + slot * reference.normal([connector])[0]
+                correction = beside - at_lane
+            for road, entry, offset, piece, _ in chain["pieces"]:
                 piece = _densify(piece, offset, max(connector, stem_length) + length, step)
                 arc = offset + np.concatenate([[0.0], np.cumsum(np.linalg.norm(np.diff(piece[:, :2], axis=0), axis=1))])
-                fade = 1.0 - (_smoothstep((arc - connector) / blend) if blend > 0.0 else (arc > connector).astype(float))
-                shifted = piece[:, :2] + fade[:, None] * correction[None, :]
-                on_connector = arc < connector
-                if connector > 0.0:
-                    shifted[on_connector] = start[None, :] + (arc[on_connector] / connector)[:, None] * (lane_point - start)[None, :]
+                if chain is main:
+                    # the slot offset of the main axis at the node fades out along its own OSM course
+                    fade = 1.0 - (_smoothstep(arc / blend) if blend > 0.0 else np.ones(len(arc)))
+                    shifted = piece[:, :2] + (fade * slot)[:, None] * reference.normal(arc)
+                else:
+                    fade = 1.0 - (_smoothstep((arc - connector) / blend) if blend > 0.0 else (arc > connector).astype(float))
+                    shifted = piece[:, :2] + fade[:, None] * correction[None, :]
+                    waiting = arc < connector
+                    shifted[waiting] = reference.position(arc[waiting]) + slot * reference.normal(arc[waiting])
                 own_height = _smoothstep((arc - stem_length) / length) if length > 0.0 else (arc > stem_length).astype(float)
                 piece = piece.copy()
                 piece[:, :2] = shifted
                 piece[:, 2] = stem_z(arc) * (1.0 - own_height) + piece[:, 2] * own_height
                 result = piece if entry else piece[::-1]
                 road["coords"] = [tuple(float(v) for v in point) for point in result]
+
+
+def path_frame(path_xy, points) -> Tuple[np.ndarray, np.ndarray]:
+    """(along, lateral) of `points` relative to the polyline `path_xy`: arc length of the nearest point and signed
+    distance (positive = left of the path's direction); before its start and beyond its end the path goes on straight,
+    so `along` is negative there or larger than its length."""
+    path = np.asarray(path_xy, dtype=float)[:, :2]
+    points = np.asarray(points, dtype=float)[:, :2]
+    seg = np.diff(path, axis=0)
+    seg_len = np.linalg.norm(seg, axis=1)
+    keep = seg_len > 1e-9
+    starts, seg, seg_len = path[:-1][keep], seg[keep], seg_len[keep]
+    cum = np.concatenate([[0.0], np.cumsum(seg_len)])[:-1]
+    unit = seg / seg_len[:, None]
+    rel = points[:, None, :] - starts[None, :, :]  # (points, segments, 2)
+    t = np.einsum("psk,sk->ps", rel, unit)
+    first, last = np.zeros(len(seg), dtype=bool), np.zeros(len(seg), dtype=bool)
+    first[0], last[-1] = True, True
+    low = np.where(first[None, :], -np.inf, 0.0)
+    high = np.where(last[None, :], np.inf, seg_len[None, :])
+    clamped = np.clip(t, low, high)
+    nearest = starts[None, :, :] + clamped[..., None] * unit[None, :, :]
+    distance = np.linalg.norm(points[:, None, :] - nearest, axis=2)
+    best = np.argmin(distance, axis=1)
+    rows = np.arange(len(points))
+    along = cum[best] + clamped[rows, best]
+    d = unit[best]
+    offset = points - nearest[rows, best]
+    lateral = d[:, 0] * offset[:, 1] - d[:, 1] * offset[:, 0]
+    return along, lateral
 
 
 def stem_marking_masks(node_lists, stems, tol: float = 0.05) -> Dict[int, Dict]:
@@ -348,25 +419,22 @@ def stem_marking_masks(node_lists, stems, tol: float = 0.05) -> Dict[int, Dict]:
     left one) instead of two edge lines. From the end of the stem on, each branch has its edge lines again, and they
     move apart with the carriageways.
 
-    `node_lists`: DecalRoad nodes [x, y, z, width] per road, `stems`: [{"node", "axis", "left_normal", "stem_length",
-    "trunk_width"}]. Returns {road index: {"edge_keep": {+1/-1: mask per node}, "blocks": [(mask, sign, 0.0)],
+    `node_lists`: DecalRoad nodes [x, y, z, width] per road, `stems`: [{"stem_path": [(x, y, z)] along the main axis,
+    "stem_length", "trunk_width"}]. Returns {road index: {"edge_keep": {+1/-1: mask per node}, "blocks": [(mask, sign, 0.0)],
     "siblings": indices of the other roads on the same stem}} for every road that reaches onto a stem.
     """
     result: Dict[int, Dict] = {}
     for stem in stems:
-        node = np.asarray(stem["node"], dtype=float)
-        axis = np.asarray(stem["axis"], dtype=float)
-        normal = np.asarray(stem["left_normal"], dtype=float)
+        path = np.asarray(stem["stem_path"], dtype=float)
         hold, half_width = float(stem["stem_length"]), float(stem["trunk_width"]) / 2.0
-        if hold <= 0.0:
+        if hold <= 0.0 or len(path) < 2:
             continue
         members, spans, frames = [], {}, {}
         for index, nodes in enumerate(node_lists):
             arr = np.asarray(nodes, dtype=float)
             if len(arr) < 2:
                 continue
-            rel = arr[:, :2] - node
-            along, lateral = rel @ axis, rel @ normal
+            along, lateral = path_frame(path, arr[:, :2])
             on_stem = (along >= -tol) & (along < hold) & (np.abs(lateral) <= half_width + tol)
             if not on_stem.any():
                 continue
@@ -386,7 +454,7 @@ def stem_marking_masks(node_lists, stems, tol: float = 0.05) -> Dict[int, Dict]:
             owner = centre > half_width / 2.0 + tol or (abs(centre - half_width / 2.0) <= tol and sum(spans[index]) > 0.0)
             entry = {"edge_keep": {}, "blocks": []}
             for sign in (1.0, -1.0):
-                edge = ((arr[:, :2] + own_left * (sign * arr[:, 3] / 2.0)[:, None]) - node) @ normal
+                edge = path_frame(path, arr[:, :2] + own_left * (sign * arr[:, 3] / 2.0)[:, None])[1]
                 beside = np.zeros(len(arr), dtype=bool)
                 for other, (low, high) in spans.items():
                     if other != index:

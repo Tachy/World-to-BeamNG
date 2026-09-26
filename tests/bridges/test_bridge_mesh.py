@@ -217,8 +217,7 @@ def _split_group(z=200.0):
     ]
 
 
-STEM = {"node": (0.0, 0.0), "axis": (1.0, 0.0), "left_normal": (0.0, 1.0), "hold": HOLD, "width": 13.0,
-        "deck_material": DECK}
+STEM = {"path": [(float(x), 0.0, 200.0) for x in range(0, int(HOLD) + 1)], "width": 13.0, "deck_material": DECK}
 
 
 def _group_mesh(**kwargs):

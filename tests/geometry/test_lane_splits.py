@@ -125,9 +125,10 @@ def test_branch_ends_lie_side_by_side_across_the_trunk_after_the_shift():
     for branch in split.branches:
         end = np.asarray(branch.road["coords"][0 if branch.at_start else -1][:2])
         ends[branch.road["id"]] = float(np.dot(end, normal))
-    assert ends[1036670763] == pytest.approx(1.5 * LANE)
+    # across the main axis, which leaves the node a few degrees off the trunk's direction
+    assert ends[1036670763] == pytest.approx(1.5 * LANE, abs=0.05)
     assert ends[129718739] == pytest.approx(0.0, abs=1e-9)
-    assert ends[1036670761] == pytest.approx(-1.5 * LANE)
+    assert ends[1036670761] == pytest.approx(-1.5 * LANE, abs=0.05)
     assert roads[0]["coords"][0][:2] == (0.0, 0.0)  # the trunk stays
 
 
@@ -211,7 +212,7 @@ def test_the_branch_is_marked_with_the_geometry_of_its_slot():
     assert 0.0 < mark["hold"] <= 30.0
     assert mark["trunk_width"] == pytest.approx(4 * LANE)
     assert np.dot(mark["slot_offset"], mark["left_normal"]) == pytest.approx(1.5 * LANE)
-    assert np.dot(mark["axis"], mark["left_normal"]) == pytest.approx(0.0)
+    assert len(mark["stem_path"]) >= 2 and mark["stem_path"][0][:2] == pytest.approx(splits[0].node)
 
 
 def test_trunk_and_branches_are_marked_with_the_split_node():
@@ -229,7 +230,7 @@ def test_trunk_and_branches_are_marked_with_the_split_node():
 
 from world_to_beamng.geometry.lane_splits import stem_marking_masks
 
-STEM_MARK = {"node": (0.0, 0.0), "axis": (1.0, 0.0), "left_normal": (0.0, 1.0), "stem_length": 30.0, "trunk_width": 13.0}
+STEM_MARK = {"stem_path": [(float(x), 0.0, 100.0) for x in range(0, 31)], "stem_length": 30.0, "trunk_width": 13.0}
 
 
 def _nodes(points, width):
@@ -276,3 +277,58 @@ def test_on_the_stem_all_branches_share_one_height_and_blend_back_into_their_own
         assert np.allclose(coords[coords[:, 0] < stem - 0.5, 2], 101.0)  # one cross-section on the stem
     assert np.asarray(straight["coords"])[-1, 2] == pytest.approx(102.0)
     assert np.asarray(turn["coords"])[-1, 2] == pytest.approx(100.0)
+
+
+# --- The main axis follows OSM, the side branches wait beside it ------------------------------------------------------
+
+
+def _curved_split():
+    """A 4-lane two-way trunk ending at the node; the main road (2 lanes) curves left on a 100 m radius, the ramps are
+    drawn by OSM from the node to their lane centre within 8 m and then along it."""
+    angles = np.linspace(0.0, 0.8, 41)
+    main_xy = [(100.0 * np.sin(a), 100.0 * (1.0 - np.cos(a))) for a in angles]
+
+    def beside(offset, reach_at=8.0):
+        points = [(0.0, 0.0)]
+        for a in angles[1:]:
+            s = 100.0 * a
+            x, y = 100.0 * np.sin(a), 100.0 * (1.0 - np.cos(a))
+            nx, ny = -np.sin(a), np.cos(a)  # left normal of the curve
+            k = min(1.0, s / reach_at)
+            points.append((x + nx * offset * k, y + ny * offset * k))
+        return points
+
+    trunk = _road(1, [(-40.0, 0.0), (0.0, 0.0)], highway="primary", lanes="4")
+    main = _road(2, main_xy, highway="primary", lanes="2", **{"lanes:forward": "1", "lanes:backward": "1"})
+    exit_ramp = _road(3, beside(-4.0), highway="primary_link", lanes="1", oneway="yes")
+    entrance = _road(4, beside(4.0)[::-1], highway="primary_link", lanes="1", oneway="yes")
+    return [trunk, main, exit_ramp, entrance], main_xy
+
+
+def test_the_main_axis_keeps_its_osm_course_everywhere():
+    roads, main_xy = _curved_split()
+    splits = find_lane_splits(roads, _width)
+
+    shift_branches_into_slots(splits, roads, max_connector=30.0, length=30.0)
+
+    main = np.asarray(roads[1]["coords"])[:, :2]
+    from shapely.geometry import LineString, Point
+
+    osm = LineString(main_xy)
+    assert max(osm.distance(Point(*p)) for p in main) < 1e-6  # not straightened, not moved
+
+
+def test_side_branches_wait_parallel_to_the_curved_main_axis():
+    roads, main_xy = _curved_split()
+    splits = find_lane_splits(roads, _width)
+
+    shift_branches_into_slots(splits, roads, max_connector=30.0, length=30.0)
+
+    from shapely.geometry import LineString, Point
+
+    osm_main = LineString(main_xy)
+    exit_xy = np.asarray(roads[2]["coords"])[:, :2]
+    near_node = [p for p in exit_xy if Point(*p).distance(Point(0.0, 0.0)) < 7.0]
+    assert near_node and all(abs(osm_main.distance(Point(*p)) - 1.5 * LANE) < 0.05 for p in near_node)
+    stem = np.asarray(roads[2]["lane_split_branch"]["stem_path"])
+    assert max(osm_main.distance(Point(*p[:2])) for p in stem) < 1e-6  # the stem follows the main axis

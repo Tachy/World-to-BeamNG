@@ -345,22 +345,23 @@ def _densified(member: Dict, step: float) -> Dict:
     return result
 
 
-def _cut_off_stem(member: Dict, node: np.ndarray, axis: np.ndarray, normal: np.ndarray, length: float, half_width: float):
+def _cut_off_stem(member: Dict, path: np.ndarray, half_width: float):
     """
-    The part of `member` beyond the stem (the rectangle `length` meters along `axis` from `node`, `half_width` to both
-    sides), with the end that now touches the stem ("start"/"end", None if the member does not reach into it) - or
-    (None, "all") if it lies completely inside. Also returns the (along, z) samples of its points inside the stem.
+    The part of `member` beyond the stem (along its `path` over its whole length, `half_width` to both sides), with the
+    end that now touches the stem ("start"/"end", None if the member does not reach into it) - or (None, "all") if it
+    ends inside the stem.
     """
+    from ..geometry.lane_splits import path_frame
+
     member = _densified(member, 1.0)
     points = np.array(member["coords"], dtype=float)
-    rel = points[:, :2] - node
-    along, lateral = rel @ axis, rel @ normal
+    length = float(np.sum(np.linalg.norm(np.diff(path[:, :2], axis=0), axis=1)))
+    along, lateral = path_frame(path, points[:, :2])
     inside = (along > -1e-3) & (along < length - 1e-6) & (np.abs(lateral) <= half_width + 0.5)
-    samples = [(float(a), float(z)) for a, z in zip(along[inside], points[inside, 2])]
     if along.max() <= 1e-3 or not inside.any():
-        return member, None, []  # the trunk (before the node) or a way elsewhere
+        return member, None  # the trunk (before the node) or a way elsewhere
     if along.max() < length - 1e-6:
-        return None, "all", samples  # ends inside the stem
+        return None, "all"  # ends inside the stem
     widths = member.get("widths")
     widths = None if widths is None else np.asarray(widths, dtype=float)
     reversed_member = bool(along[-1] < along[0])  # digitized towards the node: cut at its end
@@ -382,7 +383,7 @@ def _cut_off_stem(member: Dict, node: np.ndarray, axis: np.ndarray, normal: np.n
     result = {**member, "coords": [tuple(float(v) for v in p) for p in kept]}
     if widths is not None:
         result["widths"] = kept_widths
-    return result, ("end" if reversed_member else "start"), samples
+    return result, ("end" if reversed_member else "start")
 
 
 def _carriageway_outline(coords, width, widths):
@@ -458,8 +459,8 @@ def build_bridge_group_mesh(
 ) -> Dict:
     """
     ONE bridge for a lane split on a bridge (see geometry/lane_splits.py): the trunk's deck goes on past the node as one
-    box of the trunk's width for stem["hold"] meters (the stem: {"node", "axis", "left_normal", "hold", "width",
-    "deck_material"}), with curb and railing on its outer sides only. There it is cut like with a knife: each branch
+    box of the trunk's width along the main axis (the stem: {"path": [(x, y, z)], "width", "deck_material"}), with curb
+    and railing on its outer sides only. There it is cut like with a knife: each branch
     continues as its own deck, without curb and railing along the cut for now (the slab ends at its carriageway edge
     there) and with them on its outer side. The parts of the branches inside the stem are left out. Without a stem the members are
     built as separate bridges without end faces where they meet. Piers: one of two closer than pier_spacing / 2.
@@ -471,36 +472,21 @@ def build_bridge_group_mesh(
     )
     parts = []  # (coords, width, widths, deck_material, flags)
     if stem is not None:
-        node = np.asarray(stem["node"], dtype=float)
-        axis = np.asarray(stem["axis"], dtype=float)
-        normal = np.asarray(stem["left_normal"], dtype=float)
-        length, half_width = float(stem["hold"]), float(stem["width"]) / 2.0
-        samples = []
-        kept = []
+        path = np.asarray(stem["path"], dtype=float)
+        node = path[0, :2]
+        half_width = float(stem["width"]) / 2.0
+        stem_part = ([tuple(float(v) for v in p) for p in path], float(stem["width"]), None, stem["deck_material"],
+                     {"cap_start": False, "cap_end": False})
         for member in members:
-            rest, cut_end, inside = _cut_off_stem(member, node, axis, normal, length, half_width)
-            samples += inside
-            if rest is not None and len(rest["coords"]) >= 2:
-                kept.append((rest, cut_end))
-        reach = max((a for a, _ in samples), default=0.0)
-        if samples and reach > 1.0:
-            # stem heights from the branches running in it (their straight, held stretch)
-            samples.sort()
-            s_values = np.array([a for a, _ in samples])
-            z_values = np.array([z for _, z in samples])
-            stations = np.linspace(0.0, length, max(2, int(np.ceil(length)) + 1))
-            stem_xy = node[None, :] + stations[:, None] * axis[None, :]
-            stem_z = np.interp(stations, s_values, z_values)
-            stem_part = ([(float(x), float(y), float(z)) for (x, y), z in zip(stem_xy, stem_z)], float(stem["width"]),
-                         None, stem["deck_material"], {"cap_start": False, "cap_end": False})
-        for rest, cut_end in kept:
+            rest, cut_end = _cut_off_stem(member, path, half_width)
+            if rest is None or len(rest["coords"]) < 2:
+                continue
             flags = {}
             if cut_end is not None:
                 flags["cap_start" if cut_end == "start" else "cap_end"] = False
             parts.append((rest["coords"], rest["width"], rest.get("widths"), rest["deck_material"], flags))
         _join_neighbours(parts, curb_width)  # the stem's sides are outer sides: it takes no part in that
-        if samples and reach > 1.0:
-            parts.append(stem_part)
+        parts.append(stem_part)
         # The trunk end at the node continues in the stem: no end face there
         for index, (coords, _, _, _, flags) in enumerate(parts):
             ends = np.array([coords[0][:2], coords[-1][:2]], dtype=float)

@@ -208,13 +208,13 @@ def _bridge_stems(bridge_roads: List[Dict]) -> Dict[object, Dict]:
     stems = {}
     for road in bridge_roads:
         mark = road.get("lane_split_branch")
-        if not mark or key(mark["node"]) not in trunks or mark.get("stem_length", 0.0) < 1.0:
+        if not mark or key(mark["node"]) not in trunks or mark.get("stem_length", 0.0) < 1.0 or len(mark.get("stem_path", ())) < 2:
             continue
         trunk = trunks[key(mark["node"])]
         internal_name = config.OSM_MAPPER.get_road_properties(trunk.get("osm_tags", {})).get("internal_name", "road_default")
         stems[road["road_id"]] = {
-            "node": tuple(mark["node"]), "axis": tuple(mark["axis"]), "left_normal": tuple(mark["left_normal"]),
-            "hold": float(mark["stem_length"]), "width": float(mark["trunk_width"]), "deck_material": f"{internal_name}_structure",
+            "path": [tuple(p) for p in mark["stem_path"]], "width": float(mark["trunk_width"]),
+            "deck_material": f"{internal_name}_structure",
         }
     return stems
 
@@ -617,7 +617,7 @@ def _road_marking_lines(specs: List[Tuple[Dict, Dict, List]], node_lists: List[L
     stems = {}
     for poly, _, _ in specs:
         mark = poly.get("lane_split_branch")
-        if mark and "axis" in mark:
+        if mark and mark.get("stem_path"):
             stems[(round(mark["node"][0], 2), round(mark["node"][1], 2))] = mark
     stem_masks = stem_marking_masks(node_lists, list(stems.values()))
 
