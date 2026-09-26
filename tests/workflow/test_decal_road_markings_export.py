@@ -230,3 +230,31 @@ def test_three_lane_two_way_primary_gets_a_solid_double_centre_line():
     centre_ys = sorted(r["nodes"][0][1] for r in solid if abs(r["nodes"][0][1]) < width / 2.0 - 0.5)
     assert centre_ys == pytest.approx([boundary - shift, boundary + shift])
     assert len(dashed) == 1  # between the two backward lanes
+
+
+def _widths(roads, road_id):
+    """x -> width over all DecalRoad pieces of a road (long carriageways are split, see decal_chunks.py)."""
+    names = [n for n in roads if n == f"road_{road_id}" or n.startswith(f"road_{road_id}_")]
+    return {round(node[0]): node[3] for name in names for node in roads[name]["nodes"]}
+
+
+def test_lane_change_from_two_to_three_lanes_blends_over_100_m():
+    a = _poly(1, [(x, 0) for x in range(-200, 1)], highway="primary", lanes="2")
+    b = _poly(2, [(x, 0) for x in range(0, 201)], highway="primary", lanes="3")
+
+    _, roads, _ = _export([a, b])
+
+    widths_a = _widths(roads, 1)
+    assert widths_a[-50] == pytest.approx(6.5) and widths_a[-25] > 6.5  # zone starts 50 m before the joint
+
+
+def test_width_change_toward_a_bridge_lies_on_the_road(monkeypatch):
+    monkeypatch.setattr(config, "STRUCTURE_AI_ROADS", True)
+    road = _poly(1, [(x, 0) for x in range(-200, 1)], highway="primary", lanes="3")
+    bridge = dict(_poly(2, [(x, 0) for x in range(0, 201)], highway="primary", lanes="2", bridge="yes"), structure_type="bridge")
+
+    _, roads, _ = _export([road, bridge])
+
+    widths = _widths(roads, 1)
+    assert widths[-100] == pytest.approx(9.75) and widths[0] == pytest.approx(6.5)
+    assert all(w == pytest.approx(6.5) for w in _widths(roads, 2).values())

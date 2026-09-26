@@ -3,7 +3,9 @@ Smooth width transitions between abutting DecalRoads.
 
 If the width changes (e.g. lanes=2 -> lanes=3) at the joint of two roads that continue straight into each other, it
 no longer jumps abruptly: over ROAD_WIDTH_TRANSITION_LENGTH (half before and half after the joint) it is blended
-with a cubic Hermite spline (smoothstep, slope 0 at both ends of the zone).
+with a cubic Hermite spline (smoothstep, slope 0 at both ends of the zone). Where the lane count changes to 3 or more
+lanes the zone is longer (100 m); at a structure (bridge, tunnel, gallery) the structure keeps its width and the whole
+transition lies on the road.
 The width is stored in the 4th entry of each DecalRoad node [x, y, z, width]; BeamNG interpolates between the nodes,
 so the transition zone gets additional nodes at spacing `step`.
 """
@@ -123,15 +125,48 @@ def _insert_nodes(nodes: List[List[float]], distances: Sequence[float], min_spac
     return [node for _, node in entries]
 
 
-def _blend_end(nodes, end, own_width, other_width, half, step, min_spacing):
-    """Widths in the transition zone at end `end`: spline from the mean width (joint) to its own width (half)."""
-    work = [list(n) for n in (nodes if end == "start" else nodes[::-1])]
-    distances = [float(d) for d in np.arange(step, half, step)] + [half]
-    work = _insert_nodes(work, distances, min_spacing)
-    for node, s in zip(work, _arc_lengths(work)):
-        if s <= half + 1e-9:
-            node[3] = own_width + (other_width - own_width) * smoothstep((half - s) / (2.0 * half))
-    return work if end == "start" else work[::-1]
+def _apply_profile(nodes, entry, offset, limit, width_at, step, min_spacing):
+    """Widths along one piece of a transition zone: the piece is entered at end `entry`, which lies `offset` meters from
+    the joint; every node up to `limit` meters from the joint gets width_at(distance from the joint). Additional nodes
+    on the global `step` grid (and at `limit`) keep the spline smooth in BeamNG."""
+    if limit - offset <= 0.0:
+        return [list(n) for n in nodes]
+    work = [list(n) for n in (nodes if entry == "start" else nodes[::-1])]
+    length = float(_arc_lengths(work)[-1])
+    grid = [float(g) for g in np.arange(step, limit, step)] + [limit]
+    work = _insert_nodes(work, [g - offset for g in grid if 0.0 < g - offset < length], min_spacing)
+    for node, local in zip(work, _arc_lengths(work)):
+        if offset + local <= limit + 1e-9:
+            node[3] = width_at(offset + local)
+    return work if entry == "start" else work[::-1]
+
+
+def _walk(roads, partner, fixed, road, entry, own_width, min_delta, needed, free_end_share):
+    """
+    Pieces a transition zone may cover, starting at `road` (entered at `entry`, the joint): along straight
+    continuations of the same width, never into a structure (fixed). Returns ([(road, entry, offset), ...], available
+    length). The last piece counts only half if its far end continues into a piece of another width or a structure -
+    that joint may get a transition of its own; at a free end (junction without continuation) it counts free_end_share
+    (0.5 for the symmetric zone, which then shrinks to half the shorter road; 1.0 where the whole zone lies on one
+    side of a structure).
+    """
+    pieces, offset, visited = [], 0.0, set()
+    while True:
+        visited.add(road)
+        length = float(_arc_lengths(roads[road])[-1])
+        pieces.append((road, entry, offset))
+        far = "end" if entry == "start" else "start"
+        nxt = partner.get((road, far))
+        if nxt is None:
+            return pieces, offset + length * free_end_share
+        width = float(roads[nxt[0]][0 if nxt[1] == "start" else -1][3])
+        blocked = nxt[0] in visited or (fixed is not None and fixed[nxt[0]]) or abs(width - own_width) >= min_delta
+        if blocked:
+            return pieces, offset + length / 2.0
+        if offset + length >= needed:
+            return pieces, offset + length
+        offset += length
+        road, entry = nxt
 
 
 def apply_width_transitions(
@@ -142,24 +177,64 @@ def apply_width_transitions(
     max_angle_deg: float,
     min_delta: float,
     min_spacing: float,
+    lanes: Optional[Sequence[Optional[int]]] = None,
+    lane_change_length: Optional[float] = None,
+    fixed: Optional[Sequence[bool]] = None,
+    fixed_transition_length: Optional[float] = None,
 ) -> List[List[List[float]]]:
     """
     New node lists ([x, y, z, width] per node) with smooth width transitions at all straight joints whose widths
     differ by at least min_delta. The mean width applies at the joint, and transition_length / 2 before and after
-    it the road's own width applies again. If one of the two roads is shorter than transition_length, the zone
-    shrinks symmetrically on both sides to half the length of the shorter road.
+    it the road's own width applies again. The zone reaches across further straight continuations of the same width
+    (roads are split at every junction); where there is not enough room it shrinks symmetrically on both sides (see
+    _walk()).
+
+    lanes / lane_change_length: where the lane count changes and one side has 3 or more lanes, the zone is
+    lane_change_length long instead (half before, half after the joint).
+    fixed / fixed_transition_length: roads marked fixed (bridges, tunnels, galleries) keep their width everywhere; at a
+    joint with a normal road the whole transition lies on the road side, fixed_transition_length long (as far as there
+    is room, see _walk()), from the structure's width at the joint to its own width. Joints between two fixed roads stay unchanged.
     """
     result = [[[float(v) for v in n] for n in nodes] for nodes in roads]
-    for (ia, ea), (ib, eb) in find_continuations(roads, endpoint_tol, max_angle_deg):
+    pairs = find_continuations(roads, endpoint_tol, max_angle_deg)
+    partner = {}
+    for a, b in pairs:
+        partner[a], partner[b] = b, a
+
+    def apply(pieces, limit, width_at):
+        for road, entry, offset in pieces:
+            result[road] = _apply_profile(result[road], entry, offset, limit, width_at, step, min_spacing)
+
+    for (ia, ea), (ib, eb) in pairs:
         wa = float(roads[ia][0 if ea == "start" else -1][3])
         wb = float(roads[ib][0 if eb == "start" else -1][3])
         if abs(wa - wb) < min_delta:
             continue
-        half = min(transition_length / 2.0, _arc_lengths(roads[ia])[-1] / 2.0, _arc_lengths(roads[ib])[-1] / 2.0)
+        fixed_a, fixed_b = (bool(fixed[ia]), bool(fixed[ib])) if fixed is not None else (False, False)
+        if fixed_a and fixed_b:
+            continue
+        if fixed_a or fixed_b:
+            road, end, own, joint = (ib, eb, wb, wa) if fixed_a else (ia, ea, wa, wb)
+            wanted = fixed_transition_length or transition_length
+            pieces, available = _walk(roads, partner, fixed, road, end, own, min_delta, wanted, 1.0)
+            length = min(wanted, available)
+            if length > 0.0:
+                apply(pieces, length, lambda s, own=own, joint=joint, length=length:
+                      own + (joint - own) * smoothstep((length - s) / length))
+            continue
+        zone = transition_length
+        if lanes is not None and lane_change_length is not None:
+            la, lb = lanes[ia], lanes[ib]
+            if la is not None and lb is not None and la != lb and max(la, lb) >= 3:
+                zone = lane_change_length
+        pieces_a, available_a = _walk(roads, partner, fixed, ia, ea, wa, min_delta, zone / 2.0, 0.5)
+        pieces_b, available_b = _walk(roads, partner, fixed, ib, eb, wb, min_delta, zone / 2.0, 0.5)
+        half = min(zone / 2.0, available_a, available_b)
         if half <= 0.0:
             continue
-        result[ia] = _blend_end(result[ia], ea, wa, wb, half, step, min_spacing)
-        result[ib] = _blend_end(result[ib], eb, wb, wa, half, step, min_spacing)
+        for pieces, own, other in ((pieces_a, wa, wb), (pieces_b, wb, wa)):
+            apply(pieces, half, lambda s, own=own, other=other, half=half:
+                  own + (other - own) * smoothstep((half - s) / (2.0 * half)))
     return result
 
 

@@ -201,3 +201,105 @@ def test_straight_continuation_and_unpaired_ends_stay_untouched():
     corner = _road([(40, 0), (40, 20)], 6.5)  # right-angled, no straight continuation
 
     assert close_continuation_gaps([a, b, corner], endpoint_tol=0.5, max_angle_deg=30.0) == [a, b, corner]
+
+
+# --- lane-count changes and structures -------------------------------------------------------------------------------
+LANE_KW = dict(KW, lane_change_length=100.0, fixed_transition_length=100.0)
+
+
+def _long_pair(wa, wb):
+    return _road([(x, 0.0) for x in range(-200, 1)], wa), _road([(x, 0.0) for x in range(0, 201)], wb)
+
+
+def test_two_to_three_lanes_blends_over_50_m_on_each_side():
+    a, b = _long_pair(6.5, 9.75)
+
+    ra, rb = apply_width_transitions([a, b], lanes=[2, 3], **LANE_KW)
+
+    assert _width_at(ra, -50.0) == pytest.approx(6.5)  # 50 m before the joint: still two lanes
+    assert _width_at(ra, 0.0) == pytest.approx((6.5 + 9.75) / 2.0)
+    assert _width_at(rb, 50.0) == pytest.approx(9.75)  # 50 m after it: three lanes
+    assert 6.5 < _width_at(ra, -25.0) < _width_at(rb, 25.0) < 9.75
+
+
+def test_width_change_without_more_than_two_lanes_keeps_the_short_transition():
+    a, b = _long_pair(6.5, 7.0)
+
+    ra, _ = apply_width_transitions([a, b], lanes=[2, 2], **LANE_KW)
+
+    assert _width_at(ra, -5.0) == pytest.approx(6.5)
+    assert _width_at(ra, -4.0) != pytest.approx(6.5)
+
+
+def test_transition_to_a_structure_lies_entirely_on_the_road_over_100_m():
+    road, bridge = _long_pair(9.75, 6.5)
+
+    rr, rbridge = apply_width_transitions([road, bridge], lanes=[3, 2], fixed=[False, True], **LANE_KW)
+
+    assert _width_at(rr, 0.0) == pytest.approx(6.5)  # already the bridge width at the joint
+    assert _width_at(rr, -100.0) == pytest.approx(9.75)
+    assert 6.5 < _width_at(rr, -50.0) < 9.75
+    assert rbridge == [list(map(float, n)) for n in bridge]  # the structure keeps its width everywhere
+
+
+def test_widening_toward_a_structure_also_lies_on_the_road():
+    road, tunnel = _long_pair(6.5, 7.5)
+
+    rr, rt = apply_width_transitions([road, tunnel], lanes=[2, 2], fixed=[False, True], **LANE_KW)
+
+    assert _width_at(rr, 0.0) == pytest.approx(7.5) and _width_at(rr, -100.0) == pytest.approx(6.5)
+    assert rt == [list(map(float, n)) for n in tunnel]
+
+
+def test_structure_transition_is_limited_to_the_road_length():
+    road = _road([(x, 0.0) for x in range(-40, 1)], 9.75)  # only 40 m to the next junction
+    bridge = _road([(x, 0.0) for x in range(0, 201)], 6.5)
+
+    rr, _ = apply_width_transitions([road, bridge], lanes=[3, 2], fixed=[False, True], **LANE_KW)
+
+    assert _width_at(rr, 0.0) == pytest.approx(6.5) and _width_at(rr, -40.0) == pytest.approx(9.75)
+
+
+def test_joint_between_two_structures_is_left_alone():
+    tunnel, gallery = _long_pair(7.5, 6.5)
+
+    rt, rg = apply_width_transitions([tunnel, gallery], lanes=[2, 2], fixed=[True, True], **LANE_KW)
+
+    assert rt == [list(map(float, n)) for n in tunnel] and rg == [list(map(float, n)) for n in gallery]
+
+
+# --- transitions reach across straight continuations -----------------------------------------------------------------
+def test_lane_change_zone_continues_into_the_previous_piece():
+    # The 2-lane road is split at a junction 30 m before the lane change: the 50 m zone still reaches 50 m back
+    a1 = _road([(x, 0.0) for x in range(-200, -29)], 6.5)
+    a2 = _road([(x, 0.0) for x in range(-30, 1)], 6.5)
+    b = _road([(x, 0.0) for x in range(0, 201)], 9.75)
+
+    r1, r2, rb = apply_width_transitions([a1, a2, b], lanes=[2, 2, 3], **LANE_KW)
+
+    assert _width_at(r1, -50.0) == pytest.approx(6.5)
+    assert 6.5 < _width_at(r1, -40.0) < _width_at(r2, -30.0) < _width_at(r2, 0.0)
+    assert _width_at(r2, -30.0) == pytest.approx(_width_at(r1, -30.0))  # continuous across the piece joint
+    assert _width_at(rb, 50.0) == pytest.approx(9.75)
+
+
+def test_structure_transition_continues_into_the_previous_piece():
+    r1 = _road([(x, 0.0) for x in range(-200, -39)], 9.75)
+    r2 = _road([(x, 0.0) for x in range(-40, 1)], 9.75)
+    bridge = _road([(x, 0.0) for x in range(0, 201)], 6.5)
+
+    n1, n2, _ = apply_width_transitions([r1, r2, bridge], lanes=[3, 3, 2], fixed=[False, False, True], **LANE_KW)
+
+    assert _width_at(n1, -100.0) == pytest.approx(9.75)
+    assert 6.5 < _width_at(n1, -60.0) < 9.75
+    assert _width_at(n2, 0.0) == pytest.approx(6.5)
+
+
+def test_zone_stops_halfway_along_a_piece_whose_far_end_has_another_width_change():
+    a = _road([(x, 0.0) for x in range(-40, 1)], 6.5)  # 40 m, another width change at its start (x = -40)
+    before = _road([(x, 0.0) for x in range(-200, -39)], 4.0)
+    b = _road([(x, 0.0) for x in range(0, 201)], 9.75)
+
+    _, ra, _ = apply_width_transitions([before, a, b], lanes=[1, 2, 3], **LANE_KW)
+
+    assert _width_at(ra, -20.0) == pytest.approx(6.5)  # the lane-change zone takes only half of this piece

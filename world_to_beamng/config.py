@@ -249,6 +249,11 @@ GUARDRAIL_EXCLUDED_HIGHWAYS = frozenset({
 ROAD_WIDTH_TRANSITION_LENGTH = 10.0
 ROAD_WIDTH_TRANSITION_STEP = 1.0
 ROAD_WIDTH_TRANSITION_MIN_DELTA = 0.05  # smaller width differences stay unchanged, in meters
+# Lane-count change where one side has 3 or more lanes (e.g. 2 -> 3): 50 m before and 50 m after the joint instead
+ROAD_LANE_CHANGE_TRANSITION_LENGTH = 100.0
+# Width change at a bridge/tunnel/gallery: the structure keeps its width, the whole transition lies on the road
+# (at most as long as the road piece up to the next junction)
+ROAD_STRUCTURE_TRANSITION_LENGTH = 100.0
 ROAD_CONTINUATION_ENDPOINT_TOL = 0.5  # two road ends must be this close together, in meters
 ROAD_CONTINUATION_MAX_ANGLE_DEG = 30.0  # largest bend that still counts as "continuing straight"
 

@@ -1639,6 +1639,10 @@ class TerrainWorkflow:
 
         # Smooth width transitions at straight-through joints (5 m before/after each, spline) - see
         # geometry/road_width_transitions.py. Inserts nodes only with >= DECAL_ROAD_MIN_NODE_SPACING spacing.
+        # Lane-count changes to 3+ lanes blend over ROAD_LANE_CHANGE_TRANSITION_LENGTH; structures (bridges, tunnels,
+        # galleries) keep their width - there the whole transition lies on the road (ROAD_STRUCTURE_TRANSITION_LENGTH).
+        from ..geometry.road_markings import lane_count
+
         node_lists = apply_width_transitions(
             [nodes for _, _, nodes in specs],
             transition_length=config.ROAD_WIDTH_TRANSITION_LENGTH,
@@ -1647,6 +1651,11 @@ class TerrainWorkflow:
             max_angle_deg=config.ROAD_CONTINUATION_MAX_ANGLE_DEG,
             min_delta=config.ROAD_WIDTH_TRANSITION_MIN_DELTA,
             min_spacing=config.DECAL_ROAD_MIN_NODE_SPACING,
+            lanes=[lane_count(poly.get("osm_tags", {}), float(props.get("width", 4.0)), config.ROAD_MARKING_MIN_TWO_LANE_WIDTH)
+                   for poly, props, _ in specs],
+            lane_change_length=config.ROAD_LANE_CHANGE_TRANSITION_LENGTH,
+            fixed=[poly.get("structure_type", "surface") != "surface" for poly, _, _ in specs],
+            fixed_transition_length=config.ROAD_STRUCTURE_TRANSITION_LENGTH,
         )
 
         if config.GUARDRAILS_ENABLED and mesh_data.get("heightmap") is not None:
