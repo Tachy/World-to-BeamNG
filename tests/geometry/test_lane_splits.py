@@ -117,7 +117,7 @@ def test_branch_ends_lie_side_by_side_across_the_trunk_after_the_shift():
     roads = _motto_bartola()
     splits = find_lane_splits(roads, _width)
 
-    shift_branches_into_slots(splits, roads, length=40.0)
+    shift_branches_into_slots(splits, roads, max_connector=30.0, length=30.0)
 
     (split,) = splits
     normal = np.asarray(split.left_normal)
@@ -131,36 +131,74 @@ def test_branch_ends_lie_side_by_side_across_the_trunk_after_the_shift():
     assert roads[0]["coords"][0][:2] == (0.0, 0.0)  # the trunk stays
 
 
-def test_the_shift_fades_out_along_the_branch_and_keeps_the_height():
+TURN_XY = [(0.0, 0.0), (5.0, -2.5), (10.0, -3.0), (20.0, -3.0), (30.0, -3.0), (40.0, -5.0), (60.0, -15.0), (80.0, -25.0)]
+
+
+def _turn_split(max_connector=30.0, length=20.0, turn_xy=TURN_XY):
+    """A oneway 4-lane road splitting into 2 straight lanes and 2 turn lanes; OSM draws the turn lanes from the node to
+    their lane centre (3.0 m right of the axis, reached after 10 m), then along it, then turning away."""
     trunk = _road(1, [(-40.0, 0.0), (0.0, 0.0)], highway="primary", lanes="4", oneway="yes")
-    straight = _road(2, [(0.0, 0.0), (40.0, 0.0)], highway="primary", lanes="2", oneway="yes")
-    turn_xy = [(0.0, 0.0)] + [(float(x), -0.5 * x) for x in range(5, 80, 5)]
+    straight = _road(2, [(0.0, 0.0), (80.0, 0.0)], highway="primary", lanes="2", oneway="yes")
     turn = _road(3, turn_xy, highway="primary_link", lanes="2", oneway="yes")
     roads = [trunk, straight, turn]
     splits = find_lane_splits(roads, _width)
+    shift_branches_into_slots(splits, roads, max_connector=max_connector, length=length)
+    return turn
 
-    shift_branches_into_slots(splits, roads, length=30.0)
 
-    shifted = np.asarray(turn["coords"], dtype=float)
-    original = np.asarray([(x, y, 100.0) for x, y in turn_xy])
-    moved = np.linalg.norm(shifted[:, :2] - original[:, :2], axis=1)
-    assert moved[0] == pytest.approx(LANE)
-    assert np.all(np.diff(moved) <= 1e-9)  # fades out monotonically
-    assert np.allclose(moved[np.hypot(original[:, 0], original[:, 1]) >= 30.0], 0.0)
-    assert np.allclose(shifted[:, 2], 100.0)
+def _y_at(coords, x):
+    coords = np.asarray(coords)
+    return float(np.interp(x, coords[:, 0], coords[:, 1]))
+
+
+def test_the_osm_connector_to_the_lane_centre_becomes_a_straight_run_in_the_slot():
+    turn = _turn_split()
+
+    coords = np.asarray(turn["coords"])
+    assert len([p for p in coords if p[0] <= 9.0]) >= 4  # densified along the connector
+    assert all(p[1] == pytest.approx(-LANE) for p in coords if p[0] <= 9.0)  # in its slot, not on OSM's diagonal
+    assert np.allclose(coords[:, 2], 100.0)
+
+
+def test_after_reaching_its_lane_the_branch_follows_the_osm_course():
+    turn = _turn_split(length=20.0)
+
+    # from the lane centre on OSM's course counts; only the 0.25 m between OSM's lane centre (3.0 m) and the slot
+    # (3.25 m) fades out over 20 m
+    assert _y_at(turn["coords"], 20.0) == pytest.approx(-3.0 - 0.25 * (1.0 - 0.5), abs=0.03)
+    assert _y_at(turn["coords"], 40.0) == pytest.approx(-5.0)
+    assert _y_at(turn["coords"], 60.0) == pytest.approx(-15.0)
+
+
+def test_a_branch_turning_away_at_once_takes_its_course_where_it_passes_its_lane_centre():
+    turn = _turn_split(turn_xy=[(0.0, 0.0), (20.0, -10.0), (40.0, -20.0)])  # no stretch along its lane at all
+
+    assert _y_at(turn["coords"], 3.0) == pytest.approx(-LANE)  # connector in the slot
+    assert _y_at(turn["coords"], 40.0) == pytest.approx(-20.0)  # then OSM's course
 
 
 def test_the_shift_continues_onto_the_next_piece_of_a_short_branch():
     trunk = _road(1, [(-40.0, 0.0), (0.0, 0.0)], highway="primary", lanes="4", oneway="yes")
-    straight = _road(2, [(0.0, 0.0), (40.0, 0.0)], highway="primary", lanes="2", oneway="yes")
-    turn_a = _road(3, [(0.0, 0.0), (6.0, -8.0)], highway="primary_link", lanes="2", oneway="yes")  # 10 m long
-    turn_b = _road(4, [(6.0, -8.0), (12.0, -16.0), (18.0, -24.0), (24.0, -32.0)], highway="primary_link", lanes="2",
+    straight = _road(2, [(0.0, 0.0), (80.0, 0.0)], highway="primary", lanes="2", oneway="yes")
+    turn_a = _road(3, [(0.0, 0.0), (4.0, -3.0)], highway="primary_link", lanes="2", oneway="yes")  # the connector
+    turn_b = _road(4, [(4.0, -3.0), (20.0, -3.0), (40.0, -3.0), (60.0, -10.0)], highway="primary_link", lanes="2",
                    oneway="yes")
     roads = [trunk, straight, turn_a, turn_b]
     splits = find_lane_splits(roads, _width)
 
-    shift_branches_into_slots(splits, roads, length=30.0)
+    shift_branches_into_slots(splits, roads, max_connector=30.0, length=20.0)
 
     assert turn_a["coords"][-1] == turn_b["coords"][0]  # the joint stays closed
-    assert turn_b["coords"][1][:2] != (12.0, -16.0)  # 20 m from the node: still shifted
-    assert turn_b["coords"][-1][:2] == pytest.approx((24.0, -32.0))  # 40 m: done
+    assert turn_b["coords"][0][1] == pytest.approx(-LANE)  # the lane is reached here, still in the slot
+    assert turn_b["coords"][-1][:2] == pytest.approx((60.0, -10.0))  # on its own course
+
+
+def test_trunk_and_branches_are_marked_with_the_split_node():
+    roads = _motto_bartola()
+    splits = find_lane_splits(roads, _width)
+
+    shift_branches_into_slots(splits, roads, max_connector=30.0, length=30.0)
+
+    node = splits[0].node
+    assert roads[0]["lane_split_trunk_nodes"] == [node]
+    assert all(road["lane_split_branch"]["node"] == node for road in roads[1:])

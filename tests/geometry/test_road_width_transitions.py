@@ -365,7 +365,7 @@ def test_a_split_branch_starts_with_its_slot_width_and_blends_into_its_own_width
 
     result = apply_width_transitions(
         [trunk, main, ramp], **KW, split_trunk_ends={(0, "end")},
-        split_branches={1: ("start", 6.5, 30.0), 2: ("start", 3.25, 30.0)},
+        split_branches={1: ("start", 6.5, 0.0, 30.0), 2: ("start", 3.25, 0.0, 30.0)},
     )
 
     assert result[0][-1][3] == pytest.approx(13.0)  # trunk keeps its full width up to the node
@@ -385,9 +385,23 @@ def test_the_slot_blend_continues_across_the_next_piece_of_the_branch():
 
     result = apply_width_transitions(
         [trunk, main_a, main_b, other], **KW, split_trunk_ends={(0, "end")},
-        split_branches={1: ("start", 7.0 - 1.0, 30.0), 3: ("start", 7.0, 30.0)},
+        split_branches={1: ("start", 7.0 - 1.0, 0.0, 30.0), 3: ("start", 7.0, 0.0, 30.0)},
     )
 
     assert result[1][0][3] == pytest.approx(6.0)
     assert _width_at(result[2], 20.0) == pytest.approx(6.0 + smoothstep(20.0 / 30.0))
     assert result[2][-1][3] == pytest.approx(7.0)
+
+
+def test_a_split_branch_keeps_its_slot_width_along_the_held_stretch():
+    trunk = _road([(-40, 0), (0, 0)], 13.0)
+    main = _road([(0, 0), (20, 0), (40, 0), (60, 0), (80, 0)], 7.0)
+
+    result = apply_width_transitions(
+        [trunk, main], **KW, split_trunk_ends={(0, "end")}, split_branches={1: ("start", 6.5, 30.0, 20.0)},
+    )
+
+    assert _width_at(result[1], 20.0) == pytest.approx(6.5)
+    assert _width_at(result[1], 30.0) == pytest.approx(6.5)
+    assert _width_at(result[1], 40.0) == pytest.approx(6.5 + 0.5 * smoothstep(0.5))
+    assert _width_at(result[1], 60.0) == pytest.approx(7.0)

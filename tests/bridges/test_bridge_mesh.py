@@ -187,3 +187,113 @@ def test_bridge_without_widths_keeps_the_constant_width():
                           deck_material=DECK, pier_material=PIER, railing_material=RAIL, pier_spacing=1000.0)
 
     assert np.allclose(a["vertices"], b["vertices"])
+
+
+# --- Shared deck of a bridge group (lane split on a bridge) -----------------------------------------------------------
+
+from shapely.geometry import LineString, Point, Polygon
+from shapely.ops import unary_union
+
+from world_to_beamng.bridges.bridge_mesh import build_bridge_group_mesh
+
+LINK = "asphalt_link"
+
+
+def _split_group(z=200.0):
+    """A 4-lane trunk (13 m) ending at x=0 and three branches starting in its lanes: main road (6.5 m, centred) and a
+    ramp (3.25 m) on each side that turns away - all on one bridge."""
+    def line(points):
+        return [(x, y, z) for x, y in points]
+
+    ramp = lambda sign: line([(0.0, sign * 4.875), (10.0, sign * 7.0), (20.0, sign * 10.0), (40.0, sign * 16.0)])
+    return [
+        {"id": 1, "coords": line([(-40.0, 0.0), (-20.0, 0.0), (0.0, 0.0)]), "width": 13.0, "deck_material": DECK},
+        {"id": 2, "coords": line([(0.0, 0.0), (20.0, 0.0), (40.0, 0.0)]), "width": 6.5, "deck_material": DECK},
+        {"id": 3, "coords": ramp(1.0), "width": 3.25, "deck_material": LINK},
+        {"id": 4, "coords": ramp(-1.0), "width": 3.25, "deck_material": LINK},
+    ]
+
+
+def _group_mesh(**kwargs):
+    return build_bridge_group_mesh(
+        _split_group(), ground_at=_flat_ground(150.0), pier_material=PIER, railing_material=RAIL, **kwargs
+    )
+
+
+def _carriageways(members):
+    return unary_union([
+        LineString([c[:2] for c in m["coords"]]).buffer(m["width"] / 2.0, cap_style="flat") for m in members
+    ])
+
+
+def _points(mesh, material):
+    v = np.asarray(mesh["vertices"])
+    return v[sorted({i for face in mesh["faces"][material] for i in face})]
+
+
+def test_group_railing_stands_only_on_the_outer_contour():
+    mesh = _group_mesh()
+    inside = _carriageways(_split_group()).buffer(-0.05)
+
+    rail = _points(mesh, RAIL)
+    assert len(rail) > 0
+    assert not any(inside.contains(Point(p[0], p[1])) for p in rail)
+    # the outer sides of the trunk do get a railing (curb centre 6.5 + 0.2 m beside the axis)
+    assert any(abs(p[0] + 20.0) < 2.0 and abs(abs(p[1]) - 6.7) < 0.1 for p in rail)
+
+
+def test_group_carriageways_keep_their_road_materials():
+    mesh = _group_mesh()
+
+    assert len(mesh["faces"][DECK]) > 0 and len(mesh["faces"][LINK]) > 0
+
+
+def test_a_narrow_gap_between_branches_is_closed_by_the_slab():
+    mesh = _group_mesh()
+    v = np.asarray(mesh["vertices"])
+    target = Point(1.0, 3.35)  # just beyond the main road edge (3.25), before the ramp edge (about 3.46)
+    assert not _carriageways(_split_group()).contains(target)
+
+    covered = False
+    for face in mesh["faces"][PIER]:
+        tri = v[face]
+        if np.all(np.abs(tri[:, 2] - 200.0) < 0.05) and Polygon(tri[:, :2]).buffer(1e-6).contains(target):
+            covered = True
+            break
+    assert covered
+
+
+def test_no_curb_stands_between_two_members_lying_side_by_side():
+    mesh = _group_mesh(curb_height=0.2)
+    v = np.asarray(mesh["vertices"])
+    # beside the node the main road and the ramps touch: no concrete above the carriageway there
+    near_node = [p for face in mesh["faces"][PIER] for p in v[face] if 0.0 <= p[0] <= 2.0 and abs(p[1]) < 4.0]
+    assert all(p[2] <= 200.0 + 1e-6 for p in near_node)
+
+
+def test_build_bridges_merges_a_group_into_one_mesh():
+    members = [{**m, "group": 7} for m in _split_group()]
+    single = {"id": 9, "coords": [(100.0, 0.0, 200.0), (140.0, 0.0, 200.0)], "width": 6.5, "deck_material": DECK}
+
+    meshes = build_bridges(members + [single], _flat_ground(150.0), PIER, RAIL)
+
+    assert sorted(m["id"] for m in meshes) == ["bridge_9", "bridge_group_7"]
+
+
+def test_the_group_slab_underside_stays_below_a_steep_carriageway():
+    # the trunk climbs 4 m over 40 m while the branches stay flat: the underside must follow each member's profile
+    members = _split_group()
+    members[0]["coords"] = [(x, y, 200.0 - 0.1 * x) for x, y, _ in members[0]["coords"]]  # x from -40 (204 m) to 0
+
+    mesh = build_bridge_group_mesh(members, ground_at=_flat_ground(150.0), pier_material=PIER, railing_material=RAIL,
+                                   deck_thickness=0.6, pier_spacing=1000.0)
+
+    v, n = np.asarray(mesh["vertices"]), np.asarray(mesh["normals"])
+    for face in mesh["faces"][PIER]:
+        if n[face[0]][2] > -0.5:
+            continue
+        tri = v[face]
+        for weights in ((1 / 3, 1 / 3, 1 / 3), (0.5, 0.5, 0.0), (0.0, 0.5, 0.5), (0.5, 0.0, 0.5)):
+            x, y, z = np.asarray(weights) @ tri  # inside the triangle, not only its corners
+            deck = 200.0 - 0.1 * x if x < 0.0 else 200.0
+            assert z <= deck - 0.6 + 0.05

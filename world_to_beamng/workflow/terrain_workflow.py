@@ -136,6 +136,62 @@ def _bridge_photo_areas(structure_roads: List[Dict]) -> List[np.ndarray]:
     return [np.asarray(footprint["road_polygon"])[:, :2] for footprint in _bridge_footprints(bridges, extra)]
 
 
+def _bridge_groups(bridge_roads: List[Dict], reach: float, endpoint_tol: float = 0.5) -> Dict[object, int]:
+    """
+    road id -> group index for bridges that form ONE structure (bridges/bridge_mesh.py build_bridge_group_mesh()): the
+    trunk and the branches of a lane split on a bridge (see geometry/lane_splits.py), plus bridge pieces that continue
+    them at a joint at most `reach` meters from the split node (a branch runs beside the others until there). Bridges
+    outside any group keep their own deck.
+    """
+    def split_nodes(road):
+        nodes = list(road.get("lane_split_trunk_nodes", ()))
+        if road.get("lane_split_branch"):
+            nodes.append(road["lane_split_branch"]["node"])
+        return [(round(float(x), 2), round(float(y), 2)) for x, y in nodes]
+
+    def ends(road):
+        line = np.asarray(road["trimmed_centerline"], dtype=float)
+        return [line[0, :2], line[-1, :2]]
+
+    group_of: Dict[int, int] = {}  # road index -> group
+    group_nodes: Dict[int, set] = {}
+    for index, road in enumerate(bridge_roads):
+        nodes = split_nodes(road)
+        if not nodes:
+            continue
+        joined = {group_of_node for group_of_node, node_set in group_nodes.items() if node_set & set(nodes)}
+        target = min(joined) if joined else len(group_nodes)
+        group_nodes.setdefault(target, set()).update(nodes)
+        for other in joined - {target}:
+            group_nodes[target] |= group_nodes.pop(other)
+            for member, group in group_of.items():
+                if group == other:
+                    group_of[member] = target
+        group_of[index] = target
+
+    changed = True
+    while changed:
+        changed = False
+        for index, road in enumerate(bridge_roads):
+            if index in group_of:
+                continue
+            for point in ends(road):
+                for member, group in list(group_of.items()):
+                    touches = any(np.linalg.norm(point - end) <= endpoint_tol for end in ends(bridge_roads[member]))
+                    near = min(np.hypot(point[0] - x, point[1] - y) for x, y in group_nodes[group]) <= reach
+                    if touches and near:
+                        group_of[index] = group
+                        changed = True
+                        break
+                if index in group_of:
+                    break
+
+    sizes: Dict[int, int] = {}
+    for group in group_of.values():
+        sizes[group] = sizes.get(group, 0) + 1
+    return {bridge_roads[i]["road_id"]: g for i, g in group_of.items() if sizes[g] >= 2}
+
+
 def _invisible_road_material(name: str) -> Dict:
     """materials.json entry of the invisible DecalRoad on structures: alpha-tested, fully transparent texture
     (TerrainWorkflow._export_structure_road_assets() writes it) - schema like vanilla "road_invisible"
@@ -422,7 +478,7 @@ def _road_width_specs(road_slope_polygons_2d: List[Dict], dropped_tunnel_road_id
         # Lane splits (geometry/lane_splits.py): the branches start in their lanes of the trunk, the trunk keeps its width
         split_trunk_ends={(i, end) for i, (poly, _, _) in enumerate(specs) for end in poly.get("lane_split_trunk", ())},
         split_branches={
-            i: (poly["lane_split_branch"]["end"], poly["lane_split_branch"]["slot_width"], poly["lane_split_branch"]["length"])
+            i: tuple(poly["lane_split_branch"][key] for key in ("end", "slot_width", "hold", "length"))
             for i, (poly, _, _) in enumerate(specs) if poly.get("lane_split_branch")
         },
     )
@@ -767,7 +823,9 @@ class TerrainWorkflow:
                 road.get("osm_tags", {}), _mapper_width(road), config.ROAD_MARKING_MIN_TWO_LANE_WIDTH
             ),
         )
-        shift_branches_into_slots(lane_splits, road_polygons, config.ROAD_LANE_SPLIT_LENGTH)
+        shift_branches_into_slots(
+            lane_splits, road_polygons, max_connector=config.ROAD_LANE_SPLIT_MAX_CONNECTOR, length=config.ROAD_LANE_SPLIT_LENGTH
+        )
         if lane_splits:
             logger.info(f"  [OK] {len(lane_splits)} lane split(s): branches moved into the trunk's lanes")
 
@@ -810,7 +868,7 @@ class TerrainWorkflow:
                     "osm_tags": osm_tags,
                     "structure_type": classify_structure(osm_tags),
                     "daylight_slopes": bool(road.get("underpass")),  # road under a bridge: slopes up to the terrain
-                    **{key: road[key] for key in ("lane_split_trunk", "lane_split_branch") if key in road},
+                    **{key: road[key] for key in ("lane_split_trunk", "lane_split_trunk_nodes", "lane_split_branch") if key in road},
                 }
             )
 
@@ -1367,16 +1425,21 @@ class TerrainWorkflow:
         def ground_at(x, y):
             return sample_heightmap_bilinear(heights, terrain_origin_x, terrain_origin_y, config.TERRAIN_SQUARE_SIZE, np.column_stack([x, y]))
 
+        bridge_roads = [road for road in structure_road_polygons if road.get("structure_type") == "bridge"]
+        groups = _bridge_groups(
+            bridge_roads,
+            reach=config.ROAD_LANE_SPLIT_MAX_CONNECTOR + config.ROAD_LANE_SPLIT_LENGTH + config.BRIDGE_GROUP_EXTRA_REACH,
+        )
         bridges = [
             {
                 "id": road["road_id"],
+                "group": groups.get(road["road_id"]),
                 "coords": road["trimmed_centerline"],
                 "width": config.OSM_MAPPER.get_road_properties(road.get("osm_tags", {}))["width"],
                 "deck_material": f"{config.OSM_MAPPER.get_road_properties(road.get('osm_tags', {})).get('internal_name', 'road_default')}_structure",
                 "widths": _widths_along(road["trimmed_centerline"], (bridge_widths or {}).get(road["road_id"])),
             }
-            for road in structure_road_polygons
-            if road.get("structure_type") == "bridge"
+            for road in bridge_roads
         ]
         return build_bridges(
             bridges,

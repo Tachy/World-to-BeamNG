@@ -237,10 +237,30 @@ def test_road_width_specs_start_a_split_branch_with_its_slot_width():
     width = config.OSM_MAPPER.get_road_properties({"highway": "primary", "lanes": "2"})["width"]
     trunk = poly(1, [(-40.0, 0.0), (0.0, 0.0)], lane_split_trunk={"end"})
     branch = poly(2, [(0.0, 0.0), (20.0, 0.0), (40.0, 0.0), (60.0, 0.0)],
-                  lane_split_branch={"end": "start", "slot_width": width - 2.0, "length": 30.0})
+                  lane_split_branch={"end": "start", "slot_width": width - 2.0, "hold": 0.0, "length": 30.0})
 
     specs, node_lists = _road_width_specs([trunk, branch])
 
     assert node_lists[0][-1][3] == pytest.approx(width)
     assert node_lists[1][0][3] == pytest.approx(width - 2.0)
     assert node_lists[1][-1][3] == pytest.approx(width)
+
+
+def test_bridge_groups_join_the_bridges_of_a_lane_split_and_their_nearby_continuations():
+    from world_to_beamng.workflow.terrain_workflow import _bridge_groups
+
+    def bridge(road_id, coords, **extra):
+        return {"road_id": road_id, "structure_type": "bridge", "trimmed_centerline": np.array([(x, y, 100.0) for x, y in coords]), **extra}
+
+    node = (0.0, 0.0)
+    trunk = bridge(1, [(-40.0, 0.0), (0.0, 0.0)], lane_split_trunk_nodes=[node])
+    main = bridge(2, [(0.0, 0.0), (15.0, 0.0)], lane_split_branch={"node": node})
+    ramp = bridge(3, [(0.0, 4.9), (30.0, 12.0)], lane_split_branch={"node": node})
+    main_next = bridge(4, [(15.0, 0.0), (60.0, 0.0)])  # continues the main road 15 m from the node: same structure
+    far_away = bridge(5, [(60.0, 0.0), (120.0, 0.0)])  # joint 60 m from the node: its own bridge
+    other = bridge(6, [(500.0, 0.0), (540.0, 0.0)])
+
+    groups = _bridge_groups([trunk, main, ramp, main_next, far_away, other], reach=50.0)
+
+    assert groups[1] == groups[2] == groups[3] == groups[4]
+    assert 5 not in groups and 6 not in groups

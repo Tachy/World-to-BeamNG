@@ -146,7 +146,7 @@ def find_lane_splits(
     for members in clusters.values():
         if len(members) < 3 or len({id(ends[i].road) for i in members}) != len(members):
             continue
-        node = tuple(np.mean([points[i] for i in members], axis=0))
+        node = tuple(float(v) for v in np.mean([points[i] for i in members], axis=0))
         candidates = [s for s in (_split_with_trunk(ends, members, t, node, width_of) for t in members) if s]
         if len(candidates) == 1:
             splits.append(candidates[0])
@@ -228,32 +228,94 @@ def _branch_pieces(roads, first, at_start, length, endpoint_tol, max_angle_deg):
         road, entry = best[1], best[2]
 
 
+def _densify(oriented: np.ndarray, offset: float, until: float, step: float) -> np.ndarray:
+    """Adds points every `step` meters (x, y, z linear) wherever the arc length from the node (`offset` at the first
+    point) is below `until` - the held stretch runs straight, not along the few OSM points of a diverging ramp."""
+    result = [oriented[0]]
+    s = offset
+    for a, b in zip(oriented[:-1], oriented[1:]):
+        seg = float(np.linalg.norm(b[:2] - a[:2]))
+        if seg > step and s < until:
+            count = int(np.ceil(seg / step))
+            result.extend(a + (b - a) * (k / count) for k in range(1, count))
+        result.append(b)
+        s += seg
+    return np.asarray(result)
+
+
+def _connector_length(arc: np.ndarray, lateral: np.ndarray, slot: float, max_connector: float,
+                      tol: float = 0.25, plateau: float = 0.1, window: float = 2.0) -> float:
+    """Arc length at which OSM's branch has reached its lane centre: its lateral offset from the trunk axis comes within
+    `tol` of the slot offset, or stops growing (less than `plateau` over `window` meters) after covering half of it -
+    OSM's lane centre is not exactly our slot. At most max_connector (and the branch's length)."""
+    limit = min(max_connector, float(arc[-1]))
+    target = abs(slot)
+    if target < tol:
+        return 0.0
+    sign = 1.0 if slot > 0.0 else -1.0
+    for s in np.arange(0.0, limit, 0.5):
+        here = sign * float(np.interp(s, arc, lateral))
+        if here >= target - tol:
+            return float(s)
+        ahead = sign * float(np.interp(s + window, arc, lateral))
+        if s >= window and here >= 0.5 * target and ahead - here < plateau:
+            return float(s)
+    return limit
+
+
 def shift_branches_into_slots(
-    splits: List[LaneSplit], roads: List[Dict], length: float, endpoint_tol: float = 0.5, max_angle_deg: float = 30.0
+    splits: List[LaneSplit], roads: List[Dict], max_connector: float, length: float, endpoint_tol: float = 0.5,
+    max_angle_deg: float = 60.0, step: float = 2.0,
 ) -> None:
     """
-    Moves every branch (x, y; z stays) so that at the node it lies in its lanes of the trunk's cross-section: the
-    shift is the branch's slot offset there and fades out with a smoothstep over `length` meters - along straight
-    continuations of the branch where one piece is shorter, never further than the branch reaches. Bridges and
-    ground roads are treated alike. Marks the first piece of every branch with "lane_split_branch" (the node end,
-    its slot width and the fade length) and the trunk with "lane_split_trunk" (its ends at split nodes).
+    OSM draws every branch from the node to the centre of its lane first - a symbolic connector - and only from there
+    along the lane. That connector is replaced by a straight run in the branch's slot (its lanes of the trunk's
+    cross-section, starting at the node) up to where OSM's branch reaches its lane centre (at most max_connector
+    meters, see _connector_length()); from there the branch follows its OSM course. Only the small difference between
+    OSM's lane centre and the slot fades out with a smoothstep over `length` meters, so the carriageways lie side by side
+    at first. The branch is followed along straight continuations where one piece is shorter; bridges and ground roads
+    are treated alike; the kink where OSM's connector turns into the lane may be up to max_angle_deg. Marks the first piece of every branch with "lane_split_branch" (the node end, its slot width,
+    the connector length as "hold", the fade length and the node) and the trunk with "lane_split_trunk" (its ends at
+    split nodes) and "lane_split_trunk_nodes".
     """
     for split in splits:
         split.trunk.setdefault("lane_split_trunk", set()).add("start" if split.trunk_at_start else "end")
+        split.trunk.setdefault("lane_split_trunk_nodes", []).append(split.node)
+        node = np.asarray(split.node, dtype=float)
+        normal = np.asarray(split.left_normal, dtype=float)
         for branch in split.branches:
-            pieces, reach = _branch_pieces(roads, branch.road, branch.at_start, length, endpoint_tol, max_angle_deg)
-            fade = min(length, reach)
-            branch.road["lane_split_branch"] = {
-                "end": "start" if branch.at_start else "end", "slot_width": branch.slot_width, "length": fade,
-            }
-            if fade <= 0.0 or float(np.linalg.norm(branch.slot_offset)) < 1e-9:
-                continue
+            pieces, reach = _branch_pieces(roads, branch.road, branch.at_start, max_connector + length, endpoint_tol, max_angle_deg)
+            oriented_pieces = []
             for road, entry, offset in pieces:
                 coords = np.asarray(road["coords"], dtype=float)
                 oriented = coords if entry else coords[::-1]
                 arc = offset + np.concatenate([[0.0], np.cumsum(np.linalg.norm(np.diff(oriented[:, :2], axis=0), axis=1))])
-                factor = 1.0 - _smoothstep(arc / fade)
+                oriented_pieces.append((road, entry, offset, oriented, arc))
+            chain_arc = np.concatenate([p[4] for p in oriented_pieces])
+            chain_xy = np.vstack([p[3][:, :2] for p in oriented_pieces])
+            lateral = (chain_xy - node) @ normal
+            slot = float(branch.slot_offset @ normal)
+            connector = _connector_length(chain_arc, lateral, slot, max_connector)
+            blend = max(0.0, min(length, reach - connector))
+            branch.road["lane_split_branch"] = {
+                "end": "start" if branch.at_start else "end", "slot_width": branch.slot_width, "hold": connector,
+                "length": blend, "node": split.node,
+            }
+            at_lane = np.array([np.interp(connector, chain_arc, chain_xy[:, 0]), np.interp(connector, chain_arc, chain_xy[:, 1])])
+            correction = (slot - float((at_lane - node) @ normal)) * normal
+            start, lane_point = node + branch.slot_offset, at_lane + correction
+            if connector + blend <= 0.0 and float(np.linalg.norm(correction)) < 1e-9:
+                continue
+            for road, entry, offset, oriented, _ in oriented_pieces:
+                oriented = _densify(oriented, offset, connector + blend, step)
+                arc = offset + np.concatenate([[0.0], np.cumsum(np.linalg.norm(np.diff(oriented[:, :2], axis=0), axis=1))])
+                fade = 1.0 - (_smoothstep((arc - connector) / blend) if blend > 0.0 else (arc > connector).astype(float))
+                shifted = oriented[:, :2] + fade[:, None] * correction[None, :]
+                on_connector = arc < connector
+                if connector > 0.0:
+                    t = (arc[on_connector] / connector)[:, None]
+                    shifted[on_connector] = start[None, :] + t * (lane_point - start)[None, :]
                 oriented = oriented.copy()
-                oriented[:, :2] += factor[:, None] * branch.slot_offset[None, :]
+                oriented[:, :2] = shifted
                 result = oriented if entry else oriented[::-1]
                 road["coords"] = [tuple(float(v) for v in point) for point in result]
