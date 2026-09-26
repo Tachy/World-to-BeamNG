@@ -147,3 +147,33 @@ def test_carriageway_uvs_follow_the_decal_road_layout():
 
     assert set(np.round(uv[:, 0], 6)) == {0.0, 1.0}
     assert uv[:, 1].min() == pytest.approx(0.0) and uv[:, 1].max() == pytest.approx(60.0 / 5.0)
+
+
+def test_bridge_deck_curbs_and_railing_follow_a_width_that_changes_along_the_bridge():
+    coords = [(x, 5.0, 200.0) for x in (0.0, 20.0, 40.0, 60.0)]
+    widths = [6.5, 6.5, 9.75, 9.75]  # widens on the second half (lane change)
+
+    mesh = build_bridge_mesh(coords, width=6.5, widths=widths, ground_at=_flat_ground(150.0), deck_material=DECK,
+                             pier_material=PIER, railing_material=RAIL, curb_width=0.4, pier_spacing=1000.0)
+    v = mesh["vertices"]
+
+    def half_at(x, material, z):
+        ys = [abs(v[i][1] - 5.0) for f in mesh["faces"][material] for i in f
+              if abs(v[i][0] - x) < 1e-6 and abs(v[i][2] - z) < 1e-6]
+        return max(ys)
+
+    assert half_at(0.0, PIER, 200.2) == pytest.approx(3.25 + 0.4)  # curb outer edge, narrow end
+    assert half_at(60.0, PIER, 200.2) == pytest.approx(4.875 + 0.4)  # and at the wide end
+    up = [f for f in mesh["faces"][DECK] if mesh["normals"][f[0]][2] > 0.99]
+    road_half = {round(v[i][0]): abs(v[i][1] - 5.0) for f in up for i in f}
+    assert road_half[0] == pytest.approx(3.25) and road_half[60] == pytest.approx(4.875)  # carriageway = the width
+    assert road_half[40] == pytest.approx(4.875)
+
+
+def test_bridge_without_widths_keeps_the_constant_width():
+    a = build_bridge_mesh(_coords(n=3), width=8.0, ground_at=_flat_ground(150.0), deck_material=DECK,
+                          pier_material=PIER, railing_material=RAIL, pier_spacing=1000.0)
+    b = build_bridge_mesh(_coords(n=3), width=8.0, widths=[8.0, 8.0, 8.0], ground_at=_flat_ground(150.0),
+                          deck_material=DECK, pier_material=PIER, railing_material=RAIL, pier_spacing=1000.0)
+
+    assert np.allclose(a["vertices"], b["vertices"])

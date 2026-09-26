@@ -9,7 +9,7 @@ passed `coords`. Only the piers reach down to the natural terrain below (`ground
 follow the deck height profile, not the terrain.
 """
 
-from typing import Callable, Dict, List, Sequence, Tuple
+from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -99,10 +99,13 @@ def build_bridge_mesh(
     railing_post_size: float = 0.08,
     tile_m: float = 5.0,
     road_texture_length: float = 5.0,
+    widths: Optional[Sequence[float]] = None,
 ) -> Dict:
     """
     Deck, curb, railing and pier mesh for a bridge along `coords` (already the
-    bridge height profile, x,y,z per point).
+    bridge height profile, x,y,z per point). `widths` (per coordinate, default: `width` everywhere) lets the width
+    change along the bridge - at the transition to a road of a different width (see
+    geometry/road_width_transitions.py); deck, curbs and railing follow it.
 
     Cross section from outside to inside: railing (posts + handrail) - curb (curb_width/curb_height,
     pier_material) - carriageway (deck_material, exactly `width` wide). Curb and railing stand OUTSIDE the carriageway,
@@ -120,8 +123,15 @@ def build_bridge_mesh(
     curb_top = top + curb_height
 
     # inner = carriageway edge (= curb inner face), outer = curb outer edge = deck slab edge
-    inner_left, inner_right = offset_points(xy, width / 2.0, closed=False)
-    outer_left, outer_right = offset_points(xy, width / 2.0 + curb_width, closed=False)
+    half = (np.full(len(xy), width) if widths is None else np.asarray(widths, dtype=float)) / 2.0
+    unit_left, unit_right = offset_points(xy, 1.0, closed=False)  # the miter offset is linear in the distance
+
+    def offset_by(unit_edge, distance):
+        return xy + (unit_edge - xy) * distance[:, None]
+
+    inner_left, inner_right = offset_by(unit_left, half), offset_by(unit_right, half)
+    outer_left, outer_right = offset_by(unit_left, half + curb_width), offset_by(unit_right, half + curb_width)
+    width = float(np.mean(half) * 2.0)  # UV scale only
 
     cum = _arc_length(xy)
     along = cum / tile_m
@@ -281,7 +291,8 @@ def build_bridges(
     railing_post_size: float = 0.08,
     road_texture_length: float = 5.0,
 ) -> List[Dict]:
-    """Mesh dicts for the DAE export, one per bridge (`bridges`: [{"id","coords","width","deck_material"}, ...])."""
+    """Mesh dicts for the DAE export, one per bridge (`bridges`: [{"id","coords","width","deck_material"}, ...];
+    optional "widths": width per coordinate, see build_bridge_mesh())."""
     meshes = []
     for bridge in bridges:
         coords = bridge["coords"]
@@ -292,7 +303,7 @@ def build_bridges(
             deck_thickness=deck_thickness, pier_spacing=pier_spacing, pier_size=pier_size, min_pier_clearance=min_pier_clearance,
             curb_width=curb_width, curb_height=curb_height, railing_height=railing_height,
             railing_post_spacing=railing_post_spacing, railing_post_size=railing_post_size,
-            road_texture_length=road_texture_length,
+            road_texture_length=road_texture_length, widths=bridge.get("widths"),
         )
         meshes.append({"id": f"bridge_{bridge['id']}", **mesh})
     return meshes

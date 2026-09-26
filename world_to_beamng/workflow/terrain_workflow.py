@@ -99,6 +99,21 @@ def _guardrail_instances(specs: List[Tuple[Dict, Dict, List]], node_lists: List[
     return items
 
 
+def _widths_along(coords, nodes) -> Optional[np.ndarray]:
+    """Width per coordinate of `coords` from DecalRoad `nodes` [x, y, z, width], by arc length (None without nodes). The
+    node list is the same polyline with some nodes dropped or inserted, so the arc lengths agree closely."""
+    if nodes is None or len(nodes) < 2:
+        return None
+    points, node_array = np.asarray(coords, dtype=float), np.asarray(nodes, dtype=float)
+
+    def arc(xy):
+        return np.concatenate([[0.0], np.cumsum(np.linalg.norm(np.diff(xy[:, :2], axis=0), axis=1))])
+
+    node_arc, point_arc = arc(node_array), arc(points)
+    scale = node_arc[-1] / point_arc[-1] if point_arc[-1] > 0.0 else 1.0
+    return np.interp(point_arc * scale, node_arc, node_array[:, 3])
+
+
 def _bridge_footprints(bridge_roads: List[Dict], extra: float) -> List[Dict]:
     """Bridge outlines for vegetation rules: {"road_polygon" (carriageway polygon widened by `extra` - curbs plus margin),
     "trimmed_centerline"} per bridge (see road_embedding.near_deck_mask())."""
@@ -392,7 +407,7 @@ def _road_marking_lines(specs: List[Tuple[Dict, Dict, List]], node_lists: List[L
         for poly, props, _ in specs
     ]
     # The centre line of a narrower road (2 lanes) runs onto the double line of a wider one (3+ lanes) over the transition
-    fixed = [poly.get("structure_type", "surface") != "surface" for poly, _, _ in specs]
+    fixed = [poly.get("structure_type") in config.ROAD_FIXED_WIDTH_STRUCTURES for poly, _, _ in specs]
     shifts = boundary_shifts(node_lists, layouts, [float(props.get("width", 4.0)) for _, props, _ in specs], pairs, fixed)
     # At a structure the road's lines are aligned with the structure's 50 m before it (the width still changes up to it)
     for road_index, shift in structure_boundary_shifts(
@@ -1173,8 +1188,13 @@ class TerrainWorkflow:
         )
         return meshes, stats
 
-    def _build_bridges(self, structure_road_polygons: List[Dict], heights: np.ndarray, terrain_origin_x: float, terrain_origin_y: float) -> List[Dict]:
-        """Bridge meshes (deck + piers) for all roads with structure_type == "bridge" (see bridges/bridge_mesh.py)."""
+    def _build_bridges(
+        self, structure_road_polygons: List[Dict], heights: np.ndarray, terrain_origin_x: float, terrain_origin_y: float,
+        bridge_widths: Optional[Dict] = None,
+    ) -> List[Dict]:
+        """Bridge meshes (deck + piers) for all roads with structure_type == "bridge" (see bridges/bridge_mesh.py).
+        `bridge_widths`: road id -> DecalRoad nodes [x, y, z, width] with the blended widths (export_decal_roads()); the
+        deck follows them."""
         from ..bridges.bridge_mesh import build_bridges
         from ..terrain.road_embedding import sample_heightmap_bilinear
 
@@ -1187,6 +1207,7 @@ class TerrainWorkflow:
                 "coords": road["trimmed_centerline"],
                 "width": config.OSM_MAPPER.get_road_properties(road.get("osm_tags", {}))["width"],
                 "deck_material": f"{config.OSM_MAPPER.get_road_properties(road.get('osm_tags', {})).get('internal_name', 'road_default')}_structure",
+                "widths": _widths_along(road["trimmed_centerline"], (bridge_widths or {}).get(road["road_id"])),
             }
             for road in structure_road_polygons
             if road.get("structure_type") == "bridge"
@@ -1218,6 +1239,12 @@ class TerrainWorkflow:
         """
         bridges_dir = config.BEAMNG_DIR_SHAPES / "bridges"
         meshes = mesh_data.get("bridge_meshes") or []
+        if mesh_data.get("bridge_widths") and mesh_data.get("heightmap") is not None:
+            # Rebuild with the widths of the transitions computed in export_decal_roads() (the deck follows them)
+            meshes = self._build_bridges(
+                mesh_data["structure_road_polygons"], mesh_data["heightmap"], mesh_data["terrain_origin_x"],
+                mesh_data["terrain_origin_y"], mesh_data["bridge_widths"],
+            )
         if not config.BRIDGES_ENABLED or not meshes:
             for suffix in (".dae", ".cdae"):
                 (bridges_dir / f"bridges{suffix}").unlink(missing_ok=True)
@@ -1671,7 +1698,7 @@ class TerrainWorkflow:
             lanes=[lane_count(poly.get("osm_tags", {}), float(props.get("width", 4.0)), config.ROAD_MARKING_MIN_TWO_LANE_WIDTH)
                    for poly, props, _ in specs],
             lane_change_length=config.ROAD_LANE_CHANGE_TRANSITION_LENGTH,
-            fixed=[poly.get("structure_type", "surface") != "surface" for poly, _, _ in specs],
+            fixed=[poly.get("structure_type") in config.ROAD_FIXED_WIDTH_STRUCTURES for poly, _, _ in specs],
             fixed_transition_length=config.ROAD_STRUCTURE_TRANSITION_LENGTH,
         )
 
@@ -1683,6 +1710,13 @@ class TerrainWorkflow:
         decal_node_lists = close_continuation_gaps(
             node_lists, config.ROAD_CONTINUATION_ENDPOINT_TOL, config.ROAD_CONTINUATION_MAX_ANGLE_DEG
         )
+
+        # Bridges follow the blended widths of the transitions: export_bridges() rebuilds the deck from them
+        mesh_data["bridge_widths"] = {
+            poly["road_id"]: nodes
+            for (poly, _, _), nodes in zip(specs, node_lists)
+            if poly.get("structure_type") == "bridge"
+        }
 
         count = 0
         for (poly, props, _), nodes in zip(specs, decal_node_lists):

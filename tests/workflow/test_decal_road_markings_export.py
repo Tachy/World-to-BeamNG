@@ -248,16 +248,45 @@ def test_lane_change_from_two_to_three_lanes_blends_over_100_m():
     assert widths_a[-50] == pytest.approx(6.5) and widths_a[-25] > 6.5  # zone starts 50 m before the joint
 
 
-def test_width_change_toward_a_bridge_lies_on_the_road(monkeypatch):
+def test_width_change_toward_a_tunnel_lies_on_the_road(monkeypatch):
+    monkeypatch.setattr(config, "STRUCTURE_AI_ROADS", True)
+    road = _poly(1, [(x, 0) for x in range(-200, 1)], highway="primary", lanes="3")
+    tunnel = dict(_poly(2, [(x, 0) for x in range(0, 201)], highway="primary", lanes="2", tunnel="yes"), structure_type="tunnel")
+
+    _, roads, _ = _export([road, tunnel])
+
+    widths = _widths(roads, 1)
+    assert widths[-100] == pytest.approx(9.75) and widths[0] == pytest.approx(6.5)
+    assert all(w == pytest.approx(6.5) for w in _widths(roads, 2).values())  # the tunnel keeps its width everywhere
+
+
+def test_bridge_width_changes_along_the_transition_like_a_normal_road(monkeypatch):
+    # Bridges are not fixed: the transition (100 m, 50 m on each side for a lane change) also narrows the bridge
     monkeypatch.setattr(config, "STRUCTURE_AI_ROADS", True)
     road = _poly(1, [(x, 0) for x in range(-200, 1)], highway="primary", lanes="3")
     bridge = dict(_poly(2, [(x, 0) for x in range(0, 201)], highway="primary", lanes="2", bridge="yes"), structure_type="bridge")
 
     _, roads, _ = _export([road, bridge])
 
-    widths = _widths(roads, 1)
-    assert widths[-100] == pytest.approx(9.75) and widths[0] == pytest.approx(6.5)
-    assert all(w == pytest.approx(6.5) for w in _widths(roads, 2).values())
+    on_road, on_bridge = _widths(roads, 1), _widths(roads, 2)
+    assert on_road[-50] == pytest.approx(9.75) and on_road[0] == pytest.approx((9.75 + 6.5) / 2.0)
+    assert on_bridge[0] == pytest.approx((9.75 + 6.5) / 2.0) and on_bridge[50] == pytest.approx(6.5)
+    assert on_bridge[100] == pytest.approx(6.5)
+
+
+def test_export_hands_the_blended_bridge_widths_to_the_bridge_export(monkeypatch):
+    monkeypatch.setattr(config, "STRUCTURE_AI_ROADS", True)
+    road = _poly(1, [(x, 0) for x in range(-200, 1)], highway="primary", lanes="3")
+    bridge = dict(_poly(2, [(x, 0) for x in range(0, 201)], highway="primary", lanes="2", bridge="yes"), structure_type="bridge")
+    mesh_data = {"road_slope_polygons_2d": [road, bridge]}
+    stub = SimpleNamespace(items=_RecordingItems(), materials=SimpleNamespace(materials={}),
+                           _export_structure_road_assets=lambda lines: None)
+
+    TerrainWorkflow.export_decal_roads(stub, mesh_data)
+
+    nodes = np.asarray(mesh_data["bridge_widths"][2])
+    assert nodes[0][3] == pytest.approx((9.75 + 6.5) / 2.0) and nodes[-1][3] == pytest.approx(6.5)
+    assert 1 not in mesh_data["bridge_widths"]  # only bridges
 
 
 def _export_lines(polys):
