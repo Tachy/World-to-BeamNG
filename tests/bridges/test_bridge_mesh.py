@@ -110,14 +110,14 @@ def test_piers_reach_down_into_the_ground_below_a_deep_span():
     assert _zs(mesh, PIER).min() == pytest.approx(145.0)  # (at least) one pier stands 5 m below the natural ground
 
 
-def test_piers_are_two_thirds_of_the_bridge_width_wide_and_a_third_of_that_thick():
+def test_piers_are_half_the_bridge_width_wide_and_half_of_that_thick():
     mesh = build_bridge_mesh(_coords(length=60.0, z=200.0), width=9.0, ground_at=_flat_ground(150.0), deck_material=DECK, pier_material=PIER, railing_material=RAIL, pier_spacing=25.0)
 
     vertices = np.array([mesh["vertices"][i] for face in mesh["faces"][PIER] for i in face])
     pier = vertices[vertices[:, 2] < 190.0]  # far below the deck: pier vertices only
     at_first_pier = pier[np.abs(pier[:, 0] - 25.0) < 5.0]
-    assert np.ptp(at_first_pier[:, 1]) == pytest.approx(6.0)  # across the road: 2/3 of 9 m
-    assert np.ptp(at_first_pier[:, 0]) == pytest.approx(2.0)  # along the road: 1/3 of that
+    assert np.ptp(at_first_pier[:, 1]) == pytest.approx(4.5)  # across the road: 1/2 of 9 m
+    assert np.ptp(at_first_pier[:, 0]) == pytest.approx(2.25)  # along the road: 1/2 of that
 
 
 def test_no_piers_when_clearance_is_too_small():
