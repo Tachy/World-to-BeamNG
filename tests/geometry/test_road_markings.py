@@ -359,3 +359,85 @@ def test_forced_double_centre_line_for_two_lane_roads():
 
     assert two_way == MarkingLayout(lanes=2, forward=1)
     assert oneway == MarkingLayout(lanes=2) and single == MarkingLayout(lanes=1)
+
+
+# --- at structures the lines are aligned 50 m before the structure --------------------------------------------------------
+from world_to_beamng.geometry.road_markings import structure_boundary_shifts  # noqa: E402
+from world_to_beamng.geometry.road_width_transitions import smoothstep  # noqa: E402
+
+SPAN, DONE = 100.0, 50.0
+
+
+def _approach(x0, width_fn, step=10.0):
+    xs = np.arange(x0, 0.001, step)
+    return [[float(x), 0.0, 100.0, float(width_fn(-x))] for x in xs]  # width_fn(distance to the structure)
+
+
+def _struct(x1, width, step=10.0):
+    return [[float(x), 0.0, 100.0, float(width)] for x in np.arange(0.0, x1 + 0.001, step)]
+
+
+def _wide_to_narrow(d):  # 3-lane width 9.75 -> 6.5 over 100 m before the structure
+    return 6.5 + 3.25 * smoothstep(min(d, 100.0) / 100.0)
+
+
+def _boundary(width, lanes, forward):
+    return direction_boundary_offset(width, lanes, forward)
+
+
+def test_road_lines_are_aligned_with_the_structure_50_m_before_it():
+    road, tunnel = _approach(-200.0, _wide_to_narrow), _struct(100.0, 6.5)
+    layouts = [MarkingLayout(lanes=3, forward=1), MarkingLayout(lanes=2, forward=1)]
+
+    shifts = structure_boundary_shifts([road, tunnel], layouts, [False, True], [((0, "end"), (1, "start"))], SPAN, DONE)
+
+    widths = np.array([n[3] for n in road])
+    own = np.array([_boundary(w, 3, 1) for w in widths])
+    distance = -np.array([n[0] for n in road])
+    aligned = own + shifts[0]
+    assert aligned[distance <= DONE + 1e-9] == pytest.approx(_boundary(6.5, 2, 1))  # exactly the structure's boundary
+    assert shifts[0][distance >= SPAN - 1e-9] == pytest.approx(0.0)  # untouched from 100 m before
+    assert 1 not in shifts  # the structure keeps its lines
+
+
+def test_shift_is_mirrored_for_opposite_digitization():
+    road = _approach(-200.0, _wide_to_narrow)
+    tunnel = _struct(100.0, 9.75)[::-1]  # digitized toward the joint
+    layouts = [MarkingLayout(lanes=2, forward=1), MarkingLayout(lanes=3, forward=1)]
+
+    same = structure_boundary_shifts([road, _struct(100.0, 9.75)], layouts, [False, True], [((0, "end"), (1, "start"))], SPAN, DONE)
+    opposite = structure_boundary_shifts([road, tunnel], layouts, [False, True], [((0, "end"), (1, "end"))], SPAN, DONE)
+
+    assert opposite[0][-1] == pytest.approx(-_boundary(9.75, 3, 1) - _boundary(6.5, 2, 1))  # mirrored target
+    assert same[0][-1] == pytest.approx(_boundary(9.75, 3, 1) - _boundary(6.5, 2, 1))
+
+
+def test_shift_continues_across_road_pieces():
+    first = [[float(x), 0.0, 100.0, 9.75] for x in np.arange(-200.0, -59.0, 10.0)]
+    second = _approach(-60.0, _wide_to_narrow)
+    tunnel = _struct(100.0, 6.5)
+    layouts = [MarkingLayout(lanes=3, forward=1)] * 2 + [MarkingLayout(lanes=2, forward=1)]
+
+    shifts = structure_boundary_shifts([first, second, tunnel], layouts, [False, False, True],
+                                       [((0, "end"), (1, "start")), ((1, "end"), (2, "start"))], SPAN, DONE)
+
+    assert shifts[1][-1] > 0.0 and shifts[1][0] > 0.0  # the second piece lies within 100 m of the tunnel
+    assert shifts[0][-1] > 0.0  # 60 m before the tunnel: in the first piece, still within the zone
+    assert shifts[0][0] == pytest.approx(0.0)  # 200 m before it: outside
+
+
+def test_no_structure_shift_when_the_boundary_is_already_at_the_structures():
+    road = [[float(x), 0.0, 100.0, 6.5] for x in np.arange(-100.0, 0.1, 10.0)]
+    layouts = [MarkingLayout(lanes=2), MarkingLayout(lanes=2, forward=1)]
+
+    shifts = structure_boundary_shifts([road, _struct(50.0, 6.5)], layouts, [False, True], [((0, "end"), (1, "start"))], SPAN, DONE)
+
+    assert shifts == {} or np.allclose(shifts[0], 0.0)
+
+
+def test_boundary_shifts_leave_structure_joints_to_the_structure_rule():
+    narrow = _road_nodes(np.arange(-20.0, 1.0, 10.0), [6.5, 7.0, 8.125])
+    wide = _road_nodes(np.arange(0.0, 21.0, 10.0), [8.125, 9.75, 9.75])
+
+    assert boundary_shifts([narrow, wide], [MarkingLayout(lanes=2), MarkingLayout(lanes=3, forward=1)], [6.5, 9.75],
+                           [((0, "end"), (1, "start"))], fixed=[False, True]) == {}

@@ -354,6 +354,7 @@ def _road_marking_lines(specs: List[Tuple[Dict, Dict, List]], node_lists: List[L
     from ..geometry.road_markings import (
         CENTER,
         EDGE,
+        structure_boundary_shifts,
         boundary_shifts,
         build_marking_lines,
         clip_line,
@@ -391,7 +392,13 @@ def _road_marking_lines(specs: List[Tuple[Dict, Dict, List]], node_lists: List[L
         for poly, props, _ in specs
     ]
     # The centre line of a narrower road (2 lanes) runs onto the double line of a wider one (3+ lanes) over the transition
-    shifts = boundary_shifts(node_lists, layouts, [float(props.get("width", 4.0)) for _, props, _ in specs], pairs)
+    fixed = [poly.get("structure_type", "surface") != "surface" for poly, _, _ in specs]
+    shifts = boundary_shifts(node_lists, layouts, [float(props.get("width", 4.0)) for _, props, _ in specs], pairs, fixed)
+    # At a structure the road's lines are aligned with the structure's 50 m before it (the width still changes up to it)
+    for road_index, shift in structure_boundary_shifts(
+        node_lists, layouts, fixed, pairs, config.ROAD_STRUCTURE_TRANSITION_LENGTH, config.ROAD_STRUCTURE_LINES_DONE_AT
+    ).items():
+        shifts[road_index] = shifts.get(road_index, 0.0) + shift
 
     lines = []
     for index, ((poly, props, _), nodes) in enumerate(zip(specs, node_lists)):

@@ -308,3 +308,27 @@ def test_two_lane_centre_line_runs_onto_the_double_line_of_the_three_lane_road()
     assert len(divider) == 1 and len(centers) == 2
     assert divider[0] == pytest.approx(sum(centers) / 2.0, abs=0.1)  # the single line ends where the double line begins
     assert divider[0] < -1.0  # and that is not the middle of the carriageway any more
+
+
+def test_road_lines_reach_the_tunnels_double_line_50_m_before_the_tunnel(monkeypatch):
+    monkeypatch.setattr(config, "STRUCTURE_AI_ROADS", True)
+    road = _poly(1, [(x, 0) for x in range(-300, 1)], highway="primary", lanes="3",
+                 **{"lanes:forward": "1", "lanes:backward": "2"})
+    tunnel = dict(_poly(2, [(x, 0) for x in range(0, 201)], highway="primary", lanes="2", tunnel="yes"),
+                  structure_type="tunnel")
+    captured = {}
+    stub = SimpleNamespace(items=_RecordingItems(), materials=SimpleNamespace(materials={}),
+                           _export_structure_road_assets=lambda lines: captured.setdefault("lines", lines))
+    TerrainWorkflow.export_decal_roads(stub, {"road_slope_polygons_2d": [road, tunnel]})
+
+    solid = [r for n, r in _markings(stub.items.roads).items()
+             if n.startswith("marking_1_") and r["material"] == config.ROAD_MARKING_CENTER_MATERIAL]
+    centre = []
+    for line in solid:
+        near = [node for node in line["nodes"] if -50.0 <= node[0] <= -1.0]
+        if near and all(abs(node[1]) < 2.0 for node in near):
+            centre.append(sum(node[1] for node in near) / len(near))
+    tunnel_double = sorted(l["nodes"][0][1] for l in captured["lines"] if l["material"] == config.ROAD_MARKING_CENTER_MATERIAL
+                           and l["name"].startswith("marking_2_") and abs(l["nodes"][0][1]) < 1.0)
+    assert len(centre) == 2 and len(tunnel_double) == 2
+    assert sorted(centre) == pytest.approx(tunnel_double, abs=0.1)  # same double line as inside the tunnel

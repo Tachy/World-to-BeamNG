@@ -114,17 +114,20 @@ def direction_boundary_offset(width: float, lanes: int, forward: int) -> float:
     return -width / 2.0 + forward * width / lanes
 
 
-def boundary_shifts(roads, layouts, own_widths, pairs) -> Dict[int, np.ndarray]:
+def boundary_shifts(roads, layouts, own_widths, pairs, fixed=None) -> Dict[int, np.ndarray]:
     """
     Lateral shift of the direction boundary per node for roads that continue straight into a road with MORE lanes
     and a double centre line (`pairs` from find_continuations(), `layouts` per road, `own_widths` = the roads' own,
     unblended widths). Without it the single centre line of a 2-lane road ends in the middle of the carriageway while
     the double line of the 3-lane road starts a third of the width to the side. At the joint the boundary lies exactly
     where the wider road's double line begins; it follows the width blend (0 where the road has its own width again)
-    over the first half of the road, mirrored if the two roads are digitized in opposite directions.
+    over the first half of the road, mirrored if the two roads are digitized in opposite directions. Joints with a
+    structure (`fixed` True: bridge, tunnel, gallery) are left to structure_boundary_shifts().
     """
     result: Dict[int, np.ndarray] = {}
     for (ia, ea), (ib, eb) in pairs:
+        if fixed is not None and (fixed[ia] or fixed[ib]):
+            continue
         la, lb = layouts[ia], layouts[ib]
         if la is None or lb is None or la.lanes == lb.lanes:
             continue
@@ -145,6 +148,57 @@ def boundary_shifts(roads, layouts, own_widths, pairs) -> Dict[int, np.ndarray]:
         factor = np.clip((nodes[:, 3] - own) / (joint_width - own), 0.0, 1.0)
         shift = target * factor * (from_joint <= arc[-1] / 2.0 + 1e-9)
         result[small] = result.get(small, 0.0) + shift
+    return result
+
+
+def _boundary_line_offset(width: float, layout: "MarkingLayout") -> float:
+    """Offset of the line between the directions of a layout: the double line after `forward` lanes, otherwise the
+    middle divider."""
+    return direction_boundary_offset(width, layout.lanes, layout.forward if layout.forward is not None else layout.lanes // 2)
+
+
+def structure_boundary_shifts(roads, layouts, fixed, pairs, span: float, done_at: float) -> Dict[int, np.ndarray]:
+    """
+    Lateral shift of the direction-boundary line per node for roads that end at a structure (`fixed`: bridge, tunnel,
+    gallery; `pairs` from find_continuations()). The structure keeps its lines; the road's line moves onto the
+    structure's boundary and has done so `done_at` meters before the structure (spline from `span` meters before it),
+    while the carriageway width itself still changes up to the structure. Reaches across the road pieces the road is
+    split into at junctions; mirrored if the two are digitized in opposite directions. Roads without a line between
+    directions (fewer than two lanes) are left alone.
+    """
+    partner = {}
+    for a, b in pairs:
+        partner[a], partner[b] = b, a
+    result: Dict[int, np.ndarray] = {}
+    for (ia, ea), (ib, eb) in pairs:
+        if fixed[ia] == fixed[ib]:
+            continue
+        (struct, struct_end), (road, road_end) = ((ia, ea), (ib, eb)) if fixed[ia] else ((ib, eb), (ia, ea))
+        struct_layout = layouts[struct]
+        if struct_layout is None or struct_layout.lanes < 2 or layouts[road] is None or layouts[road].lanes < 2:
+            continue
+        struct_width = float(roads[struct][0 if struct_end == "start" else -1][3])
+        target = _boundary_line_offset(struct_width, struct_layout)
+        if struct_end == road_end:  # opposite digitization: left and right swap
+            target = -target
+        offset, entry, current, seen = 0.0, road_end, road, set()
+        while current is not None and current not in seen and offset < span:
+            seen.add(current)
+            layout = layouts[current]
+            nodes = np.asarray(roads[current], dtype=float)
+            arc = np.concatenate([[0.0], np.cumsum(np.linalg.norm(np.diff(nodes[:, :2], axis=0), axis=1))])
+            distance = offset + (arc if entry == "start" else arc[-1] - arc)
+            f = np.clip((span - distance) / (span - done_at), 0.0, 1.0)
+            f = f * f * (3.0 - 2.0 * f)  # cubic Hermite spline, 1 within done_at of the structure
+            own = np.array([_boundary_line_offset(w, layout) for w in nodes[:, 3]]) if layout is not None else 0.0
+            if layout is not None:
+                result[current] = result.get(current, 0.0) + f * (target - own)
+            offset += float(arc[-1])
+            far = "end" if entry == "start" else "start"
+            nxt = partner.get((current, far))
+            if nxt is None or fixed[nxt[0]]:
+                break
+            current, entry = nxt
     return result
 
 
