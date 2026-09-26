@@ -217,7 +217,12 @@ def test_roadblocks_are_placed_on_the_ground_and_exported_as_barrier_statics():
 def test_tunnel_zones_are_planned_from_the_config_and_exported_as_zone_objects():
     from world_to_beamng.workflow.terrain_workflow import _tunnel_zone_items
 
-    plans = _plan_tunnels(_tunnel_and_gallery())
+    # 300 m: long enough for the entrance insets (config.TUNNEL_ZONE_ENTRANCE_INSET) at both open portals
+    roads = [
+        _structure(1, [(0.0, 0.0, 500.0), (300.0, 0.0, 500.0)], tunnel="yes"),
+        _structure(2, [(-50.0, 0.0, 500.0), (0.0, 0.0, 500.0)], covered="yes", layer="-1"),
+    ]
+    plans = _plan_tunnels(roads)
     zones = _tunnel_zone_items(plans)
 
     assert zones and all(z["name"].startswith(("tunnel_zone_1_", "tunnel_zone_portal_1_")) for z in zones)  # only the tunnel

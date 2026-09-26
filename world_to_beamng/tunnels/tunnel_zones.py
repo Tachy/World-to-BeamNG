@@ -86,15 +86,20 @@ def plan_tunnel_zones(
     height_margin: float,
     portal_inset: float,
     portal_depth: float,
+    entrance_inset: float = None,
 ) -> List[Dict]:
     """
-    Zone boxes per tunnel plan: the tube from portal_inset behind each portal to the other one is split into sections
+    Zone boxes per tunnel plan: the tube from the inset behind each portal to the other one is split into sections
     (at most max_length long, axis at most max_deviation from the tube axis), one box per section:
     length + end_overlap on each side, width = tube width + width_margin, height = crown + height_margin (half of it
     below the floor and half above the crown), rotated along the axis and tilted with the gradient.
 
     In addition, one shared zoneGroup per tube and a portal at both ends (end face of the zone chain):
     width/height like the zones, portal_depth deep.
+
+    Inset: behind an open portal (tunnel entrance or transition into a gallery - daylight comes in) entrance_inset
+    (default portal_inset), so the darkness only starts some way into the tube; behind a closed end (in the mountain,
+    beyond the map edge) portal_inset. A tube shorter than both insets together stays bright.
 
     Returns:
         [{"class" ("Zone" | "Portal"), "name", "position" (x, y, z), "rotation_matrix", "scale", "fields"}, ...]
@@ -104,9 +109,13 @@ def plan_tunnel_zones(
     for plan in plans:
         coords = np.asarray(plan["coords"], dtype=float)
         total = float(np.hypot(np.diff(coords[:, 0]), np.diff(coords[:, 1])).sum())
-        if total <= 2.0 * portal_inset:
+        start_inset, end_inset = (
+            (entrance_inset if entrance_inset is not None else portal_inset) if portal.get("open", True) else portal_inset
+            for portal in plan["portals"]
+        )
+        if total <= start_inset + end_inset:
             continue
-        points = _points_between(coords, portal_inset, total - portal_inset)
+        points = _points_between(coords, start_inset, total - end_inset)
         group += 1
         width, height = plan["tube_width"] + width_margin, plan["crown"] + height_margin
         for label, at, forward in (("start", points[0], points[1] - points[0]), ("end", points[-1], points[-1] - points[-2])):

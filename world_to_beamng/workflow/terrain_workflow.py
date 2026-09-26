@@ -223,6 +223,7 @@ def _tunnel_zone_items(tunnel_plans: List[Dict]) -> List[Dict]:
         height_margin=config.TUNNEL_ZONE_HEIGHT_MARGIN,
         portal_inset=config.TUNNEL_ZONE_PORTAL_INSET,
         portal_depth=config.TUNNEL_ZONE_PORTAL_DEPTH,
+        entrance_inset=config.TUNNEL_ZONE_ENTRANCE_INSET,
     )
 
 def _road_marking_lines(specs: List[Tuple[Dict, Dict, List]], node_lists: List[List[List[float]]]) -> List[Dict]:

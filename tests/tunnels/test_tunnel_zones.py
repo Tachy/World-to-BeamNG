@@ -123,3 +123,36 @@ def test_zone_on_a_diagonal_tunnel_is_aligned_with_the_tube():
 
     forward, _, _ = _local_axes(zones[0])
     assert forward == pytest.approx([np.sqrt(0.5), np.sqrt(0.5), 0.0], abs=1e-9)
+
+
+def _entrance_zones(plans, **overrides):
+    return plan_tunnel_zones(plans, **{**KW, "entrance_inset": 50.0, **overrides})
+
+
+def test_darkness_starts_50_m_behind_open_tunnel_entrances():
+    plans = _plans([(0.0, 0.0, 500.0), (300.0, 0.0, 500.0)])
+
+    objects = _entrance_zones(plans)
+    zones = [o for o in objects if o["class"] == "Zone"]
+    portals = sorted((o for o in objects if o["class"] == "Portal"), key=lambda p: p["position"][0])
+
+    assert min(z["position"][0] - z["scale"][0] / 2.0 for z in zones) == pytest.approx(50.0 - 0.5)
+    assert max(z["position"][0] + z["scale"][0] / 2.0 for z in zones) == pytest.approx(250.0 + 0.5)
+    assert [p["position"][0] for p in portals] == pytest.approx([50.0, 250.0])  # portals move with the zone faces
+
+
+def test_closed_tunnel_end_keeps_the_short_inset():
+    # An end without an open portal (in the mountain, beyond the map edge) lets no daylight in
+    plans = _plans([(0.0, 0.0, 500.0), (300.0, 0.0, 500.0)])
+    plans[0]["portals"][1]["open"] = False
+
+    zones = [o for o in _entrance_zones(plans) if o["class"] == "Zone"]
+
+    assert min(z["position"][0] - z["scale"][0] / 2.0 for z in zones) == pytest.approx(50.0 - 0.5)
+    assert max(z["position"][0] + z["scale"][0] / 2.0 for z in zones) == pytest.approx(299.0 + 0.5)
+
+
+def test_tunnel_shorter_than_both_entrance_insets_stays_bright():
+    plans = _plans([(0.0, 0.0, 500.0), (90.0, 0.0, 500.0)])
+
+    assert _entrance_zones(plans) == []
