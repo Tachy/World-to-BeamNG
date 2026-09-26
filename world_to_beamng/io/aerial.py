@@ -9,10 +9,12 @@ import math
 from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 from typing import Dict, Optional
+import numpy as np
 from PIL import Image, ImageEnhance
 from io import BytesIO
 from world_to_beamng.logging_config import LoggerConfig
 from .. import config
+from .aerial_bridge_fill import fill_bridge_areas
 
 # This module itself builds large canvases from its own, trusted geodata (it does not open a
 # foreign file) - PIL's decompression bomb protection (default limit ~89.5 million pixels) triggers
@@ -299,7 +301,7 @@ def enhance_dop20_image(image, contrast_factor=1.18, brightness_factor=0.92, col
 AERIAL_PHOTO_FILENAME = "aerial_photo.png"
 
 
-def process_aerial_images(aerial_dir, output_dir, grid_bounds, global_offset, target_pixel_size=None):
+def process_aerial_images(aerial_dir, output_dir, grid_bounds, global_offset, target_pixel_size=None, fill_areas=None):
     """
     Composes all aerial photos into ONE contiguous photo for the entire
     grid_bounds area (instead of many small 500m tiles).
@@ -324,6 +326,7 @@ def process_aerial_images(aerial_dir, output_dir, grid_bounds, global_offset, ta
         grid_bounds: (min_x, max_x, min_y, max_y) in local coordinates
         global_offset: (utm_x, utm_y, utm_z) tuple - UTM offset for the coordinate transformation
         target_pixel_size: Edge length (pixels) of the output photo (default: config.TERRAIN_BASE_TEX_PIXEL_SIZE)
+        fill_areas: bridge outlines ((N, 2) arrays, local coordinates) retouched out of the photo (see aerial_bridge_fill.py)
 
     Returns:
         1 if a photo was saved, otherwise 0
@@ -401,6 +404,7 @@ def process_aerial_images(aerial_dir, output_dir, grid_bounds, global_offset, ta
         return 0
 
     canvas = canvas.resize((target_pixel_size, target_pixel_size), Image.Resampling.LANCZOS)
+    canvas = fill_bridge_areas(canvas, fill_areas or [], grid_bounds)
 
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
@@ -416,7 +420,7 @@ AERIAL_SIGNATURE_VERSION = 2
 SINGLE_PHOTO_NAME = AERIAL_PHOTO_FILENAME[: -len(".png")]  # "aerial_photo"
 
 
-def process_aerial_tiles(aerial_dir, output_dir, photos, global_offset, target_pixel_size=None):
+def process_aerial_tiles(aerial_dir, output_dir, photos, global_offset, target_pixel_size=None, fill_areas=None):
     """
     Four-image mode: builds a separate aerial photo per entry in `photos` (one photo per DGM1 tile).
 
@@ -427,6 +431,7 @@ def process_aerial_tiles(aerial_dir, output_dir, photos, global_offset, target_p
     Args:
         photos: [{"name": "aerial_photo_0", "bounds": (x_min, x_max, y_min, y_max)}] in local coordinates
         global_offset: (utm_x, utm_y, ...) for converting the source image origins to local
+        fill_areas: bridge outlines ((N, 2) arrays, local coordinates) retouched out of the photos (see aerial_bridge_fill.py)
 
     Returns:
         Number of saved photos
@@ -478,9 +483,8 @@ def process_aerial_tiles(aerial_dir, output_dir, photos, global_offset, target_p
     Path(output_dir).mkdir(parents=True, exist_ok=True)
     saved = 0
     for photo, canvas in zip(photos, canvases):
-        canvas.resize((target_pixel_size, target_pixel_size), Image.Resampling.LANCZOS).save(
-            Path(output_dir) / f"{photo['name']}.png", "PNG"
-        )
+        photo_image = canvas.resize((target_pixel_size, target_pixel_size), Image.Resampling.LANCZOS)
+        fill_bridge_areas(photo_image, fill_areas or [], photo["bounds"]).save(Path(output_dir) / f"{photo['name']}.png", "PNG")
         saved += 1
     logger.info(f"  [OK] {saved} tile aerial photos saved")
     return saved
@@ -492,9 +496,10 @@ def _aerial_source_files(aerial_dir):
     return sorted(p.glob("*.zip")) + sorted(p.glob("*.tif")) + sorted(p.glob("*.tiff"))
 
 
-def aerial_photos_signature(aerial_dir, photos, global_offset, target_pixel_size=None):
+def aerial_photos_signature(aerial_dir, photos, global_offset, target_pixel_size=None, fill_areas=None):
     """
-    Describes WHAT the aerial photos were built for: which photos (name + area), origin, resolution, source images.
+    Describes WHAT the aerial photos were built for: which photos (name + area), origin, resolution, source images and
+    the bridge outlines retouched out of them (a moved or new bridge rebuilds the photos).
 
     Without this information the exporter does not detect outdated photos - e.g. the 2 km photo of a single
     DGM1 tile, which would simply be stretched to double the area after switching to four tiles (4 km).
@@ -508,7 +513,21 @@ def aerial_photos_signature(aerial_dir, photos, global_offset, target_pixel_size
         "global_offset": [round(float(v), 3) for v in global_offset[:2]],
         "target_pixel_size": int(target_pixel_size),
         "sources": sources,
+        "bridge_fill": _fill_areas_digest(fill_areas),
     }
+
+
+def _fill_areas_digest(fill_areas):
+    """Short hash of the bridge outlines (rounded to 1 cm), None without any."""
+    if not fill_areas:
+        return None
+    import hashlib
+
+    digest = hashlib.sha1()
+    for area in fill_areas:
+        digest.update(np.round(np.asarray(area, dtype=float)[:, :2], 2).tobytes())
+        digest.update(b"|")
+    return digest.hexdigest()
 
 
 def write_aerial_photo_signature(output_dir, signature):
@@ -539,12 +558,13 @@ def _remove_stale_photos(output_dir, keep_names):
             logger.info(f"  [i] Removed outdated aerial photo: {path.name}")
 
 
-def ensure_aerial_photos(aerial_dir, output_dir, photos, global_offset, target_pixel_size=None):
+def ensure_aerial_photos(aerial_dir, output_dir, photos, global_offset, target_pixel_size=None, fill_areas=None):
     """
     Builds the aerial photos only if they are missing or do not match the current area/tile layout.
 
     Args:
         photos: [{"name", "bounds"}]; a single entry "aerial_photo" = combined photo, otherwise one photo per tile
+        fill_areas: bridge outlines retouched out of the photos (see aerial_bridge_fill.py)
 
     Returns:
         "current" (matches, nothing to do), "built" (newly built), "failed" (build failed)
@@ -553,7 +573,7 @@ def ensure_aerial_photos(aerial_dir, output_dir, photos, global_offset, target_p
     if not Path(aerial_dir).exists() or not _aerial_source_files(aerial_dir):
         return "none"
 
-    signature = aerial_photos_signature(aerial_dir, photos, global_offset, target_pixel_size)
+    signature = aerial_photos_signature(aerial_dir, photos, global_offset, target_pixel_size, fill_areas)
     names = {p["name"] for p in photos}
     if aerial_photo_is_current(output_dir, signature):
         _remove_stale_photos(output_dir, names)
@@ -561,9 +581,11 @@ def ensure_aerial_photos(aerial_dir, output_dir, photos, global_offset, target_p
 
     Path(output_dir).mkdir(parents=True, exist_ok=True)
     if len(photos) == 1 and photos[0]["name"] == SINGLE_PHOTO_NAME:
-        built = process_aerial_images(aerial_dir, output_dir, photos[0]["bounds"], global_offset, target_pixel_size)
+        built = process_aerial_images(
+            aerial_dir, output_dir, photos[0]["bounds"], global_offset, target_pixel_size, fill_areas=fill_areas
+        )
     else:
-        built = process_aerial_tiles(aerial_dir, output_dir, photos, global_offset, target_pixel_size)
+        built = process_aerial_tiles(aerial_dir, output_dir, photos, global_offset, target_pixel_size, fill_areas=fill_areas)
     if built <= 0:
         return "failed"
     write_aerial_photo_signature(output_dir, signature)

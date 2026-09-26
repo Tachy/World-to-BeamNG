@@ -21,6 +21,7 @@ from world_to_beamng.io.aerial import (
     aerial_photo_is_current,
     aerial_photos_signature,
     ensure_aerial_photos,
+    process_aerial_images,
     process_aerial_tiles,
     write_aerial_photo_signature,
 )
@@ -123,6 +124,42 @@ def test_photo_is_downscaled_to_the_target_size(tmp_path):
     assert Image.open(out / "aerial_photo_0.png").size == (8, 8)
 
 
+def _deck_source(src):
+    """Source image over both tiles: red ground with a blue bridge deck at x 8..12 (tile 0), north-south."""
+    image = Image.new("RGB", (40, 20), RED)
+    image.paste(BLUE, (8, 0, 12, 20))
+    buffer = io.BytesIO()
+    image.save(buffer, "PNG")
+    _zip(src / "deck.zip", "deck", buffer.getvalue(), OFFSET[0], OFFSET[1] + 20.0)
+
+
+DECK_AREA = np.array([[8.0, 0.0], [12.0, 0.0], [12.0, 20.0], [8.0, 20.0]])
+
+
+def test_bridge_areas_are_retouched_out_of_the_tile_photos(tmp_path):
+    src = tmp_path / "satellite"
+    src.mkdir()
+    _deck_source(src)
+    out = tmp_path / "out"
+
+    process_aerial_tiles(src, out, _photos(), OFFSET, target_pixel_size=20, fill_areas=[DECK_AREA])
+
+    photo = np.asarray(Image.open(out / "aerial_photo_0.png").convert("RGB"))
+    assert photo[..., 2].max() < 60  # no blue deck left
+
+
+def test_bridge_areas_are_retouched_out_of_the_combined_photo(tmp_path):
+    src = tmp_path / "satellite"
+    src.mkdir()
+    _deck_source(src)
+    out = tmp_path / "out"
+
+    process_aerial_images(src, out, (0.0, 40.0, 0.0, 20.0), OFFSET, target_pixel_size=20, fill_areas=[DECK_AREA])
+
+    photo = np.asarray(Image.open(out / "aerial_photo.png").convert("RGB"))
+    assert photo[..., 2].max() < 60
+
+
 # --- Cache/signature for multiple photos ------------------------------------------------------------
 
 
@@ -146,6 +183,34 @@ def test_signature_lists_every_photo_and_changes_with_the_tile_set(dirs):
     assert two != one
 
 
+def test_signature_changes_with_the_bridge_areas(dirs):
+    src, _ = dirs
+
+    without = aerial_photos_signature(src, _photos(), OFFSET, 8192)
+    with_deck = aerial_photos_signature(src, _photos(), OFFSET, 8192, fill_areas=[DECK_AREA])
+    moved_deck = aerial_photos_signature(src, _photos(), OFFSET, 8192, fill_areas=[DECK_AREA + 1.0])
+
+    assert len({str(without), str(with_deck), str(moved_deck)}) == 3
+    assert with_deck == aerial_photos_signature(src, _photos(), OFFSET, 8192, fill_areas=[DECK_AREA.copy()])
+
+
+def test_ensure_passes_the_bridge_areas_to_the_builder(dirs, monkeypatch):
+    src, out = dirs
+    received = []
+
+    def fake(aerial_dir, output_dir, photos, global_offset, target_pixel_size=None, fill_areas=None):
+        received.append(fill_areas)
+        for p in photos:
+            (Path(output_dir) / f"{p['name']}.png").write_bytes(b"new")
+        return len(photos)
+
+    monkeypatch.setattr(aerial, "process_aerial_tiles", fake)
+
+    ensure_aerial_photos(src, out, _photos(), OFFSET, target_pixel_size=8192, fill_areas=[DECK_AREA])
+
+    assert len(received) == 1 and np.array_equal(received[0][0], DECK_AREA)
+
+
 def test_current_requires_every_photo_file(dirs):
     src, out = dirs
     signature = aerial_photos_signature(src, _photos(), OFFSET, 8192)
@@ -163,7 +228,7 @@ def test_ensure_builds_all_photos_once_and_removes_stale_photos_of_the_other_mod
     (out / "aerial_photo.png").write_bytes(b"old single photo")  # overall photo from the other mode
     calls = []
 
-    def fake(aerial_dir, output_dir, photos, global_offset, target_pixel_size=None):
+    def fake(aerial_dir, output_dir, photos, global_offset, target_pixel_size=None, fill_areas=None):
         calls.append([p["name"] for p in photos])
         for p in photos:
             (Path(output_dir) / f"{p['name']}.png").write_bytes(b"new")
@@ -196,7 +261,7 @@ def test_ensure_does_not_touch_other_files(dirs, monkeypatch):
     src, out = dirs
     (out / "horizon_sentinel2.dds").write_bytes(b"h")
     (out / "_flat_normal_8192.png").write_bytes(b"f")
-    monkeypatch.setattr(aerial, "process_aerial_tiles", lambda a, o, photos, g, target_pixel_size=None: [
+    monkeypatch.setattr(aerial, "process_aerial_tiles", lambda a, o, photos, g, target_pixel_size=None, fill_areas=None: [
         (Path(o) / f"{p['name']}.png").write_bytes(b"n") for p in photos] and len(photos))
 
     ensure_aerial_photos(src, out, _photos(), OFFSET, 8192)

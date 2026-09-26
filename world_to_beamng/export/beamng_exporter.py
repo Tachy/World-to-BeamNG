@@ -307,27 +307,9 @@ class BeamNGExporter:
         else:
             photos = [{"name": SINGLE_PHOTO_NAME, "bounds": combined_grid_bounds_local}]
 
-        # The photos are rebuilt as soon as area, origin, resolution, tile layout or source images no
-        # longer match the existing ones (e.g. switching from one to four DGM1 tiles) - not only when they are missing.
-        status = "none"  # fallback in case ensure_aerial_photos() below raises an exception (see minimap step further below)
-        with self.pipeline.task("Aerial photo") as task:
-            try:
-                status = ensure_aerial_photos(
-                    aerial_dir=aerial_dir, output_dir=textures_dir, photos=photos, global_offset=global_offset
-                )
-                if status == "current":
-                    task.done(f"{len(photos)} aerial photo(s) match the area - reused")
-                elif status == "built":
-                    task.done(f"{len(photos)} aerial photo(s) rebuilt")
-                elif status == "failed":
-                    task.fail("Aerial photo could not be built")
-            except Exception as e:
-                task.fail(str(e))
-
-        # For POI preview images in _finalize_export() (build_poi_preview_image() crops from the
-        # already built aerial photo PNGs, see there) - only useful if a photo actually exists.
+        # The aerial photos are built after the terrain processing (see below): the bridges are retouched out of them
+        status = "none"  # fallback in case the aerial photo step does not run or raises (see minimap step further below)
         self.aerial_photos = photos
-        self.aerial_photo_status = status
 
         # Phase 1: terrain + roads - process ALL tiles as ONE contiguous
         # area (one grid, one road network, one junction pass).
@@ -349,6 +331,31 @@ class BeamNGExporter:
                 self.tunnel_spawns = result.get("tunnel_spawns")
 
                 self.terrain.export_tile(0, 0, result, task=task)
+
+                # The photos are rebuilt as soon as area, origin, resolution, tile layout, source images or bridge
+                # outlines no longer match the existing ones (e.g. switching from one to four DGM1 tiles) - not only
+                # when they are missing. Nothing in the terrain export reads them, BeamNG loads them when the level starts.
+                with task.subtask("Aerial photo") as sub:
+                    try:
+                        bridge_areas = result.get("bridge_photo_areas") or []
+                        status = ensure_aerial_photos(
+                            aerial_dir=aerial_dir, output_dir=textures_dir, photos=photos, global_offset=global_offset,
+                            fill_areas=bridge_areas,
+                        )
+                        if status == "current":
+                            sub.finish(f"{len(photos)} aerial photo(s) match the area - reused")
+                        elif status == "built":
+                            sub.finish(f"{len(photos)} aerial photo(s) rebuilt, {len(bridge_areas)} bridge(s) retouched")
+                        elif status == "failed":
+                            sub.fail("Aerial photo could not be built")
+                        else:
+                            sub.finish("no source images")
+                    except Exception as e:
+                        logger.error(f"Aerial photo failed: {e}")
+                        sub.fail(str(e))
+                # For POI preview images in _finalize_export() (build_poi_preview_image() crops from the
+                # already built aerial photo PNGs, see there) - only useful if a photo actually exists.
+                self.aerial_photo_status = status
 
                 # BigMap preview image from the already built aerial photo PNGs (only if any were built/are current -
                 # without an aerial photo a minimap image makes no sense, see io/aerial.py::build_minimap_image()).

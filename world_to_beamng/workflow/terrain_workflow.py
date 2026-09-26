@@ -128,6 +128,14 @@ def _bridge_footprints(bridge_roads: List[Dict], extra: float) -> List[Dict]:
     return footprints
 
 
+def _bridge_photo_areas(structure_roads: List[Dict]) -> List[np.ndarray]:
+    """Outlines ((N, 2) arrays) of the bridges plus curbs and config.BRIDGE_PHOTO_FILL_MARGIN - the aerial photo shows
+    the deck there, see io/aerial_bridge_fill.py."""
+    bridges = [r for r in structure_roads if r.get("structure_type") == "bridge"]
+    extra = config.BRIDGE_CURB_WIDTH + config.BRIDGE_PHOTO_FILL_MARGIN
+    return [np.asarray(footprint["road_polygon"])[:, :2] for footprint in _bridge_footprints(bridges, extra)]
+
+
 def _invisible_road_material(name: str) -> Dict:
     """materials.json entry of the invisible DecalRoad on structures: alpha-tested, fully transparent texture
     (TerrainWorkflow._export_structure_road_assets() writes it) - schema like vanilla "road_invisible"
@@ -1210,6 +1218,7 @@ class TerrainWorkflow:
             "road_polygons": road_polygons,
             "road_slope_polygons_2d": road_slope_polygons_2d,  # For DecalRoad export
             "structure_road_polygons": structure_road_polygons,  # Bridges/tunnels/galleries - for export_bridges()/export_tunnels()
+            "bridge_photo_areas": _bridge_photo_areas(structure_road_polygons),  # retouched out of the aerial photo
             "road_surface_union": road_surface_union,  # unioned road surface for exclusion zones (or None)
             "tree_exclusion": tree_exclusion,  # road surfaces plus the areas under bridges: no trees there (or None)
             "grid_bounds_local": grid_bounds_local,

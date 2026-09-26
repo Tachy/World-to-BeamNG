@@ -202,3 +202,24 @@ def test_dropped_tunnel_road_ids_is_every_piece_of_a_chain_that_did_not_survive_
     kept_plans = [{"id": 3, "piece_ids": [3]}, {"id": 4, "piece_ids": [4]}]
 
     assert _dropped_tunnel_road_ids(all_ids, kept_plans) == frozenset({1, 2})
+
+
+def test_bridge_photo_areas_cover_deck_curbs_and_the_photo_margin(monkeypatch):
+    from shapely.geometry import Polygon
+
+    from world_to_beamng import config
+    from world_to_beamng.workflow.terrain_workflow import _bridge_photo_areas
+
+    monkeypatch.setattr(config, "BRIDGE_CURB_WIDTH", 0.4)
+    monkeypatch.setattr(config, "BRIDGE_PHOTO_FILL_MARGIN", 2.0)
+    bridge = {
+        "structure_type": "bridge",
+        "road_polygon": np.array([[0.0, -3.25], [40.0, -3.25], [40.0, 3.25], [0.0, 3.25]]),
+        "trimmed_centerline": np.array([[0.0, 0.0, 100.0], [40.0, 0.0, 100.0]]),
+    }
+    tunnel = {**bridge, "structure_type": "tunnel"}
+
+    (area,) = _bridge_photo_areas([bridge, tunnel])
+
+    assert area.shape[1] == 2
+    assert Polygon(area).bounds[1] == pytest.approx(-5.65) and Polygon(area).bounds[3] == pytest.approx(5.65)

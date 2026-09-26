@@ -108,7 +108,7 @@ class _Recorder:
         self.calls = []
         self.textures = textures
 
-    def __call__(self, aerial_dir, output_dir, grid_bounds, global_offset, target_pixel_size=None):
+    def __call__(self, aerial_dir, output_dir, grid_bounds, global_offset, target_pixel_size=None, fill_areas=None):
         self.calls.append(grid_bounds)
         (Path(output_dir) / AERIAL_PHOTO_FILENAME).write_bytes(b"new photo")
         return 1

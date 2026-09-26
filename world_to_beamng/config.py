@@ -357,6 +357,9 @@ BRIDGE_CURB_HEIGHT = 0.2  # height of the curb above the carriageway, in meters
 BRIDGE_UNDERGROWTH_CLEARANCE = 2.5  # in meters below the carriageway
 BRIDGE_UNDERGROWTH_MARGIN = 0.5  # beyond the curbs, in meters
 BRIDGE_TREE_MARGIN = 3.0  # beyond the curbs, in meters
+# The aerial photo shows the deck from above: the bridge outline plus BRIDGE_PHOTO_FILL_MARGIN (deck edge, OSM offset
+# against the photo) is filled with the texture mirrored from beside the bridge (see io/aerial_bridge_fill.py)
+BRIDGE_PHOTO_FILL_MARGIN = 2.0  # beyond the curbs, in meters
 BRIDGE_RAILING_HEIGHT = 0.9  # handrail height above the curb top edge, in meters
 BRIDGE_RAILING_POST_SPACING = 2.0  # post spacing along the bridge, in meters
 BRIDGE_RAILING_POST_SIZE = 0.08  # cross-section of the (square) posts and the handrail, in meters
