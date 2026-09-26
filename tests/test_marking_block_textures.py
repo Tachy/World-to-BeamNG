@@ -14,7 +14,10 @@ from world_to_beamng.textures.marking_blocks import BLOCK_TEXTURE_NAME, write_bl
 
 
 def test_texture_period_is_block_plus_gap_and_blocks_are_opaque_in_the_grey_of_the_stock_dashes(tmp_path):
-    write_block_stripe_textures(tmp_path, block_length=1.0, gap_length=1.0, pixels_per_meter=32)
+    write_block_stripe_textures(
+        tmp_path, block_length=1.0, gap_length=1.0, pixels_per_meter=32,
+        grey=config.ROAD_MARKING_BLOCK_GREY, opacity=config.ROAD_MARKING_BLOCK_OPACITY,
+    )
 
     opacity = np.array(Image.open(tmp_path / f"{BLOCK_TEXTURE_NAME}_o.data.png").convert("L"))
     color = Image.open(tmp_path / f"{BLOCK_TEXTURE_NAME}_b.color.png").convert("RGB")
