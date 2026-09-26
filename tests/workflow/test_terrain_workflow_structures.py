@@ -264,3 +264,19 @@ def test_bridge_groups_join_the_bridges_of_a_lane_split_and_their_nearby_continu
 
     assert groups[1] == groups[2] == groups[3] == groups[4]
     assert 5 not in groups and 6 not in groups
+
+
+def test_bridge_stems_only_where_the_trunk_itself_is_a_bridge():
+    from world_to_beamng.workflow.terrain_workflow import _bridge_stems
+
+    node = (0.0, 0.0)
+    mark = {"node": node, "axis": (1.0, 0.0), "left_normal": (0.0, 1.0), "hold": 30.0, "trunk_width": 13.0}
+    trunk = {"road_id": 1, "osm_tags": {"highway": "primary", "lanes": "4"}, "lane_split_trunk_nodes": [node]}
+    branch = {"road_id": 2, "osm_tags": {"highway": "primary_link"}, "lane_split_branch": mark}
+    lonely = {"road_id": 3, "osm_tags": {"highway": "primary_link"}, "lane_split_branch": {**mark, "node": (500.0, 0.0)}}
+
+    stems = _bridge_stems([trunk, branch, lonely])
+
+    assert stems[2]["width"] == 13.0 and stems[2]["hold"] == 30.0 and stems[2]["node"] == node
+    assert stems[2]["deck_material"].endswith("_structure")
+    assert 3 not in stems  # its trunk is no bridge: the split lies on the ground

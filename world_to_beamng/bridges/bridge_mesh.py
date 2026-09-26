@@ -128,8 +128,10 @@ def build_bridge_mesh(
     tile_m: float = 5.0,
     road_texture_length: float = 5.0,
     widths: Optional[Sequence[float]] = None,
-    joined_left: Optional[Sequence[bool]] = None,
-    joined_right: Optional[Sequence[bool]] = None,
+    joined_left: Optional[Sequence[float]] = None,
+    joined_right: Optional[Sequence[float]] = None,
+    railing_left: bool = True,
+    railing_right: bool = True,
     cap_start: bool = True,
     cap_end: bool = True,
     piers: bool = True,
@@ -148,11 +150,11 @@ def build_bridge_mesh(
     Piers: `pier_width_fraction` of the carriageway width across the road, `pier_depth_fraction` of that dimension along
     it, reaching `pier_burial` meters below the natural ground.
 
-    Several bridge ways as one structure (a lane split on a bridge, see build_bridge_group_mesh()):
-    joined_left / joined_right (per coordinate) mark where the carriageway of another way lies right beside this side -
-    there the side has no curb, railing or fascia; a flat slab strip of 2x curb_width, 1 cm below the carriageway,
-    closes a narrow gap to the neighbour. cap_start / cap_end: end faces (not where the way meets the others);
-    piers=False leaves the piers to the caller.
+    Parts of a bridge that splits (see build_bridge_group_mesh()): joined_left / joined_right give per coordinate how
+    far the deck reaches beyond the carriageway edge to meet the neighbouring part (half the gap between the two
+    carriageways, carriageway material, no curb), NaN where the side is free and has its curb as usual (the cut);
+    railing_left / railing_right = False leaves out the railing of that side; cap_start / cap_end = False
+    leaves out the end face where the part continues in another one; piers=False leaves the piers to the caller.
 
     Returns:
         {"vertices": (N,3), "uvs": (N,2), "normals": (N,3),
@@ -164,12 +166,15 @@ def build_bridge_mesh(
     bottom = top - deck_thickness
     curb_top = top + curb_height
     count = len(xy)
-    joined = {
-        "left": np.zeros(count, dtype=bool) if joined_left is None else np.asarray(joined_left, dtype=bool),
-        "right": np.zeros(count, dtype=bool) if joined_right is None else np.asarray(joined_right, dtype=bool),
+    reach = {
+        side: np.full(count, np.nan) if value is None else np.asarray(value, dtype=float)
+        for side, value in (("left", joined_left), ("right", joined_right))
     }
+    joined = {side: np.isfinite(reach[side]) for side in reach}
+    railing_on = {"left": railing_left, "right": railing_right}
 
-    # inner = carriageway edge (= curb inner face), outer = curb outer edge = deck slab edge (joined: the gap strip edge)
+    # inner = carriageway edge (= curb inner face), curb_edge = curb outer edge, surface = edge of the road surface
+    # (reaches to the neighbouring part where joined), outer = deck slab edge
     half = (np.full(count, width) if widths is None else np.asarray(widths, dtype=float)) / 2.0
     unit = {}
     unit["left"], unit["right"] = offset_points(xy, 1.0, closed=False)  # the miter offset is linear in the distance
@@ -178,7 +183,9 @@ def build_bridge_mesh(
         return xy + (unit[side] - xy) * distance[:, None]
 
     inner = {side: offset_by(side, half) for side in ("left", "right")}
-    outer = {side: offset_by(side, half + np.where(joined[side], 2.0 * curb_width, curb_width)) for side in ("left", "right")}
+    curb_edge = {side: offset_by(side, half + curb_width) for side in ("left", "right")}
+    surface = {side: offset_by(side, half + np.where(joined[side], reach[side], 0.0)) for side in ("left", "right")}
+    outer = {side: np.where(joined[side][:, None], surface[side], curb_edge[side]) for side in ("left", "right")}
     width = float(np.mean(half) * 2.0)  # UV scale only
 
     cum = _arc_length(xy)
@@ -192,7 +199,7 @@ def build_bridge_mesh(
 
     deck_builder = MeshBuilder()
     pier_builder = MeshBuilder()
-    for i in range(count - 1):
+    for i in range(len(points) - 1):
         j = i + 1
         u0, u1 = along[i], along[j]
         direction = xy[j] - xy[i]
@@ -200,9 +207,9 @@ def build_bridge_mesh(
         left_normal = [float(-direction[1]), float(direction[0]), 0.0]
         right_normal = [-left_normal[0], -left_normal[1], 0.0]
 
-        # Carriageway (top side, between the curbs)
+        # Carriageway (top side, between the curbs - up to the neighbouring part where joined)
         deck_builder.quad(
-            [p3(inner["left"][i], top[i]), p3(inner["left"][j], top[j]), p3(inner["right"][j], top[j]), p3(inner["right"][i], top[i])],
+            [p3(surface["left"][i], top[i]), p3(surface["left"][j], top[j]), p3(surface["right"][j], top[j]), p3(surface["right"][i], top[i])],
             [[0.0, road_v[i]], [0.0, road_v[j]], [1.0, road_v[j]], [1.0, road_v[i]]],
             [0.0, 0.0, 1.0],
         )
@@ -213,16 +220,9 @@ def build_bridge_mesh(
             [0.0, 0.0, -1.0],
         )
         for side, normal in (("left", left_normal), ("right", right_normal)):
-            edge_in, edge_out = inner[side], outer[side]
-            inward = [-normal[0], -normal[1], 0.0]
-            if joined[side][i] and joined[side][j]:
-                # Beside another carriageway: a flat strip just below the road surface closes the gap to it
-                pier_builder.quad(
-                    [p3(edge_in[i], top[i] - 0.01), p3(edge_in[j], top[j] - 0.01), p3(edge_out[j], top[j] - 0.01), p3(edge_out[i], top[i] - 0.01)],
-                    [[u0, 0.0], [u1, 0.0], [u1, 2.0 * curb_across], [u0, 2.0 * curb_across]],
-                    [0.0, 0.0, 1.0],
-                )
-                continue
+            if joined[side][i] or joined[side][j]:
+                continue  # meets the neighbouring part: no fascia, no curb (it begins at the first free point)
+            edge_in, edge_out = inner[side], curb_edge[side]
             # Fascia (deck bottom edge up to carriageway level)
             deck_builder.quad(
                 [p3(edge_out[i], bottom[i]), p3(edge_out[j], bottom[j]), p3(edge_out[j], top[j]), p3(edge_out[i], top[i])],
@@ -243,11 +243,11 @@ def build_bridge_mesh(
             pier_builder.quad(
                 [p3(edge_in[i], top[i]), p3(edge_in[j], top[j]), p3(edge_in[j], curb_top[j]), p3(edge_in[i], curb_top[i])],
                 [[u0, 0.0], [u1, 0.0], [u1, curb_height / tile_m], [u0, curb_height / tile_m]],
-                inward,
+                [-normal[0], -normal[1], 0.0],
             )
 
-    # End faces (deck full height + curb top on the free sides), not where the way meets the others of its structure
-    for index, sign, neighbour, wanted in ((0, -1.0, 1, cap_start), (count - 1, 1.0, count - 2, cap_end)):
+    # End faces at both ends (deck full height + curb top on the free sides)
+    for index, sign, neighbour, wanted in ((0, -1.0, 1, cap_start), (len(points) - 1, 1.0, len(points) - 2, cap_end)):
         if not wanted:
             continue
         direction = xy[1] - xy[0] if index == 0 else xy[-1] - xy[neighbour]
@@ -262,9 +262,24 @@ def build_bridge_mesh(
             if joined[side][index]:
                 continue
             pier_builder.quad(
-                [p3(outer[side][index], top[index]), p3(inner[side][index], top[index]), p3(inner[side][index], curb_top[index]), p3(outer[side][index], curb_top[index])],
+                [p3(curb_edge[side][index], top[index]), p3(inner[side][index], top[index]), p3(inner[side][index], curb_top[index]), p3(curb_edge[side][index], curb_top[index])],
                 [[0.0, 0.0], [curb_across, 0.0], [curb_across, curb_height / tile_m], [0.0, curb_height / tile_m]],
                 face_normal,
+            )
+
+    # Where the cut begins (or ends) along the way: end face of the curb, facing the joined stretch
+    for side in ("left", "right"):
+        for k in range(count - 1):
+            if joined[side][k] == joined[side][k + 1]:
+                continue
+            at = k + 1 if joined[side][k] else k  # the first free point after / the last free point before the joined stretch
+            direction = xy[k + 1] - xy[k]
+            direction = direction / np.linalg.norm(direction)
+            sign = -1.0 if joined[side][k] else 1.0
+            pier_builder.quad(
+                [p3(curb_edge[side][at], top[at]), p3(inner[side][at], top[at]), p3(inner[side][at], curb_top[at]), p3(curb_edge[side][at], curb_top[at])],
+                [[0.0, 0.0], [curb_across, 0.0], [curb_across, curb_height / tile_m], [0.0, curb_height / tile_m]],
+                [float(sign * direction[0]), float(sign * direction[1]), 0.0],
             )
 
     total_len = float(cum[-1])
@@ -272,36 +287,30 @@ def build_bridge_mesh(
         for site in _pier_sites(xy, bottom, half, ground_at, pier_spacing, min_pier_clearance, pier_width_fraction):
             _add_pier(pier_builder, site, pier_burial, pier_depth_fraction, tile_m)
 
-    # Railing: posts + continuous handrail on every free stretch of both sides, centered on the curb (the mean of two
-    # offset_points() results on the same normal equals an offset by the averaged distance)
+    # Railing: posts + continuous handrail on the free sides, centered on the curb (the mean of two offset_points()
+    # results on the same normal equals an offset by the averaged distance)
     railing_builder = MeshBuilder()
-    rail_top = curb_top + railing_height + railing_post_size / 2.0
     post_positions = np.arange(0.0, total_len + 1e-6, railing_post_spacing) if total_len > 0 else np.array([])
     for side in ("left", "right"):
-        edge_xy = (inner[side] + outer[side]) / 2.0
-        free = ~joined[side]
-        free_at = lambda s: bool(free[max(0, min(int(np.searchsorted(cum, s, side="right")) - 1, count - 1))]) and bool(
-            free[max(0, min(int(np.searchsorted(cum, s)), count - 1))])
+        free = np.flatnonzero(~joined[side])
+        if not railing_on[side] or len(free) < 2:
+            continue
+        first, last = int(free[0]), int(free[-1])  # the free stretch (a cut side is joined only towards the node)
+        edge_xy = (inner[side] + curb_edge[side]) / 2.0
+        rail_top = curb_top + railing_height + railing_post_size / 2.0
         for s in post_positions:
-            if not free_at(s):
+            if s < cum[first] - 1e-6 or s > cum[last] + 1e-6:
                 continue
             px, py = _interp_at(cum, edge_xy, s)
             post_bottom_z = float(_interp_at(cum, curb_top, s))
-            add_box_column(railing_builder, px, py, post_bottom_z, post_bottom_z + railing_height, railing_post_size, tile_m,
-                           direction=_direction_at(cum, edge_xy, s))
-        start = None
-        for k in range(count + 1):
-            if k < count and free[k]:
-                start = k if start is None else start
-                continue
-            if start is not None and k - start >= 2:
-                beam = _build_edge_beam(edge_xy[start:k], rail_top[start:k], railing_post_size, tile_m)
-                offset = len(railing_builder.vertices)
-                railing_builder.vertices += beam.vertices
-                railing_builder.uvs += beam.uvs
-                railing_builder.normals += beam.normals
-                railing_builder.faces += [[a + offset, b + offset, c + offset] for a, b, c in beam.faces]
-            start = None
+            post_top_z = post_bottom_z + railing_height
+            add_box_column(railing_builder, px, py, post_bottom_z, post_top_z, railing_post_size, tile_m, direction=_direction_at(cum, edge_xy, s))
+        beam = _build_edge_beam(edge_xy[first:last + 1], rail_top[first:last + 1], railing_post_size, tile_m)
+        railing_builder.vertices += beam.vertices
+        railing_builder.uvs += beam.uvs
+        railing_builder.normals += beam.normals
+        offset = len(railing_builder.vertices) - len(beam.vertices)
+        railing_builder.faces += [[a + offset, b + offset, c + offset] for a, b, c in beam.faces]
 
     def _merge(*builders: MeshBuilder):
         vertices, uvs, normals, faces = [], [], [], []
@@ -330,26 +339,100 @@ def _densified(member: Dict, step: float) -> Dict:
     if cum[-1] <= 0.0:
         return member
     stations = np.unique(np.concatenate([cum, np.arange(0.0, cum[-1], step)]))
-    coords = np.column_stack([np.interp(stations, cum, points[:, k]) for k in range(3)])
-    widths = member.get("widths")
-    result = {**member, "coords": [tuple(float(v) for v in c) for c in coords]}
-    if widths is not None:
-        result["widths"] = np.interp(stations, cum, np.asarray(widths, dtype=float))
+    result = {**member, "coords": [tuple(float(v) for v in c) for c in np.column_stack([np.interp(stations, cum, points[:, k]) for k in range(3)])]}
+    if member.get("widths") is not None:
+        result["widths"] = np.interp(stations, cum, np.asarray(member["widths"], dtype=float))
     return result
 
 
-def _carriageway_polygon(member: Dict):
-    """Carriageway outline of a group member (flat ends), with its width profile."""
+def _cut_off_stem(member: Dict, node: np.ndarray, axis: np.ndarray, normal: np.ndarray, length: float, half_width: float):
+    """
+    The part of `member` beyond the stem (the rectangle `length` meters along `axis` from `node`, `half_width` to both
+    sides), with the end that now touches the stem ("start"/"end", None if the member does not reach into it) - or
+    (None, "all") if it lies completely inside. Also returns the (along, z) samples of its points inside the stem.
+    """
+    member = _densified(member, 1.0)
+    points = np.array(member["coords"], dtype=float)
+    rel = points[:, :2] - node
+    along, lateral = rel @ axis, rel @ normal
+    inside = (along > -1e-3) & (along < length - 1e-6) & (np.abs(lateral) <= half_width + 0.5)
+    samples = [(float(a), float(z)) for a, z in zip(along[inside], points[inside, 2])]
+    if along.max() <= 1e-3 or not inside.any():
+        return member, None, []  # the trunk (before the node) or a way elsewhere
+    if along.max() < length - 1e-6:
+        return None, "all", samples  # ends inside the stem
+    widths = member.get("widths")
+    widths = None if widths is None else np.asarray(widths, dtype=float)
+    reversed_member = bool(along[-1] < along[0])  # digitized towards the node: cut at its end
+    if reversed_member:
+        points, along = points[::-1], along[::-1]
+        widths = None if widths is None else widths[::-1]
+    k = int(np.argmax(along >= length))  # first point beyond the stem
+    t = (length - along[k - 1]) / max(along[k] - along[k - 1], 1e-9) if k > 0 else 0.0
+    cut_point = points[k - 1] + t * (points[k] - points[k - 1]) if k > 0 else points[0]
+    duplicate = float(np.linalg.norm(points[k, :2] - cut_point[:2])) < 1e-6
+    kept = points[k:] if duplicate else np.vstack([cut_point, points[k:]])
+    kept_widths = None
+    if widths is not None:
+        cut_width = widths[k - 1] + t * (widths[k] - widths[k - 1]) if k > 0 else widths[0]
+        kept_widths = widths[k:] if duplicate else np.concatenate([[cut_width], widths[k:]])
+    if reversed_member:
+        kept = kept[::-1]
+        kept_widths = None if kept_widths is None else kept_widths[::-1]
+    result = {**member, "coords": [tuple(float(v) for v in p) for p in kept]}
+    if widths is not None:
+        result["widths"] = kept_widths
+    return result, ("end" if reversed_member else "start"), samples
+
+
+def _carriageway_outline(coords, width, widths):
+    """Carriageway polygon (flat ends) of a way with its width profile."""
     from shapely.geometry import Polygon
 
-    points = np.array(member["coords"], dtype=float)
+    points = np.array(coords, dtype=float)
+    half = (np.full(len(points), float(width)) if widths is None else np.asarray(widths, dtype=float)) / 2.0
+    left, right = offset_points(points[:, :2], 1.0, closed=False)
     xy = points[:, :2]
-    widths = member.get("widths")
-    half = (np.full(len(xy), float(member["width"])) if widths is None else np.asarray(widths, dtype=float)) / 2.0
-    unit_left, unit_right = offset_points(xy, 1.0, closed=False)
-    left = xy + (unit_left - xy) * half[:, None]
-    right = xy + (unit_right - xy) * half[:, None]
-    return Polygon(np.vstack([left, right[::-1]])).buffer(0), xy, half, unit_left, unit_right
+    return Polygon(np.vstack([xy + (left - xy) * half[:, None], (xy + (right - xy) * half[:, None])[::-1]])).buffer(0)
+
+
+def _join_neighbours(parts, curb_width: float) -> None:
+    """
+    Sets joined_left / joined_right (see build_bridge_mesh()) of every part: where the carriageway of another part is
+    closer than 2x curb_width to a side, there is no room for the two curbs yet - the side reaches to the middle of the
+    gap (the deck is still one piece, only wider); from there on the side is free and has its curb (the cut). A side
+    that meets another part anywhere gets no railing for now.
+    """
+    from shapely.geometry import LineString, Point
+
+    # shrunk by 1 cm: a part that only continues this one end to end (the stem and its trunk or branches) is not beside it
+    outlines = [_carriageway_outline(coords, width, widths).buffer(-0.01) for coords, width, widths, _, _ in parts]
+    for index, (coords, width, widths, _, flags) in enumerate(parts):
+        others = [outline for k, outline in enumerate(outlines) if k != index]
+        if not others:
+            continue
+        points = np.array(coords, dtype=float)
+        xy = points[:, :2]
+        half = (np.full(len(xy), float(width)) if widths is None else np.asarray(widths, dtype=float)) / 2.0
+        units = dict(zip(("left", "right"), offset_points(xy, 1.0, closed=False)))
+        for side, unit in units.items():
+            outward = unit - xy
+            outward /= np.maximum(np.linalg.norm(outward, axis=1), 1e-9)[:, None]
+            edge = xy + outward * half[:, None]
+            reach = np.full(len(xy), np.nan)
+            for k, (point, direction) in enumerate(zip(edge, outward)):
+                ray = LineString([point, point + direction * 2.0 * curb_width])  # across the road, as far as two curbs
+                hits = [ray.intersection(o) for o in others if ray.intersects(o)]
+                if hits:
+                    reach[k] = min(Point(*point).distance(hit) for hit in hits) / 2.0
+            # an end that meets the next part (the cut line) follows its neighbour point - its corner may already
+            # reach a little into the part before
+            for end, neighbour, key in ((0, 1, "cap_start"), (-1, -2, "cap_end")):
+                if flags.get(key) is False and len(reach) > 1:
+                    reach[end] = reach[neighbour]
+            if np.isfinite(reach).any():
+                flags[f"joined_{side}"] = reach
+                flags[f"railing_{side}"] = False
 
 
 def build_bridge_group_mesh(
@@ -357,6 +440,7 @@ def build_bridge_group_mesh(
     ground_at: HeightAt,
     pier_material: str,
     railing_material: str,
+    stem: Optional[Dict] = None,
     deck_thickness: float = 0.6,
     pier_spacing: float = 25.0,
     pier_width_fraction: float = 0.5,
@@ -373,60 +457,84 @@ def build_bridge_group_mesh(
     endpoint_tol: float = 0.5,
 ) -> Dict:
     """
-    ONE bridge structure for several bridge ways of a lane split (see geometry/lane_splits.py): the trunk and its
-    branches lie side by side in the same cross-section and move apart along their OSM courses. Every way keeps its own
-    deck (build_bridge_mesh()); where another way's carriageway lies right beside one side (gap up to 2x curb_width),
-    that side has no curb, railing or fascia and a flat slab strip closes the gap - once the carriageways have moved
-    further apart, each side gets its own curb and railing. Ends that meet another way of the structure get no end
-    face. Piers stand under every way; of two piers closer than pier_spacing / 2 only the first is kept.
+    ONE bridge for a lane split on a bridge (see geometry/lane_splits.py): the trunk's deck goes on past the node as one
+    box of the trunk's width for stem["hold"] meters (the stem: {"node", "axis", "left_normal", "hold", "width",
+    "deck_material"}), with curb and railing on its outer sides only. There it is cut like with a knife: each branch
+    continues as its own deck, without curb and railing along the cut for now (the slab ends at its carriageway edge
+    there) and with them on its outer side. The parts of the branches inside the stem are left out. Without a stem the members are
+    built as separate bridges without end faces where they meet. Piers: one of two closer than pier_spacing / 2.
     """
-    from shapely.geometry import Point
-
-    members = [_densified(m, 1.0) for m in members]  # the side masks switch per point: at most 1 m apart
-    shapes = [_carriageway_polygon(m) for m in members]
-    reach = 2.0 * curb_width + 0.05
-
-    def joined_side(index, unit_side):
-        polygon, xy, half, *_ = shapes[index]
-        others = [shapes[k][0] for k in range(len(shapes)) if k != index]
-        result = np.zeros(len(xy), dtype=bool)
-        for i, (point, edge_unit) in enumerate(zip(xy, unit_side)):
-            outward = edge_unit - point  # unit offset of the side (miter-scaled)
-            edge = point + outward * half[i]
-            probe = Point(*(edge + outward / max(np.linalg.norm(outward), 1e-9) * 0.01))
-            result[i] = any(other.distance(probe) <= reach for other in others)
-        return result
-
-    def end_is_closed(index, end):
-        xy, half = shapes[index][1], shapes[index][2]
-        return any(
-            k != index and np.linalg.norm(xy[end] - shapes[k][1][o]) <= max(half[end], shapes[k][2][o]) + endpoint_tol
-            for k in range(len(shapes)) for o in (0, -1)
-        )
+    kwargs = dict(
+        deck_thickness=deck_thickness, curb_width=curb_width, curb_height=curb_height, railing_height=railing_height,
+        railing_post_spacing=railing_post_spacing, railing_post_size=railing_post_size, tile_m=tile_m,
+        road_texture_length=road_texture_length, piers=False,
+    )
+    parts = []  # (coords, width, widths, deck_material, flags)
+    if stem is not None:
+        node = np.asarray(stem["node"], dtype=float)
+        axis = np.asarray(stem["axis"], dtype=float)
+        normal = np.asarray(stem["left_normal"], dtype=float)
+        length, half_width = float(stem["hold"]), float(stem["width"]) / 2.0
+        samples = []
+        kept = []
+        for member in members:
+            rest, cut_end, inside = _cut_off_stem(member, node, axis, normal, length, half_width)
+            samples += inside
+            if rest is not None and len(rest["coords"]) >= 2:
+                kept.append((rest, cut_end))
+        reach = max((a for a, _ in samples), default=0.0)
+        if samples and reach > 1.0:
+            # stem heights from the branches running in it (their straight, held stretch)
+            samples.sort()
+            s_values = np.array([a for a, _ in samples])
+            z_values = np.array([z for _, z in samples])
+            stations = np.linspace(0.0, length, max(2, int(np.ceil(length)) + 1))
+            stem_xy = node[None, :] + stations[:, None] * axis[None, :]
+            stem_z = np.interp(stations, s_values, z_values)
+            stem_part = ([(float(x), float(y), float(z)) for (x, y), z in zip(stem_xy, stem_z)], float(stem["width"]),
+                         None, stem["deck_material"], {"cap_start": False, "cap_end": False})
+        for rest, cut_end in kept:
+            flags = {}
+            if cut_end is not None:
+                flags["cap_start" if cut_end == "start" else "cap_end"] = False
+            parts.append((rest["coords"], rest["width"], rest.get("widths"), rest["deck_material"], flags))
+        _join_neighbours(parts, curb_width)  # the stem's sides are outer sides: it takes no part in that
+        if samples and reach > 1.0:
+            parts.append(stem_part)
+        # The trunk end at the node continues in the stem: no end face there
+        for index, (coords, _, _, _, flags) in enumerate(parts):
+            ends = np.array([coords[0][:2], coords[-1][:2]], dtype=float)
+            for end, key in ((0, "cap_start"), (1, "cap_end")):
+                if key not in flags and np.linalg.norm(ends[end] - node) <= endpoint_tol:
+                    flags[key] = False
+    else:
+        for member in members:
+            parts.append((member["coords"], member["width"], member.get("widths"), member["deck_material"], {}))
+        for index, (coords, _, _, _, flags) in enumerate(parts):
+            for end, key in ((0, "cap_start"), (-1, "cap_end")):
+                point = np.asarray(coords[end][:2], dtype=float)
+                if any(k != index and min(np.linalg.norm(point - np.asarray(c[e][:2], dtype=float)) for e in (0, -1)) <= endpoint_tol
+                       for k, (c, *_rest) in enumerate(parts)):
+                    flags[key] = False
 
     vertices, uvs, normals, faces = [], [], [], {}
 
     def add(mesh):
         offset = len(vertices)
-        vertices.extend(mesh["vertices"].tolist())
-        uvs.extend(mesh["uvs"].tolist())
-        normals.extend(mesh["normals"].tolist())
+        vertices.extend(np.asarray(mesh["vertices"]).tolist())
+        uvs.extend(np.asarray(mesh["uvs"]).tolist())
+        normals.extend(np.asarray(mesh["normals"]).tolist())
         for material, part in mesh["faces"].items():
             faces.setdefault(material, []).extend([[a + offset, b + offset, c + offset] for a, b, c in part])
 
     sites = []
-    for index, member in enumerate(members):
-        _, xy, half, unit_left, unit_right = shapes[index]
-        add(build_bridge_mesh(
-            member["coords"], member["width"], ground_at, member["deck_material"], pier_material, railing_material,
-            deck_thickness=deck_thickness, curb_width=curb_width, curb_height=curb_height, railing_height=railing_height,
-            railing_post_spacing=railing_post_spacing, railing_post_size=railing_post_size, tile_m=tile_m,
-            road_texture_length=road_texture_length, widths=member.get("widths"),
-            joined_left=joined_side(index, unit_left), joined_right=joined_side(index, unit_right),
-            cap_start=not end_is_closed(index, 0), cap_end=not end_is_closed(index, -1), piers=False,
-        ))
-        bottom = np.array(member["coords"], dtype=float)[:, 2] - deck_thickness
-        for site in _pier_sites(xy, bottom, half, ground_at, pier_spacing, min_pier_clearance, pier_width_fraction):
+    for coords, width, widths, deck_material, flags in parts:
+        add(build_bridge_mesh(coords, width, ground_at, deck_material, pier_material, railing_material, widths=widths,
+                              **kwargs, **flags))
+        points = np.array(coords, dtype=float)
+        half = (np.full(len(points), width) if widths is None else np.asarray(widths, dtype=float)) / 2.0
+        for site in _pier_sites(points[:, :2], points[:, 2] - deck_thickness, half, ground_at, pier_spacing,
+                                min_pier_clearance, pier_width_fraction):
             if all(np.hypot(site[0] - other[0], site[1] - other[1]) >= pier_spacing / 2.0 for other in sites):
                 sites.append(site)
     pier_builder = MeshBuilder()
@@ -461,15 +569,16 @@ def build_bridges(
 ) -> List[Dict]:
     """Mesh dicts for the DAE export, one per bridge (`bridges`: [{"id","coords","width","deck_material"}, ...];
     optional "widths": width per coordinate, see build_bridge_mesh()). Bridges with the same optional "group" become
-    ONE structure (build_bridge_group_mesh(), id "bridge_group_<group>")."""
+    ONE structure (build_bridge_group_mesh() with the optional "stem" of a member, id "bridge_group_<group>")."""
     meshes = []
     groups: Dict[object, List[Dict]] = {}
     for bridge in bridges:
         if bridge.get("group") is not None and len(bridge["coords"]) >= 2:
             groups.setdefault(bridge["group"], []).append(bridge)
     for group, members in groups.items():
+        stem = next((m["stem"] for m in members if m.get("stem")), None)
         mesh = build_bridge_group_mesh(
-            members, ground_at, pier_material, railing_material,
+            members, ground_at, pier_material, railing_material, stem=stem,
             deck_thickness=deck_thickness, pier_spacing=pier_spacing,
             pier_width_fraction=pier_width_fraction, pier_depth_fraction=pier_depth_fraction, pier_burial=pier_burial,
             min_pier_clearance=min_pier_clearance,

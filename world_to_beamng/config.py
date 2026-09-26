@@ -251,11 +251,10 @@ ROAD_WIDTH_TRANSITION_STEP = 1.0
 ROAD_WIDTH_TRANSITION_MIN_DELTA = 0.05  # smaller width differences stay unchanged, in meters
 # Lane-count change where one side has 3 or more lanes (e.g. 2 -> 3): 50 m before and 50 m after the joint instead
 ROAD_LANE_CHANGE_TRANSITION_LENGTH = 100.0
-# Lane splits (motorway exits/entrances, turn lanes, see geometry/lane_splits.py): OSM draws every branch from the node
-# to its lane centre first (only symbolic) - that connector (at most ROAD_LANE_SPLIT_MAX_CONNECTOR) becomes a straight
-# run in the branch's lanes of the trunk, then the branch follows OSM; the rest between OSM's lane centre and the slot and
-# the width fade out over ROAD_LANE_SPLIT_LENGTH, in meters
-ROAD_LANE_SPLIT_MAX_CONNECTOR = 30.0
+# Lane splits (motorway exits/entrances, turn lanes, see geometry/lane_splits.py): OSM's branch geometry from the node
+# is only symbolic - the trunk goes on as one piece for ROAD_LANE_SPLIT_HOLD_LENGTH (every branch straight in its lanes),
+# then the branches move over to their OSM courses and widths within ROAD_LANE_SPLIT_LENGTH, in meters
+ROAD_LANE_SPLIT_HOLD_LENGTH = 30.0
 ROAD_LANE_SPLIT_LENGTH = 30.0
 # Width change at a bridge/tunnel/gallery: the structure keeps its width, the whole transition lies on the road
 # (at most as long as the road piece up to the next junction)
@@ -367,8 +366,8 @@ BRIDGE_TREE_MARGIN = 3.0  # beyond the curbs, in meters
 # against the photo) is filled with the texture mirrored from beside the bridge (see io/aerial_bridge_fill.py)
 BRIDGE_PHOTO_FILL_MARGIN = 2.0  # beyond the curbs, in meters
 # Lane split on a bridge (geometry/lane_splits.py): the trunk, its branches and the bridge pieces that continue them
-# within ROAD_LANE_SPLIT_MAX_CONNECTOR + ROAD_LANE_SPLIT_LENGTH + BRIDGE_GROUP_EXTRA_REACH of the node form ONE structure:
-# no curb or railing where two carriageways lie side by side, until they have moved apart
+# within ROAD_LANE_SPLIT_HOLD_LENGTH + ROAD_LANE_SPLIT_LENGTH + BRIDGE_GROUP_EXTRA_REACH of the node form ONE structure:
+# one deck of the trunk's width over the hold length, then cut into the branches (bridges/bridge_mesh.py)
 BRIDGE_GROUP_EXTRA_REACH = 10.0  # in meters
 BRIDGE_RAILING_HEIGHT = 0.9  # handrail height above the curb top edge, in meters
 BRIDGE_RAILING_POST_SPACING = 2.0  # post spacing along the bridge, in meters

@@ -199,24 +199,31 @@ from world_to_beamng.bridges.bridge_mesh import build_bridge_group_mesh
 LINK = "asphalt_link"
 
 
+HOLD = 30.0
+
+
 def _split_group(z=200.0):
-    """A 4-lane trunk (13 m) ending at x=0 and three branches starting in its lanes: main road (6.5 m, centred) and a
-    ramp (3.25 m) on each side that turns away - all on one bridge."""
+    """A 4-lane trunk (13 m) ending at the node x=0; its branches as lane_splits.py leaves them: straight on in their
+    lanes for HOLD meters, then moving apart - main road (6.5 m, centred) and a ramp (3.25 m) on each side."""
     def line(points):
         return [(x, y, z) for x, y in points]
 
-    ramp = lambda sign: line([(0.0, sign * 4.875), (10.0, sign * 7.0), (20.0, sign * 10.0), (40.0, sign * 16.0)])
+    ramp = lambda sign: line([(0.0, sign * 4.875), (HOLD, sign * 4.875), (40.0, sign * 6.0), (60.0, sign * 12.0)])
     return [
         {"id": 1, "coords": line([(-40.0, 0.0), (-20.0, 0.0), (0.0, 0.0)]), "width": 13.0, "deck_material": DECK},
-        {"id": 2, "coords": line([(0.0, 0.0), (20.0, 0.0), (40.0, 0.0)]), "width": 6.5, "deck_material": DECK},
+        {"id": 2, "coords": line([(0.0, 0.0), (HOLD, 0.0), (60.0, 0.0)]), "width": 6.5, "deck_material": DECK},
         {"id": 3, "coords": ramp(1.0), "width": 3.25, "deck_material": LINK},
-        {"id": 4, "coords": ramp(-1.0), "width": 3.25, "deck_material": LINK},
+        {"id": 4, "coords": ramp(-1.0)[::-1], "width": 3.25, "deck_material": LINK},  # digitized towards the node
     ]
+
+
+STEM = {"node": (0.0, 0.0), "axis": (1.0, 0.0), "left_normal": (0.0, 1.0), "hold": HOLD, "width": 13.0,
+        "deck_material": DECK}
 
 
 def _group_mesh(**kwargs):
     return build_bridge_group_mesh(
-        _split_group(), ground_at=_flat_ground(150.0), pier_material=PIER, railing_material=RAIL, **kwargs
+        _split_group(), ground_at=_flat_ground(150.0), pier_material=PIER, railing_material=RAIL, stem=STEM, **kwargs
     )
 
 
@@ -231,15 +238,66 @@ def _points(mesh, material):
     return v[sorted({i for face in mesh["faces"][material] for i in face})]
 
 
-def test_group_railing_stands_only_on_the_outer_contour():
-    mesh = _group_mesh()
-    inside = _carriageways(_split_group()).buffer(-0.05)
+def test_the_trunk_goes_on_as_one_deck_with_railings_only_outside():
+    rail = _points(_group_mesh(), RAIL)
 
+    stem_rail = rail[(rail[:, 0] > 1.0) & (rail[:, 0] < HOLD - 1.0)]
+    assert len(stem_rail) > 0
+    assert np.all(np.abs(np.abs(stem_rail[:, 1]) - 6.7) < 0.1)  # only on the outer curbs of the 13 m deck
+
+
+def _up_faces_cover(mesh, point, z, materials):
+    v, n = np.asarray(mesh["vertices"]), np.asarray(mesh["normals"])
+    for material in materials:
+        for face in mesh["faces"][material]:
+            tri = v[face]
+            if n[face[0]][2] > 0.5 and np.all(np.abs(tri[:, 2] - z) < 0.02) and Polygon(tri[:, :2]).buffer(1e-6).contains(point):
+                return True
+    return False
+
+
+# In _split_group() the ramps' inner edges (3.25 m beside the axis up to x = 30) move away from the main road's edge:
+# the gap is 1.125 m at x = 40 - it reaches 2 x 40 cm at about x = 37.1, where the cut begins.
+
+
+def test_before_the_gap_reaches_two_curb_widths_the_branches_meet_in_the_middle_of_it():
+    mesh = _group_mesh()
+    concrete = _points(mesh, PIER)
+
+    # x = 34: gap 0.45 m - no curb yet, the deck is closed across the gap
+    assert _up_faces_cover(mesh, Point(34.0, 3.25 + 0.2), 200.0, (DECK, LINK))
+    assert _up_faces_cover(mesh, Point(34.0, -3.25 - 0.2), 200.0, (DECK, LINK))
+    raised = (concrete[:, 0] > HOLD) & (concrete[:, 0] < 36.5) & (np.abs(concrete[:, 1]) < 4.5) & (concrete[:, 2] > 200.0 + 1e-6)
+    assert not np.any(raised)
+
+
+def test_the_cut_begins_where_each_branch_has_room_for_its_curb():
+    mesh = _group_mesh()
+    concrete = _points(mesh, PIER)
+
+    # beyond x = 37.1 the main road has its 40 cm curb along the cut (3.25 .. 3.65 m beside the axis)
+    curb = concrete[(concrete[:, 0] > 38.0) & (concrete[:, 0] < 55.0) & (np.abs(concrete[:, 2] - 200.2) < 1e-6)]
+    assert np.any(np.abs(np.abs(curb[:, 1]) - 3.65) < 0.05)
+    # no railing along the cut for now, the outer sides keep theirs
     rail = _points(mesh, RAIL)
-    assert len(rail) > 0
-    assert not any(inside.contains(Point(p[0], p[1])) for p in rail)
-    # the outer sides of the trunk do get a railing (curb centre 6.5 + 0.2 m beside the axis)
-    assert any(abs(p[0] + 20.0) < 2.0 and abs(abs(p[1]) - 6.7) < 0.1 for p in rail)
+    assert not np.any((rail[:, 0] > HOLD) & (np.abs(rail[:, 1]) < 4.5))
+    assert np.any((rail[:, 0] > 45.0) & (np.abs(rail[:, 1]) > 8.0))
+
+
+def test_no_railing_crosses_a_carriageway():
+    mesh = _group_mesh()
+    inside = _carriageways(_split_group()).buffer(-0.1)
+
+    assert not any(inside.contains(Point(p[0], p[1])) for p in _points(mesh, RAIL))
+
+
+def test_the_stem_covers_the_whole_trunk_width_up_to_the_cut():
+    mesh = _group_mesh()
+    v, n = np.asarray(mesh["vertices"]), np.asarray(mesh["normals"])
+    top = v[sorted({i for face in mesh["faces"][DECK] for i in face if n[i][2] > 0.5})]  # carriageway surface
+    stem_top = top[(top[:, 0] > 0.5) & (top[:, 0] < HOLD - 0.5)]
+
+    assert stem_top[:, 1].max() == pytest.approx(6.5) and stem_top[:, 1].min() == pytest.approx(-6.5)
 
 
 def test_group_carriageways_keep_their_road_materials():
@@ -248,27 +306,21 @@ def test_group_carriageways_keep_their_road_materials():
     assert len(mesh["faces"][DECK]) > 0 and len(mesh["faces"][LINK]) > 0
 
 
-def test_a_narrow_gap_between_branches_is_closed_by_the_slab():
-    mesh = _group_mesh()
-    v = np.asarray(mesh["vertices"])
-    target = Point(1.0, 3.35)  # just beyond the main road edge (3.25), before the ramp edge (about 3.46)
-    assert not _carriageways(_split_group()).contains(target)
+def test_the_group_slab_underside_stays_below_a_steep_carriageway():
+    members = _split_group()
+    members[0]["coords"] = [(x, y, 200.0 - 0.1 * x) for x, y, _ in members[0]["coords"]]  # trunk climbs to x=-40
 
-    covered = False
-    for face in mesh["faces"][PIER]:
-        tri = v[face]
-        if np.all(np.abs(tri[:, 2] - 200.0) < 0.05) and Polygon(tri[:, :2]).buffer(1e-6).contains(target):
-            covered = True
-            break
-    assert covered
+    mesh = build_bridge_group_mesh(members, ground_at=_flat_ground(150.0), pier_material=PIER, railing_material=RAIL,
+                                   deck_thickness=0.6, pier_spacing=1000.0, stem=STEM)
 
-
-def test_no_curb_stands_between_two_members_lying_side_by_side():
-    mesh = _group_mesh(curb_height=0.2)
-    v = np.asarray(mesh["vertices"])
-    # beside the node the main road and the ramps touch: no concrete above the carriageway there
-    near_node = [p for face in mesh["faces"][PIER] for p in v[face] if 0.0 <= p[0] <= 2.0 and abs(p[1]) < 4.0]
-    assert all(p[2] <= 200.0 + 1e-6 for p in near_node)
+    v, n = np.asarray(mesh["vertices"]), np.asarray(mesh["normals"])
+    for material in (DECK, LINK, PIER):
+        for face in mesh["faces"][material]:
+            if n[face[0]][2] > -0.5:
+                continue
+            for x, y, z in v[face]:
+                deck = 200.0 - 0.1 * x if x < 0.0 else 200.0
+                assert z <= deck - 0.6 + 1e-6
 
 
 def test_build_bridges_merges_a_group_into_one_mesh():
@@ -280,20 +332,17 @@ def test_build_bridges_merges_a_group_into_one_mesh():
     assert sorted(m["id"] for m in meshes) == ["bridge_9", "bridge_group_7"]
 
 
-def test_the_group_slab_underside_stays_below_a_steep_carriageway():
-    # the trunk climbs 4 m over 40 m while the branches stay flat: the underside must follow each member's profile
+def test_a_branch_piece_lying_completely_in_the_stem_adds_nothing():
+    # the main road's first piece ends 14 m behind the node, still inside the stem; digitized towards the node
     members = _split_group()
-    members[0]["coords"] = [(x, y, 200.0 - 0.1 * x) for x, y, _ in members[0]["coords"]]  # x from -40 (204 m) to 0
+    main = members[1]
+    members[1:2] = [
+        {**main, "id": 21, "coords": [(14.0, 0.0, 200.0), (0.0, 0.0, 200.0)]},
+        {**main, "id": 22, "coords": [(14.0, 0.0, 200.0), (HOLD, 0.0, 200.0), (60.0, 0.0, 200.0)]},
+    ]
 
-    mesh = build_bridge_group_mesh(members, ground_at=_flat_ground(150.0), pier_material=PIER, railing_material=RAIL,
-                                   deck_thickness=0.6, pier_spacing=1000.0)
+    mesh = build_bridge_group_mesh(members, ground_at=_flat_ground(150.0), pier_material=PIER, railing_material=RAIL, stem=STEM)
 
-    v, n = np.asarray(mesh["vertices"]), np.asarray(mesh["normals"])
-    for face in mesh["faces"][PIER]:
-        if n[face[0]][2] > -0.5:
-            continue
-        tri = v[face]
-        for weights in ((1 / 3, 1 / 3, 1 / 3), (0.5, 0.5, 0.0), (0.0, 0.5, 0.5), (0.5, 0.0, 0.5)):
-            x, y, z = np.asarray(weights) @ tri  # inside the triangle, not only its corners
-            deck = 200.0 - 0.1 * x if x < 0.0 else 200.0
-            assert z <= deck - 0.6 + 0.05
+    rail = _points(mesh, RAIL)
+    stem_rail = rail[(rail[:, 0] > 1.0) & (rail[:, 0] < HOLD - 1.0)]
+    assert np.all(np.abs(np.abs(stem_rail[:, 1]) - 6.7) < 0.1)  # nothing on the stem between its outer railings
