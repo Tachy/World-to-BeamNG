@@ -373,6 +373,7 @@ def _road_marking_lines(specs: List[Tuple[Dict, Dict, List]], node_lists: List[L
         block_inputs,
         structure_boundary_shifts,
         taper_zones,
+        zone_boundary_shifts,
         zone_divider_masks,
         boundary_shifts,
         build_marking_lines,
@@ -410,17 +411,22 @@ def _road_marking_lines(specs: List[Tuple[Dict, Dict, List]], node_lists: List[L
         )
         for poly, props, _ in specs
     ]
-    # The centre line of a narrower road (2 lanes) runs onto the double line of a wider one (3+ lanes) over the transition
     fixed = [poly.get("structure_type") in config.ROAD_FIXED_WIDTH_STRUCTURES for poly, _, _ in specs]
-    shifts = boundary_shifts(node_lists, layouts, [float(props.get("width", 4.0)) for _, props, _ in specs], pairs, fixed)
-    # At a structure the road's lines are aligned with the structure's 50 m before it (the width still changes up to it)
+    own_widths = [float(props.get("width", 4.0)) for _, props, _ in specs]
+    # A lane that is dropped or added along a 100 m taper zone: block stripes replace its dashed divider over the whole zone,
+    # and the lane of the other direction keeps its width - the line between the directions follows its edge
+    zones = taper_zones(node_lists, layouts, own_widths, fixed, pairs)
+    blocks, masks = block_inputs(zones), zone_divider_masks(zones)
+    shifts = zone_boundary_shifts(zones)
+    # Other joints: the centre line of a narrower road (2 lanes) runs onto the double line of a wider one (3+ lanes), and at a
+    # structure the road's lines are aligned with the structure's 50 m before it (the width still changes up to it)
+    plain_pairs = [pair for pair in pairs if pair not in {zone["pair"] for zone in zones}]
+    for road_index, shift in boundary_shifts(node_lists, layouts, own_widths, plain_pairs, fixed).items():
+        shifts[road_index] = shifts.get(road_index, 0.0) + shift
     for road_index, shift in structure_boundary_shifts(
-        node_lists, layouts, fixed, pairs, config.ROAD_STRUCTURE_TRANSITION_LENGTH, config.ROAD_STRUCTURE_LINES_DONE_AT
+        node_lists, layouts, fixed, plain_pairs, config.ROAD_STRUCTURE_TRANSITION_LENGTH, config.ROAD_STRUCTURE_LINES_DONE_AT
     ).items():
         shifts[road_index] = shifts.get(road_index, 0.0) + shift
-    # A lane that is dropped or added along a 100 m taper zone: block stripes replace its dashed divider over the whole zone
-    zones = taper_zones(node_lists, layouts, [float(props.get("width", 4.0)) for _, props, _ in specs], fixed, pairs)
-    blocks, masks = block_inputs(zones), zone_divider_masks(zones)
 
     lines = []
     for index, ((poly, props, _), nodes) in enumerate(zip(specs, node_lists)):

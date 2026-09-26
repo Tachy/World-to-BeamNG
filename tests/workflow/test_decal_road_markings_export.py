@@ -336,10 +336,10 @@ def test_two_lane_centre_line_runs_onto_the_double_line_of_the_three_lane_road()
     centers = y_near_joint("marking_2_", config.ROAD_MARKING_CENTER_MATERIAL, keep=lambda y: abs(y) < 3.0)
     assert len(divider) == 1 and len(centers) == 2
     assert divider[0] == pytest.approx(sum(centers) / 2.0, abs=0.1)  # the single line ends where the double line begins
-    assert divider[0] < -1.0  # and that is not the middle of the carriageway any more
+    assert divider[0] == pytest.approx(-(8.125 / 2.0 - 3.25), abs=0.05)  # 3.25 m from the right edge, not the middle
 
 
-def test_road_lines_reach_the_tunnels_double_line_50_m_before_the_tunnel(monkeypatch):
+def test_road_double_line_runs_into_the_tunnels_double_line_at_the_tunnel(monkeypatch):
     monkeypatch.setattr(config, "STRUCTURE_AI_ROADS", True)
     road = _poly(1, [(x, 0) for x in range(-300, 1)], highway="primary", lanes="3",
                  **{"lanes:forward": "1", "lanes:backward": "2"})
@@ -350,17 +350,18 @@ def test_road_lines_reach_the_tunnels_double_line_50_m_before_the_tunnel(monkeyp
                            _export_structure_road_assets=lambda lines: captured.setdefault("lines", lines))
     TerrainWorkflow.export_decal_roads(stub, {"road_slope_polygons_2d": [road, tunnel]})
 
-    solid = [r for n, r in _markings(stub.items.roads).items()
-             if n.startswith("marking_1_") and r["material"] == config.ROAD_MARKING_CENTER_MATERIAL]
-    centre = []
-    for line in solid:
-        near = [node for node in line["nodes"] if -50.0 <= node[0] <= -1.0]
-        if near and all(abs(node[1]) < 2.0 for node in near):
-            centre.append(sum(node[1] for node in near) / len(near))
-    tunnel_double = sorted(l["nodes"][0][1] for l in captured["lines"] if l["material"] == config.ROAD_MARKING_CENTER_MATERIAL
-                           and l["name"].startswith("marking_2_") and abs(l["nodes"][0][1]) < 1.0)
-    assert len(centre) == 2 and len(tunnel_double) == 2
-    assert sorted(centre) == pytest.approx(tunnel_double, abs=0.1)  # same double line as inside the tunnel
+    def y_near(nodes, x):
+        return min(nodes, key=lambda n: abs(n[0] - x))[1]
+
+    doubles = [r["nodes"] for n, r in _markings(stub.items.roads).items()
+               if n.startswith("marking_1_") and r["material"] == config.ROAD_MARKING_CENTER_MATERIAL
+               and abs(y_near(r["nodes"], -150)) < 2.5]
+    tunnel_double = [l["nodes"] for l in captured["lines"] if l["material"] == config.ROAD_MARKING_CENTER_MATERIAL
+                     and l["name"].startswith("marking_2_") and abs(l["nodes"][0][1]) < 1.0]
+    assert len(doubles) == 2 and len(tunnel_double) == 2
+    road_centre = sum(y_near(nodes, -1.0) for nodes in doubles) / 2.0
+    tunnel_centre = sum(nodes[0][1] for nodes in tunnel_double) / 2.0
+    assert road_centre == pytest.approx(tunnel_centre, abs=0.05)  # the same double line inside the tunnel
 
 
 def test_third_lane_is_dropped_before_a_two_lane_tunnel_with_a_block_stripe_over_100_m(monkeypatch):
@@ -396,3 +397,29 @@ def test_road_road_lane_drop_gets_block_stripes_on_both_sides_of_the_joint():
     xs = sorted(x for r in blocks.values() for x in (r["nodes"][0][0], r["nodes"][-1][0]))
     assert xs[0] == pytest.approx(-50.0, abs=1.5) and xs[-1] == pytest.approx(50.0, abs=1.5)
     assert sorted(n.split("_")[1] for n in blocks) == ["1", "2"]
+
+
+def test_uninvolved_lane_keeps_a_constant_width_through_a_three_to_two_lane_taper():
+    wide = _poly(1, [(x, 0) for x in range(-200, 1)], highway="primary", lanes="3",
+                 **{"lanes:forward": "1", "lanes:backward": "2"})
+    narrow = _poly(2, [(x, 0) for x in range(0, 201)], highway="primary", lanes="2")
+
+    _, roads, _ = _export([wide, narrow])
+
+    def lines(prefix, material):
+        return [r["nodes"] for n, r in _markings(roads).items() if n.startswith(prefix) and r["material"] == material]
+
+    def y_at(nodes, x):
+        return min(nodes, key=lambda n: abs(n[0] - x))[1]
+
+    right_edges = {1: [nodes for nodes in lines("marking_1_", config.ROAD_MARKING_EDGE_MATERIAL) if y_at(nodes, -100) < -3.0],
+                   2: [nodes for nodes in lines("marking_2_", config.ROAD_MARKING_EDGE_MATERIAL) if y_at(nodes, 100) < -2.5]}
+    double = [nodes for nodes in lines("marking_1_", config.ROAD_MARKING_CENTER_MATERIAL) if abs(y_at(nodes, -100)) < 2.5]
+    divider = lines("marking_2_", config.ROAD_MARKING_DIVIDER_MATERIAL)
+    assert right_edges[1] and right_edges[2] and len(double) == 2 and len(divider) == 1
+
+    for x in (-50.0, -40.0, -25.0, -10.0, -1.0):  # wide side of the zone
+        boundary = (y_at(double[0], x) + y_at(double[1], x)) / 2.0
+        assert boundary - y_at(right_edges[1][0], x) == pytest.approx(3.25 - config.ROAD_MARKING_EDGE_INSET, abs=0.02)
+    for x in (1.0, 10.0, 25.0, 40.0, 50.0):  # narrow side
+        assert y_at(divider[0], x) - y_at(right_edges[2][0], x) == pytest.approx(3.25 - config.ROAD_MARKING_EDGE_INSET, abs=0.02)

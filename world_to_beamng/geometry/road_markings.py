@@ -251,12 +251,17 @@ def _zone_pieces(roads, partner, fixed, own_widths, road, end, sign, eps):
 def taper_zones(roads, layouts, own_widths, fixed, pairs, eps: float = 1e-6) -> List[dict]:
     """
     Taper zones where a road gains or loses exactly ONE lane in one direction (`pairs` from find_continuations(), `fixed`:
-    tunnel/gallery keep their width). A zone is {"lane_width", "wide": [piece indices], "pieces": [(piece, node mask,
-    side sign), ...]} and covers the nodes whose width is blended (the 100 m of the width transition, on the road side
-    only at a structure). In it the dashed divider of that lane is replaced by a block stripe (see block_inputs()): the
+    tunnel/gallery keep their width). A zone is {"pair", "lane_width", "wide": [piece indices], "pieces": [(piece,
+    node mask, side sign), ...], "shifts": {piece: shift per node}} and covers the nodes whose width is blended (the
+    100 m of the width transition, on the road side only at a structure). In it the dashed divider of that lane is replaced by a block stripe (see block_inputs()): the
     outer lane keeps its full width (`lane_width`), the inner lane runs out to zero (or grows from zero) so that the
     stripe meets the line between the directions at the narrow end. Only two-way roads whose direction split is known
     (layout.forward) take part; the side sign is + on the left of the wider road's digitization direction.
+
+    The lane of the uninvolved direction keeps a constant width along the zone (at most it blends from its single width on
+    the wide road to its single width on the narrow one): the line between the directions follows the outer edge of that
+    lane. `shifts` moves the boundary line of each piece from its default position (a share of the blended width) there
+    - pass them as boundary_shift to build_marking_lines().
     """
     partner = {}
     for a, b in pairs:
@@ -283,9 +288,36 @@ def taper_zones(roads, layouts, own_widths, fixed, pairs, eps: float = 1e-6) -> 
         pieces = _zone_pieces(roads, partner, fixed, own_widths, wide, wide_end, sign, eps)
         wide_pieces = [piece for piece, _, _ in pieces]
         pieces += _zone_pieces(roads, partner, fixed, own_widths, narrow, narrow_end, sign if same else -sign, eps)
-        if pieces:
-            zones.append({"lane_width": float(own_widths[wide]) / wide_layout.lanes, "wide": wide_pieces, "pieces": pieces})
+        if not pieces:
+            continue
+        # lanes of the uninvolved direction (the one that keeps its lane count) and their width on both roads
+        uninvolved = wide_layout.forward if sign > 0 else wide_layout.lanes - wide_layout.forward
+        wide_lane = float(own_widths[wide]) / wide_layout.lanes
+        narrow_lane = float(own_widths[narrow]) / narrow_layout.lanes
+        span = float(own_widths[narrow]) - float(own_widths[wide])
+        shifts = {}
+        for piece, mask, piece_sign in pieces:
+            layout, nodes = layouts[piece], np.asarray(roads[piece], dtype=float)
+            if layout is None:
+                continue
+            width = nodes[:, 3]
+            progress = np.clip((width - own_widths[wide]) / span, 0.0, 1.0) if abs(span) > eps else np.zeros(len(nodes))
+            lane = wide_lane + (narrow_lane - wide_lane) * progress
+            boundary = -piece_sign * (width / 2.0 - uninvolved * lane)
+            default = direction_boundary_offset(width, layout.lanes, layout.forward if layout.forward is not None else layout.lanes // 2)
+            shifts[piece] = np.where(mask, boundary - default, 0.0)
+        zones.append({"pair": ((ia, ea), (ib, eb)), "lane_width": wide_lane, "wide": wide_pieces, "pieces": pieces,
+                      "shifts": shifts})
     return zones
+
+
+def zone_boundary_shifts(zones) -> Dict[int, np.ndarray]:
+    """Per road piece: the shift of its boundary line from all taper zones (sum, see taper_zones())."""
+    result: Dict[int, np.ndarray] = {}
+    for zone in zones:
+        for piece, shift in zone["shifts"].items():
+            result[piece] = result.get(piece, 0.0) + shift
+    return result
 
 
 def block_inputs(zones) -> Dict[int, list]:

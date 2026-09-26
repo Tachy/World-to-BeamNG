@@ -563,3 +563,54 @@ def test_no_zone_for_equal_lanes_oneway_roads_or_more_than_one_extra_lane():
     assert taper_zones(roads, [MarkingLayout(lanes=3, forward=1)] * 2, own, fixed, pairs) == []
     assert taper_zones(roads, [MarkingLayout(lanes=3), layouts[1]], own, fixed, pairs) == []  # oneway: no forward count
     assert taper_zones(roads, [MarkingLayout(lanes=4, forward=2), layouts[1]], own, fixed, pairs) == []  # two extra lanes
+
+
+# --- the uninvolved lane keeps its width in the taper zone ------------------------------------------------------------------
+def _uninvolved_lane_widths(roads, layouts, zone, piece_index):
+    """Distance from the right edge to the boundary line between the directions, per zone node of a piece."""
+    piece, mask, _ = next(p for p in zone["pieces"] if p[0] == piece_index)
+    shift = zone["shifts"][piece]
+    widths = np.array([n[3] for n in roads[piece]])
+    layout = layouts[piece]
+    lane = layout.forward if layout.forward is not None else layout.lanes // 2
+    boundary = -widths / 2.0 + lane * widths / layout.lanes + shift
+    return (boundary + widths / 2.0)[mask]
+
+
+def test_uninvolved_lane_keeps_its_width_through_the_zone_on_both_sides_of_the_joint():
+    roads, layouts, own, fixed, pairs = _symmetric_pair()
+    zone = taper_zones(roads, layouts, own, fixed, pairs)[0]
+
+    wide = _uninvolved_lane_widths(roads, layouts, zone, 0)
+    narrow = _uninvolved_lane_widths(roads, layouts, zone, 1)
+
+    assert wide == pytest.approx(3.25) and narrow == pytest.approx(3.25)  # the single forward lane stays 3.25 m wide
+
+
+def test_uninvolved_lane_blends_only_from_its_old_to_its_new_single_width():
+    roads, layouts, own, fixed, pairs = _symmetric_pair()
+    for node in roads[1]:  # the 2-lane road is 7.0 m wide: 3.5 m per lane
+        node[3] = 7.0 + (node[3] - 6.5) * (9.75 - 7.0) / (9.75 - 6.5)
+    for node in roads[0]:
+        node[3] = 7.0 + (node[3] - 6.5) * (9.75 - 7.0) / (9.75 - 6.5)
+    zone = taper_zones(roads, layouts, [9.75, 7.0], fixed, pairs)[0]
+
+    widths = np.concatenate([_uninvolved_lane_widths(roads, layouts, zone, 0), _uninvolved_lane_widths(roads, layouts, zone, 1)])
+
+    assert widths[0] == pytest.approx(3.25) and widths[-1] == pytest.approx(3.5)
+    assert np.all(np.diff(widths) >= -1e-9)  # monotone: nothing narrower than the old lane, nothing wider than the new
+
+
+def test_shift_is_zero_outside_the_zone_and_mirrored_for_a_forward_extra_lane():
+    roads, layouts, own, fixed, pairs = _symmetric_pair()
+    backward = taper_zones(roads, layouts, own, fixed, pairs)[0]
+    layouts[0] = MarkingLayout(lanes=3, forward=2)  # the extra lane is on the right: the uninvolved lane is the left one
+
+    forward = taper_zones(roads, layouts, own, fixed, pairs)[0]
+
+    assert np.all(backward["shifts"][0][~backward["pieces"][0][1]] == 0.0)
+    left = -(_uninvolved_lane_widths(roads, layouts, forward, 0) - roads[0][0][3] / 2.0 * 0)  # not used
+    boundary_from_left = (roads[0][-1][3] / 2.0) - (
+        -roads[0][-1][3] / 2.0 + 2 * roads[0][-1][3] / 3 + forward["shifts"][0][-1]
+    )
+    assert boundary_from_left == pytest.approx(3.25)  # the single backward lane on the left keeps 3.25 m
