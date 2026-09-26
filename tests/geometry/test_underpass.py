@@ -11,7 +11,7 @@ import pytest
 
 from world_to_beamng.geometry.road_structures import fix_underpass_elevations
 
-KW = dict(margin=4.0, min_rise=1.0)
+KW = dict(max_search=60.0, stable_length=6.0, max_grade=0.15, min_rise=1.0)
 HALF = 4.875  # 3-lane bridge
 
 
@@ -41,7 +41,6 @@ def test_road_under_a_bridge_is_interpolated_from_before_to_behind_it():
     z = {round(y): zz for (_, y, zz) in road["coords"]}
     assert fixed == 1
     assert z[0] == pytest.approx(90.0) and z[3] == pytest.approx(90.0)  # under the deck
-    assert z[-9] == pytest.approx(90.0) and z[9] == pytest.approx(90.0)  # margin: 4 m beyond the deck edges
     assert z[-50] == pytest.approx(90.0) and z[50] == pytest.approx(90.0)  # untouched
 
 
@@ -73,7 +72,7 @@ def test_approach_roads_that_only_touch_the_bridge_end_are_left_alone():
 
 
 def test_road_that_ends_within_the_margin_is_skipped_and_bridges_are_never_changed():
-    short = _road_across(lambda y: 98.0 if abs(y) <= HALF else 90.0, y0=-8.0, y1=8.0)  # ends 3 m past the deck edge
+    short = _road_across(lambda y: 98.0 if abs(y) <= HALF else 90.0, y0=-6.0, y1=6.0)  # ends 1 m past the deck edge
     bridge = _bridge()
     bridge_before = bridge["coords"].copy()
 
@@ -137,3 +136,52 @@ def test_a_side_road_that_only_ends_at_the_crossing_is_not_chained_across():
     fix_underpass_elevations([_bridge(), before, after, sideways], _half, **KW)
 
     assert {round(y): zz for (_, y, zz) in before["coords"]}[0] == pytest.approx(90.0)
+
+
+# --- the terrain model raises the road before the deck and lets it fall behind it: the reference is the stable height -------
+def _flanked(y):
+    """DGM profile of an underpass: flat 90 m, a steep flank 5 m before the deck, the deck level, a flank 8 m behind it."""
+    if y < -HALF - 5.0 or y > HALF + 8.0:
+        return 90.0 + 0.03 * y
+    if y < -HALF:
+        return 90.0 + 0.03 * y + 8.0 * (y + HALF + 5.0) / 5.0
+    if y <= HALF:
+        return 90.0 + 0.03 * y + 8.0
+    return 90.0 + 0.03 * y + 8.0 * (HALF + 8.0 - y) / 8.0
+
+
+def test_reference_heights_are_taken_where_the_terrain_model_is_stable_not_on_the_flanks():
+    road = _road_across(_flanked)
+
+    fix_underpass_elevations([_bridge(), road], _half, **KW)
+
+    z = {round(y): zz for (_, y, zz) in road["coords"]}
+    grades = np.abs(np.diff([z[y] for y in range(-30, 31)]))
+    assert grades.max() < 0.06  # smooth through the whole underpass - no remaining flank
+    assert z[0] == pytest.approx(90.0, abs=0.3) and z[-30] == pytest.approx(90.0 - 0.9, abs=1e-6)  # ends stay
+
+
+def test_search_reaches_beyond_the_flank_even_when_it_is_long():
+    def long_flank(y):
+        base = 90.0 + 0.03 * y
+        if abs(y) <= HALF:
+            return base + 8.0
+        distance = abs(y) - HALF
+        return base + 8.0 * max(0.0, 1.0 - distance / 20.0)  # 20 m long flanks on both sides (0.4 m per m)
+
+    road = _road_across(long_flank)
+
+    fix_underpass_elevations([_bridge(), road], _half, **KW)
+
+    z = {round(y): zz for (_, y, zz) in road["coords"]}
+    assert abs(z[0] - 90.0) < 0.5 and abs(z[-15] - (90.0 - 0.45)) < 0.5
+
+
+def test_unstable_terrain_within_the_search_distance_leaves_the_road_alone():
+    rng = np.random.default_rng(1)
+    noisy = {round(y): 90.0 + 4.0 * rng.standard_normal() for y in range(-200, 201)}  # never stable
+    road = _road_across(lambda y: noisy[round(y)] + (8.0 if abs(y) <= HALF else 0.0))
+    before = road["coords"].copy()
+
+    assert fix_underpass_elevations([_bridge(), road], _half, **KW) == 0
+    assert np.array_equal(road["coords"], before)

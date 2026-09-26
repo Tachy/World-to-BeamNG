@@ -643,7 +643,9 @@ class TerrainWorkflow:
         underpasses = fix_underpass_elevations(
             road_polygons,
             lambda road: config.OSM_MAPPER.get_road_properties(road.get("osm_tags", {}))["width"] / 2.0,
-            margin=config.UNDERPASS_MARGIN,
+            max_search=config.UNDERPASS_MAX_SEARCH,
+            stable_length=config.UNDERPASS_STABLE_LENGTH,
+            max_grade=config.UNDERPASS_STABLE_GRADE,
             min_rise=config.UNDERPASS_MIN_RISE,
         )
         if underpasses:

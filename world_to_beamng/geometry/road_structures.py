@@ -83,17 +83,44 @@ def _surface_chains(roads: List[np.ndarray], endpoint_tol: float = 0.5, max_angl
     return chains
 
 
+def _stable_reference(arc: np.ndarray, grade_ok: np.ndarray, start: float, direction: int, max_search: float, stable_length: float):
+    """
+    Arc position of the reference height on one side of an underpass: from `start` (the deck edge) outward
+    (direction -1 = toward smaller arc, +1 = toward larger) the nearest position whose road height has been stable - grade
+    below the limit (`grade_ok`) - over `stable_length` meters further out (at least 2 m, less only where the road ends).
+    The terrain model raises the road before the deck and lets it fall behind it, so the flanks are skipped. None if
+    there is none within `max_search` meters.
+    """
+    count = len(arc)
+    order = range(count - 1, -1, -1) if direction < 0 else range(count)
+    for i in order:
+        if (direction < 0 and arc[i] > start) or (direction > 0 and arc[i] < start):
+            continue
+        if abs(arc[i] - start) > max_search:
+            return None
+        lo, hi = (max(arc[0], arc[i] - stable_length), arc[i]) if direction < 0 else (arc[i], min(arc[-1], arc[i] + stable_length))
+        if hi - lo < 2.0:
+            continue
+        window = (arc >= lo - 1e-9) & (arc <= hi + 1e-9)
+        if grade_ok[window].all():
+            return float(arc[i])
+    return None
+
+
 def fix_underpass_elevations(
-    road_polygons: List[Dict], half_width_of: Callable[[Dict], float], margin: float, min_rise: float, min_length: float = 1.0
+    road_polygons: List[Dict], half_width_of: Callable[[Dict], float], max_search: float, stable_length: float,
+    max_grade: float, min_rise: float, min_length: float = 1.0,
 ) -> int:
     """
     Roads that pass UNDER a bridge: the terrain model does not resolve the underpass and shows the bridge deck there, so a
-    road sampled from it climbs to the deck. Its height is interpolated linearly (by arc length) from `margin` meters
-    before the deck to `margin` meters behind it; the normal road embedding then cuts it into the terrain with its slopes
-    on both sides. Only surface roads whose centerline crosses the bridge footprint (`half_width_of(road)` around the
-    bridge centerline, flat ends) over at least `min_length` meters, that continue `margin` meters on both sides and whose
-    sampled heights rise by at least `min_rise` above the interpolation - approach roads that merely touch the bridge end,
-    roads ending under it and correctly sampled crossings stay untouched. Junction detection splits the road at the
+    road sampled from it climbs to the deck - and already before it and until behind it, on flanks up to several meters
+    long. The reference heights are therefore searched outward from both deck edges, up to `max_search` meters, until
+    the height is stable (grade below `max_grade` over `stable_length` meters); between them the height is interpolated
+    linearly (by arc length), and the normal road embedding then cuts the road into the terrain with its slopes on both
+    sides. Only surface roads whose centerline crosses the bridge footprint (`half_width_of(road)` around the bridge
+    centerline, flat ends) over at least `min_length` meters, that have a stable reference on both sides and whose sampled
+    heights rise by at least `min_rise` above the interpolation - approach roads that merely touch the bridge end, roads
+    ending under it and correctly sampled crossings stay untouched. Junction detection splits the road at the
     crossing, so the pieces are chained along straight continuations first. Modifies road["coords"] in place.
 
     Returns:
@@ -122,6 +149,7 @@ def fix_underpass_elevations(
         line = LineString(xyz[:, :2])
         arc = np.concatenate([[0.0], np.cumsum(np.linalg.norm(np.diff(xyz[:, :2], axis=0), axis=1))])
         z = xyz[:, 2].copy()
+        grade_ok = np.abs(np.gradient(z, np.maximum(arc, np.arange(len(arc)) * 1e-9))) < max_grade if len(z) > 2 else np.ones(len(z), bool)
         modified = False
         for footprint in footprints:
             if not line.intersects(footprint):
@@ -131,9 +159,10 @@ def fix_underpass_elevations(
                 if piece.geom_type != "LineString" or piece.length < min_length:
                     continue
                 enter, leave = sorted([line.project(Point(piece.coords[0])), line.project(Point(piece.coords[-1]))])
-                start, end = enter - margin, leave + margin
-                if start <= 0.0 or end >= arc[-1]:
-                    continue  # the road ends within the margin: nothing to interpolate from
+                start = _stable_reference(arc, grade_ok, enter, -1, max_search, stable_length)
+                end = _stable_reference(arc, grade_ok, leave, 1, max_search, stable_length)
+                if start is None or end is None or end <= start:
+                    continue  # no stable height on one side: nothing reliable to interpolate from
                 z_start, z_end = np.interp([start, end], arc, z)
                 inside = (arc > start) & (arc < end)
                 target = z_start + (z_end - z_start) * (arc[inside] - start) / (end - start)
