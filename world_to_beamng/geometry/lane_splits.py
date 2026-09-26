@@ -251,7 +251,8 @@ def shift_branches_into_slots(
     OSM draws every branch from the node to the centre of its lane first - only symbolic. In reality the trunk goes on
     as one piece and only splits further on: every branch (x, y; z stays) runs straight on along the trunk axis in its
     slot (its lanes of the trunk's cross-section) for `hold` meters from the node, ignoring OSM's course there, and then
-    moves over to its OSM course with a smoothstep over `length` meters. The branch is followed along straight
+    moves over to its OSM course with a smoothstep over `length` meters. On the stem all branches share one height (their
+    mean - the cross-section is one surface), which blends back into each branch's own profile the same way. The branch is followed along straight
     continuations where one piece is shorter (the kink where OSM's connector turns into the lane may be up to
     max_angle_deg); a branch that ends earlier gets both stretches shortened in proportion. Bridges and ground roads are
     treated alike. Marks the first piece of every branch with "lane_split_branch" (node end, slot width and offset,
@@ -264,9 +265,29 @@ def shift_branches_into_slots(
         node = np.asarray(split.node, dtype=float)
         normal = np.asarray(split.left_normal, dtype=float)
         axis = np.array([normal[1], -normal[0]])  # from the node into the branches
+        chains = []
         for branch in split.branches:
             wanted = hold + length
             pieces, reach = _branch_pieces(roads, branch.road, branch.at_start, wanted, endpoint_tol, max_angle_deg)
+            oriented = []
+            for road, entry, offset in pieces:
+                coords = np.asarray(road["coords"], dtype=float)
+                piece = coords if entry else coords[::-1]
+                arc = offset + np.concatenate([[0.0], np.cumsum(np.linalg.norm(np.diff(piece[:, :2], axis=0), axis=1))])
+                oriented.append((road, entry, offset, piece, arc))
+            chains.append((branch, pieces, reach, oriented))
+
+        # One cross-section on the stem: every branch takes the mean height of all branches there
+        profiles = [
+            (np.concatenate([o[4] for o in oriented]), np.concatenate([o[3][:, 2] for o in oriented]))
+            for _, _, _, oriented in chains
+        ]
+
+        def stem_z(arc: np.ndarray) -> np.ndarray:
+            return np.mean([np.interp(arc, a, z) for a, z in profiles], axis=0)
+
+        for branch, pieces, reach, oriented_pieces in chains:
+            wanted = hold + length
             scale = min(1.0, reach / wanted) if wanted > 0.0 else 0.0
             held, blend = hold * scale, length * scale
             branch.road["lane_split_branch"] = {
@@ -278,13 +299,78 @@ def shift_branches_into_slots(
             if held + blend <= 0.0:
                 continue
             start = node + branch.slot_offset
-            for road, entry, offset in pieces:
-                coords = np.asarray(road["coords"], dtype=float)
-                oriented = _densify(coords if entry else coords[::-1], offset, held + blend, step)
-                arc = offset + np.concatenate([[0.0], np.cumsum(np.linalg.norm(np.diff(oriented[:, :2], axis=0), axis=1))])
+            for road, entry, offset, piece, _ in oriented_pieces:
+                piece = _densify(piece, offset, held + blend, step)
+                arc = offset + np.concatenate([[0.0], np.cumsum(np.linalg.norm(np.diff(piece[:, :2], axis=0), axis=1))])
                 weight = _smoothstep((arc - held) / blend) if blend > 0.0 else (arc > held).astype(float)
                 straight = start[None, :] + arc[:, None] * axis[None, :]
-                oriented = oriented.copy()
-                oriented[:, :2] = straight * (1.0 - weight[:, None]) + oriented[:, :2] * weight[:, None]
-                result = oriented if entry else oriented[::-1]
+                piece = piece.copy()
+                piece[:, :2] = straight * (1.0 - weight[:, None]) + piece[:, :2] * weight[:, None]
+                piece[:, 2] = stem_z(arc) * (1.0 - weight) + piece[:, 2] * weight
+                result = piece if entry else piece[::-1]
                 road["coords"] = [tuple(float(v) for v in point) for point in result]
+
+
+def stem_marking_masks(node_lists, stems, tol: float = 0.05) -> Dict[int, Dict]:
+    """
+    Markings on the stem of a lane split (the trunk goes on as one piece for the hold length, see
+    shift_branches_into_slots()): where two branches lie side by side on it, the boundary between them is the trunk's
+    lane divider - drawn as ONE block marking (by the outer branch, the one further from the stem's middle; on a tie the
+    left one) instead of two edge lines. From the end of the stem on, each branch has its edge lines again, and they
+    move apart with the carriageways.
+
+    `node_lists`: DecalRoad nodes [x, y, z, width] per road, `stems`: [{"node", "axis", "left_normal", "hold",
+    "trunk_width"}]. Returns {road index: {"edge_keep": {+1/-1: mask per node}, "blocks": [(mask, sign, 0.0)],
+    "siblings": indices of the other roads on the same stem}} for every road that reaches onto a stem.
+    """
+    result: Dict[int, Dict] = {}
+    for stem in stems:
+        node = np.asarray(stem["node"], dtype=float)
+        axis = np.asarray(stem["axis"], dtype=float)
+        normal = np.asarray(stem["left_normal"], dtype=float)
+        hold, half_width = float(stem["hold"]), float(stem["trunk_width"]) / 2.0
+        members, spans, frames = [], {}, {}
+        for index, nodes in enumerate(node_lists):
+            arr = np.asarray(nodes, dtype=float)
+            if len(arr) < 2:
+                continue
+            rel = arr[:, :2] - node
+            along, lateral = rel @ axis, rel @ normal
+            on_stem = (along >= -tol) & (along < hold) & (np.abs(lateral) <= half_width + tol)
+            if not on_stem.any():
+                continue
+            members.append(index)
+            frames[index] = (arr, along, lateral, on_stem)
+            if along[on_stem].max() > tol:  # a branch running on the stem (not the trunk that only touches the node)
+                centre, half = float(np.median(lateral[on_stem])), float(np.median(arr[on_stem, 3])) / 2.0
+                spans[index] = (centre - half, centre + half)
+        masks = {}
+        for index, (arr, along, lateral, on_stem) in frames.items():
+            if index not in spans:
+                continue
+            direction = np.gradient(arr[:, :2], axis=0)
+            direction /= np.maximum(np.linalg.norm(direction, axis=1), 1e-9)[:, None]
+            own_left = np.column_stack([-direction[:, 1], direction[:, 0]])
+            centre = abs(0.5 * (spans[index][0] + spans[index][1]))
+            owner = centre > half_width / 2.0 + tol or (abs(centre - half_width / 2.0) <= tol and sum(spans[index]) > 0.0)
+            entry = {"edge_keep": {}, "blocks": []}
+            for sign in (1.0, -1.0):
+                edge = ((arr[:, :2] + own_left * (sign * arr[:, 3] / 2.0)[:, None]) - node) @ normal
+                beside = np.zeros(len(arr), dtype=bool)
+                for other, (low, high) in spans.items():
+                    if other != index:
+                        beside |= (edge >= low - 0.1) & (edge <= high + 0.1)
+                interior = on_stem & beside
+                if not interior.any():
+                    continue
+                entry["edge_keep"][sign] = ~interior
+                if owner:
+                    entry["blocks"].append((interior, sign, 0.0))
+            masks[index] = entry
+        for index, entry in masks.items():
+            existing = result.setdefault(index, {"edge_keep": {}, "blocks": [], "siblings": set()})
+            for sign, keep in entry["edge_keep"].items():
+                existing["edge_keep"][sign] = existing["edge_keep"].get(sign, np.ones(len(keep), dtype=bool)) & keep
+            existing["blocks"] += entry["blocks"]
+            existing["siblings"] |= set(members) - {index}
+    return result

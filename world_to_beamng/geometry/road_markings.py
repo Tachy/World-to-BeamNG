@@ -463,11 +463,13 @@ def build_marking_lines(
     blocks: Optional[Sequence] = None,
     double_keep: Optional[np.ndarray] = None,
     block_clearance: float = 0.0,
+    edge_keep: Optional[Dict[float, np.ndarray]] = None,
 ) -> List[Tuple[str, np.ndarray]]:
     """(kind, (N, 3) line) for all marking lines of a road from its DecalRoad nodes [x, y, z, width];
     z per line node from the corresponding carriageway node (BeamNG projects the line onto the terrain anyway).
     `start_normal`/`end_normal`: shared joint normal with the straight continuation (joint_normals()), so that the
-    lines of both roads connect exactly at a kinked joint."""
+    lines of both roads connect exactly at a kinked joint. `edge_keep` ({+1 left / -1 right: mask per node}) drops the
+    edge line of a side where the mask is False (a branch of a lane split beside another one, see lane_splits.py)."""
     arr = np.asarray(nodes, dtype=float)
     center_xy = arr[:, :2]
     lines = []
@@ -483,6 +485,10 @@ def build_marking_lines(
             kind, kept = DIVIDER, kept[dashed[kept]]
         elif kind == CENTER_ZONE:
             kind, kept = CENTER, kept[double[kept]]
+        if kind == EDGE and edge_keep is not None:
+            keep = edge_keep.get(1.0 if float(np.mean(offsets)) > 0.0 else -1.0)
+            if keep is not None:
+                kept = kept[np.asarray(keep, dtype=bool)[kept]]
         if kind == DIVIDER and divider_keep is not None:
             keep = divider_keep.get(1.0 if float(np.mean(offsets)) > 0.0 else -1.0)
             if keep is not None:

@@ -431,3 +431,29 @@ def test_uninvolved_lane_keeps_a_constant_width_through_a_three_to_two_lane_tape
     for x in (1.0, 10.0, 25.0, 40.0, 50.0):  # narrow side
         boundary = (y_at(narrow_double[0], x) + y_at(narrow_double[1], x)) / 2.0  # the double line goes on here (no overtaking)
         assert boundary - y_at(right_edges[2][0], x) == pytest.approx(3.25 - config.ROAD_MARKING_EDGE_INSET, abs=0.02)
+
+
+def test_lane_split_stem_gets_one_block_marking_and_the_edge_lines_start_behind_it():
+    node = (0.0, 0.0)
+    mark = {"end": "start", "slot_width": 3.25, "hold": 30.0, "length": 20.0, "node": node, "axis": (1.0, 0.0),
+            "left_normal": (0.0, 1.0), "slot_offset": (0.0, 4.875), "trunk_width": 13.0}
+    xs = list(range(0, 61, 5))
+    trunk = _poly(1, [(-40, 0), (0, 0)], highway="primary", lanes="4")
+    trunk["lane_split_trunk"], trunk["lane_split_trunk_nodes"] = {"end"}, [node]
+    main = _poly(2, [(x, 0.0) for x in xs], highway="primary", lanes="2")
+    main["lane_split_branch"] = {**mark, "slot_width": 6.5, "slot_offset": (0.0, 0.0)}
+    ramp = _poly(3, [(x, 4.875 + max(0.0, x - 30.0) * 0.3) for x in xs], highway="primary_link", lanes="1", oneway="yes")
+    ramp["lane_split_branch"] = mark
+    ramp_width = config.OSM_MAPPER.get_road_properties(ramp["osm_tags"])["width"]
+
+    lines = [road for name, road in _markings(_export([trunk, main, ramp])[1]).items()]
+
+    blocks = [l for l in lines if l["material"] == config.ROAD_MARKING_BLOCK_MATERIAL]
+    assert len(blocks) == 1  # one block marking between main road and ramp on the stem, not two edge lines
+    block_xy = np.asarray(blocks[0]["nodes"])[:, :2]
+    assert block_xy[:, 0].max() <= 30.0 + 1e-6 and np.allclose(block_xy[:, 1], 4.875 - ramp_width / 2.0, atol=0.05)
+    edges = [np.asarray(l["nodes"]) for l in lines if l["material"] == config.ROAD_MARKING_EDGE_MATERIAL]
+    # main's left and the ramp's right edge line start between the two roads - behind the stem, then moving apart
+    between = [e for e in edges if 1.0 < e[np.argmin(e[:, 0]), 1] < 4.875]
+    assert len(between) == 2 and all(e[:, 0].min() >= 30.0 - 1e-6 for e in between)
+    assert max(e[:, 1].max() for e in between) > 10.0  # the ramp's edge line turns away with it

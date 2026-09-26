@@ -610,16 +610,28 @@ def _road_marking_lines(specs: List[Tuple[Dict, Dict, List]], node_lists: List[L
     ).items():
         shifts[road_index] = shifts.get(road_index, 0.0) + shift
 
+    # Lane splits: on the stem the boundary between two branches is one block marking, behind it their edge lines move
+    # apart with the carriageways; the roads of a split do not cut each other's lines
+    from ..geometry.lane_splits import stem_marking_masks
+
+    stems = {}
+    for poly, _, _ in specs:
+        mark = poly.get("lane_split_branch")
+        if mark and "axis" in mark:
+            stems[(round(mark["node"][0], 2), round(mark["node"][1], 2))] = mark
+    stem_masks = stem_marking_masks(node_lists, list(stems.values()))
+
     lines = []
     for index, ((poly, props, _), nodes) in enumerate(zip(specs, node_lists)):
         layout = layouts[index]
         if layout is None:
             continue
+        stem_mask = stem_masks.get(index, {"edge_keep": {}, "blocks": [], "siblings": set()})
         obstacles = junction_obstacles(
             index,
             polygons,
             tree,
-            excluded=partners.get(index, set()) | no_gap,
+            excluded=partners.get(index, set()) | no_gap | stem_mask["siblings"],
             centerlines=centerlines,
             endpoint_tol=config.ROAD_CONTINUATION_ENDPOINT_TOL,
         )
@@ -633,8 +645,9 @@ def _road_marking_lines(specs: List[Tuple[Dict, Dict, List]], node_lists: List[L
             line_width=config.ROAD_MARKING_LINE_WIDTH,
             boundary_shift=shifts.get(index),
             divider_keep=masks.get(index),
-            blocks=blocks.get(index),
+            blocks=(blocks.get(index) or []) + stem_mask["blocks"] or None,
             double_keep=double_lines.get(index),
+            edge_keep=stem_mask["edge_keep"] or None,
             # half the double line (gap + line) plus half the block stripe: closer and the block would paint over it
             block_clearance=(config.ROAD_MARKING_CENTER_GAP + config.ROAD_MARKING_LINE_WIDTH) / 2.0
             + config.ROAD_MARKING_LINE_WIDTH / 2.0 + config.ROAD_MARKING_BLOCK_WIDTH / 2.0,

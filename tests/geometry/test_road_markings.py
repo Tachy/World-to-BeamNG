@@ -720,3 +720,21 @@ def test_block_stripe_stops_before_it_would_paint_over_the_double_line():
     for x, y, _ in block:
         boundary = np.mean([c[np.argmin(np.abs(c[:, 0] - x)), 1] for c in centers])
         assert abs(y - boundary) >= clearance - 1e-6
+
+
+# --- Lane splits: edge lines on the stem ------------------------------------------------------------------------------
+
+from world_to_beamng.geometry.road_markings import BLOCK, EDGE, MarkingLayout, build_marking_lines  # noqa: E402
+
+
+def test_edge_keep_drops_the_edge_line_of_one_side_where_masked():
+    nodes = [[float(x), 0.0, 100.0, 6.0] for x in range(0, 41, 5)]
+    keep_left = np.array([x >= 20 for x in range(0, 41, 5)])
+
+    lines = build_marking_lines(nodes, MarkingLayout(lanes=1), 0.15, edge_keep={1.0: keep_left})
+
+    edges = [line for kind, line in lines if kind == EDGE]
+    left = [line for line in edges if line[0, 1] > 0]
+    right = [line for line in edges if line[0, 1] < 0]
+    assert left[0][:, 0].min() == pytest.approx(20.0)  # the left edge line starts at 20 m
+    assert right[0][:, 0].min() == pytest.approx(0.0)
