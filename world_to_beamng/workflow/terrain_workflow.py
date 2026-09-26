@@ -367,10 +367,13 @@ def _road_marking_lines(specs: List[Tuple[Dict, Dict, List]], node_lists: List[L
 
     from ..geometry.polygon import drop_close_nodes
     from ..geometry.road_markings import (
+        BLOCK,
         CENTER,
         EDGE,
-        divider_masks,
+        block_inputs,
         structure_boundary_shifts,
+        taper_zones,
+        zone_divider_masks,
         boundary_shifts,
         build_marking_lines,
         clip_line,
@@ -415,8 +418,9 @@ def _road_marking_lines(specs: List[Tuple[Dict, Dict, List]], node_lists: List[L
         node_lists, layouts, fixed, pairs, config.ROAD_STRUCTURE_TRANSITION_LENGTH, config.ROAD_STRUCTURE_LINES_DONE_AT
     ).items():
         shifts[road_index] = shifts.get(road_index, 0.0) + shift
-    # Dashed dividers that the structure does not have end 50 m before it, where the lines are aligned
-    masks = divider_masks(node_lists, layouts, fixed, pairs, config.ROAD_STRUCTURE_LINES_DONE_AT)
+    # A lane that is dropped or added along a 100 m taper zone: block stripes replace its dashed divider over the whole zone
+    zones = taper_zones(node_lists, layouts, [float(props.get("width", 4.0)) for _, props, _ in specs], fixed, pairs)
+    blocks, masks = block_inputs(zones), zone_divider_masks(zones)
 
     lines = []
     for index, ((poly, props, _), nodes) in enumerate(zip(specs, node_lists)):
@@ -441,12 +445,16 @@ def _road_marking_lines(specs: List[Tuple[Dict, Dict, List]], node_lists: List[L
             line_width=config.ROAD_MARKING_LINE_WIDTH,
             boundary_shift=shifts.get(index),
             divider_keep=masks.get(index),
+            blocks=blocks.get(index),
         )
-        materials = {EDGE: config.ROAD_MARKING_EDGE_MATERIAL, CENTER: config.ROAD_MARKING_CENTER_MATERIAL}
+        materials = {EDGE: config.ROAD_MARKING_EDGE_MATERIAL, CENTER: config.ROAD_MARKING_CENTER_MATERIAL,
+                     BLOCK: config.ROAD_MARKING_BLOCK_MATERIAL}
+        widths = {BLOCK: config.ROAD_MARKING_BLOCK_WIDTH}
         for line_idx, (kind, line) in enumerate(marking_lines):
             material = materials.get(kind, config.ROAD_MARKING_DIVIDER_MATERIAL)
             for piece_idx, piece in enumerate(clip_line(line, obstacles, config.ROAD_MARKING_MIN_PIECE_LENGTH)):
-                line_nodes = [[x, y, z, config.ROAD_MARKING_LINE_WIDTH] for x, y, z in piece.tolist()]
+                line_width = widths.get(kind, config.ROAD_MARKING_LINE_WIDTH)
+                line_nodes = [[x, y, z, line_width] for x, y, z in piece.tolist()]
                 # Inside curves the line nodes bunch up - same minimum segment length as for the road surface
                 line_nodes = drop_close_nodes(line_nodes, config.DECAL_ROAD_MIN_NODE_SPACING)
                 if len(line_nodes) >= 2:

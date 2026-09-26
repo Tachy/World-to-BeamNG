@@ -157,6 +157,14 @@ class BeamNGExporter:
         config.BEAMNG_DIR_BUILDINGS.mkdir(parents=True, exist_ok=True)
         config.CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
+        # Block stripe texture of the tapering lanes (generated, no stock asset)
+        if config.ROAD_MARKINGS_ENABLED:
+            from ..textures.marking_blocks import write_block_stripe_textures
+
+            write_block_stripe_textures(
+                config.BEAMNG_DIR_TEXTURES, config.ROAD_MARKING_BLOCK_LENGTH, config.ROAD_MARKING_BLOCK_GAP
+            )
+
         # Check all textures from data/textures (generate procedural ones once if needed); if a photo texture is missing,
         # the export aborts here (MissingTexturesError) - before the compute-intensive part
         from ..textures import registry

@@ -281,6 +281,14 @@ ROAD_MARKING_DIVIDER_MATERIAL = "line_divider_dashed"
 ROAD_MARKING_CENTER_MIN_LANES = 3
 ROAD_MARKING_CENTER_MATERIAL = "line_edge_white"
 ROAD_MARKING_CENTER_GAP = 0.1  # gap between the two lines, in meters
+# Block stripes replace the dashed divider along the 100 m taper zone of a lane that is dropped or added: the outer
+# lane keeps its full width, the inner lane runs out to zero (or grows from zero), see geometry/road_markings.py::taper_zones().
+# The texture (blocks BLOCK_LENGTH long, GAP apart) is generated at export - its period is the textureLength of
+# "line_block_white" in data/osm_to_beamng.json.
+ROAD_MARKING_BLOCK_MATERIAL = "line_block_white"
+ROAD_MARKING_BLOCK_WIDTH = 0.3  # width of the block stripe, in meters
+ROAD_MARKING_BLOCK_LENGTH = 1.0  # length of one block, in meters
+ROAD_MARKING_BLOCK_GAP = 1.0  # gap between two blocks, in meters
 # Two-lane tunnels and galleries get the double centre line too (structure_type values)
 ROAD_MARKING_CENTER_STRUCTURES = frozenset({"tunnel", "gallery"})
 # renderPriority of DecalRoads: BeamNG/Torque3D draws them in DESCENDING order - the smallest value comes

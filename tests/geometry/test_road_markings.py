@@ -443,53 +443,123 @@ def test_boundary_shifts_leave_structure_joints_to_the_structure_rule():
                            [((0, "end"), (1, "start"))], fixed=[False, True]) == {}
 
 
-# --- dashed dividers that the structure does not have end 50 m before it ------------------------------------------------
-from world_to_beamng.geometry.road_markings import divider_masks  # noqa: E402
+# --- block stripes replace the dashed divider of a tapering lane (a lane is dropped or added over 100 m) -----------------
+from world_to_beamng.geometry.road_markings import BLOCK, block_inputs, taper_zones, zone_divider_masks  # noqa: E402
+
+LANE_W = 3.25
 
 
-def test_dashed_divider_ends_50_m_before_a_structure_without_dividers():
-    road, tunnel = _approach(-200.0, _wide_to_narrow), _struct(100.0, 6.5)
+def _blend(distance, half=50.0):  # 0 at 50 m before the joint ... 1 at 50 m after it (smoothstep)
+    return smoothstep(min(max(distance + half, 0.0), 2 * half) / (2 * half))
+
+
+def _symmetric_pair():
+    """3-lane road (1 forward, 2 backward) ending at x=0, 2-lane road from x=0; widths blend over +-50 m."""
+    wide = [[float(x), 0.0, 100.0, 9.75 + (6.5 - 9.75) * _blend(x)] for x in np.arange(-120.0, 1.0, 10.0)]
+    narrow = [[float(x), 0.0, 100.0, 9.75 + (6.5 - 9.75) * _blend(x)] for x in np.arange(0.0, 121.0, 10.0)]
+    layouts = [MarkingLayout(lanes=3, forward=1), MarkingLayout(lanes=2, forward=1)]
+    return [wide, narrow], layouts, [9.75, 6.5], [False, False], [((0, "end"), (1, "start"))]
+
+
+def test_zone_covers_the_widths_that_change_and_the_first_node_at_its_end():
+    roads, layouts, own, fixed, pairs = _symmetric_pair()
+
+    zones = taper_zones(roads, layouts, own, fixed, pairs)
+
+    assert len(zones) == 1
+    xs_wide = [n[0] for n, keep in zip(roads[0], zones[0]["pieces"][0][1]) if keep]
+    xs_narrow = [n[0] for n, keep in zip(roads[1], zones[0]["pieces"][1][1]) if keep]
+    assert xs_wide == [-50.0, -40.0, -30.0, -20.0, -10.0, 0.0]  # from the first node at the zone end to the joint
+    assert xs_narrow == [0.0, 10.0, 20.0, 30.0, 40.0, 50.0]
+    assert zones[0]["lane_width"] == pytest.approx(LANE_W)
+
+
+def test_extra_lane_side_follows_the_directions_of_the_wider_road():
+    roads, layouts, own, fixed, pairs = _symmetric_pair()
+    backward_extra = taper_zones(roads, layouts, own, fixed, pairs)[0]
+    layouts[0] = MarkingLayout(lanes=3, forward=2)  # two forward lanes: the extra lane is on the right
+
+    forward_extra = taper_zones(roads, layouts, own, fixed, pairs)[0]
+
+    assert [sign for _, _, sign in backward_extra["pieces"]] == [1.0, 1.0]  # left of the digitization direction
+    assert [sign for _, _, sign in forward_extra["pieces"]] == [-1.0, -1.0]
+
+
+def test_block_line_keeps_the_outer_lane_at_full_width_and_runs_into_the_centre_line():
+    roads, layouts, own, fixed, pairs = _symmetric_pair()
+    zone = taper_zones(roads, layouts, own, fixed, pairs)
+
+    blocks = block_inputs(zone)
+    lines = build_marking_lines(roads[0], layouts[0], 0.25, center_gap=0.1, line_width=0.15, blocks=blocks.get(0))
+    narrow = build_marking_lines(roads[1], layouts[1], 0.25, blocks=blocks.get(1))
+
+    block = next(line for kind, line in lines if kind == BLOCK)
+    block_narrow = next(line for kind, line in narrow if kind == BLOCK)
+    assert block[:, 0].min() == pytest.approx(-50.0) and block_narrow[:, 0].max() == pytest.approx(50.0)
+    assert block[0, 1] == pytest.approx(4.875 - LANE_W)  # at the start of the zone: the ordinary divider position
+    assert block[-1, 1] == pytest.approx(block_narrow[0, 1])  # continuous over the joint
+    assert block_narrow[-1, 1] == pytest.approx(0.0)  # the inner lane is gone: the line meets the centre line
+    edge = next(line for kind, line in lines if kind == EDGE and line[0, 1] > 0)  # left edge line of the wide road
+    for x, y, _ in block[::2]:
+        edge_y = edge[np.argmin(np.abs(edge[:, 0] - x)), 1]
+        assert edge_y - y == pytest.approx(LANE_W - 0.25)  # outer lane: 3.25 m minus the edge inset, all along the zone
+
+
+def test_dashed_divider_of_the_tapering_side_ends_where_the_zone_starts():
+    roads, layouts, own, fixed, pairs = _symmetric_pair()
+    zone = taper_zones(roads, layouts, own, fixed, pairs)
+
+    masks = zone_divider_masks(zone)
+
+    kept = [n[0] for n, keep in zip(roads[0], masks[0][1.0]) if keep]
+    assert max(kept) == pytest.approx(-60.0)  # the zone starts at x = -50, the node before it is the last with the dashed line
+    assert 1 not in masks  # the narrow road has no divider on that side
+
+    lines = build_marking_lines(roads[0], layouts[0], 0.25, center_gap=0.1, line_width=0.15, divider_keep=masks[0])
+    divider = next(line for kind, line in lines if kind == DIVIDER)
+    assert divider[:, 0].max() == pytest.approx(-60.0)
+
+
+def test_zone_on_the_road_before_a_structure_lies_on_the_road_over_100_m():
+    def blend100(d):
+        return smoothstep(min(max(d, 0.0), 100.0) / 100.0)  # d = distance to the structure
+
+    road = [[float(x), 0.0, 100.0, 6.5 + 3.25 * blend100(-x)] for x in np.arange(-150.0, 1.0, 10.0)]
+    tunnel = [[float(x), 0.0, 100.0, 6.5] for x in np.arange(0.0, 101.0, 10.0)]
     layouts = [MarkingLayout(lanes=3, forward=1), MarkingLayout(lanes=2, forward=1)]
 
-    masks = divider_masks([road, tunnel], layouts, [False, True], [((0, "end"), (1, "start"))], DONE)
+    zone = taper_zones([road, tunnel], layouts, [9.75, 6.5], [False, True], [((0, "end"), (1, "start"))])
 
-    distance = -np.array([n[0] for n in road])
-    assert np.array_equal(masks[0], distance >= DONE - 1e-9)  # kept up to 50 m before the tunnel
-    assert 1 not in masks
-
-
-def test_divider_mask_continues_across_road_pieces():
-    first = [[float(x), 0.0, 100.0, 9.75] for x in np.arange(-200.0, -59.0, 10.0)]
-    second = _approach(-60.0, _wide_to_narrow)
-    layouts = [MarkingLayout(lanes=3, forward=1)] * 2 + [MarkingLayout(lanes=2, forward=1)]
-
-    masks = divider_masks([first, second, _struct(50.0, 6.5)], layouts, [False, False, True],
-                          [((0, "end"), (1, "start")), ((1, "end"), (2, "start"))], DONE)
-
-    distance = -np.array([n[0] for n in second])
-    assert np.array_equal(masks[1], distance >= DONE - 1e-9)  # the 50 m limit lies inside the second piece
-    assert 0 not in masks  # the first piece is further away than 50 m: no restriction
+    assert len(zone) == 1 and [i for i, _, _ in zone[0]["pieces"]] == [0]  # only the road side
+    xs = [n[0] for n, keep in zip(road, zone[0]["pieces"][0][1]) if keep]
+    assert xs[0] == pytest.approx(-100.0) and xs[-1] == pytest.approx(0.0)
 
 
-def test_no_divider_mask_when_the_road_has_no_dividers_or_the_structure_has_its_own():
-    two_lane = [[float(x), 0.0, 100.0, 6.5] for x in np.arange(-100.0, 0.1, 10.0)]
-    four_lane_tunnel = _struct(50.0, 13.0)
-    three_lane_tunnel = _struct(50.0, 9.75)
-    road = _approach(-100.0, _wide_to_narrow)
+def test_lane_gain_toward_a_structure_grows_the_block_line_out_of_the_centre_line():
+    road = [[float(x), 0.0, 100.0, 6.5 + 3.25 * smoothstep(min(-x, 100.0) / 100.0 * -1 + 1.0)] for x in np.arange(-150.0, 1.0, 10.0)]
+    tunnel = [[float(x), 0.0, 100.0, 9.75] for x in np.arange(0.0, 101.0, 10.0)]
+    layouts = [MarkingLayout(lanes=2, forward=1), MarkingLayout(lanes=3, forward=1)]
 
-    assert divider_masks([two_lane, _struct(50.0, 6.5)], [MarkingLayout(lanes=2), MarkingLayout(lanes=2, forward=1)],
-                         [False, True], [((0, "end"), (1, "start"))], DONE) == {}
-    assert divider_masks([road, three_lane_tunnel], [MarkingLayout(lanes=4, forward=2), MarkingLayout(lanes=3, forward=1)],
-                         [False, True], [((0, "end"), (1, "start"))], DONE) == {}
+    zone = taper_zones([road, tunnel], layouts, [6.5, 9.75], [False, True], [((0, "end"), (1, "start"))])
+    lines = build_marking_lines(road, layouts[0], 0.25, blocks=block_inputs(zone).get(0))
+
+    block = next(line for kind, line in lines if kind == BLOCK)
+    assert block[0, 1] == pytest.approx(0.0)  # starts in the centre line ...
+    assert block[-1, 1] == pytest.approx(4.875 - LANE_W)  # ... and ends at the divider position of the tunnel
 
 
-def test_build_marking_lines_ends_the_divider_where_the_mask_says():
-    nodes = [[x, 0.0, 100.0, 9.75] for x in np.arange(0.0, 101.0, 10.0)]
-    mask = np.array([True] * 6 + [False] * 5)  # dividers only over the first 50 m
+def test_opposite_digitization_mirrors_the_block_side():
+    roads, layouts, own, fixed, _ = _symmetric_pair()
+    narrow_reversed = roads[1][::-1]
 
-    lines = build_marking_lines(nodes, MarkingLayout(lanes=3, forward=1), 0.25, center_gap=0.1, line_width=0.15,
-                                divider_keep=mask)
+    zone = taper_zones([roads[0], narrow_reversed], layouts, own, fixed, [((0, "end"), (1, "end"))])
 
-    divider = next(line for kind, line in lines if kind == DIVIDER)
-    assert divider[:, 0].max() == pytest.approx(50.0)
-    assert all(line[:, 0].max() == pytest.approx(100.0) for kind, line in lines if kind != DIVIDER)
+    assert [sign for _, _, sign in zone[0]["pieces"]] == [1.0, -1.0]
+
+
+def test_no_zone_for_equal_lanes_oneway_roads_or_more_than_one_extra_lane():
+    roads, layouts, own, fixed, pairs = _symmetric_pair()
+
+    assert taper_zones(roads, [MarkingLayout(lanes=3, forward=1)] * 2, own, fixed, pairs) == []
+    assert taper_zones(roads, [MarkingLayout(lanes=3), layouts[1]], own, fixed, pairs) == []  # oneway: no forward count
+    assert taper_zones(roads, [MarkingLayout(lanes=4, forward=2), layouts[1]], own, fixed, pairs) == []  # two extra lanes

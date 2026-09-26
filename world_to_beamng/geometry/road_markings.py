@@ -15,6 +15,7 @@ import numpy as np
 EDGE = "edge"
 DIVIDER = "divider"
 CENTER = "center"  # one of the two solid lines between the directions
+BLOCK = "block"  # block stripes: the dashed divider of a lane that is dropped or added along a taper zone
 MAX_MITRE_FACTOR = 2.0  # sharp kinks: offset at most twice as far as requested
 BOUNDARY_EPS = 0.01  # shrink obstacle areas by 1 cm, see junction_obstacles()
 
@@ -213,28 +214,98 @@ def structure_boundary_shifts(roads, layouts, fixed, pairs, span: float, done_at
     return result
 
 
-def _divider_count(layout) -> int:
-    """Dashed dividers of a layout (all lane boundaries except the one between the directions)."""
-    return max(layout.lanes - 2, 0) if layout.lanes >= 2 and (layout.forward is not None or layout.lanes == 2) else max(layout.lanes - 1, 0)
-
-
-def divider_masks(roads, layouts, fixed, pairs, done_at: float) -> Dict[int, np.ndarray]:
+def _zone_pieces(roads, partner, fixed, own_widths, road, end, sign, eps):
     """
-    Nodes (per road piece) that may carry the dashed lane dividers: the dividers of a road end `done_at` meters before
-    a structure that has none of its own (a lane is dropped there and the lines are aligned by then, see
-    structure_boundary_shifts()). Only roads with dividers next to a structure without any get a mask.
+    Pieces of a taper zone starting at end `end` of `road`: (piece, mask of the nodes inside the zone, side sign of the
+    lane in the piece's own frame). The zone is where the width differs from the road's own width, plus the first node
+    with its own width (the zone end); it continues into the next piece along straight continuations while a piece is
+    entirely inside. Structures (fixed) keep their width and are never part of a zone.
+    """
+    pieces, seen = [], set()
+    while road is not None and road not in seen and not fixed[road]:
+        seen.add(road)
+        nodes = np.asarray(roads[road], dtype=float)
+        deviating = np.abs(nodes[:, 3] - own_widths[road]) > eps
+        order = list(range(len(nodes))) if end == "start" else list(range(len(nodes) - 1, -1, -1))
+        if not deviating[order[0]]:
+            break
+        mask = np.zeros(len(nodes), dtype=bool)
+        ended = False
+        for index in order:
+            mask[index] = True
+            if not deviating[index]:
+                ended = True
+                break
+        pieces.append((road, mask, sign))
+        if ended:
+            break
+        far = "end" if end == "start" else "start"
+        nxt = partner.get((road, far))
+        if nxt is None:
+            break
+        sign = sign if far != nxt[1] else -sign
+        road, end = nxt
+    return pieces
+
+
+def taper_zones(roads, layouts, own_widths, fixed, pairs, eps: float = 1e-6) -> List[dict]:
+    """
+    Taper zones where a road gains or loses exactly ONE lane in one direction (`pairs` from find_continuations(), `fixed`:
+    tunnel/gallery keep their width). A zone is {"lane_width", "wide": [piece indices], "pieces": [(piece, node mask,
+    side sign), ...]} and covers the nodes whose width is blended (the 100 m of the width transition, on the road side
+    only at a structure). In it the dashed divider of that lane is replaced by a block stripe (see block_inputs()): the
+    outer lane keeps its full width (`lane_width`), the inner lane runs out to zero (or grows from zero) so that the
+    stripe meets the line between the directions at the narrow end. Only two-way roads whose direction split is known
+    (layout.forward) take part; the side sign is + on the left of the wider road's digitization direction.
     """
     partner = {}
     for a, b in pairs:
         partner[a], partner[b] = b, a
-    result: Dict[int, np.ndarray] = {}
-    for struct, _, road, road_end in _structure_joints(pairs, fixed):
-        struct_layout, road_layout = layouts[struct], layouts[road]
-        if struct_layout is None or road_layout is None or _divider_count(struct_layout) > 0 or _divider_count(road_layout) == 0:
+    zones = []
+    for (ia, ea), (ib, eb) in pairs:
+        la, lb = layouts[ia], layouts[ib]
+        if la is None or lb is None or la.lanes == lb.lanes or (fixed[ia] and fixed[ib]):
             continue
-        for current, _, _, distance in _approach_pieces(roads, partner, fixed, road, road_end, done_at):
-            keep = distance >= done_at - 1e-9
-            result[current] = result[current] & keep if current in result else keep
+        (wide, wide_end), (narrow, narrow_end) = ((ia, ea), (ib, eb)) if la.lanes > lb.lanes else ((ib, eb), (ia, ea))
+        wide_layout, narrow_layout = layouts[wide], layouts[narrow]
+        if wide_layout.forward is None or narrow_layout.lanes < 2:
+            continue
+        narrow_forward = narrow_layout.forward if narrow_layout.forward is not None else narrow_layout.lanes // 2
+        same = wide_end != narrow_end  # same digitization direction
+        forward = narrow_forward if same else narrow_layout.lanes - narrow_forward
+        extra = (wide_layout.forward - forward, (wide_layout.lanes - wide_layout.forward) - (narrow_layout.lanes - forward))
+        if extra == (1, 0):
+            sign = -1.0  # the extra lane lies on the right of the direction of travel of the digitization direction
+        elif extra == (0, 1):
+            sign = 1.0
+        else:
+            continue
+        pieces = _zone_pieces(roads, partner, fixed, own_widths, wide, wide_end, sign, eps)
+        wide_pieces = [piece for piece, _, _ in pieces]
+        pieces += _zone_pieces(roads, partner, fixed, own_widths, narrow, narrow_end, sign if same else -sign, eps)
+        if pieces:
+            zones.append({"lane_width": float(own_widths[wide]) / wide_layout.lanes, "wide": wide_pieces, "pieces": pieces})
+    return zones
+
+
+def block_inputs(zones) -> Dict[int, list]:
+    """Per road piece: [(node mask, side sign, lane width), ...] of the block stripes it carries (build_marking_lines())."""
+    result: Dict[int, list] = {}
+    for zone in zones:
+        for piece, mask, sign in zone["pieces"]:
+            result.setdefault(piece, []).append((mask, sign, zone["lane_width"]))
+    return result
+
+
+def zone_divider_masks(zones) -> Dict[int, Dict[float, np.ndarray]]:
+    """Per road piece and side sign: the nodes that may carry the dashed divider - outside the taper zone, where the block
+    stripe takes over. Only the wider road has a divider there."""
+    result: Dict[int, Dict[float, np.ndarray]] = {}
+    for zone in zones:
+        for piece, mask, sign in zone["pieces"]:
+            if piece in zone["wide"]:
+                sides = result.setdefault(piece, {})
+                sides[sign] = sides[sign] & ~mask if sign in sides else ~mask
     return result
 
 
@@ -299,7 +370,8 @@ def build_marking_lines(
     center_gap: float = 0.0,
     line_width: float = 0.0,
     boundary_shift: Optional[np.ndarray] = None,
-    divider_keep: Optional[np.ndarray] = None,
+    divider_keep: Optional[Dict[float, np.ndarray]] = None,
+    blocks: Optional[Sequence] = None,
 ) -> List[Tuple[str, np.ndarray]]:
     """(kind, (N, 3) line) for all marking lines of a road from its DecalRoad nodes [x, y, z, width];
     z per line node from the corresponding carriageway node (BeamNG projects the line onto the terrain anyway).
@@ -314,9 +386,18 @@ def build_marking_lines(
         offset_xy = offset_polyline(center_xy, offsets, start_normal, end_normal)
         kept = forward_indices(offset_xy, center_xy)
         if kind == DIVIDER and divider_keep is not None:
-            kept = kept[np.asarray(divider_keep, dtype=bool)[kept]]  # dashed dividers end where the mask does
+            keep = divider_keep.get(1.0 if float(np.mean(offsets)) > 0.0 else -1.0)
+            if keep is not None:
+                kept = kept[np.asarray(keep, dtype=bool)[kept]]  # the dashed divider ends where the taper zone starts
         if len(kept) >= 2:
             lines.append((kind, np.column_stack([offset_xy[kept], arr[kept, 2]])))
+    for mask, sign, lane_width in blocks or ():
+        # outer lane at full width: the stripe stays one lane width inside the edge on its side
+        offset_xy = offset_polyline(center_xy, sign * (arr[:, 3] / 2.0 - lane_width), start_normal, end_normal)
+        kept = forward_indices(offset_xy, center_xy)
+        kept = kept[np.asarray(mask, dtype=bool)[kept]]
+        if len(kept) >= 2:
+            lines.append((BLOCK, np.column_stack([offset_xy[kept], arr[kept, 2]])))
     return lines
 
 
