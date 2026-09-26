@@ -251,6 +251,9 @@ ROAD_WIDTH_TRANSITION_STEP = 1.0
 ROAD_WIDTH_TRANSITION_MIN_DELTA = 0.05  # smaller width differences stay unchanged, in meters
 # Lane-count change where one side has 3 or more lanes (e.g. 2 -> 3): 50 m before and 50 m after the joint instead
 ROAD_LANE_CHANGE_TRANSITION_LENGTH = 100.0
+# Lane splits (motorway exits/entrances, turn lanes, see geometry/lane_splits.py): every branch starts in its lanes of
+# the trunk's cross-section and moves into its own course and width over this length, in meters
+ROAD_LANE_SPLIT_LENGTH = 40.0
 # Width change at a bridge/tunnel/gallery: the structure keeps its width, the whole transition lies on the road
 # (at most as long as the road piece up to the next junction)
 ROAD_STRUCTURE_TRANSITION_LENGTH = 100.0

@@ -181,6 +181,8 @@ def apply_width_transitions(
     lane_change_length: Optional[float] = None,
     fixed: Optional[Sequence[bool]] = None,
     fixed_transition_length: Optional[float] = None,
+    split_trunk_ends: Optional[Set[Endpoint]] = None,
+    split_branches: Optional[Dict[int, Tuple[str, float, float]]] = None,
 ) -> List[List[List[float]]]:
     """
     New node lists ([x, y, z, width] per node) with smooth width transitions at all straight joints whose widths
@@ -194,9 +196,15 @@ def apply_width_transitions(
     fixed / fixed_transition_length: roads marked fixed (bridges, tunnels, galleries) keep their width everywhere; at a
     joint with a normal road the whole transition lies on the road side, fixed_transition_length long (as far as there
     is room, see _walk()), from the structure's width at the joint to its own width. Joints between two fixed roads stay unchanged.
+    split_trunk_ends / split_branches: lane splits (see geometry/lane_splits.py) - the trunk end at a split node and the
+    branch ends there are never paired (the trunk keeps its width up to the node); each branch {road index: (node end,
+    slot width, length)} starts with its slot width and blends into its own width over `length` meters, along straight
+    continuations of the same width - bridges and ground roads alike.
     """
     result = [[[float(v) for v in n] for n in nodes] for nodes in roads]
-    pairs = find_continuations(roads, endpoint_tol, max_angle_deg)
+    split_branches = split_branches or {}
+    at_split = set(split_trunk_ends or ()) | {(road, end) for road, (end, _, _) in split_branches.items()}
+    pairs = [pair for pair in find_continuations(roads, endpoint_tol, max_angle_deg) if not (set(pair) & at_split)]
     partner = {}
     for a, b in pairs:
         partner[a], partner[b] = b, a
@@ -242,6 +250,16 @@ def apply_width_transitions(
               wa + (wb - wa) * smoothstep((la - d) / total))
         apply(pieces_b, length_b, lambda d, wa=wa, wb=wb, la=length_a, total=total:
               wa + (wb - wa) * smoothstep((la + d) / total))
+
+    for road, (end, slot_width, wanted) in split_branches.items():
+        own = float(roads[road][0 if end == "start" else -1][3])
+        if abs(own - slot_width) < 1e-9 or wanted <= 0.0:
+            continue
+        pieces, available, _ = _walk(roads, partner, fixed, road, end, own, min_delta, wanted, 1.0)
+        length = min(wanted, available)
+        if length > 0.0:
+            apply(pieces, length, lambda s, own=own, slot=slot_width, length=length:
+                  slot + (own - slot) * smoothstep(s / length))
     return result
 
 

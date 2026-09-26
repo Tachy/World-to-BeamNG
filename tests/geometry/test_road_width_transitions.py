@@ -353,3 +353,41 @@ def test_variable_width_polygon_follows_the_node_widths():
     assert polygon.is_valid
     assert polygon.area == pytest.approx(40.0 * 6.0, rel=0.01)  # mean width 6 m over 40 m
     assert polygon.contains(Point(39.0, 3.5)) and not polygon.contains(Point(1.0, 3.5))
+
+
+# --- Lane splits: the branches start with their slot width, the trunk joint is not blended ----------------------------
+
+
+def test_a_split_branch_starts_with_its_slot_width_and_blends_into_its_own_width():
+    trunk = _road([(-40, 0), (0, 0)], 13.0)
+    main = _road([(0, 0), (20, 0), (40, 0), (60, 0)], 7.0)
+    ramp = _road([(0, 0), (20, -5), (40, -15)], 4.0)
+
+    result = apply_width_transitions(
+        [trunk, main, ramp], **KW, split_trunk_ends={(0, "end")},
+        split_branches={1: ("start", 6.5, 30.0), 2: ("start", 3.25, 30.0)},
+    )
+
+    assert result[0][-1][3] == pytest.approx(13.0)  # trunk keeps its full width up to the node
+    assert result[0][0][3] == pytest.approx(13.0)
+    assert result[1][0][3] == pytest.approx(6.5)
+    assert _width_at(result[1], 15.0) == pytest.approx(6.5 + 0.5 * smoothstep(0.5))
+    assert _width_at(result[1], 40.0) == pytest.approx(7.0)
+    assert result[2][0][3] == pytest.approx(3.25)
+    assert result[2][-1][3] == pytest.approx(4.0)
+
+
+def test_the_slot_blend_continues_across_the_next_piece_of_the_branch():
+    trunk = _road([(-40, 0), (0, 0)], 13.0)
+    main_a = _road([(0, 0), (10, 0)], 7.0)
+    main_b = _road([(10, 0), (30, 0), (50, 0)], 7.0)
+    other = _road([(0, 0), (20, -10)], 6.0)
+
+    result = apply_width_transitions(
+        [trunk, main_a, main_b, other], **KW, split_trunk_ends={(0, "end")},
+        split_branches={1: ("start", 7.0 - 1.0, 30.0), 3: ("start", 7.0, 30.0)},
+    )
+
+    assert result[1][0][3] == pytest.approx(6.0)
+    assert _width_at(result[2], 20.0) == pytest.approx(6.0 + smoothstep(20.0 / 30.0))
+    assert result[2][-1][3] == pytest.approx(7.0)

@@ -419,6 +419,12 @@ def _road_width_specs(road_slope_polygons_2d: List[Dict], dropped_tunnel_road_id
         lane_change_length=config.ROAD_LANE_CHANGE_TRANSITION_LENGTH,
         fixed=[poly.get("structure_type") in config.ROAD_FIXED_WIDTH_STRUCTURES for poly, _, _ in specs],
         fixed_transition_length=config.ROAD_STRUCTURE_TRANSITION_LENGTH,
+        # Lane splits (geometry/lane_splits.py): the branches start in their lanes of the trunk, the trunk keeps its width
+        split_trunk_ends={(i, end) for i, (poly, _, _) in enumerate(specs) for end in poly.get("lane_split_trunk", ())},
+        split_branches={
+            i: (poly["lane_split_branch"]["end"], poly["lane_split_branch"]["slot_width"], poly["lane_split_branch"]["length"])
+            for i, (poly, _, _) in enumerate(specs) if poly.get("lane_split_branch")
+        },
     )
     return specs, node_lists
 
@@ -748,6 +754,23 @@ class TerrainWorkflow:
         if underpasses:
             logger.debug(f"  [OK] {underpasses} road(s) under bridges: height interpolated")
 
+        # Lane splits (motorway exits/entrances, turn lanes): OSM draws all ways into one node - every branch is moved
+        # into its lanes of the trunk's cross-section there and fades into its own course (bridges and ground alike)
+        from ..geometry.lane_splits import directional_lanes, find_lane_splits, shift_branches_into_slots
+
+        def _mapper_width(road):
+            return config.OSM_MAPPER.get_road_properties(road.get("osm_tags", {}))["width"]
+
+        lane_splits = find_lane_splits(
+            road_polygons, _mapper_width,
+            lanes_of=lambda road: directional_lanes(
+                road.get("osm_tags", {}), _mapper_width(road), config.ROAD_MARKING_MIN_TWO_LANE_WIDTH
+            ),
+        )
+        shift_branches_into_slots(lane_splits, road_polygons, config.ROAD_LANE_SPLIT_LENGTH)
+        if lane_splits:
+            logger.info(f"  [OK] {len(lane_splits)} lane split(s): branches moved into the trunk's lanes")
+
         # Convert road_polygons into road_slope_polygons_2d (for classification)
         # IMPORTANT: AFTER junction detection, so that the split roads are used!
         # IMPORTANT: Create actual road polygons (buffer around the centerline)
@@ -787,6 +810,7 @@ class TerrainWorkflow:
                     "osm_tags": osm_tags,
                     "structure_type": classify_structure(osm_tags),
                     "daylight_slopes": bool(road.get("underpass")),  # road under a bridge: slopes up to the terrain
+                    **{key: road[key] for key in ("lane_split_trunk", "lane_split_branch") if key in road},
                 }
             )
 

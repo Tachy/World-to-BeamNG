@@ -223,3 +223,24 @@ def test_bridge_photo_areas_cover_deck_curbs_and_the_photo_margin(monkeypatch):
 
     assert area.shape[1] == 2
     assert Polygon(area).bounds[1] == pytest.approx(-5.65) and Polygon(area).bounds[3] == pytest.approx(5.65)
+
+
+def test_road_width_specs_start_a_split_branch_with_its_slot_width():
+    from world_to_beamng import config
+    from world_to_beamng.workflow.terrain_workflow import _road_width_specs
+
+    def poly(road_id, coords, **extra):
+        centerline = np.array([(x, y, 100.0) for x, y in coords])
+        return {"road_id": road_id, "trimmed_centerline": centerline, "structure_type": "surface",
+                "osm_tags": {"highway": "primary", "lanes": "2"}, **extra}
+
+    width = config.OSM_MAPPER.get_road_properties({"highway": "primary", "lanes": "2"})["width"]
+    trunk = poly(1, [(-40.0, 0.0), (0.0, 0.0)], lane_split_trunk={"end"})
+    branch = poly(2, [(0.0, 0.0), (20.0, 0.0), (40.0, 0.0), (60.0, 0.0)],
+                  lane_split_branch={"end": "start", "slot_width": width - 2.0, "length": 30.0})
+
+    specs, node_lists = _road_width_specs([trunk, branch])
+
+    assert node_lists[0][-1][3] == pytest.approx(width)
+    assert node_lists[1][0][3] == pytest.approx(width - 2.0)
+    assert node_lists[1][-1][3] == pytest.approx(width)
