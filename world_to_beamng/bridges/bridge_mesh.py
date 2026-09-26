@@ -90,7 +90,9 @@ def build_bridge_mesh(
     railing_material: str,
     deck_thickness: float = 0.6,
     pier_spacing: float = 25.0,
-    pier_size: float = 1.5,
+    pier_width_fraction: float = 2.0 / 3.0,
+    pier_depth_fraction: float = 1.0 / 3.0,
+    pier_burial: float = 5.0,
     min_pier_clearance: float = 1.0,
     curb_width: float = 0.4,
     curb_height: float = 0.2,
@@ -111,6 +113,9 @@ def build_bridge_mesh(
     pier_material) - carriageway (deck_material, exactly `width` wide). Curb and railing stand OUTSIDE the carriageway,
     so the deck slab is `width` + 2x curb_width wide. The carriageway UVs follow the DecalRoad layout (u across 0..1, v
     along in repeats of road_texture_length meters), so the road texture continues 1:1 from the approach.
+
+    Piers: `pier_width_fraction` of the carriageway width across the road, `pier_depth_fraction` of that dimension along
+    it, reaching `pier_burial` meters below the natural ground.
 
     Returns:
         {"vertices": (N,3), "uvs": (N,2), "normals": (N,3),
@@ -235,7 +240,11 @@ def build_bridge_mesh(
         ground_z = float(ground_at(np.array([cx]), np.array([cy]))[0])
         if deck_bottom_z - ground_z < min_pier_clearance:
             continue
-        add_box_column(pier_builder, cx, cy, ground_z, deck_bottom_z, pier_size, tile_m, direction=_direction_at(cum, xy, s))
+        pier_width = float(_interp_at(cum, half * 2.0, s)) * pier_width_fraction
+        add_box_column(
+            pier_builder, cx, cy, ground_z - pier_burial, deck_bottom_z, pier_width * pier_depth_fraction, tile_m,
+            direction=_direction_at(cum, xy, s), across=pier_width,
+        )
 
     # Railing: posts + continuous handrail on both sides, on the curb top edge, centered on the curb (the mean of two
     # offset_points() results on the same normal equals an offset by the averaged distance)
@@ -282,7 +291,9 @@ def build_bridges(
     railing_material: str,
     deck_thickness: float = 0.6,
     pier_spacing: float = 25.0,
-    pier_size: float = 1.5,
+    pier_width_fraction: float = 2.0 / 3.0,
+    pier_depth_fraction: float = 1.0 / 3.0,
+    pier_burial: float = 5.0,
     min_pier_clearance: float = 1.0,
     curb_width: float = 0.4,
     curb_height: float = 0.2,
@@ -300,7 +311,9 @@ def build_bridges(
             continue
         mesh = build_bridge_mesh(
             coords, bridge["width"], ground_at, bridge["deck_material"], pier_material, railing_material,
-            deck_thickness=deck_thickness, pier_spacing=pier_spacing, pier_size=pier_size, min_pier_clearance=min_pier_clearance,
+            deck_thickness=deck_thickness, pier_spacing=pier_spacing,
+            pier_width_fraction=pier_width_fraction, pier_depth_fraction=pier_depth_fraction, pier_burial=pier_burial,
+            min_pier_clearance=min_pier_clearance,
             curb_width=curb_width, curb_height=curb_height, railing_height=railing_height,
             railing_post_spacing=railing_post_spacing, railing_post_size=railing_post_size,
             road_texture_length=road_texture_length, widths=bridge.get("widths"),

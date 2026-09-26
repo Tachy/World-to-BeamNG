@@ -59,3 +59,12 @@ def test_column_has_four_outward_facing_side_quads():
     for face, tri in zip(builder.faces, tris):
         geometric = np.cross(tri[1] - tri[0], tri[2] - tri[0])
         assert np.dot(geometric, builder.normals[face[0]]) > 0
+
+
+def test_column_can_be_wider_across_than_along_the_direction_of_travel():
+    builder = MeshBuilder()
+    add_box_column(builder, cx=0.0, cy=0.0, bottom_z=0.0, top_z=3.0, size=2.0, tile_m=1.0, direction=(1.0, 0.0), across=6.0)
+
+    xs, ys = [v[0] for v in builder.vertices], [v[1] for v in builder.vertices]
+    assert max(xs) - min(xs) == pytest.approx(2.0)  # along the direction of travel
+    assert max(ys) - min(ys) == pytest.approx(6.0)  # across it

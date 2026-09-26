@@ -2,7 +2,7 @@
 Shared building blocks of the wall meshes (wall body and cap slabs): mesh collector, unit vector, border lines.
 """
 
-from typing import List, Sequence, Tuple
+from typing import List, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -91,9 +91,11 @@ def add_box_column(
     size: float,
     tile_m: float,
     direction: Tuple[float, float] = (1.0, 0.0),
+    across: Optional[float] = None,
 ) -> None:
     """Rectangular column (4 side faces) from `bottom_z` to `top_z`, square cross-section `size` - for
-    bridge piers (bridges/bridge_mesh.py) and gallery columns (tunnels/gallery_mesh.py).
+    bridge piers (bridges/bridge_mesh.py) and gallery columns (tunnels/gallery_mesh.py). With `across` the profile is
+    `size` along the direction and `across` across it (wide bridge piers).
 
     Args:
         direction: (dx, dy) direction of travel at the column position (need not be normalized) - the profile
@@ -101,11 +103,12 @@ def add_box_column(
             axes. Default (1, 0) = axis-aligned, for callers without direction information.
     """
     half = size / 2.0
+    half_across = half if across is None else across / 2.0
     dx, dy = float(direction[0]), float(direction[1])
     norm = (dx * dx + dy * dy) ** 0.5
     dx, dy = (dx / norm, dy / norm) if norm > 1e-9 else (1.0, 0.0)
     fwd = (dx * half, dy * half)
-    left = (-dy * half, dx * half)
+    left = (-dy * half_across, dx * half_across)
     corners = [
         (cx - fwd[0] - left[0], cy - fwd[1] - left[1]),
         (cx + fwd[0] - left[0], cy + fwd[1] - left[1]),
@@ -116,10 +119,11 @@ def add_box_column(
     for i in range(4):
         a, b = corners[i], corners[(i + 1) % 4]
         direction = np.array([b[0] - a[0], b[1] - a[1]])
-        direction = direction / np.linalg.norm(direction)
+        face_width = float(np.linalg.norm(direction))
+        direction = direction / face_width
         normal = [float(direction[1]), float(-direction[0]), 0.0]
         builder.quad(
             [[a[0], a[1], bottom_z], [b[0], b[1], bottom_z], [b[0], b[1], top_z], [a[0], a[1], top_z]],
-            [[0.0, 0.0], [size / tile_m, 0.0], [size / tile_m, height_tiles], [0.0, height_tiles]],
+            [[0.0, 0.0], [face_width / tile_m, 0.0], [face_width / tile_m, height_tiles], [0.0, height_tiles]],
             normal,
         )
