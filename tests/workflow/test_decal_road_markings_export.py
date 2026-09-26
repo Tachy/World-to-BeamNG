@@ -285,3 +285,26 @@ def test_two_lane_surface_road_keeps_its_dashed_centre_line():
     _, roads, _ = _export([_poly(1, [(0, 0), (10, 0), (20, 0)], highway="primary", lanes="2")])
 
     assert any(r["material"] == config.ROAD_MARKING_DIVIDER_MATERIAL for r in _markings(roads).values())
+
+
+def test_two_lane_centre_line_runs_onto_the_double_line_of_the_three_lane_road():
+    narrow = _poly(1, [(x, 0) for x in range(-200, 1)], highway="primary", lanes="2")
+    wide = _poly(2, [(x, 0) for x in range(0, 201)], highway="primary", lanes="3",
+                 **{"lanes:forward": "1", "lanes:backward": "2"})
+
+    _, roads, _ = _export([narrow, wide])
+
+    def y_near_joint(prefix, material, keep=lambda y: True):
+        found = []
+        for name, road in _markings(roads).items():
+            if name.startswith(prefix) and road["material"] == material:
+                node = min(road["nodes"], key=lambda n: abs(n[0]))
+                if abs(node[0]) < 3.0 and keep(node[1]):
+                    found.append(node[1])
+        return sorted(found)
+
+    divider = y_near_joint("marking_1_", config.ROAD_MARKING_DIVIDER_MATERIAL)
+    centers = y_near_joint("marking_2_", config.ROAD_MARKING_CENTER_MATERIAL, keep=lambda y: abs(y) < 3.0)
+    assert len(divider) == 1 and len(centers) == 2
+    assert divider[0] == pytest.approx(sum(centers) / 2.0, abs=0.1)  # the single line ends where the double line begins
+    assert divider[0] < -1.0  # and that is not the middle of the carriageway any more

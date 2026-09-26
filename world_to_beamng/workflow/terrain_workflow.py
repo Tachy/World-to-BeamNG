@@ -354,6 +354,7 @@ def _road_marking_lines(specs: List[Tuple[Dict, Dict, List]], node_lists: List[L
     from ..geometry.road_markings import (
         CENTER,
         EDGE,
+        boundary_shifts,
         build_marking_lines,
         clip_line,
         joint_normals,
@@ -376,9 +377,8 @@ def _road_marking_lines(specs: List[Tuple[Dict, Dict, List]], node_lists: List[L
         if poly.get("osm_tags", {}).get("highway") in config.ROAD_MARKING_NO_GAP_HIGHWAYS
     }
 
-    lines = []
-    for index, ((poly, props, _), nodes) in enumerate(zip(specs, node_lists)):
-        layout = marking_layout(
+    layouts = [
+        marking_layout(
             poly.get("osm_tags", {}),
             float(props.get("width", 4.0)),
             props.get("internal_name", ""),
@@ -388,6 +388,14 @@ def _road_marking_lines(specs: List[Tuple[Dict, Dict, List]], node_lists: List[L
             double_center_min_lanes=config.ROAD_MARKING_CENTER_MIN_LANES,
             force_double_center=poly.get("structure_type") in config.ROAD_MARKING_CENTER_STRUCTURES,
         )
+        for poly, props, _ in specs
+    ]
+    # The centre line of a narrower road (2 lanes) runs onto the double line of a wider one (3+ lanes) over the transition
+    shifts = boundary_shifts(node_lists, layouts, [float(props.get("width", 4.0)) for _, props, _ in specs], pairs)
+
+    lines = []
+    for index, ((poly, props, _), nodes) in enumerate(zip(specs, node_lists)):
+        layout = layouts[index]
         if layout is None:
             continue
         obstacles = junction_obstacles(
@@ -406,6 +414,7 @@ def _road_marking_lines(specs: List[Tuple[Dict, Dict, List]], node_lists: List[L
             end_normal=normals.get((index, "end")),
             center_gap=config.ROAD_MARKING_CENTER_GAP,
             line_width=config.ROAD_MARKING_LINE_WIDTH,
+            boundary_shift=shifts.get(index),
         )
         materials = {EDGE: config.ROAD_MARKING_EDGE_MATERIAL, CENTER: config.ROAD_MARKING_CENTER_MATERIAL}
         for line_idx, (kind, line) in enumerate(marking_lines):

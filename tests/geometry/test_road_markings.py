@@ -274,6 +274,80 @@ def test_build_marking_lines_draws_the_double_centre_line():
     assert sorted(float(c[0, 1]) for c in centers) == pytest.approx([-0.125, 0.125])
 
 
+# --- the centre line of a narrower road runs onto the double line of the wider road ------------------------------------
+from world_to_beamng.geometry.road_markings import boundary_shifts, direction_boundary_offset  # noqa: E402
+
+
+def test_direction_boundary_offset_is_the_lane_boundary_between_the_directions():
+    assert direction_boundary_offset(9.75, 3, 1) == pytest.approx(-1.625)  # one forward lane on the right
+    assert direction_boundary_offset(9.75, 3, 2) == pytest.approx(1.625)
+    assert direction_boundary_offset(6.5, 2, 1) == pytest.approx(0.0)
+
+
+def test_boundary_shift_moves_only_the_direction_boundary_lines():
+    widths = np.array([9.75, 9.75])
+    shift = np.array([0.0, 0.5])
+
+    plain = dict(line_offsets(widths, 3, 0.25, forward=1, center_gap=0.1, line_width=0.15))
+    shifted = line_offsets(widths, 3, 0.25, forward=1, center_gap=0.1, line_width=0.15, boundary_shift=shift)
+
+    centers = [o for k, o in shifted if k == CENTER]
+    assert all(c[1] - c[0] == pytest.approx(0.5) for c in centers)
+    assert next(o for k, o in shifted if k == DIVIDER) == pytest.approx(plain[DIVIDER])  # dashed divider stays
+
+
+def test_boundary_shift_moves_the_single_divider_of_a_two_lane_road():
+    lines = line_offsets(np.array([6.5, 6.5]), 2, 0.25, boundary_shift=np.array([0.0, -1.0]))
+
+    assert next(o for k, o in lines if k == DIVIDER) == pytest.approx([0.0, -1.0])
+
+
+def _road_nodes(xs, width):
+    return [[float(x), 0.0, 100.0, float(w)] for x, w in zip(xs, width if hasattr(width, "__len__") else [width] * len(xs))]
+
+
+def test_two_lane_centre_line_shifts_onto_the_double_line_of_the_three_lane_road():
+    # 2-lane road ends at x=0, 3-lane road (1 forward lane) continues; widths blend over 50 m each side
+    from world_to_beamng.geometry.road_width_transitions import smoothstep
+
+    xs = np.arange(-100.0, 1.0, 10.0)
+    widths = [6.5 + 3.25 * smoothstep((50.0 - -x) / 100.0) if -x <= 50.0 else 6.5 for x in xs]
+    narrow = _road_nodes(xs, widths)
+    wide = _road_nodes(np.arange(0.0, 101.0, 10.0), [8.125] * 6 + [9.75] * 5)
+
+    shifts = boundary_shifts([narrow, wide], [MarkingLayout(lanes=2), MarkingLayout(lanes=3, forward=1)],
+                             [6.5, 9.75], [((0, "end"), (1, "start"))])
+
+    joint_target = direction_boundary_offset(8.125, 3, 1)
+    assert shifts[0][-1] == pytest.approx(joint_target)  # at the joint the lines meet
+    assert shifts[0][0] == pytest.approx(0.0) and shifts[0][5] == pytest.approx(0.0, abs=1e-9)  # 50 m before it: none
+    assert 1 not in shifts  # the wider road keeps its own double line
+
+
+def test_opposite_digitization_mirrors_the_shift():
+    xs = np.arange(0.0, 101.0, 10.0)
+    narrow = _road_nodes(xs, [8.125] + [6.5] * 10)  # 2-lane road STARTS at the joint
+    wide = _road_nodes(np.arange(-100.0, 1.0, 10.0), [9.75] * 5 + [8.125] * 6)  # digitized toward the joint as well
+
+    same = boundary_shifts([wide, narrow], [MarkingLayout(lanes=3, forward=1), MarkingLayout(lanes=2)],
+                           [9.75, 6.5], [((0, "end"), (1, "start"))])
+    opposite = boundary_shifts([wide[::-1], narrow], [MarkingLayout(lanes=3, forward=1), MarkingLayout(lanes=2)],
+                               [9.75, 6.5], [((0, "start"), (1, "start"))])
+
+    assert same[1][0] == pytest.approx(direction_boundary_offset(8.125, 3, 1))
+    assert opposite[1][0] == pytest.approx(-direction_boundary_offset(8.125, 3, 1))
+
+
+def test_no_shift_without_a_double_line_on_the_wider_road_or_for_equal_lanes():
+    narrow = _road_nodes(np.arange(-20.0, 1.0, 10.0), [6.5, 6.5, 8.0])
+    wide = _road_nodes(np.arange(0.0, 21.0, 10.0), [8.0, 9.75, 9.75])
+
+    assert boundary_shifts([narrow, wide], [MarkingLayout(lanes=2), MarkingLayout(lanes=3)], [6.5, 9.75],
+                           [((0, "end"), (1, "start"))]) == {}  # oneway 3-lane road: no double line
+    assert boundary_shifts([narrow, wide], [MarkingLayout(lanes=3, forward=1), MarkingLayout(lanes=3, forward=1)],
+                           [6.5, 9.75], [((0, "end"), (1, "start"))]) == {}
+
+
 def test_forced_double_centre_line_for_two_lane_roads():
     # Two-lane tunnels and galleries: layout asked to force the double line (structure rule from the workflow)
     two_way = marking_layout({"highway": "primary", "lanes": "2"}, 6.5, "asphalt_road_standard", MARKED,

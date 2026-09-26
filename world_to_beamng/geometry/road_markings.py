@@ -85,21 +85,67 @@ def line_offsets(
     forward: Optional[int] = None,
     center_gap: float = 0.0,
     line_width: float = 0.0,
+    boundary_shift: Optional[np.ndarray] = None,
 ) -> List[Tuple[str, np.ndarray]]:
     """(kind, lateral offset per node), positive = left of the travel direction. Edge lines at +-(width/2 -
     edge_inset), dividers at the lanes-1 lane boundaries. With `forward` (right-hand traffic: the forward lanes lie on
-    the right) the boundary after `forward` lanes from the right edge becomes two CENTER lines, `center_gap` apart."""
+    the right) the boundary after `forward` lanes from the right edge becomes two CENTER lines, `center_gap` apart.
+    `boundary_shift` (per node, see boundary_shifts()) moves the boundary between the directions - the CENTER lines, or
+    without `forward` the middle divider - so that it runs onto the double line of a wider neighbour."""
     widths = np.asarray(widths, dtype=float)
     half = widths / 2.0
+    shift = np.zeros(len(widths)) if boundary_shift is None else np.asarray(boundary_shift, dtype=float)
+    boundary_lane = forward if forward is not None else lanes // 2
     lines = [(EDGE, half - edge_inset), (EDGE, -(half - edge_inset))]
     for k in range(1, lanes):
         boundary = -half + k * widths / lanes
+        if k == boundary_lane:
+            boundary = boundary + shift
         if k == forward:
-            shift = (center_gap + line_width) / 2.0
-            lines += [(CENTER, boundary - shift), (CENTER, boundary + shift)]
+            gap = (center_gap + line_width) / 2.0
+            lines += [(CENTER, boundary - gap), (CENTER, boundary + gap)]
         else:
             lines.append((DIVIDER, boundary))
     return lines
+
+
+def direction_boundary_offset(width: float, lanes: int, forward: int) -> float:
+    """Lateral offset (positive = left) of the boundary between the directions: after `forward` lanes from the right edge."""
+    return -width / 2.0 + forward * width / lanes
+
+
+def boundary_shifts(roads, layouts, own_widths, pairs) -> Dict[int, np.ndarray]:
+    """
+    Lateral shift of the direction boundary per node for roads that continue straight into a road with MORE lanes
+    and a double centre line (`pairs` from find_continuations(), `layouts` per road, `own_widths` = the roads' own,
+    unblended widths). Without it the single centre line of a 2-lane road ends in the middle of the carriageway while
+    the double line of the 3-lane road starts a third of the width to the side. At the joint the boundary lies exactly
+    where the wider road's double line begins; it follows the width blend (0 where the road has its own width again)
+    over the first half of the road, mirrored if the two roads are digitized in opposite directions.
+    """
+    result: Dict[int, np.ndarray] = {}
+    for (ia, ea), (ib, eb) in pairs:
+        la, lb = layouts[ia], layouts[ib]
+        if la is None or lb is None or la.lanes == lb.lanes:
+            continue
+        (big, big_end), (small, small_end) = ((ia, ea), (ib, eb)) if la.lanes > lb.lanes else ((ib, eb), (ia, ea))
+        big_layout, small_layout = layouts[big], layouts[small]
+        if big_layout.forward is None or small_layout.lanes < 2:
+            continue
+        joint_width = float(roads[big][0 if big_end == "start" else -1][3])
+        target = direction_boundary_offset(joint_width, big_layout.lanes, big_layout.forward)
+        if big_end == small_end:  # opposite digitization: left and right swap
+            target = -target
+        own = float(own_widths[small])
+        if abs(joint_width - own) < 1e-9:
+            continue
+        nodes = np.asarray(roads[small], dtype=float)
+        arc = np.concatenate([[0.0], np.cumsum(np.linalg.norm(np.diff(nodes[:, :2], axis=0), axis=1))])
+        from_joint = arc if small_end == "start" else arc[-1] - arc
+        factor = np.clip((nodes[:, 3] - own) / (joint_width - own), 0.0, 1.0)
+        shift = target * factor * (from_joint <= arc[-1] / 2.0 + 1e-9)
+        result[small] = result.get(small, 0.0) + shift
+    return result
 
 
 def offset_polyline(
@@ -162,6 +208,7 @@ def build_marking_lines(
     end_normal: Optional[np.ndarray] = None,
     center_gap: float = 0.0,
     line_width: float = 0.0,
+    boundary_shift: Optional[np.ndarray] = None,
 ) -> List[Tuple[str, np.ndarray]]:
     """(kind, (N, 3) line) for all marking lines of a road from its DecalRoad nodes [x, y, z, width];
     z per line node from the corresponding carriageway node (BeamNG projects the line onto the terrain anyway).
@@ -170,7 +217,9 @@ def build_marking_lines(
     arr = np.asarray(nodes, dtype=float)
     center_xy = arr[:, :2]
     lines = []
-    for kind, offsets in line_offsets(arr[:, 3], layout.lanes, edge_inset, layout.forward, center_gap, line_width):
+    for kind, offsets in line_offsets(
+        arr[:, 3], layout.lanes, edge_inset, layout.forward, center_gap, line_width, boundary_shift
+    ):
         offset_xy = offset_polyline(center_xy, offsets, start_normal, end_normal)
         kept = forward_indices(offset_xy, center_xy)
         if len(kept) >= 2:
