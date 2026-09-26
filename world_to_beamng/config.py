@@ -285,8 +285,8 @@ BRIDGE_MATERIAL_NAME = "bridge_concrete"  # pier/curb material (texture: CONCRET
 
 # Real road bridge cross-section profile: concrete edge (curb) on both sides of the carriageway, on it a
 # simple railing (posts + continuous handrail), instead of an edgeless deck slab.
-BRIDGE_CURB_WIDTH = 0.25  # width of the curb per side, in meters (the carriageway becomes correspondingly narrower)
-BRIDGE_CURB_HEIGHT = 0.15  # height of the curb above the carriageway, in meters
+BRIDGE_CURB_WIDTH = 0.4  # width of the curb per side, in meters (stands outside the carriageway width, the deck slab is wider)
+BRIDGE_CURB_HEIGHT = 0.2  # height of the curb above the carriageway, in meters
 BRIDGE_RAILING_HEIGHT = 0.9  # handrail height above the curb top edge, in meters
 BRIDGE_RAILING_POST_SPACING = 2.0  # post spacing along the bridge, in meters
 BRIDGE_RAILING_POST_SIZE = 0.08  # cross-section of the (square) posts and the handrail, in meters
@@ -372,9 +372,9 @@ GALLERY_FLOOR_THICKNESS = 5.0  # floor thickness downward, in meters
 GALLERY_WALL_THICKNESS = 5.0  # thickness of the mountain-side wall into the hillside, m (flush with the roof top edge)
 GALLERY_COLUMN_SIZE = 0.4  # cross-section of the (square) columns, in meters
 GALLERY_CURB_HEIGHT = 0.5  # height of the plinth on the column side, in meters
-GALLERY_CURB_WIDTH = 0.4  # width of the plinth (offset inward from the carriageway edge), in meters - matches
+GALLERY_CURB_WIDTH = 0.4  # width of the plinth (beyond the carriageway edge, outside the clear width), in meters - matches
 # GALLERY_COLUMN_SIZE, so that the column sits exactly on the plinth footprint (see
-# gallery_mesh.py::build_gallery_mesh(), column loop) and its outer edge stays flush with the roof edge.
+# gallery_mesh.py::build_gallery_mesh(), column loop) and its outer edge stays flush with the (widened) roof edge.
 
 # Galleries are (unlike bridges/tunnels) embedded into the terrain like normal roads (see
 # terrain_workflow.py::process_tile(), embankment + embed_roads_into_heightmap) instead of getting a separate terrain

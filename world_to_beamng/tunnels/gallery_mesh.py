@@ -106,16 +106,19 @@ def build_gallery_mesh(
     the slope (flush with the roof top edge). In addition a continuous plinth (curb_height/curb_width,
     like the curb on bridges) on the valley-side open side (no wall there) AND supports that sit FLUSH
     on the plinth: centered on its centerline in plan (curb_width == column_size ->
-    support outer edge == carriageway edge == roof edge, everything flush) and in height resting on the plinth
+    support outer edge == plinth outer edge == roof edge, everything flush) and in height resting on the plinth
     top edge instead of sinking into the floor (support height shortened by curb_height accordingly, the top edge
-    stays at the roof bottom edge). Both ends are closed completely (floor/roof/wall cross-section)
+    stays at the roof bottom edge). Plinth and supports stand OUTSIDE the carriageway: the plinth starts exactly at
+    the carriageway edge (width / 2) and extends curb_width beyond it, so the clear width between the mountain wall
+    and the plinth equals the carriageway width. Floor slab and roof are widened by curb_width on the valley side
+    accordingly. Both ends are closed completely (floor/roof/wall cross-section)
     - looks like a clean cut through the structure, exactly at the original OSM way boundary points (no
     artificial extension of the centerline).
 
     Args:
         floor_thickness, wall_thickness: see config.GALLERY_FLOOR_THICKNESS/GALLERY_WALL_THICKNESS
         curb_height, curb_width: see config.GALLERY_CURB_HEIGHT/GALLERY_CURB_WIDTH - plinth on the
-            support side, curb_width offset inward from the carriageway edge; column_size should match curb_width
+            support side, curb_width beyond the carriageway edge; column_size should match curb_width
             so that the support sits flush on the plinth (see docstring above)
         open_side: "left" | "right" | None - if set (from resolve_open_side(), reliable OSM tag),
             this side counts as open for the ENTIRE gallery. Without a tag, ONE side also applies to the whole
@@ -135,13 +138,14 @@ def build_gallery_mesh(
 
     left, right = offset_points(xy, width / 2.0, closed=False)
     outer_left, outer_right = offset_points(xy, width / 2.0 + wall_thickness, closed=False)
-    inner_left, inner_right = offset_points(xy, max(width / 2.0 - curb_width, 0.0), closed=False)
-    # Centerline of the plinth footprint (between curb_inner and curb_edge = left/right) - the supports
+    # Plinth outer edge: curb_width beyond the carriageway edge. Only the valley side uses it (see slab_left/right).
+    curb_outer_left, curb_outer_right = offset_points(xy, width / 2.0 + curb_width, closed=False)
+    # Centerline of the plinth footprint (between the carriageway edge left/right and curb_outer) - the supports
     # sit centered there (flush with the plinth footprint, see support loop below). The element-wise
     # mean of two offset_points() results on the same (possibly mitered) normal is
     # exactly equivalent to a separate offset_points() call with the averaged distance.
-    mid_left = (left + inner_left) / 2.0
-    mid_right = (right + inner_right) / 2.0
+    mid_left = (left + curb_outer_left) / 2.0
+    mid_right = (right + curb_outer_right) / 2.0
     # +1 = open on the right (valley), -1 = open on the left - see open_side/resolve_open_side() docstring.
     if open_side == "left":
         side = np.full(len(points), -1.0)
@@ -154,9 +158,15 @@ def build_gallery_mesh(
         total = float(valley_score(xy, ground_at, width / 2.0).sum())
         side = np.full(len(points), 1.0 if total >= 0.0 else -1.0)
 
+    # Floor slab and roof reach from the mountain-side wall to the plinth outer edge: on the open (valley) side they are
+    # curb_width wider than the carriageway so that they carry the plinth and columns. side > 0 = open on the right.
+    slab_left = np.where(side[:, None] > 0, left, curb_outer_left)
+    slab_right = np.where(side[:, None] > 0, curb_outer_right, right)
+
     steps = np.linalg.norm(np.diff(xy, axis=0), axis=1)
     along = np.concatenate([[0.0], np.cumsum(steps)]) / tile_m
     across = width / tile_m
+    slab_across = (width + curb_width) / tile_m
     # The wall ends flush with the roof TOP EDGE (not just the interior height) - so it reaches
     # height + roof_thickness, not just height.
     wall_h = (height + roof_thickness) / tile_m
@@ -188,30 +198,30 @@ def build_gallery_mesh(
             [0.0, 0.0, 1.0],
         )
         roof_builder.quad(
-            [p3(left[i], floor_bottom_z[i]), p3(right[i], floor_bottom_z[i]), p3(right[j], floor_bottom_z[j]), p3(left[j], floor_bottom_z[j])],
-            [[u0, 0.0], [u0, across], [u1, across], [u1, 0.0]],
+            [p3(slab_left[i], floor_bottom_z[i]), p3(slab_right[i], floor_bottom_z[i]), p3(slab_right[j], floor_bottom_z[j]), p3(slab_left[j], floor_bottom_z[j])],
+            [[u0, 0.0], [u0, slab_across], [u1, slab_across], [u1, 0.0]],
             [0.0, 0.0, -1.0],
         )
         roof_builder.quad(
-            [p3(left[i], floor_bottom_z[i]), p3(left[j], floor_bottom_z[j]), p3(left[j], floor_z[j]), p3(left[i], floor_z[i])],
+            [p3(slab_left[i], floor_bottom_z[i]), p3(slab_left[j], floor_bottom_z[j]), p3(slab_left[j], floor_z[j]), p3(slab_left[i], floor_z[i])],
             [[u0, 0.0], [u1, 0.0], [u1, floor_h], [u0, floor_h]],
             [float(side_normal[0]), float(side_normal[1]), 0.0],
         )
         roof_builder.quad(
-            [p3(right[i], floor_z[i]), p3(right[j], floor_z[j]), p3(right[j], floor_bottom_z[j]), p3(right[i], floor_bottom_z[i])],
+            [p3(slab_right[i], floor_z[i]), p3(slab_right[j], floor_z[j]), p3(slab_right[j], floor_bottom_z[j]), p3(slab_right[i], floor_bottom_z[i])],
             [[u0, 0.0], [u1, 0.0], [u1, floor_h], [u0, floor_h]],
             [-float(side_normal[0]), -float(side_normal[1]), 0.0],
         )
 
         # Roof: bottom/top (as before) + now additionally both side faces (box instead of slab).
         roof_builder.quad(
-            [p3(left[i], roof_bottom_z[i]), p3(right[i], roof_bottom_z[i]), p3(right[j], roof_bottom_z[j]), p3(left[j], roof_bottom_z[j])],
-            [[u0, 0.0], [u0, across], [u1, across], [u1, 0.0]],
+            [p3(slab_left[i], roof_bottom_z[i]), p3(slab_right[i], roof_bottom_z[i]), p3(slab_right[j], roof_bottom_z[j]), p3(slab_left[j], roof_bottom_z[j])],
+            [[u0, 0.0], [u0, slab_across], [u1, slab_across], [u1, 0.0]],
             [0.0, 0.0, -1.0],
         )
         roof_builder.quad(
-            [p3(left[i], roof_top_z[i]), p3(left[j], roof_top_z[j]), p3(right[j], roof_top_z[j]), p3(right[i], roof_top_z[i])],
-            [[u0, 0.0], [u1, 0.0], [u1, across], [u0, across]],
+            [p3(slab_left[i], roof_top_z[i]), p3(slab_left[j], roof_top_z[j]), p3(slab_right[j], roof_top_z[j]), p3(slab_right[i], roof_top_z[i])],
+            [[u0, 0.0], [u1, 0.0], [u1, slab_across], [u0, slab_across]],
             [0.0, 0.0, 1.0],
         )
         # Roof side faces (roof_bottom_z to roof_top_z): only needed on the VALLEY SIDE - on the mountain side
@@ -219,13 +229,13 @@ def build_gallery_mesh(
         # roof side face there would be coincident geometry (z-fighting).
         if not mountain_is_left:
             roof_builder.quad(
-                [p3(left[i], roof_bottom_z[i]), p3(left[j], roof_bottom_z[j]), p3(left[j], roof_top_z[j]), p3(left[i], roof_top_z[i])],
+                [p3(slab_left[i], roof_bottom_z[i]), p3(slab_left[j], roof_bottom_z[j]), p3(slab_left[j], roof_top_z[j]), p3(slab_left[i], roof_top_z[i])],
                 [[u0, 0.0], [u1, 0.0], [u1, roof_h], [u0, roof_h]],
                 [float(side_normal[0]), float(side_normal[1]), 0.0],
             )
         if mountain_is_left:
             roof_builder.quad(
-                [p3(right[i], roof_top_z[i]), p3(right[j], roof_top_z[j]), p3(right[j], roof_bottom_z[j]), p3(right[i], roof_bottom_z[i])],
+                [p3(slab_right[i], roof_top_z[i]), p3(slab_right[j], roof_top_z[j]), p3(slab_right[j], roof_bottom_z[j]), p3(slab_right[i], roof_bottom_z[i])],
                 [[u0, 0.0], [u1, 0.0], [u1, roof_h], [u0, roof_h]],
                 [-float(side_normal[0]), -float(side_normal[1]), 0.0],
             )
@@ -260,9 +270,9 @@ def build_gallery_mesh(
         )
 
         # Plinth (curb-like, as in bridges/bridge_mesh.py) on the valley-side open side - curb_width
-        # offset inward from the carriageway edge, curb_height high.
-        curb_edge = right if mountain_is_left else left
-        curb_inner = inner_right if mountain_is_left else inner_left
+        # beyond the carriageway edge (inner face exactly at the edge), curb_height high.
+        curb_edge = curb_outer_right if mountain_is_left else curb_outer_left
+        curb_inner = right if mountain_is_left else left
         curb_outward = [-side_normal[0], -side_normal[1], 0.0] if mountain_is_left else side_normal
 
         roof_builder.quad(  # plinth top (concrete material like wall/roof, not carriageway material)
@@ -282,8 +292,9 @@ def build_gallery_mesh(
         )
 
     end_cap_args = (
-        left, right, outer_left, outer_right, inner_left, inner_right, floor_z, floor_bottom_z,
-        roof_bottom_z, roof_top_z, curb_top_z, side, across, floor_h, roof_h, wall_extra, wall_h, curb_h, curb_w,
+        left, right, slab_left, slab_right, outer_left, outer_right, curb_outer_left, curb_outer_right, floor_z,
+        floor_bottom_z, roof_bottom_z, roof_top_z, curb_top_z, side, slab_across, floor_h, roof_h, wall_extra, wall_h,
+        curb_h, curb_w,
     )
     if cap_start:
         _add_end_caps(roof_builder, 0, xy[0] - xy[1], *end_cap_args)
@@ -332,13 +343,13 @@ def _add_end_caps(
     builder: "MeshBuilder",
     idx: int,
     outward_xy: np.ndarray,
-    left, right, outer_left, outer_right, inner_left, inner_right,
+    left, right, slab_left, slab_right, outer_left, outer_right, curb_outer_left, curb_outer_right,
     floor_z, floor_bottom_z, roof_bottom_z, roof_top_z, curb_top_z,
     side, across, floor_h, roof_h, wall_extra, wall_h, curb_h, curb_w,
 ) -> None:
     """
-    End face at one end (idx=0 or idx=len-1): full floor cross-section (box thickness) + full
-    roof cross-section + wall cross-section (only its own footprint, inner to outer edge, up to
+    End face at one end (idx=0 or idx=len-1): full floor cross-section (box thickness, incl. the widening under the
+    plinth) + full roof cross-section + wall cross-section (only its own footprint, inner to outer edge, up to
     roof_top_z - the wall ends flush with the roof top edge) + plinth cross-section on the
     support side - turns the open shell end into a clean, solid cut instead of a
     view into the hollow space.
@@ -350,12 +361,12 @@ def _add_end_caps(
         return [float(pt_xy[0]), float(pt_xy[1]), float(z)]
 
     builder.quad(  # floor end face
-        [p3(left[idx], floor_bottom_z[idx]), p3(right[idx], floor_bottom_z[idx]), p3(right[idx], floor_z[idx]), p3(left[idx], floor_z[idx])],
+        [p3(slab_left[idx], floor_bottom_z[idx]), p3(slab_right[idx], floor_bottom_z[idx]), p3(slab_right[idx], floor_z[idx]), p3(slab_left[idx], floor_z[idx])],
         [[0.0, 0.0], [across, 0.0], [across, floor_h], [0.0, floor_h]],
         normal,
     )
     builder.quad(  # roof end face
-        [p3(left[idx], roof_bottom_z[idx]), p3(right[idx], roof_bottom_z[idx]), p3(right[idx], roof_top_z[idx]), p3(left[idx], roof_top_z[idx])],
+        [p3(slab_left[idx], roof_bottom_z[idx]), p3(slab_right[idx], roof_bottom_z[idx]), p3(slab_right[idx], roof_top_z[idx]), p3(slab_left[idx], roof_top_z[idx])],
         [[0.0, 0.0], [across, 0.0], [across, roof_h], [0.0, roof_h]],
         normal,
     )
@@ -369,9 +380,9 @@ def _add_end_caps(
         normal,
     )
 
-    curb_edge_pt = right[idx] if mountain_is_left else left[idx]
-    curb_inner_pt = inner_right[idx] if mountain_is_left else inner_left[idx]
-    builder.quad(  # plinth end face (only the plinth footprint: carriageway edge to curb_width inward)
+    curb_edge_pt = curb_outer_right[idx] if mountain_is_left else curb_outer_left[idx]
+    curb_inner_pt = right[idx] if mountain_is_left else left[idx]
+    builder.quad(  # plinth end face (only the plinth footprint: carriageway edge to curb_width outward)
         [p3(curb_inner_pt, floor_z[idx]), p3(curb_edge_pt, floor_z[idx]), p3(curb_edge_pt, curb_top_z[idx]), p3(curb_inner_pt, curb_top_z[idx])],
         [[0.0, 0.0], [curb_w, 0.0], [curb_w, curb_h], [0.0, curb_h]],
         normal,

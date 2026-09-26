@@ -92,8 +92,8 @@ def build_bridge_mesh(
     pier_spacing: float = 25.0,
     pier_size: float = 1.5,
     min_pier_clearance: float = 1.0,
-    curb_width: float = 0.25,
-    curb_height: float = 0.15,
+    curb_width: float = 0.4,
+    curb_height: float = 0.2,
     railing_height: float = 0.9,
     railing_post_spacing: float = 2.0,
     railing_post_size: float = 0.08,
@@ -104,7 +104,8 @@ def build_bridge_mesh(
     bridge height profile, x,y,z per point).
 
     Cross section from outside to inside: railing (posts + handrail) - curb (curb_width/curb_height,
-    pier_material) - carriageway (deck_material, narrower than `width` by 2x curb_width).
+    pier_material) - carriageway (deck_material, exactly `width` wide). Curb and railing stand OUTSIDE the carriageway,
+    so the deck slab is `width` + 2x curb_width wide.
 
     Returns:
         {"vertices": (N,3), "uvs": (N,2), "normals": (N,3),
@@ -116,12 +117,14 @@ def build_bridge_mesh(
     bottom = top - deck_thickness
     curb_top = top + curb_height
 
-    outer_left, outer_right = offset_points(xy, width / 2.0, closed=False)
-    inner_left, inner_right = offset_points(xy, max(width / 2.0 - curb_width, 0.0), closed=False)
+    # inner = carriageway edge (= curb inner face), outer = curb outer edge = deck slab edge
+    inner_left, inner_right = offset_points(xy, width / 2.0, closed=False)
+    outer_left, outer_right = offset_points(xy, width / 2.0 + curb_width, closed=False)
 
     cum = _arc_length(xy)
     along = cum / tile_m
-    carriageway_across = max(width - 2.0 * curb_width, 0.0) / tile_m
+    carriageway_across = width / tile_m
+    deck_across = (width + 2.0 * curb_width) / tile_m
     curb_across = curb_width / tile_m
 
     def p3(pt_xy, z):
@@ -146,7 +149,7 @@ def build_bridge_mesh(
         # Underside (full width)
         deck_builder.quad(
             [p3(outer_left[i], bottom[i]), p3(outer_right[i], bottom[i]), p3(outer_right[j], bottom[j]), p3(outer_left[j], bottom[j])],
-            [[u0, 0.0], [u0, width / tile_m], [u1, width / tile_m], [u1, 0.0]],
+            [[u0, 0.0], [u0, deck_across], [u1, deck_across], [u1, 0.0]],
             [0.0, 0.0, -1.0],
         )
         # Fascia left/right (deck bottom edge up to carriageway level)
@@ -201,7 +204,7 @@ def build_bridge_mesh(
         face_normal = [float(sign * direction[0]), float(sign * direction[1]), 0.0]
         deck_builder.quad(
             [p3(outer_left[index], bottom[index]), p3(outer_right[index], bottom[index]), p3(outer_right[index], top[index]), p3(outer_left[index], top[index])],
-            [[0.0, 0.0], [width / tile_m, 0.0], [width / tile_m, deck_thickness / tile_m], [0.0, deck_thickness / tile_m]],
+            [[0.0, 0.0], [deck_across, 0.0], [deck_across, deck_thickness / tile_m], [0.0, deck_thickness / tile_m]],
             face_normal,
         )
         for edge_out, edge_in in ((outer_left, inner_left), (outer_right, inner_right)):
@@ -222,11 +225,12 @@ def build_bridge_mesh(
             continue
         add_box_column(pier_builder, cx, cy, ground_z, deck_bottom_z, pier_size, tile_m, direction=_direction_at(cum, xy, s))
 
-    # Railing: posts + continuous handrail on both sides, on the curb top edge
+    # Railing: posts + continuous handrail on both sides, on the curb top edge, centered on the curb (the mean of two
+    # offset_points() results on the same normal equals an offset by the averaged distance)
     railing_builder = MeshBuilder()
     rail_top = curb_top + railing_height + railing_post_size / 2.0
     post_positions = np.arange(0.0, total_len + 1e-6, railing_post_spacing) if total_len > 0 else np.array([])
-    for edge_xy in (outer_left, outer_right):
+    for edge_xy in ((inner_left + outer_left) / 2.0, (inner_right + outer_right) / 2.0):
         for s in post_positions:
             px, py = _interp_at(cum, edge_xy, s)
             post_bottom_z = float(_interp_at(cum, curb_top, s))
@@ -268,8 +272,8 @@ def build_bridges(
     pier_spacing: float = 25.0,
     pier_size: float = 1.5,
     min_pier_clearance: float = 1.0,
-    curb_width: float = 0.25,
-    curb_height: float = 0.15,
+    curb_width: float = 0.4,
+    curb_height: float = 0.2,
     railing_height: float = 0.9,
     railing_post_spacing: float = 2.0,
     railing_post_size: float = 0.08,

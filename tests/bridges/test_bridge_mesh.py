@@ -46,7 +46,12 @@ def test_deck_faces_use_the_road_material_not_the_pier_material():
     assert DECK in mesh["faces"] and len(mesh["faces"][DECK]) > 0
 
 
-def test_curb_sits_on_top_of_the_deck_and_narrows_the_carriageway():
+def _ys(mesh, material, z=None):
+    v = mesh["vertices"]
+    return np.array([v[i][1] - 5.0 for face in mesh["faces"][material] for i in face if z is None or v[i][2] == pytest.approx(z)])
+
+
+def test_curb_sits_on_top_of_the_deck_outside_the_carriageway():
     mesh = build_bridge_mesh(
         _coords(n=3, z=200.0), width=8.0, ground_at=_flat_ground(150.0), deck_material=DECK, pier_material=PIER,
         railing_material=RAIL, curb_width=0.25, curb_height=0.15, pier_spacing=1000.0,
@@ -55,11 +60,35 @@ def test_curb_sits_on_top_of_the_deck_and_narrows_the_carriageway():
 
     assert deck_zs.max() == pytest.approx(200.0)  # carriageway stays at deck level
     assert pier_zs.max() == pytest.approx(200.0 + 0.15)  # curb top edge = deck + curb_height
-    # Curb vertices lie outside half the carriageway width (8/2 - 0.25 = 3.75 m from the axis)
-    xy_at_curb_top = np.array(
-        [mesh["vertices"][i][1] for face in mesh["faces"][PIER] for i in face if mesh["vertices"][i][2] == pytest.approx(200.0 + 0.15)]
+    # The curb stands OUTSIDE the carriageway: inner face at width / 2 = 4 m, outer edge 0.25 m further out.
+    curb_y = np.abs(_ys(mesh, PIER, z=200.0 + 0.15))
+    assert curb_y.min() == pytest.approx(4.0)
+    assert curb_y.max() == pytest.approx(4.25)
+
+
+def test_carriageway_keeps_the_full_width_and_the_deck_is_wider_by_the_curbs():
+    mesh = build_bridge_mesh(
+        _coords(n=3, z=200.0), width=8.0, ground_at=_flat_ground(150.0), deck_material=DECK, pier_material=PIER,
+        railing_material=RAIL, curb_width=0.25, deck_thickness=0.6, pier_spacing=1000.0,
     )
-    assert np.any(np.abs(np.abs(xy_at_curb_top - 5.0) - 4.0) < 1e-6)  # outer curb edge at full width (4 m)
+
+    # carriageway = the deck faces looking up (the fascia also reaches z=200 but faces sideways)
+    up = [f for f in mesh["faces"][DECK] if mesh["normals"][f[0]][2] > 0.99]
+    carriageway_y = np.array([mesh["vertices"][i][1] - 5.0 for f in up for i in f])
+    assert np.abs(carriageway_y).max() == pytest.approx(4.0)  # road material = full width
+    assert np.abs(_ys(mesh, DECK, z=200.0 - 0.6)).max() == pytest.approx(4.25)  # slab carries the curbs
+
+
+def test_railing_stands_centered_on_the_curb():
+    mesh = build_bridge_mesh(
+        _coords(n=3, z=200.0), width=8.0, ground_at=_flat_ground(150.0), deck_material=DECK, pier_material=PIER,
+        railing_material=RAIL, curb_width=0.4, railing_post_size=0.08, pier_spacing=1000.0,
+    )
+
+    rail_y = np.abs(_ys(mesh, RAIL))
+    # curb spans 4.0 .. 4.4 m, its centerline is at 4.2 m; posts and handrail are 0.08 m wide
+    assert rail_y.min() == pytest.approx(4.2 - 0.04)
+    assert rail_y.max() == pytest.approx(4.2 + 0.04)
 
 
 def test_railing_posts_and_handrail_sit_above_the_curb():

@@ -84,14 +84,14 @@ def test_wall_extends_wall_thickness_into_the_mountain():
     ground_at = lambda x, y: 500.0 - 2.0 * np.asarray(y, float)  # mountain side is -y (right)
     mesh = build_gallery_mesh(
         _straight_coords(z=500.0), width=8.0, height=5.0, ground_at=ground_at, floor_material=FLOOR,
-        roof_material=ROOF, wall_thickness=3.0, column_spacing=1000.0,  # no columns (would distort the edge)
+        roof_material=ROOF, wall_thickness=3.0, curb_width=0.25, column_spacing=1000.0,  # no columns (would distort the edge)
     )
 
     v = np.array(mesh["vertices"])
     # Mountain side (y<0): the outer wall face extends to width/2 + wall_thickness = 4 + 3 = 7 m from the axis.
     assert v[:, 1].min() == pytest.approx(-7.0)
-    # Valley side (y>0) stays at the plain carriageway width, width/2 = 4 m.
-    assert v[:, 1].max() == pytest.approx(4.0)
+    # Valley side (y>0): carriageway width/2 = 4 m plus the plinth (0.25 m) that stands OUTSIDE the carriageway.
+    assert v[:, 1].max() == pytest.approx(4.25)
 
 
 def test_wall_is_flush_with_the_roof_top():
@@ -121,16 +121,72 @@ def test_curb_is_on_the_open_side_only():
     assert not np.any(np.isclose(v[at_mountain_edge][:, 2], 500.5))
 
 
-def test_curb_does_not_widen_the_gallery_footprint():
-    # The curb lies curb_width INSIDE the carriageway edge, so it does not extend beyond the previous width.
-    ground_at = lambda x, y: 500.0 - 2.0 * np.asarray(y, float)
+def _curb_top_vertices(mesh, z=500.5):
+    v = np.array(mesh["vertices"])
+    return v[np.isclose(v[:, 2], z)]
+
+
+def test_curb_stands_outside_the_carriageway():
+    # The plinth starts exactly at the carriageway edge (width / 2) and extends curb_width beyond it, so the clear
+    # width between mountain wall and plinth equals the carriageway width.
+    ground_at = lambda x, y: 500.0 - 2.0 * np.asarray(y, float)  # valley side (open) is +y
     mesh = build_gallery_mesh(
         _straight_coords(z=500.0), width=8.0, height=5.0, ground_at=ground_at, floor_material=FLOOR,
         roof_material=ROOF, curb_height=0.5, curb_width=0.25, wall_thickness=0.0, column_spacing=1000.0,
     )
 
+    curb_y = _curb_top_vertices(mesh)[:, 1]
+    assert curb_y.min() == pytest.approx(4.0)
+    assert curb_y.max() == pytest.approx(4.25)
+
+
+def test_carriageway_keeps_its_full_width():
+    ground_at = lambda x, y: 500.0 - 2.0 * np.asarray(y, float)
+    mesh = build_gallery_mesh(
+        _straight_coords(z=500.0), width=8.0, height=5.0, ground_at=ground_at, floor_material=FLOOR,
+        roof_material=ROOF, curb_width=0.25, column_spacing=1000.0,
+    )
+
+    road_faces = np.array(mesh["faces"][FLOOR]).ravel()
+    road_y = mesh["vertices"][road_faces][:, 1]
+    assert road_y.min() == pytest.approx(-4.0)
+    assert road_y.max() == pytest.approx(4.0)
+
+
+def test_floor_and_roof_extend_under_and_over_the_curb():
+    ground_at = lambda x, y: 500.0 - 2.0 * np.asarray(y, float)  # valley side (open) is +y
+    mesh = build_gallery_mesh(
+        _straight_coords(z=500.0), width=8.0, height=5.0, ground_at=ground_at, floor_material=FLOOR,
+        roof_material=ROOF, roof_thickness=0.5, floor_thickness=5.0, curb_width=0.25, wall_thickness=0.0,
+        column_spacing=1000.0,
+    )
     v = np.array(mesh["vertices"])
-    assert v[:, 1].max() == pytest.approx(4.0)  # width / 2
+
+    floor_bottom_y = v[np.isclose(v[:, 2], 495.0)][:, 1]
+    roof_top_y = v[np.isclose(v[:, 2], 505.5)][:, 1]
+    roof_bottom_y = v[np.isclose(v[:, 2], 505.0)][:, 1]
+    assert floor_bottom_y.max() == pytest.approx(4.25)  # slab carries the curb
+    assert roof_top_y.max() == pytest.approx(4.25)  # roof covers the columns
+    assert roof_bottom_y.max() == pytest.approx(4.25)
+    # Mountain side unchanged: floor and roof end at the wall inner face (wall_thickness=0 here).
+    assert floor_bottom_y.min() == pytest.approx(-4.0)
+    assert roof_top_y.min() == pytest.approx(-4.0)
+
+
+def test_end_faces_cover_the_outside_curb_and_roof():
+    ground_at = lambda x, y: 500.0 - 2.0 * np.asarray(y, float)
+    mesh = build_gallery_mesh(
+        _straight_coords(z=500.0), width=8.0, height=5.0, ground_at=ground_at, floor_material=FLOOR,
+        roof_material=ROOF, curb_height=0.5, curb_width=0.25, wall_thickness=0.0, column_spacing=1000.0,
+    )
+    v = mesh["vertices"]
+    faces = [f for faces in mesh["faces"].values() for f in faces]
+    start = np.array([f for f in faces if np.allclose(v[f][:, 0], 0.0) and np.allclose(mesh["normals"][f[0]], [-1.0, 0.0, 0.0])]).ravel()
+    start_v = v[start]
+
+    assert start_v[:, 1].max() == pytest.approx(4.25)
+    curb_end = start_v[(start_v[:, 2] > 500.0) & (start_v[:, 2] < 501.0)]
+    assert curb_end[:, 1].min() == pytest.approx(4.0) and curb_end[:, 1].max() == pytest.approx(4.25)
 
 
 def test_columns_sit_flush_on_top_of_the_curb_not_in_the_floor():
@@ -155,10 +211,10 @@ def test_columns_sit_flush_on_top_of_the_curb_not_in_the_floor():
     assert column_vertices[:, 2].max() == pytest.approx(505.0)  # unchanged: floor(500) + height(5)
 
 
-def test_columns_footprint_is_centered_on_the_curb_and_flush_with_the_roof_edge():
-    """Regression: columns were previously centered on the carriageway edge (roof edge cut through the
-    column center). Now centered on the curb centerline - with curb_width == column_size the outer
-    column edge coincides exactly with the (unchanged) roof/carriageway edge."""
+def test_columns_footprint_is_centered_on_the_curb_outside_the_carriageway():
+    """Columns are centered on the curb centerline. The curb lies outside the carriageway, so the column inner
+    edge coincides with the carriageway edge (clear width = carriageway width) and the outer edge with the
+    (widened) roof edge - no overhang."""
     ground_at = lambda x, y: 500.0 - 2.0 * np.asarray(y, float)
     mesh = build_gallery_mesh(
         _straight_coords(length=60.0, z=500.0), width=8.0, height=5.0, ground_at=ground_at,
@@ -170,8 +226,8 @@ def test_columns_footprint_is_centered_on_the_curb_and_flush_with_the_roof_edge(
     column_vertices = v[off_grid]
 
     assert len(column_vertices) > 0
-    assert column_vertices[:, 1].max() == pytest.approx(4.0)  # = width/2 = roof/carriageway edge, no overhang
-    assert column_vertices[:, 1].min() == pytest.approx(3.6)  # curb center (3.8) - half column width (0.2)
+    assert column_vertices[:, 1].min() == pytest.approx(4.0)  # = carriageway edge
+    assert column_vertices[:, 1].max() == pytest.approx(4.4)  # = roof edge (width/2 + curb_width)
 
 
 def test_ends_are_capped_with_outward_facing_faces():
