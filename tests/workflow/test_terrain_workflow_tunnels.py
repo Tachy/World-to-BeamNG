@@ -235,10 +235,10 @@ def test_tunnel_zones_are_planned_from_the_config_and_exported_as_zone_objects()
     zone = next(z for z in zones if z["class"] == "Zone")
     first = added[zone["name"]]
     assert first["item_class"] == "Zone"
-    assert any(kw["item_class"] == "Portal" for kw in added.values())
     assert first["scale"] == zone["scale"] and first["rotation_matrix"] == zone["rotation_matrix"]
     assert first["useAmbientLightColor"] is True and first["ambientLightColor"] == [0, 0, 0, 1]
     assert first["skyLightFactor"] == pytest.approx(0.05)
+    assert any(kw["item_class"] == "Portal" for kw in added.values())
 
 
 def test_untagged_gallery_embankment_uses_the_terrain_valley_side():

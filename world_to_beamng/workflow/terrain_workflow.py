@@ -39,18 +39,28 @@ def water_bounds(grid_bounds_local):
 
 
 
-def _gets_decal_road(road: Dict) -> bool:
+def _gets_decal_road(road: Dict, dropped_ids: frozenset = frozenset()) -> bool:
     """Whether a road is exported as a DecalRoad: surface roads always; bridges, galleries and tunnels only with
     config.STRUCTURE_AI_ROADS (as an invisible DecalRoad for the AI road network) - except tunnels that get no tube
-    (TUNNEL_EXCLUDED_HIGHWAYS)."""
+    (TUNNEL_EXCLUDED_HIGHWAYS) or that belonged to a chain dropped for having no reachable portal at all (a
+    pass-through tunnel like the Gotthard road tunnel, see _dropped_tunnel_road_ids()): its AI road would otherwise
+    float underground, disconnected from the surface at both ends."""
     structure_type = road.get("structure_type", "surface")
     if structure_type == "surface":
         return True
     if not config.STRUCTURE_AI_ROADS:
         return False
     if structure_type == "tunnel":
-        return (road.get("osm_tags") or {}).get("highway") not in config.TUNNEL_EXCLUDED_HIGHWAYS
+        return road.get("road_id") not in dropped_ids and (road.get("osm_tags") or {}).get("highway") not in config.TUNNEL_EXCLUDED_HIGHWAYS
     return True
+
+
+def _dropped_tunnel_road_ids(all_piece_ids: set, kept_plans: List[Dict]) -> frozenset:
+    """Original (pre-chaining) tunnel road ids that belonged to a chain shape_terrain_for_tunnels() dropped (no
+    reachable portal at all): `all_piece_ids` from every plan.piece_ids BEFORE that filtering ran, `kept_plans` the
+    same list AFTER (it filters in place - capture all_piece_ids before calling it)."""
+    kept_ids = {piece_id for plan in kept_plans for piece_id in plan.get("piece_ids", [plan["id"]])}
+    return frozenset(all_piece_ids - kept_ids)
 
 
 def _guardrail_instances(specs: List[Tuple[Dict, Dict, List]], node_lists: List[List[List[float]]], mesh_data: Dict) -> List[Dict]:
@@ -313,6 +323,7 @@ def _tunnel_zone_items(tunnel_plans: List[Dict]) -> List[Dict]:
         portal_depth=config.TUNNEL_ZONE_PORTAL_DEPTH,
         entrance_inset=config.TUNNEL_ZONE_ENTRANCE_INSET,
     )
+
 
 def _road_marking_lines(specs: List[Tuple[Dict, Dict, List]], node_lists: List[List[List[float]]]) -> List[Dict]:
     """
@@ -728,12 +739,15 @@ class TerrainWorkflow:
 
         tunnel_plans = []
         tunnel_holes = None
+        dropped_tunnel_road_ids = frozenset()
         if config.TUNNELS_ENABLED:
             from ..terrain.tunnel_terrain import shape_terrain_for_tunnels
 
             tunnel_plans = _plan_tunnels(structure_road_polygons)
             if tunnel_plans:
                 import shapely
+
+                all_tunnel_piece_ids = {pid for plan in tunnel_plans for pid in plan.get("piece_ids", [plan["id"]])}
 
                 protected = union_road_surfaces(surface_road_polygons + gallery_roads)
                 if protected is not None:
@@ -746,7 +760,11 @@ class TerrainWorkflow:
                     tunnel_plans,
                     cover=config.TUNNEL_COVER,
                     protected=protected,
+                    bounds=grid_bounds_local,
+                    edge_margin=config.MAP_EDGE_TUNNEL_MARGIN,
                 )
+                # tunnel_plans was filtered in place: pass-through chains without a reachable portal are gone
+                dropped_tunnel_road_ids = _dropped_tunnel_road_ids(all_tunnel_piece_ids, tunnel_plans)
 
         # Layer map: ONE aerial photo material for the whole area, then OSM
         # land use on top (see build_photo_fallback_layer()).
@@ -1001,6 +1019,7 @@ class TerrainWorkflow:
             "tunnel_spawns": tunnel_spawns,  # Spawn points in front of tunnel entrances for ItemManager.save(fixed_spawns=...)
             "roadblocks": roadblocks,  # Roadblocks in front of entrances of tunnels beyond the map border, for export_roadblocks()
             "tunnel_zones": tunnel_zones,  # Zone boxes for dark tunnel tubes, for export_tunnel_zones()
+            "dropped_tunnel_road_ids": dropped_tunnel_road_ids,  # pieces of pass-through tunnels: no AI DecalRoad
             "grid": grid,
             "road_polygons": road_polygons,
             "road_slope_polygons_2d": road_slope_polygons_2d,  # For DecalRoad export
@@ -1549,8 +1568,9 @@ class TerrainWorkflow:
         unique_materials: Dict[str, Dict] = {}
         specs = []  # (road_slope_polygon, road_props, nodes) per exportable DecalRoad
 
+        dropped_tunnel_road_ids = mesh_data.get("dropped_tunnel_road_ids") or frozenset()
         for poly in road_slope_polygons_2d:
-            if not _gets_decal_road(poly):
+            if not _gets_decal_road(poly, dropped_tunnel_road_ids):
                 continue
             road_id = poly.get("road_id")
             centerline = poly.get("trimmed_centerline")

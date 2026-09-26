@@ -183,3 +183,22 @@ def test_bridge_footprint_covers_deck_curbs_and_margin():
 
     assert polygon.bounds[1] == pytest.approx(-4.15) and polygon.bounds[3] == pytest.approx(4.15)
     assert footprint["trimmed_centerline"] is bridge["trimmed_centerline"]
+
+
+def test_gets_decal_road_skips_a_tunnel_piece_that_belonged_to_a_dropped_pass_through_chain():
+    from world_to_beamng.workflow.terrain_workflow import _gets_decal_road
+
+    road = {"structure_type": "tunnel", "road_id": 5, "osm_tags": {"highway": "trunk"}}
+
+    assert not _gets_decal_road(road, dropped_ids={5})
+    assert _gets_decal_road(road, dropped_ids={6})  # a different piece was dropped, this one wasn't
+    assert _gets_decal_road(road)  # default: nothing dropped
+
+
+def test_dropped_tunnel_road_ids_is_every_piece_of_a_chain_that_did_not_survive_filtering():
+    from world_to_beamng.workflow.terrain_workflow import _dropped_tunnel_road_ids
+
+    all_ids = {1, 2, 3, 4}  # chain A = pieces 1+2 (dropped), chain B = piece 3 (kept), piece 4 (kept, single)
+    kept_plans = [{"id": 3, "piece_ids": [3]}, {"id": 4, "piece_ids": [4]}]
+
+    assert _dropped_tunnel_road_ids(all_ids, kept_plans) == frozenset({1, 2})

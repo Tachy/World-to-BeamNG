@@ -183,6 +183,8 @@ def shape_terrain_for_tunnels(
     plans: List[Dict],
     cover: float,
     protected=None,
+    bounds=None,
+    edge_margin: float = 0.0,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     Cover, portal zones and holes for all tunnel plans (see tunnels/tunnel_portal.py::plan_tunnels()).
@@ -190,17 +192,29 @@ def shape_terrain_for_tunnels(
     Args:
         cover: Earth layer above the tube shell where the terrain rises into the tube, in meters
         protected: shapely geometry of the surface roads (or None) - the terrain stays unchanged there
+        bounds, edge_margin: map bounds (min_x, max_x, min_y, max_y) and config.MAP_EDGE_TUNNEL_MARGIN - a portal
+            within edge_margin of the map edge or beyond it never counts as open (see geometry.polygon.outside_map()),
+            even if the terrain probe below says otherwise: the natural terrain right at such a cut can coincidentally
+            dip near the tube (a false "open"), but there is still no real, reachable entrance there. bounds=None
+            (default) skips this check.
 
     Returns:
         (new heightmap, hole mask (bool, same shape; True = raster cell becomes a terrain hole))
-        In the process, the portals in `plans` get "open" (see _portal_is_open()).
+        In the process, the portals in `plans` get "open" (see _portal_is_open()), and `plans` itself is filtered
+        IN PLACE: a chain without a single open portal (both ends buried in the mountain or cut by the map edge, like
+        the Gotthard road tunnel - nobody can ever see or enter it) is dropped before the expensive cover/hole shaping
+        below, which would otherwise run over its full length for nothing.
     """
+    from ..geometry.polygon import outside_map
+
     result = heights.copy()
     holes = np.zeros(heights.shape, dtype=bool)
     for plan in plans:
         for portal in plan["portals"]:
             # Transition into a gallery: a structure always lies in front of it - always a portal
             portal["open"] = portal.get("kind") == "gallery" or _portal_is_open(heights, origin_x, origin_y, square_size, portal)
+    at_map_edge = (lambda xy: bounds is not None and outside_map(xy, bounds, edge_margin))
+    plans[:] = [plan for plan in plans if any(portal["open"] and not at_map_edge(portal["xy"]) for portal in plan["portals"])]
     for plan in plans:
         _cover_tube(result, origin_x, origin_y, square_size, plan, cover, protected)
     for plan in plans:

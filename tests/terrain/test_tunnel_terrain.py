@@ -38,8 +38,8 @@ def _setup(natural=105.0, size=120):
     return plans, heights
 
 
-def _shape(plans, heights, protected=None):
-    return shape_terrain_for_tunnels(heights, 0.0, 0.0, 1.0, plans, cover=COVER, protected=protected)
+def _shape(plans, heights, protected=None, bounds=None, edge_margin=0.0):
+    return shape_terrain_for_tunnels(heights, 0.0, 0.0, 1.0, plans, cover=COVER, protected=protected, bounds=bounds, edge_margin=edge_margin)
 
 
 def _cover_height(plan, across):
@@ -99,6 +99,79 @@ def test_where_the_tube_leaves_the_ground_the_crossing_cells_become_holes():
 
     assert holes[60, 44] and holes[60, 54]  # cells x=44..45 and x=54..55 span the transition
     assert not holes[60, 40] and not holes[60, 50]
+
+
+def test_pass_through_tunnel_with_no_open_portal_anywhere_is_dropped():
+    # Both approaches stay buried in the mountain (like the Gotthard road tunnel, which leaves the map at both edges
+    # without ever surfacing): nobody can ever see or enter this tube, so it should not be built at all.
+    plans = _plans([(30.0, 60.0, FLOOR), (90.0, 60.0, FLOOR)])
+    heights = np.full((120, 120), 150.0)  # mountain everywhere, well above floor + half the crown
+
+    result, holes = _shape(plans, heights)
+
+    assert plans == []  # dropped in place
+    assert np.array_equal(result, heights)  # nothing carved for a tube nobody can reach
+    assert not holes.any()
+
+
+def test_tunnel_cut_by_the_map_edge_on_both_ends_is_dropped_even_when_the_terrain_probe_says_open():
+    # Both ends sit at/beyond the map boundary (like the Gotthard road tunnel, which enters and exits the map without
+    # a real portal): the natural terrain right at such a cut can coincidentally dip near the tube - a false "open" -
+    # but there is still no real, reachable entrance, so the chain must be dropped regardless.
+    plans = _plans([(30.0, 60.0, FLOOR), (90.0, 60.0, FLOOR)])
+    heights = np.full((120, 120), FLOOR + 0.1)  # terrain everywhere reads as "open" for the probe
+    bounds = (35.0, 85.0, 0.0, 120.0)  # both portals (x=30 and x=90) lie outside this
+
+    result, holes = _shape(plans, heights, bounds=bounds, edge_margin=5.0)
+
+    assert plans == []
+    assert np.array_equal(result, heights)
+    assert not holes.any()
+
+
+def test_portal_at_the_map_edge_does_not_count_but_a_real_open_portal_elsewhere_still_keeps_the_chain():
+    plans = _plans([(30.0, 60.0, FLOOR), (90.0, 60.0, FLOOR)])
+    heights = np.full((120, 120), FLOOR + 0.1)  # both probes read "open"
+    bounds = (20.0, 85.0, 0.0, 120.0)  # only the end portal (x=90) lies outside this
+
+    result, holes = _shape(plans, heights, bounds=bounds, edge_margin=5.0)
+
+    assert len(plans) == 1
+    assert plans[0]["portals"][0]["open"] and plans[0]["portals"][1]["open"]  # the terrain probe still says both open
+    assert not np.array_equal(result, heights)  # but the chain is kept and shaped, thanks to the real start portal
+
+
+def test_without_bounds_the_edge_check_is_skipped():
+    plans = _plans([(30.0, 60.0, FLOOR), (90.0, 60.0, FLOOR)])
+    heights = np.full((120, 120), FLOOR + 0.1)
+
+    _shape(plans, heights)
+
+    assert len(plans) == 1  # unchanged behaviour for callers that pass no map bounds
+
+
+def test_tunnel_with_one_open_portal_is_kept_even_if_the_other_end_stays_buried():
+    plans = _plans([(30.0, 60.0, FLOOR), (90.0, 60.0, FLOOR)])
+    heights = np.full((120, 120), 150.0)
+    heights[:, :30] = FLOOR  # only the start opens onto the surface
+
+    result, holes = _shape(plans, heights)
+
+    assert len(plans) == 1
+    assert plans[0]["portals"][0]["open"] and not plans[0]["portals"][1]["open"]
+    assert not np.array_equal(result, heights)  # cover was actually carved for this drivable dead end
+
+
+def test_gallery_transition_counts_as_open_even_with_a_buried_other_end():
+    gallery = {"id": 2, "coords": [(-10.0, 60.0, FLOOR), (30.0, 60.0, FLOOR)], "width": 6.5, "floor_material": "f",
+               "osm_tags": {"covered": "yes"}}
+    plans = _plans([(30.0, 60.0, FLOOR), (90.0, 60.0, FLOOR)], galleries=[gallery])
+    heights = np.full((120, 120), 150.0)  # both raw approaches stay buried, only the gallery transition is "open"
+
+    _shape(plans, heights)
+
+    assert len(plans) == 1
+    assert plans[0]["portals"][0]["kind"] == "gallery" and plans[0]["portals"][0]["open"]
 
 
 def test_portal_zone_is_at_floor_level_then_covered_and_the_step_holes_lie_inside_the_collar():

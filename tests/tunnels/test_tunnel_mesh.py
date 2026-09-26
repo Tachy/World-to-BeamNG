@@ -205,6 +205,24 @@ def test_chain_tunnel_pieces_joins_split_pieces_into_one_tube_regardless_of_dire
     assert xs in ([0.0, 10.0, 20.0, 30.0], [30.0, 20.0, 10.0, 0.0])
 
 
+def test_chain_tunnel_pieces_reports_every_original_piece_id_in_chain_order():
+    # Needed to know, after a chain is later dropped (no reachable portal, e.g. a pass-through tunnel like the
+    # Gotthard road tunnel), which of its ORIGINAL road ids to also drop from the invisible AI-road export -
+    # export_decal_roads() still sees each piece separately, before chaining.
+    a = _piece(1, [(0.0, 0.0, 500.0), (10.0, 0.0, 501.0)])
+    b = _piece(2, [(20.0, 0.0, 502.0), (10.0, 0.0, 501.0)])  # digitized in reverse
+    c = _piece(3, [(20.0, 0.0, 502.0), (30.0, 0.0, 503.0)])
+
+    chains = chain_tunnel_pieces([b, c, a])
+
+    assert len(chains) == 1
+    assert sorted(chains[0]["piece_ids"]) == [1, 2, 3]
+
+
+def test_chain_tunnel_pieces_single_piece_chain_reports_its_own_id():
+    assert chain_tunnel_pieces([_piece(5, [(0.0, 0.0, 500.0), (10.0, 0.0, 500.0)])])[0]["piece_ids"] == [5]
+
+
 def test_chain_tunnel_pieces_ignores_a_different_tunnel_crossing_at_the_joint():
     # Footpath tunnel crosses the road tunnel in 2D and was split at the same point
     a = _piece(1, [(0.0, 0.0, 500.0), (10.0, 0.0, 500.0)])
@@ -500,3 +518,11 @@ def test_carriageway_uvs_follow_the_decal_road_layout():
 
     assert set(np.round(uv[:, 0], 6)) == {0.0, 1.0}
     assert uv[:, 1].min() == pytest.approx(0.0) and uv[:, 1].max() == pytest.approx(100.0 / 5.0)
+
+
+def test_plan_tunnels_carries_the_chains_piece_ids():
+    plans = plan_tunnels([_piece(1, [(0.0, 0.0, 500.0), (10.0, 0.0, 500.0)]),
+                          _piece(2, [(10.0, 0.0, 500.0), (20.0, 0.0, 500.0)])],
+                         segment_step=10.0, collar_ratio=0.1, flat_depth=1.5, length=3.5)
+
+    assert sorted(plans[0]["piece_ids"]) == [1, 2]

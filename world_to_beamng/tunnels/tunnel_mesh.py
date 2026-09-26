@@ -158,9 +158,11 @@ def chain_tunnel_pieces(tunnels: Sequence[Dict]) -> List[Dict]:
 
         # Forward: orient each piece so that it starts at the joint with its predecessor.
         coords: List[Tuple[float, float, float]] = []
+        piece_ids: List = []
         current, entry_at_start = head, head_at_start
         while current is not None and current not in visited:
             visited.add(current)
+            piece_ids.append(pieces[current]["id"])
             piece_coords = [tuple(map(float, p)) for p in pieces[current]["coords"]]
             if not entry_at_start:
                 piece_coords.reverse()
@@ -171,7 +173,8 @@ def chain_tunnel_pieces(tunnels: Sequence[Dict]) -> List[Dict]:
             current, entry_at_start = nxt[0], nxt[1]
 
         base = pieces[head]
-        chains.append({"id": base["id"], "coords": coords, "width": base["width"], "floor_material": base["floor_material"]})
+        chains.append({"id": base["id"], "coords": coords, "width": base["width"], "floor_material": base["floor_material"],
+                       "piece_ids": piece_ids})
     return chains
 
 

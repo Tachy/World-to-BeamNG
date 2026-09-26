@@ -157,6 +157,7 @@ def plan_tunnels(
         plans.append(
             {
                 "id": chain["id"],
+                "piece_ids": chain["piece_ids"],
                 "coords": coords,
                 "road_width": road_width,
                 "tube_width": tube_width,
