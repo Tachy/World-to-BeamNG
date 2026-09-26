@@ -386,6 +386,7 @@ def _road_marking_lines(specs: List[Tuple[Dict, Dict, List]], node_lists: List[L
             config.ROAD_MARKING_SURFACE,
             config.ROAD_MARKING_MIN_TWO_LANE_WIDTH,
             double_center_min_lanes=config.ROAD_MARKING_CENTER_MIN_LANES,
+            force_double_center=poly.get("structure_type") in config.ROAD_MARKING_CENTER_STRUCTURES,
         )
         if layout is None:
             continue

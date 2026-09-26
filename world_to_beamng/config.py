@@ -276,6 +276,8 @@ ROAD_MARKING_DIVIDER_MATERIAL = "line_divider_dashed"
 ROAD_MARKING_CENTER_MIN_LANES = 3
 ROAD_MARKING_CENTER_MATERIAL = "line_edge_white"
 ROAD_MARKING_CENTER_GAP = 0.1  # gap between the two lines, in meters
+# Two-lane tunnels and galleries get the double centre line too (structure_type values)
+ROAD_MARKING_CENTER_STRUCTURES = frozenset({"tunnel", "gallery"})
 # renderPriority of DecalRoads: BeamNG/Torque3D draws them in DESCENDING order - the smallest value comes
 # last and lies on top (confirmed in game: lines with 20 lay under the asphalt with 8; vanilla: lines 1-2,
 # roads up to 12; Road Architect gives the carriageway decal the highest value). Carriageways get

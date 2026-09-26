@@ -42,6 +42,7 @@ def marking_layout(
     marked_surface: str,
     min_two_lane_width: float,
     double_center_min_lanes: Optional[int] = None,
+    force_double_center: bool = False,
 ) -> Optional[MarkingLayout]:
     """
     Marking layout of a road, or None (no marking): only road types from `marked_highways` with the surface
@@ -50,7 +51,7 @@ def marking_layout(
 
     double_center_min_lanes: two-way roads (not oneway) with at least this many lanes get a solid double line between
     the directions; `forward` (lanes in digitization direction) from lanes:forward / lanes:backward, otherwise the
-    larger half.
+    larger half. force_double_center: two-way roads with two lanes get it as well (tunnels and galleries).
     """
     tags = tags or {}
     highway = str(tags.get("highway", ""))
@@ -58,7 +59,8 @@ def marking_layout(
         return None
     lanes = lane_count(tags, width, min_two_lane_width)
     oneway = str(tags.get("oneway", "")).lower() in ("yes", "true", "1", "-1")
-    if double_center_min_lanes is None or oneway or lanes < double_center_min_lanes:
+    wanted = force_double_center and lanes >= 2
+    if oneway or not (wanted or (double_center_min_lanes is not None and lanes >= double_center_min_lanes)):
         return MarkingLayout(lanes=lanes)
     forward, backward = parse_lanes(tags.get("lanes:forward")), parse_lanes(tags.get("lanes:backward"))
     if forward is None or forward >= lanes:

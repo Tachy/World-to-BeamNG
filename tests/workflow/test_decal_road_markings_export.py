@@ -258,3 +258,30 @@ def test_width_change_toward_a_bridge_lies_on_the_road(monkeypatch):
     widths = _widths(roads, 1)
     assert widths[-100] == pytest.approx(9.75) and widths[0] == pytest.approx(6.5)
     assert all(w == pytest.approx(6.5) for w in _widths(roads, 2).values())
+
+
+def _export_lines(polys):
+    captured = {}
+    stub = SimpleNamespace(items=_RecordingItems(), materials=SimpleNamespace(materials={}),
+                           _export_structure_road_assets=lambda lines: captured.setdefault("lines", lines))
+    TerrainWorkflow.export_decal_roads(stub, {"road_slope_polygons_2d": polys})
+    return captured.get("lines", [])
+
+
+@pytest.mark.parametrize("structure, expect_double", [("tunnel", True), ("gallery", True), ("bridge", False)])
+def test_two_lane_tunnels_and_galleries_get_a_double_centre_line_bridges_do_not(monkeypatch, structure, expect_double):
+    monkeypatch.setattr(config, "STRUCTURE_AI_ROADS", True)
+    poly = dict(_poly(9, [(x, 0) for x in range(0, 61, 10)], highway="primary", lanes="2"), structure_type=structure)
+
+    lines = _export_lines([poly])
+
+    solid = [l for l in lines if l["material"] == config.ROAD_MARKING_CENTER_MATERIAL and abs(l["nodes"][0][1]) < 1.0]
+    dashed = [l for l in lines if l["material"] == config.ROAD_MARKING_DIVIDER_MATERIAL]
+    assert (len(solid) == 2) == expect_double
+    assert (len(dashed) == 0) == expect_double
+
+
+def test_two_lane_surface_road_keeps_its_dashed_centre_line():
+    _, roads, _ = _export([_poly(1, [(0, 0), (10, 0), (20, 0)], highway="primary", lanes="2")])
+
+    assert any(r["material"] == config.ROAD_MARKING_DIVIDER_MATERIAL for r in _markings(roads).values())

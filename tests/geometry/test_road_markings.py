@@ -272,3 +272,16 @@ def test_build_marking_lines_draws_the_double_centre_line():
 
     centers = [line for kind, line in lines if kind == CENTER]
     assert sorted(float(c[0, 1]) for c in centers) == pytest.approx([-0.125, 0.125])
+
+
+def test_forced_double_centre_line_for_two_lane_roads():
+    # Two-lane tunnels and galleries: layout asked to force the double line (structure rule from the workflow)
+    two_way = marking_layout({"highway": "primary", "lanes": "2"}, 6.5, "asphalt_road_standard", MARKED,
+                             "asphalt_road_standard", 5.5, double_center_min_lanes=3, force_double_center=True)
+    oneway = marking_layout({"highway": "primary", "lanes": "2", "oneway": "yes"}, 6.5, "asphalt_road_standard", MARKED,
+                            "asphalt_road_standard", 5.5, double_center_min_lanes=3, force_double_center=True)
+    single = marking_layout({"highway": "primary_link"}, 4.0, "asphalt_road_standard", MARKED,
+                            "asphalt_road_standard", 5.5, double_center_min_lanes=3, force_double_center=True)
+
+    assert two_way == MarkingLayout(lanes=2, forward=1)
+    assert oneway == MarkingLayout(lanes=2) and single == MarkingLayout(lanes=1)
