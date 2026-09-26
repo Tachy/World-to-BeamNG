@@ -132,7 +132,7 @@ def test_build_tunnels_creates_tube_plus_portals_for_a_tunnel_and_one_mesh_per_g
     tunnel_road = _road(1, "tunnel", {"highway": "trunk", "tunnel": "yes"})
     gallery_road = _road(2, "gallery", {"highway": "primary", "tunnel": "avalanche_protector"})
 
-    plans = plan_tunnels(_structure_items([tunnel_road, gallery_road], "tunnel"), width_margin=1.5, segment_step=10.0, collar_ratio=0.1, flat_depth=1.5, length=3.5)
+    plans = plan_tunnels(_structure_items([tunnel_road, gallery_road], "tunnel"), segment_step=10.0, collar_ratio=0.1, flat_depth=1.5, length=3.5)
 
     meshes = TerrainWorkflow._build_tunnels(SimpleNamespace(), [tunnel_road, gallery_road], plans, heights, 0.0, 0.0)
 

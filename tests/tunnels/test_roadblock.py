@@ -11,13 +11,13 @@ from world_to_beamng.tunnels.roadblock import plan_roadblocks
 from world_to_beamng.tunnels.tunnel_portal import plan_tunnels
 
 BOUNDS = (-1000.0, 1000.0, -1000.0, 1000.0)
-KW = dict(bounds=BOUNDS, edge_margin=25.0, width_margin=1.5, distance=5.0, side_margin=0.5, spacing=1.5, entrance_tol=0.5)
+KW = dict(bounds=BOUNDS, edge_margin=25.0, distance=5.0, side_margin=0.5, spacing=1.5, entrance_tol=0.5)
 ENTRANCES = [(800.0, 0.0), (0.0, 0.0)]  # end points of surface roads (approaches)
 
 
 def _plans(coords, width=2.0):
     tunnel = {"id": 7, "coords": coords, "width": width, "floor_material": "f"}
-    return plan_tunnels([tunnel], width_margin=1.5, segment_step=10.0, collar_ratio=0.1, flat_depth=1.5, length=3.5)
+    return plan_tunnels([tunnel], segment_step=10.0, collar_ratio=0.1, flat_depth=1.5, length=3.5)
 
 
 def test_entrance_of_a_tunnel_leaving_the_map_gets_a_barrier_row_across_the_road():

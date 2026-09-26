@@ -15,7 +15,6 @@ def plan_roadblocks(
     plans: Sequence[Dict],
     bounds: Tuple[float, float, float, float],
     edge_margin: float,
-    width_margin: float,
     distance: float,
     side_margin: float,
     spacing: float,
@@ -24,8 +23,8 @@ def plan_roadblocks(
 ) -> List[Dict]:
     """
     Barrier elements for all tunnel plans (tunnel_portal.plan_tunnels()) that extend beyond the map border with
-    exactly one end: in front of the other portal a row across the road surface (road width = tube width -
-    width_margin, side_margin more on each side), `distance` before the portal plane, elements spaced `spacing`
+    exactly one end: in front of the other portal a row across the road surface (plan["road_width"], side_margin
+    more on each side), `distance` before the portal plane, elements spaced `spacing`
     apart. Only at real entrances: the portal is at most entrance_tol from a point in `entrances` (end points of
     surface roads) - a chain end at a branch inside the mountain (e.g. a fortress adit) gets no roadblock.
 
@@ -46,7 +45,7 @@ def plan_roadblocks(
             continue
         ux, uy = portal["axis"]  # into the tunnel interior
         across = (uy, -ux)  # right when looking into the tunnel interior
-        road_width = plan["tube_width"] - width_margin
+        road_width = plan["road_width"]
         count = max(2, math.ceil((road_width + 2.0 * side_margin) / spacing))
         cx, cy = px - ux * distance, py - uy * distance
         # BeamNG: rows = images of the local axes (see ItemManager._heading_rotation_matrix()) - row 0 = across

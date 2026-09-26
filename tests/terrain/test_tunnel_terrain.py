@@ -24,7 +24,7 @@ COLLAR_RATIO = 0.1  # portal collar: wall thickness at the thinnest point : diam
 
 def _plans(coords, galleries=None):
     tunnel = {"id": 1, "coords": coords, "width": 7.0, "floor_material": "f"}
-    return plan_tunnels([tunnel], width_margin=1.5, segment_step=10.0, collar_ratio=COLLAR_RATIO, flat_depth=1.5, length=3.5,
+    return plan_tunnels([tunnel], segment_step=10.0, collar_ratio=COLLAR_RATIO, flat_depth=1.5, length=3.5,
                         shell_ratio=SHELL_RATIO, galleries=galleries)
 
 
@@ -45,7 +45,7 @@ def _shape(plans, heights, protected=None):
 def _cover_height(plan, across):
     """Earth COVER above the round outer shell (radius + shell) at lateral distance `across`."""
     radius = plan["radius"]
-    return FLOOR + radius / 2.0 + math.sqrt((radius + plan["shell"]) ** 2 - across**2) + COVER
+    return FLOOR + plan["center_z"] + math.sqrt((radius + plan["shell"]) ** 2 - across**2) + COVER
 
 
 def test_terrain_cutting_into_the_tube_gets_1_20_m_earth_over_the_shell():
@@ -197,7 +197,7 @@ def test_gallery_transition_is_a_portal_even_with_mountain_in_front():
 
 def test_without_collar_the_hillside_at_the_portal_stays_inside_the_shell_wall():
     tunnel = {"id": 1, "coords": [(30.0, 60.0, FLOOR), (90.0, 60.0, FLOOR)], "width": 7.0, "floor_material": "f"}
-    plans = plan_tunnels([tunnel], width_margin=1.5, segment_step=10.0, collar_ratio=0.0, flat_depth=1.5, length=3.5,
+    plans = plan_tunnels([tunnel], segment_step=10.0, collar_ratio=0.0, flat_depth=1.5, length=3.5,
                          shell_ratio=SHELL_RATIO)
     heights = np.full((120, 120), 130.0)
     heights[:, :30] = FLOOR
@@ -215,14 +215,14 @@ def test_without_collar_the_hillside_at_the_portal_stays_inside_the_shell_wall()
                 along, across = portal_local_coords(portal, np.array([float(x)]), np.array([float(y)]))
                 if 0.0 <= along[0] <= portal["length"] and abs(across[0]) < outer:
                     # below the outer surface of the shell, but above the tube interior
-                    assert result[y, x] <= FLOOR + radius / 2.0 + math.sqrt(outer**2 - across[0] ** 2) + 1e-6
+                    assert result[y, x] <= FLOOR + portal["center_z"] + math.sqrt(outer**2 - across[0] ** 2) + 1e-6
 
 
 
 def test_tilted_entrance_keeps_the_whole_opening_free_and_hides_the_hole_edge_behind_the_face():
     tilt = math.tan(math.radians(20.0))
     tunnel = {"id": 1, "coords": [(30.0, 60.0, FLOOR), (90.0, 60.0, FLOOR)], "width": 7.0, "floor_material": "f"}
-    plans = plan_tunnels([tunnel], width_margin=1.5, segment_step=10.0, collar_ratio=0.0, flat_depth=1.5, length=3.5,
+    plans = plan_tunnels([tunnel], segment_step=10.0, collar_ratio=0.0, flat_depth=1.5, length=3.5,
                          shell_ratio=SHELL_RATIO, tilt_deg=20.0)
     heights = np.full((120, 120), 130.0)
     heights[:, :30] = FLOOR
@@ -235,7 +235,7 @@ def test_tilted_entrance_keeps_the_whole_opening_free_and_hides_the_hole_edge_be
     for x in range(30, 34):
         for y in range(55, 66):
             along, across = portal_local_coords(portal, np.array([float(x)]), np.array([float(y)]))
-            top = (outer + radius / 2.0) - 0.0  # outer crown above the floor
+            top = outer + portal["center_z"]  # outer crown above the floor
             if along[0] < top * tilt and abs(across[0]) < radius:
                 assert result[y, x] <= FLOOR  # in front of the tilted front face: opening free
     rows, cols = np.nonzero(holes)
@@ -258,7 +258,7 @@ def test_portal_hole_cells_stay_within_the_collar_sides_for_any_tunnel_direction
     start = np.array([40.0, 40.0])
     end = start + direction * 60.0
     tunnel = {"id": 1, "coords": [(*start, FLOOR), (*end, FLOOR)], "width": 6.5, "floor_material": "f"}
-    plans = plan_tunnels([tunnel], width_margin=1.5, segment_step=10.0, flat_depth=1.5, length=3.5,
+    plans = plan_tunnels([tunnel], segment_step=10.0, flat_depth=1.5, length=3.5,
                          shell_ratio=SHELL_RATIO, tilt_deg=20.0, collar_ratio=COLLAR_RATIO, collar_min_side=1.5)
     size = 160
     gx, gy = np.meshgrid(np.arange(size, dtype=float), np.arange(size, dtype=float))

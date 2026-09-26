@@ -20,12 +20,11 @@ from typing import Dict, List, Sequence, Tuple
 import numpy as np
 
 from ..walls.mesh_parts import MeshBuilder
-from .tunnel_mesh import arc_cross_section, chain_tunnel_pieces, resample_tunnel_coords, tunnel_crown_height, tunnel_radius
+from .tunnel_mesh import arc_cross_section, chain_tunnel_pieces, resample_tunnel_coords, tunnel_profile
 
 
 def plan_tunnels(
     tunnels: Sequence[Dict],
-    width_margin: float,
     segment_step: float,
     flat_depth: float,
     length: float,
@@ -38,6 +37,10 @@ def plan_tunnels(
     tilt_deg: float = 0.0,
     collar_ratio: float = 0.0,
     collar_min_side: float = 0.0,
+    curb_width: float = 0.4,
+    curb_height: float = 0.2,
+    edge_height: float = 4.2,
+    max_arc_deg: float = 240.0,
 ) -> List[Dict]:
     """
     Chains the tunnel pieces (see tunnel_mesh.chain_tunnel_pieces()), thins out the centerline and fixes the
@@ -45,7 +48,8 @@ def plan_tunnels(
     all work on this plan.
 
     Args:
-        tunnels: [{"id", "coords", "width", "floor_material"}, ...]
+        tunnels: [{"id", "coords", "width", "floor_material"}, ...] - "width" = carriageway width
+        curb_width, curb_height, edge_height, max_arc_deg: tube cross-section, see tunnel_mesh.tunnel_profile()
         shell_ratio: wall thickness of the tube shell (tunnel_mesh.shell_cross_section()) relative to the
             tube diameter - smaller tunnels get thinner walls
         collar_ratio: portal collar, rectangular on the outside: wall thickness at the thinnest point (left, right,
@@ -62,8 +66,10 @@ def plan_tunnels(
             gallery cross-section (see transition_regions()).
 
     Returns:
-        [{"id", "coords", "tube_width", "radius", "crown", "floor_material", "shell", "portals": [portal, portal]}, ...]
-        portal: {"label", "xy", "axis" (unit vector into the tunnel interior), "floor_z", "radius", "crown", "shell",
+        [{"id", "coords", "road_width", "tube_width" (floor chord = road + 2 curbs), "radius", "center_z" (circle
+        center above the floor), "crown", "curb_width", "curb_height", "edge_height", "max_arc_deg", "floor_material",
+        "shell", "portals": [portal, portal]}, ...]
+        portal: {"label", "xy", "axis" (unit vector into the tunnel interior), "floor_z", "radius", "center_z", "crown", "shell",
         "collar", "floor_width", "half_width", "length", "flat_depth", "top_z", "bottom_z", "open", "kind" ("open" |
         "gallery"; for "gallery" additionally "gallery_half_width", "gallery_height")}. Both kinds: round collar
         (outer radius radius + shell + collar = half_width; collar 0 = the end ring of the tube is the portal).
@@ -88,9 +94,10 @@ def plan_tunnels(
         coords = resample_tunnel_coords(chain["coords"], segment_step)
         if len(coords) < 2:
             continue
-        tube_width = chain["width"] + width_margin
-        radius = tunnel_radius(tube_width)
-        crown = tunnel_crown_height(tube_width)
+        road_width = chain["width"]
+        tube_width = road_width + 2.0 * curb_width
+        radius, center_z = tunnel_profile(road_width, curb_width, edge_height, max_arc_deg)
+        crown = center_z + radius
         shell = shell_ratio * 2.0 * radius
         collar = collar_ratio * 2.0 * radius
         frame = collar if collar > 0.0 else shell  # wall thickness of the portal (collar or tube shell)
@@ -110,6 +117,7 @@ def plan_tunnels(
                     "axis": (float(axis[0]), float(axis[1])),
                     "floor_z": floor_z,
                     "radius": radius,
+                    "center_z": center_z,
                     "crown": crown,
                     "shell": shell,
                     "collar": collar,
@@ -150,9 +158,15 @@ def plan_tunnels(
             {
                 "id": chain["id"],
                 "coords": coords,
+                "road_width": road_width,
                 "tube_width": tube_width,
                 "radius": radius,
+                "center_z": center_z,
                 "crown": crown,
+                "curb_width": curb_width,
+                "curb_height": curb_height,
+                "edge_height": edge_height,
+                "max_arc_deg": max_arc_deg,
                 "floor_material": chain["floor_material"],
                 "shell": shell,
                 "portals": portals,
@@ -191,6 +205,7 @@ def transition_regions(
     wall_side: int = 0,
     shell: float = 0.0,
     frame=None,
+    center_z: float = None,
 ):
     """
     (step face, gallery side) of a transition portal as shapely areas (across, height), relative to the tube floor.
@@ -200,13 +215,13 @@ def transition_regions(
     face (a face in the same plane and direction flickered). Gallery side (facing the gallery) = clear gallery
     cross-section minus tube including shell `shell` and portal collar `frame` (shapely area or None; the collar end
     face lies in the same plane): if the gallery extends beyond the arch, one would otherwise see outside from the
-    gallery.
+    gallery. center_z: height of the tube circle center above the floor (see tunnel_mesh.tunnel_profile()).
     """
     from .tunnel_mesh import shell_cross_section
 
     from shapely.geometry import Polygon, box
 
-    tube = Polygon(arc_cross_section(radius, arc_segments))
+    tube = Polygon(arc_cross_section(radius, arc_segments, center_z))
     section = box(-half_opening, 0.0, half_opening, opening_height)
     top = opening_height + roof
     body = box(-half_opening, 0.0, half_opening, top)
@@ -215,7 +230,7 @@ def transition_regions(
             body = body.union(box(half_opening, 0.0, half_opening + wall, top))
         if wall_side <= 0:
             body = body.union(box(-half_opening - wall, 0.0, -half_opening, top))
-    tube_body = Polygon(shell_cross_section(radius, arc_segments, shell)) if shell > 0.0 else tube
+    tube_body = Polygon(shell_cross_section(radius, arc_segments, shell, center_z)) if shell > 0.0 else tube
     if frame is not None:
         tube_body = tube_body.union(frame)
     return tube.difference(body), section.difference(tube_body)
@@ -244,7 +259,7 @@ def _build_collar_mesh(portal: Dict, material: str, arc_segments: int, tile_m: f
     from .tunnel_mesh import shell_cross_section
 
     floor_z, radius, depth = portal["floor_z"], portal["radius"], portal.get("collar_depth", portal["length"])
-    shell, tilt = portal.get("shell", 0.0), portal.get("tilt", 0.0)
+    shell, tilt, center_z = portal.get("shell", 0.0), portal.get("tilt", 0.0), portal.get("center_z")
     ux, uy = portal["axis"]
     frame = _collar_frame(portal)
     builder = MeshBuilder()
@@ -259,8 +274,9 @@ def _build_collar_mesh(portal: Dict, material: str, arc_segments: int, tile_m: f
             pts = list(tri.exterior.coords)[:3]
             builder.triangle([world(offset, c, h) for c, h in pts], [[c / tile_m, h / tile_m] for c, h in pts], normal)
 
-    face(frame.difference(Polygon(arc_cross_section(radius, arc_segments))), 0.0, [-ux * cos, -uy * cos, sin])
-    inner = Polygon(shell_cross_section(radius, arc_segments, shell)) if shell > 0.0 else Polygon(arc_cross_section(radius, arc_segments))
+    face(frame.difference(Polygon(arc_cross_section(radius, arc_segments, center_z))), 0.0, [-ux * cos, -uy * cos, sin])
+    inner = (Polygon(shell_cross_section(radius, arc_segments, shell, center_z)) if shell > 0.0
+             else Polygon(arc_cross_section(radius, arc_segments, center_z)))
     face(frame.difference(inner), depth, [ux * cos, uy * cos, -sin])
 
     # Jacket: four rectangular sides from the end face to the back face
@@ -343,6 +359,7 @@ def build_portal_block_mesh(
             roof=portal.get("gallery_roof", 0.0), wall=portal.get("gallery_wall", 0.0),
             wall_side=portal.get("gallery_wall_side", 0), shell=portal.get("shell", 0.0),
             frame=_collar_frame(portal) if portal.get("collar", 0.0) > 0.0 else None,
+            center_z=portal.get("center_z"),
         )
         _add_slab(builder, portal, step, 0.0, cover_thickness, tile_m)
         _add_slab(builder, portal, gallery_side, -cover_thickness, 0.0, tile_m)

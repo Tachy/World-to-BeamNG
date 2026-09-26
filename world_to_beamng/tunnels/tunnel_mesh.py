@@ -1,7 +1,7 @@
 """
-Tunnel from OSM lines (highway=* with tunnel=yes/culvert/building_passage): circular tube - standard
-tunnel profile, a 240° circular arc over a flat floor chord (road surface); the remaining 120° lie below the
-chord and are not modeled (invisible invert) - along the linearly interpolated elevation profile (see
+Tunnel from OSM lines (highway=* with tunnel=yes/culvert/building_passage): circular tube over the carriageway plus a
+curb on each side (see tunnel_profile()); the part of the circle below the floor chord is not modeled (invisible
+invert) - along the linearly interpolated elevation profile (see
 geometry/road_structures.py + geometry/polygon.py), with a portal structure at both ends (see
 tunnels/tunnel_portal.py). The terrain above the tube and at the portal is shaped by terrain/tunnel_terrain.py.
 
@@ -19,46 +19,52 @@ from scipy.spatial import cKDTree
 
 from ..walls.mesh_parts import MeshBuilder, offset_points
 
-ARC_SPAN_DEG = 240.0  # circular arc over the road surface
-ARC_START_DEG = -30.0  # start angle (right floor edge), standard circle convention (0°=+x, CCW)
 JOINT_TOLERANCE = 0.05  # how close two piece ends must come to count as a joint, in meters
 
 
-def tunnel_radius(width: float) -> float:
-    """Radius of the circular tunnel tube from the floor width (floor chord = sqrt(3)*R for the 240°/120° split)."""
-    return width / math.sqrt(3.0)
-
-
-def tunnel_crown_height(width: float) -> float:
-    """Clear height (floor to crown apex) of a circular tunnel tube of the given floor width."""
-    return 1.5 * tunnel_radius(width)
-
-
-def arc_cross_section(radius: float, segments: int) -> List[Tuple[float, float]]:
+def tunnel_profile(road_width: float, curb_width: float, edge_height: float, max_arc_deg: float) -> Tuple[float, float]:
     """
-    (across, height) points of the 240° circular arc over the road surface, `segments` strips (segments+1 points), from
-    the right floor edge (θ=-30°) over the crown (θ=90°) to the left floor edge (θ=210°). The floor is y=0, "across"
-    is across the direction of travel (positive = right). The circle center is at (0, radius/2):
-    a 240° arc whose chord at y=0 has half-width radius*cos(30°).
+    (radius, center height above the floor) of the tube circle. A curb `curb_width` wide adjoins the carriageway on
+    each side; the circle meets the floor plane exactly at the outer curb edges (half chord c = road_width/2 +
+    curb_width). The center height zc is chosen so that the circle lies `edge_height` above the carriageway edge
+    (a = road_width/2): zc + sqrt(c² + zc² - a²) = h  ->  zc = (h² - (c² - a²)) / (2h). The arc above the floor
+    plane spans 180° + 2*asin(zc/R); if that would exceed max_arc_deg (narrow roads), zc is capped and the height
+    above the carriageway edge stays below edge_height.
     """
-    points = []
-    for k in range(segments + 1):
-        theta = math.radians(ARC_START_DEG + (k / segments) * ARC_SPAN_DEG)
-        points.append((radius * math.cos(theta), radius / 2.0 + radius * math.sin(theta)))
-    return points
+    half_road = road_width / 2.0
+    half_chord = half_road + curb_width
+    center_z = (edge_height**2 - (half_chord**2 - half_road**2)) / (2.0 * edge_height)
+    # 180° + 2*asin(zc/R) <= max  <=>  zc <= c * tan((max - 180°) / 2)
+    center_z = min(center_z, half_chord * math.tan(math.radians((max_arc_deg - 180.0) / 2.0)))
+    return math.hypot(half_chord, center_z), center_z
 
 
-def shell_cross_section(radius: float, segments: int, thickness: float) -> List[Tuple[float, float]]:
+def _arc_angles(radius: float, center_z: float, segments: int) -> List[float]:
+    """Angles (standard circle convention, 0 = +across, CCW) from the right floor point over the crown to the left one."""
+    start = -math.asin(center_z / radius)
+    span = math.pi - 2.0 * start
+    return [start + (k / segments) * span for k in range(segments + 1)]
+
+
+def arc_cross_section(radius: float, segments: int, center_z: float = None) -> List[Tuple[float, float]]:
     """
-    Outer contour (across, height) of the tube shell: 240° arc with radius radius + thickness around the same
-    center (0, radius/2) as the inner arc, closed at the bottom by a floor slab `thickness` below the
+    (across, height) points of the circular arc over the floor plane, `segments` strips (segments+1 points), from the
+    right floor point over the crown to the left floor point. The floor is y=0, "across" is across the direction of
+    travel (positive = right). The circle center is at (0, center_z), default radius/2 (a 240° arc).
+    """
+    center_z = radius / 2.0 if center_z is None else center_z
+    return [(radius * math.cos(t), center_z + radius * math.sin(t)) for t in _arc_angles(radius, center_z, segments)]
+
+
+def shell_cross_section(radius: float, segments: int, thickness: float, center_z: float = None) -> List[Tuple[float, float]]:
+    """
+    Outer contour (across, height) of the tube shell: arc with radius radius + thickness around the same center
+    (0, center_z) and over the same angles as the inner arc, closed at the bottom by a floor slab `thickness` below the
     road surface. Winding: right arc foot over the crown to the left arc foot, then bottom left, bottom right.
     """
+    center_z = radius / 2.0 if center_z is None else center_z
     outer = radius + thickness
-    points = []
-    for k in range(segments + 1):
-        theta = math.radians(ARC_START_DEG + (k / segments) * ARC_SPAN_DEG)
-        points.append((outer * math.cos(theta), radius / 2.0 + outer * math.sin(theta)))
+    points = [(outer * math.cos(t), center_z + outer * math.sin(t)) for t in _arc_angles(radius, center_z, segments)]
     points.append((points[-1][0], -thickness))
     points.append((points[0][0], -thickness))
     return points
@@ -182,10 +188,16 @@ def build_tunnel_mesh(
     cap_end: bool = True,
     tilt_start: float = 0.0,
     tilt_end: float = 0.0,
+    curb_width: float = 0.4,
+    curb_height: float = 0.2,
+    edge_height: float = 4.2,
+    max_arc_deg: float = 240.0,
 ) -> Dict:
     """
-    Tube mesh (floor + circular 240° arc above it) along `coords` (already the tunnel elevation profile).
-    Radius and crown height follow from `width` (see tunnel_radius()/tunnel_crown_height()).
+    Tube mesh (carriageway `width` wide, a curb on each side, circular arc above) along `coords` (already the tunnel
+    elevation profile). Radius and circle center follow from tunnel_profile(). The curbs (wall material) run from the
+    carriageway edge to the tube wall: inner face at width/2, top face at curb_height up to where it meets the arc, so
+    no gap remains between curb and wall; the lowest arc strip behind them stays hidden. Both curb ends are closed.
 
     With shell_thickness > 0 the tube gets an outer shell (see shell_cross_section()) including end rings at
     both ends: it is then a solid cylinder from the outside too and may stand freely in the terrain. cap_start/
@@ -202,25 +214,38 @@ def build_tunnel_mesh(
     points = np.array(coords, dtype=float)
     xy = points[:, :2]
     floor_z = points[:, 2]
-    radius = tunnel_radius(width)
-    arc = arc_cross_section(radius, arc_segments)
+    radius, center_z = tunnel_profile(width, curb_width, edge_height, max_arc_deg)
+    arc = arc_cross_section(radius, arc_segments, center_z)
+    angles = _arc_angles(radius, center_z, arc_segments)
 
     left, right = offset_points(xy, width / 2.0, closed=False)
     # Miter vector per centerline point (incl. miter extension), points to the right of the direction of travel
     miter_right = (right - xy) / (width / 2.0)
-    rings = np.empty((len(points), arc_segments + 1, 3))
-    for k, (across, height) in enumerate(arc):
-        rings[:, k, :2] = xy + miter_right * across
-        rings[:, k, 2] = floor_z + height
-    rings[:, 0, :2] = right  # floor edges exactly like the floor mesh (no rounding gap)
-    rings[:, arc_segments, :2] = left
     shift = _end_shift(xy, tilt_start, tilt_end)
-    rings[:, :, :2] += shift[:, None, :] * (rings[:, :, 2:3] - floor_z[:, None, None])
+
+    def section_points(across: float, height: float) -> np.ndarray:
+        """World points of one cross-section point (across, height) at every centerline point, incl. the end tilt."""
+        out = np.empty((len(points), 3))
+        out[:, :2] = xy + miter_right * across + shift * height
+        out[:, 2] = floor_z + height
+        return out
+
+    rings = np.stack([section_points(across, height) for across, height in arc], axis=1)
 
     seg_len = np.linalg.norm(np.diff(xy, axis=0), axis=1)
     along = np.concatenate([[0.0], np.cumsum(seg_len)]) / tile_m
     across_floor = width / tile_m
-    across_arc = (radius * math.radians(ARC_SPAN_DEG)) / tile_m
+    across_arc = (radius * (angles[-1] - angles[0])) / tile_m
+
+    # Curb cross-section per side (sign +1 = right): inner foot, inner top, top at the wall, wall foot
+    curb_top_across = math.sqrt(max(radius**2 - (curb_height - center_z) ** 2, 0.0))
+    half_chord = arc[0][0]
+    curbs = []
+    for sign, edge in ((1.0, right), (-1.0, left)):
+        foot = section_points(0.0, 0.0)
+        foot[:, :2] = edge  # exactly the floor edge (no rounding gap to the floor mesh)
+        curbs.append((sign, foot, section_points(sign * width / 2.0, curb_height),
+                      section_points(sign * curb_top_across, curb_height), section_points(sign * half_chord, 0.0)))
 
     def p3(pt_xy, z):
         return [float(pt_xy[0]), float(pt_xy[1]), float(z)]
@@ -241,9 +266,23 @@ def build_tunnel_mesh(
             [0.0, 0.0, 1.0],
         )
 
-        # Circular arc (240°) over the road surface, in arc_segments strips
+        # Curbs: top face (normal up) and inner face (normal toward the axis)
+        curb_top_v = (curb_top_across - width / 2.0) / tile_m
+        for sign, foot, top_in, top_out, _ in curbs:
+            wall_builder.quad(
+                [top_in[i].tolist(), top_in[j].tolist(), top_out[j].tolist(), top_out[i].tolist()],
+                [[u0, 0.0], [u1, 0.0], [u1, curb_top_v], [u0, curb_top_v]],
+                [0.0, 0.0, 1.0],
+            )
+            wall_builder.quad(
+                [foot[i].tolist(), foot[j].tolist(), top_in[j].tolist(), top_in[i].tolist()],
+                [[u0, 0.0], [u1, 0.0], [u1, curb_height / tile_m], [u0, curb_height / tile_m]],
+                [float(-sign * perp_right[0]), float(-sign * perp_right[1]), 0.0],
+            )
+
+        # Circular arc over the floor plane, in arc_segments strips
         for k in range(arc_segments):
-            theta_mid = math.radians(ARC_START_DEG + ((k + 0.5) / arc_segments) * ARC_SPAN_DEG)
+            theta_mid = (angles[k] + angles[k + 1]) / 2.0
             inward = [-math.cos(theta_mid) * perp_right[0], -math.cos(theta_mid) * perp_right[1], -math.sin(theta_mid)]
             v0 = (k / arc_segments) * across_arc
             v1 = ((k + 1) / arc_segments) * across_arc
@@ -253,9 +292,23 @@ def build_tunnel_mesh(
                 inward,
             )
 
+    # Curb end faces at both tube ends (curb cross-section, facing out of the tube)
+    for index, neighbour, sign_axis in ((0, 1, -1.0), (len(points) - 1, len(points) - 2, 1.0)):
+        axis = xy[index] - xy[neighbour] if sign_axis > 0 else xy[neighbour] - xy[index]
+        axis = axis / np.linalg.norm(axis)
+        tilt = float(np.linalg.norm(shift[index]))
+        cos, sin = 1.0 / math.hypot(1.0, tilt), tilt / math.hypot(1.0, tilt)
+        normal = [float(sign_axis * axis[0] * cos), float(sign_axis * axis[1] * cos), float(sin)]
+        for _, foot, top_in, top_out, wall_foot in curbs:
+            wall_builder.quad(
+                [foot[index].tolist(), wall_foot[index].tolist(), top_out[index].tolist(), top_in[index].tolist()],
+                [[0.0, 0.0], [curb_width / tile_m, 0.0], [curb_width / tile_m, curb_height / tile_m], [0.0, curb_height / tile_m]],
+                normal,
+            )
+
     builders = [(floor_material, floor_builder), (wall_material, wall_builder)]
     if shell_thickness > 0.0:
-        builders.append((shell_material or wall_material, _build_shell(xy, floor_z, miter_right, shift, radius, arc_segments, shell_thickness, tile_m, cap_start, cap_end)))
+        builders.append((shell_material or wall_material, _build_shell(xy, floor_z, miter_right, shift, radius, center_z, arc_segments, shell_thickness, tile_m, cap_start, cap_end)))
 
     vertices, uvs, normals, faces = [], [], [], {}
     for material, builder in builders:
@@ -284,13 +337,13 @@ def _end_shift(xy: np.ndarray, tilt_start: float, tilt_end: float) -> np.ndarray
     return shift
 
 
-def _build_shell(xy, floor_z, miter_right, shift, radius, arc_segments, thickness, tile_m, cap_start=True, cap_end=True) -> MeshBuilder:
+def _build_shell(xy, floor_z, miter_right, shift, radius, center_z, arc_segments, thickness, tile_m, cap_start=True, cap_end=True) -> MeshBuilder:
     """Outer shell of the tube (jacket along the axis, normals pointing outward) plus end ring at the requested ends."""
     from shapely import constrained_delaunay_triangles
     from shapely.geometry import Polygon
 
-    profile = shell_cross_section(radius, arc_segments, thickness)
-    center = np.array([0.0, radius / 2.0])
+    profile = shell_cross_section(radius, arc_segments, thickness, center_z)
+    center = np.array([0.0, center_z])
     builder = MeshBuilder()
 
     def world(i, across, height):
@@ -319,7 +372,7 @@ def _build_shell(xy, floor_z, miter_right, shift, radius, arc_segments, thicknes
             )
 
     # End rings: outer contour minus clear cross-section, facing outward (away from the tunnel)
-    ring = Polygon(profile).difference(Polygon(arc_cross_section(radius, arc_segments)))
+    ring = Polygon(profile).difference(Polygon(arc_cross_section(radius, arc_segments, center_z)))
     triangles = [list(t.exterior.coords)[:3] for t in constrained_delaunay_triangles(ring).geoms]
     for index, sign, cap in ((0, -1.0, cap_start), (len(xy) - 1, 1.0, cap_end)):
         if not cap:
@@ -360,7 +413,9 @@ def build_tunnels(
         collared = [p for p in open_portals if p.get("collar", 0.0) > 0.0]
         start, end = plan["portals"]
         tube = build_tunnel_mesh(
-            plan["coords"], plan["tube_width"], plan["floor_material"], wall_material, arc_segments=arc_segments,
+            plan["coords"], plan["road_width"], plan["floor_material"], wall_material, arc_segments=arc_segments,
+            curb_width=plan["curb_width"], curb_height=plan["curb_height"], edge_height=plan["edge_height"],
+            max_arc_deg=plan["max_arc_deg"],
             shell_thickness=plan.get("shell", 0.0), shell_material=portal_material,
             cap_start=not any(p is start for p in collared), cap_end=not any(p is end for p in collared),
             tilt_start=start.get("tilt", 0.0) if start.get("open", True) else 0.0,

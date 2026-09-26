@@ -1,5 +1,6 @@
-"""Tests for world_to_beamng.tunnels.tunnel_mesh: circular tunnel tube (default profile: 240° arc above the
-carriageway, floor as a chord, radius/height derived from the width), chaining of the tunnel pieces."""
+"""Tests for world_to_beamng.tunnels.tunnel_mesh: circular tunnel tube over the carriageway plus a curb on each side
+(the circle meets the floor at the outer curb edges, 4.20 m clear height above the carriageway edge, at most a 240° arc),
+chaining of the tunnel pieces."""
 
 import sys
 from pathlib import Path
@@ -16,8 +17,8 @@ from world_to_beamng.tunnels.tunnel_mesh import (
     build_tunnels,
     chain_tunnel_pieces,
     resample_tunnel_coords,
-    tunnel_crown_height,
-    tunnel_radius,
+    arc_cross_section,
+    tunnel_profile,
 )
 from world_to_beamng.tunnels.tunnel_portal import plan_tunnels
 
@@ -28,30 +29,95 @@ def _straight_coords(length=100.0, z=500.0, n=11):
     return [(x, 0.0, z) for x in np.linspace(0.0, length, n)]
 
 
-def test_tunnel_radius_and_crown_height_follow_the_floor_width():
-    # Floor chord = sqrt(3) * R with the 240°/120° split -> R = width / sqrt(3); chosen exactly so that R = 8
-    width = 8.0 * math.sqrt(3.0)
-    assert tunnel_radius(width) == pytest.approx(8.0)
-    assert tunnel_crown_height(width) == pytest.approx(12.0)  # 1.5 * R
+def _circle_height_at(radius, center_z, across):
+    return center_z + math.sqrt(radius**2 - across**2)
+
+
+def _arc_span_deg(radius, center_z):
+    return 180.0 + 2.0 * math.degrees(math.asin(center_z / radius))
+
+
+def test_profile_meets_the_floor_at_the_outer_curb_edges():
+    radius, center_z = tunnel_profile(6.5, curb_width=0.4, edge_height=4.2, max_arc_deg=240.0)
+
+    assert math.sqrt(radius**2 - center_z**2) == pytest.approx(3.25 + 0.4)  # floor chord half width
+
+
+def test_profile_gives_4_20_m_above_the_carriageway_edge():
+    radius, center_z = tunnel_profile(6.5, curb_width=0.4, edge_height=4.2, max_arc_deg=240.0)
+
+    assert _circle_height_at(radius, center_z, 3.25) == pytest.approx(4.2)
+    assert _arc_span_deg(radius, center_z) < 240.0
+
+
+def test_profile_caps_the_arc_at_240_degrees_for_narrow_roads():
+    # A 4.20 m edge height over a narrow road would need an arc beyond 240° - the cap wins, the edge stays lower
+    radius, center_z = tunnel_profile(3.0, curb_width=0.4, edge_height=4.2, max_arc_deg=240.0)
+
+    assert _arc_span_deg(radius, center_z) == pytest.approx(240.0)
+    assert math.sqrt(radius**2 - center_z**2) == pytest.approx(1.5 + 0.4)
+    assert _circle_height_at(radius, center_z, 1.5) < 4.2
+
+
+def test_arc_cross_section_runs_from_floor_to_floor_over_the_crown():
+    radius, center_z = tunnel_profile(6.5, curb_width=0.4, edge_height=4.2, max_arc_deg=240.0)
+    arc = arc_cross_section(radius, 12, center_z)
+
+    assert arc[0] == pytest.approx((3.65, 0.0), abs=1e-9)
+    assert arc[-1] == pytest.approx((-3.65, 0.0), abs=1e-9)
+    assert max(h for _, h in arc) == pytest.approx(center_z + radius)
 
 
 def test_tube_floor_is_flat_and_matches_the_road_width():
-    # Check only the floor vertices (not mesh["vertices"] as a whole): the circular arc is wider than the
-    # floor chord (with arc_segments=12 it bulges outward to ~R*cos(10°) > width/2) - that is correct
-    # and not an error (240° arc above a narrower floor chord).
     mesh = build_tunnel_mesh(_straight_coords(z=500.0), width=8.0, floor_material=FLOOR, wall_material=WALL)
     floor_idx = sorted({i for tri in mesh["faces"][FLOOR] for i in tri})
     floor_v = mesh["vertices"][floor_idx]
 
     assert floor_v[:, 2].min() == pytest.approx(500.0)  # floor = elevation profile
-    assert floor_v[:, 1].min() == pytest.approx(-4.0) and floor_v[:, 1].max() == pytest.approx(4.0)  # floor width = 8 m
+    assert floor_v[:, 1].min() == pytest.approx(-4.0) and floor_v[:, 1].max() == pytest.approx(4.0)  # road width = 8 m
 
 
-def test_crown_reaches_the_derived_height_above_the_floor():
-    width = 8.0
-    mesh = build_tunnel_mesh(_straight_coords(z=500.0), width=width, floor_material=FLOOR, wall_material=WALL, arc_segments=12)
+def test_curbs_run_from_the_road_edge_to_the_tube_wall():
+    mesh = build_tunnel_mesh(_straight_coords(z=500.0), width=8.0, floor_material=FLOOR, wall_material=WALL,
+                             curb_width=0.4, curb_height=0.2)
+    radius, center_z = tunnel_profile(8.0, curb_width=0.4, edge_height=4.2, max_arc_deg=240.0)
+    v, n = mesh["vertices"], mesh["normals"]
+    wall_at_curb_top = math.sqrt(radius**2 - (0.2 - center_z) ** 2)
 
-    assert mesh["vertices"][:, 2].max() == pytest.approx(500.0 + tunnel_crown_height(width), abs=1e-6)
+    tops = [f for f in mesh["faces"][WALL] if np.allclose(v[f][:, 2], 500.2) and n[f[0]][2] > 0.99]
+    top_y = np.abs(np.array([v[i][1] for f in tops for i in f]))
+    assert top_y.min() == pytest.approx(4.0)  # inner curb face at the road edge
+    assert top_y.max() == pytest.approx(wall_at_curb_top)  # curb top reaches the tube wall (no gap)
+    assert wall_at_curb_top >= 4.4  # at least 40 cm wide
+
+
+def test_curb_ends_are_closed():
+    mesh = build_tunnel_mesh(_straight_coords(z=500.0), width=8.0, floor_material=FLOOR, wall_material=WALL,
+                             curb_width=0.4, curb_height=0.2)
+    v, n = mesh["vertices"], mesh["normals"]
+
+    start = [f for f in mesh["faces"][WALL] if np.allclose(v[f][:, 0], 0.0) and n[f[0]][0] < -0.99]
+    end = [f for f in mesh["faces"][WALL] if np.allclose(v[f][:, 0], 100.0) and n[f[0]][0] > 0.99]
+    assert len(start) == 4 and len(end) == 4  # one quad per curb and end
+
+
+def test_crown_reaches_the_profile_height_above_the_floor():
+    mesh = build_tunnel_mesh(_straight_coords(z=500.0), width=8.0, floor_material=FLOOR, wall_material=WALL, arc_segments=12)
+    radius, center_z = tunnel_profile(8.0, curb_width=0.4, edge_height=4.2, max_arc_deg=240.0)
+
+    assert mesh["vertices"][:, 2].max() == pytest.approx(500.0 + center_z + radius, abs=1e-6)
+
+
+def test_plan_carries_road_width_tube_width_and_profile():
+    plan = plan_tunnels([_piece(1, _straight_coords(length=100.0), width=6.5)], segment_step=10.0, collar_ratio=0.1,
+                        flat_depth=1.5, length=3.5, curb_width=0.4, curb_height=0.2, edge_height=4.2, max_arc_deg=240.0)[0]
+    radius, center_z = tunnel_profile(6.5, curb_width=0.4, edge_height=4.2, max_arc_deg=240.0)
+
+    assert plan["road_width"] == pytest.approx(6.5)
+    assert plan["tube_width"] == pytest.approx(7.3)  # floor chord = road + 2 curbs
+    assert plan["radius"] == pytest.approx(radius) and plan["center_z"] == pytest.approx(center_z)
+    assert plan["crown"] == pytest.approx(center_z + radius)
+    assert plan["portals"][0]["center_z"] == pytest.approx(center_z)
 
 
 def test_tube_faces_are_split_by_material():
@@ -59,7 +125,8 @@ def test_tube_faces_are_split_by_material():
 
     assert set(mesh["faces"]) == {FLOOR, WALL}
     assert len(mesh["faces"][FLOOR]) == 2 * 2  # 2 segments, floor = 1 quad = 2 triangles per segment
-    assert len(mesh["faces"][WALL]) == 2 * 6 * 2  # 6 arc strips per segment, 2 triangles each
+    # per segment 6 arc strips + 2 curbs (top + inner face), plus one end quad per curb and end; 2 triangles each
+    assert len(mesh["faces"][WALL]) == (2 * (6 + 4) + 4) * 2
 
 
 def test_floor_normal_points_up_into_the_tube():
@@ -71,14 +138,16 @@ def test_floor_normal_points_up_into_the_tube():
 def test_arc_normals_are_unit_length_and_do_not_point_straight_up():
     mesh = build_tunnel_mesh(_straight_coords(n=3), width=8.0, floor_material=FLOOR, wall_material=WALL, arc_segments=6)
 
-    wall_normals = np.array([mesh["normals"][face[0]] for face in mesh["faces"][WALL]])
+    # arc strips only (the curb faces at most curb_height above the floor are flat or vertical on purpose)
+    arc_faces = [f for f in mesh["faces"][WALL] if mesh["vertices"][f][:, 2].max() > 500.0 + 0.2 + 1e-6]
+    wall_normals = np.array([mesh["normals"][face[0]] for face in arc_faces])
     assert np.allclose(np.linalg.norm(wall_normals, axis=1), 1.0, atol=1e-6)
     assert not np.any(np.all(np.isclose(wall_normals, [0.0, 0.0, 1.0], atol=1e-3), axis=1))
 
 
 def test_floor_and_arc_share_exact_edge_vertices_even_on_a_curve():
-    # arc_ring() uses exactly right[i]/left[i] at the floor edges like the floor mesh - otherwise a gap
-    # between floor and arc would arise in a curve (different segment directions).
+    # The curb inner face starts exactly at right[i]/left[i] of the floor mesh - otherwise a gap between floor and
+    # curb would arise in a curve (different segment directions).
     coords = [(0.0, 0.0, 500.0), (20.0, 2.0, 500.0), (40.0, 0.0, 500.0)]
     mesh = build_tunnel_mesh(coords, width=8.0, floor_material=FLOOR, wall_material=WALL, arc_segments=6)
 
@@ -87,7 +156,7 @@ def test_floor_and_arc_share_exact_edge_vertices_even_on_a_curve():
     floor_points = {tuple(np.round(mesh["vertices"][i], 3)) for i in floor_idx}
     wall_points = {tuple(np.round(mesh["vertices"][i], 3)) for i in wall_idx}
 
-    assert len(floor_points & wall_points) >= 4  # both floor-edge rings (start+end) are shared points
+    assert len(floor_points & wall_points) >= 4  # the floor edges (start+end) are shared with the curbs
 
 
 def test_resample_tunnel_coords_reduces_point_count_for_a_long_tunnel():
@@ -114,9 +183,10 @@ def test_adjacent_segments_share_the_exact_same_ring_on_a_curve():
 
     wall_idx = sorted({i for tri in mesh["faces"][WALL] for i in tri})
     wall_v = np.round(mesh["vertices"][wall_idx], 6)
-    # Vertices at the bend (projection onto the axis near x=20) - there is only ONE ring of 7 points
-    at_joint = {tuple(v) for v in wall_v if abs(v[0] - 20.0) < 2.0 and abs(v[1]) < 6.0}
-    assert len(at_joint) == 7
+    # Vertices at the bend (projection onto the axis near x=20) above the curbs - there is only ONE ring, whose
+    # 5 inner points (the 2 floor points lie behind the curbs) are shared by both segments
+    at_joint = {tuple(v) for v in wall_v if abs(v[0] - 20.0) < 2.0 and v[2] > 500.25}
+    assert len(at_joint) == 5
 
 
 def _piece(piece_id, coords, width=7.0):
@@ -157,7 +227,7 @@ def test_chain_tunnel_pieces_does_not_join_at_a_three_way_joint_or_across_widths
 
 
 def _plans(tunnels):
-    return plan_tunnels(tunnels, width_margin=1.5, segment_step=10.0, collar_ratio=0.1, flat_depth=1.5, length=3.5)
+    return plan_tunnels(tunnels, segment_step=10.0, collar_ratio=0.1, flat_depth=1.5, length=3.5)
 
 
 def test_build_tunnels_returns_one_tube_and_two_portal_blocks_per_chain():
@@ -175,7 +245,11 @@ def test_portal_block_opening_matches_the_first_tube_ring():
     meshes = build_tunnels(plans, WALL, FRAME, arc_segments=12)
     tube, block = meshes[0], meshes[1]
 
-    ring = {tuple(np.round(v, 5)) for v in tube["vertices"] if abs(v[0]) < 1e-9}
+    # tube ring points on the circle (the curb end faces at the portal plane lie inside the opening)
+    radius, center_z = plans[0]["radius"], 500.0 + plans[0]["center_z"]
+    ring = {tuple(np.round(v, 5)) for v in tube["vertices"]
+            if abs(v[0]) < 1e-9 and abs(math.hypot(v[1], v[2] - center_z) - radius) < 1e-6
+            and abs(v[2] - 500.2) > 1e-6}  # without the curb top corner at the wall
     block_front = {tuple(np.round(v, 5)) for v in block["vertices"] if abs(v[0]) < 1e-9}
     assert len(ring) == 13  # 12 arc strips -> 13 ring points
     assert ring <= block_front  # every ring edge of the tube is also an edge of the portal opening
@@ -183,7 +257,7 @@ def test_portal_block_opening_matches_the_first_tube_ring():
 
 def test_open_portal_collar_is_rectangular_with_a_tenth_of_the_diameter_at_its_thinnest_points():
     # Rectangular on the outside; left, right and top at the thinnest point wall thickness = diameter / 10
-    plans = plan_tunnels([_piece(1, _straight_coords(length=100.0))], width_margin=1.5, segment_step=10.0, collar_ratio=0.1,
+    plans = plan_tunnels([_piece(1, _straight_coords(length=100.0))], segment_step=10.0, collar_ratio=0.1,
                          flat_depth=1.5, length=3.5, shell_ratio=1.0 / 15.0)
     portal = plans[0]["portals"][0]
     radius, crown = portal["radius"], portal["crown"]
@@ -202,8 +276,6 @@ def test_open_portal_collar_is_rectangular_with_a_tenth_of_the_diameter_at_its_t
     # End face = rectangle minus clear cross-section, no triangle in the opening
     from shapely.geometry import Polygon, box
 
-    from world_to_beamng.tunnels.tunnel_mesh import arc_cross_section
-
     front_area = 0.0
     for face in block["faces"][FRAME]:
         pts = v[face]
@@ -212,13 +284,13 @@ def test_open_portal_collar_is_rectangular_with_a_tenth_of_the_diameter_at_its_t
         (_, y0, z0), (_, y1, z1), (_, y2, z2) = pts
         front_area += abs((y1 - y0) * (z2 - z0) - (y2 - y0) * (z1 - z0)) / 2.0
         cy, cz = pts[:, 1].mean(), pts[:, 2].mean() - 500.0
-        assert not (cz > 0.0 and math.hypot(cy, cz - radius / 2.0) < radius - 1e-6)
+        assert not (cz > 0.0 and math.hypot(cy, cz - portal["center_z"]) < radius - 1e-6)
     frame = box(-radius - wall, -wall, radius + wall, crown + wall)
-    assert front_area == pytest.approx(frame.difference(Polygon(arc_cross_section(radius, 12))).area, rel=1e-6)
+    assert front_area == pytest.approx(frame.difference(Polygon(arc_cross_section(radius, 12, portal["center_z"]))).area, rel=1e-6)
 
 
 def test_tilted_entrance_collar_front_follows_the_tilted_face_and_the_flat_zone_reaches_behind_its_top():
-    plans = plan_tunnels([_piece(1, _straight_coords(length=100.0))], width_margin=1.5, segment_step=10.0, collar_ratio=0.1,
+    plans = plan_tunnels([_piece(1, _straight_coords(length=100.0))], segment_step=10.0, collar_ratio=0.1,
                          flat_depth=1.5, length=3.5, shell_ratio=1.0 / 15.0, tilt_deg=20.0)
     portal = plans[0]["portals"][0]
     tilt = math.tan(math.radians(20.0))
@@ -264,20 +336,20 @@ def _shell_faces(mesh):
 def test_shell_is_a_concentric_cylinder_one_metre_outside_the_tube_with_a_floor_slab():
     # Tube as a cylinder with 1 m wall thickness: visibly solid from outside, may stand freely (no earth fill needed)
     width = 8.0
-    radius = tunnel_radius(width)
+    radius, center = tunnel_profile(width, curb_width=0.4, edge_height=4.2, max_arc_deg=240.0)
     mesh = _shell_mesh(width)
     shell_v = np.array([p for tri, _ in _shell_faces(mesh) for p in tri])
 
-    center_z = 500.0 + radius / 2.0
+    center_z = 500.0 + center
     arc = shell_v[shell_v[:, 2] > 500.0]  # above the floor only the outer arc (and the end rings)
     assert np.hypot(arc[:, 1], arc[:, 2] - center_z).max() == pytest.approx(radius + 1.0, abs=1e-6)
-    assert shell_v[:, 2].max() == pytest.approx(500.0 + tunnel_crown_height(width) + 1.0, abs=1e-6)
+    assert shell_v[:, 2].max() == pytest.approx(500.0 + center + radius + 1.0, abs=1e-6)
     assert shell_v[:, 2].min() == pytest.approx(500.0 - 1.0)  # floor slab 1 m below the carriageway
 
 
 def test_shell_outer_faces_point_away_from_the_tube_axis():
-    radius = tunnel_radius(8.0)
-    center_z = 500.0 + radius / 2.0
+    _, center = tunnel_profile(8.0, curb_width=0.4, edge_height=4.2, max_arc_deg=240.0)
+    center_z = 500.0 + center
     for tri, normal in _shell_faces(_shell_mesh()):
         if abs(normal[0]) > 0.5:
             continue  # end rings
@@ -289,11 +361,11 @@ def test_shell_outer_faces_point_away_from_the_tube_axis():
 def test_shell_is_closed_by_a_ring_at_both_ends():
     from shapely.geometry import Polygon
 
-    from world_to_beamng.tunnels.tunnel_mesh import arc_cross_section, shell_cross_section
+    from world_to_beamng.tunnels.tunnel_mesh import shell_cross_section
 
     width, thickness = 8.0, 1.0
-    radius = tunnel_radius(width)
-    ring_area = Polygon(shell_cross_section(radius, 12, thickness)).area - Polygon(arc_cross_section(radius, 12)).area
+    radius, center = tunnel_profile(width, curb_width=0.4, edge_height=4.2, max_arc_deg=240.0)
+    ring_area = Polygon(shell_cross_section(radius, 12, thickness, center)).area - Polygon(arc_cross_section(radius, 12, center)).area
 
     def area(tri):
         (_, y0, z0), (_, y1, z1), (_, y2, z2) = tri
@@ -314,7 +386,7 @@ def test_tube_without_shell_stays_unchanged():
 def test_build_tunnels_gives_the_tube_a_shell_and_caps_only_ends_without_portal():
     # A shell end ring in the same plane as the collar end face would cause Z-fighting - only closed ends
     # (no open portal, e.g. in the middle of the mountain) get it.
-    plans = plan_tunnels([_piece(1, _straight_coords(length=100.0))], width_margin=1.5, segment_step=10.0, collar_ratio=0.1,
+    plans = plan_tunnels([_piece(1, _straight_coords(length=100.0))], segment_step=10.0, collar_ratio=0.1,
                          flat_depth=1.5, length=3.5, shell_ratio=0.1)
     plans[0]["portals"][1]["open"] = False
     tube = build_tunnels(plans, "wall", "concrete")[0]
@@ -329,9 +401,9 @@ def test_build_tunnels_gives_the_tube_a_shell_and_caps_only_ends_without_portal(
 
 def test_shell_thickness_is_a_tenth_of_the_tube_diameter():
     # Smaller tunnels get thinner walls: wall thickness : diameter = 1 : 10
-    wide = plan_tunnels([_piece(1, _straight_coords(length=100.0), width=6.5)], width_margin=1.5, segment_step=10.0,
+    wide = plan_tunnels([_piece(1, _straight_coords(length=100.0), width=6.5)], segment_step=10.0,
                         collar_ratio=0.1, flat_depth=1.5, length=3.5, shell_ratio=0.1)[0]
-    narrow = plan_tunnels([_piece(2, _straight_coords(length=100.0), width=2.5)], width_margin=1.5, segment_step=10.0,
+    narrow = plan_tunnels([_piece(2, _straight_coords(length=100.0), width=2.5)], segment_step=10.0,
                           collar_ratio=0.1, flat_depth=1.5, length=3.5, shell_ratio=0.1)[0]
 
     for plan in (wide, narrow):
@@ -342,7 +414,7 @@ def test_shell_thickness_is_a_tenth_of_the_tube_diameter():
 
 def test_without_collar_the_portal_is_the_tube_end_ring_with_the_shell_thickness():
     # The portal should show the same wall thickness (1:15) as the tube: no collar, the tube closes itself
-    plans = plan_tunnels([_piece(1, _straight_coords(length=100.0))], width_margin=1.5, segment_step=10.0, collar_ratio=0.0,
+    plans = plan_tunnels([_piece(1, _straight_coords(length=100.0))], segment_step=10.0, collar_ratio=0.0,
                          flat_depth=1.5, length=3.5, shell_ratio=1.0 / 15.0)
     meshes = build_tunnels(plans, "wall", "concrete")
 
@@ -361,7 +433,7 @@ TILT = math.tan(math.radians(20.0))
 def test_tunnel_entrance_face_leans_20_degrees_into_the_mountain():
     # Portal front tilted by 20° toward the mountain side: at the floor on the portal plane, deeper in the mountain above
     width = 8.0
-    radius = tunnel_radius(width)
+    radius, center = tunnel_profile(width, curb_width=0.4, edge_height=4.2, max_arc_deg=240.0)
     shell = radius * 2.0 / 15.0
     mesh = build_tunnel_mesh(
         _straight_coords(length=100.0, z=500.0), width=width, floor_material=FLOOR, wall_material=WALL, arc_segments=12,
@@ -373,7 +445,7 @@ def test_tunnel_entrance_face_leans_20_degrees_into_the_mountain():
     for x, _, z in front:
         assert x == pytest.approx((z - 500.0) * TILT, abs=1e-6)  # on the inclined plane
     crown = front[np.argmax(front[:, 2])]
-    assert crown[0] == pytest.approx((tunnel_crown_height(width) + shell) * TILT, abs=1e-6)
+    assert crown[0] == pytest.approx((center + radius + shell) * TILT, abs=1e-6)
     end = v[v[:, 0] > 95.0]
     assert np.allclose(end[:, 0], 100.0)  # other end perpendicular
 
@@ -387,7 +459,7 @@ def test_plan_tilts_only_tunnel_entrances_and_moves_the_flat_zone_behind_the_fac
     tunnel = _piece(1, _straight_coords(length=100.0))
     gallery = {"id": 2, "coords": [(-50.0, 0.0, 500.0), (0.0, 0.0, 500.0)], "width": 6.5, "floor_material": FLOOR,
                "osm_tags": {"covered": "yes"}}
-    start, end = plan_tunnels([tunnel], width_margin=1.5, segment_step=10.0, collar_ratio=0.0, flat_depth=1.5, length=3.5,
+    start, end = plan_tunnels([tunnel], segment_step=10.0, collar_ratio=0.0, flat_depth=1.5, length=3.5,
                               shell_ratio=1.0 / 15.0, tilt_deg=20.0, galleries=[gallery])[0]["portals"]
 
     assert start["kind"] == "gallery" and start["tilt"] == 0.0 and start["flat_depth"] == 1.5
@@ -398,7 +470,7 @@ def test_plan_tilts_only_tunnel_entrances_and_moves_the_flat_zone_behind_the_fac
 
 
 def test_build_tunnels_tilts_the_tube_end_at_a_tunnel_entrance():
-    plans = plan_tunnels([_piece(1, _straight_coords(length=100.0))], width_margin=1.5, segment_step=10.0, collar_ratio=0.0,
+    plans = plan_tunnels([_piece(1, _straight_coords(length=100.0))], segment_step=10.0, collar_ratio=0.0,
                          flat_depth=1.5, length=3.5, shell_ratio=1.0 / 15.0, tilt_deg=20.0)
     tube = build_tunnels(plans, "wall", "concrete")[0]
     v = tube["vertices"]
@@ -409,7 +481,7 @@ def test_build_tunnels_tilts_the_tube_end_at_a_tunnel_entrance():
 
 def test_collar_sides_are_at_least_the_minimum_side_width_top_stays_a_tenth():
     # At least collar_min_side on the sides (covers the hole cells at the portal step, grid diagonal 1.41 m), 1:10 top
-    plans = plan_tunnels([_piece(1, _straight_coords(length=100.0))], width_margin=1.5, segment_step=10.0, collar_ratio=0.1,
+    plans = plan_tunnels([_piece(1, _straight_coords(length=100.0))], segment_step=10.0, collar_ratio=0.1,
                          flat_depth=1.5, length=3.5, shell_ratio=1.0 / 15.0, collar_min_side=1.5)
     portal = plans[0]["portals"][0]
     radius, crown = portal["radius"], portal["crown"]

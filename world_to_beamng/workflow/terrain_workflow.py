@@ -73,7 +73,6 @@ def _plan_tunnels(structure_road_polygons: List[Dict]) -> List[Dict]:
     ]
     return plan_tunnels(
         tunnels,
-        width_margin=config.TUNNEL_WIDTH_MARGIN,
         segment_step=config.TUNNEL_SEGMENT_STEP,
         flat_depth=config.TUNNEL_PORTAL_FLAT_DEPTH,
         length=config.TUNNEL_PORTAL_LENGTH,
@@ -86,6 +85,10 @@ def _plan_tunnels(structure_road_polygons: List[Dict]) -> List[Dict]:
         tilt_deg=config.TUNNEL_PORTAL_TILT_DEG,
         collar_ratio=config.TUNNEL_PORTAL_COLLAR_RATIO,
         collar_min_side=config.TUNNEL_PORTAL_COLLAR_MIN_SIDE,
+        curb_width=config.TUNNEL_CURB_WIDTH,
+        curb_height=config.TUNNEL_CURB_HEIGHT,
+        edge_height=config.TUNNEL_EDGE_HEIGHT,
+        max_arc_deg=config.TUNNEL_MAX_ARC_DEG,
     )
 
 
@@ -102,7 +105,6 @@ def _roadblock_items(
         tunnel_plans,
         bounds=bounds,
         edge_margin=config.MAP_EDGE_TUNNEL_MARGIN,
-        width_margin=config.TUNNEL_WIDTH_MARGIN,
         distance=config.ROADBLOCK_DISTANCE,
         side_margin=config.ROADBLOCK_SIDE_MARGIN,
         spacing=config.ROADBLOCK_SPACING,

@@ -303,8 +303,14 @@ BRIDGE_APPROACH_MAX_EXTENSION = 40.0  # the bridge is extended into the neighbor
 # tube or valley-side open gallery along the linearly interpolated height profile. For these roads
 # it replaces the normal terrain embedding and the DecalRoad export.
 TUNNELS_ENABLED = True  # also covers galleries (tunnel=avalanche_protector)
-TUNNEL_WIDTH_MARGIN = 1.5  # additional width beyond the carriageway width, in meters
-TUNNEL_ARC_SEGMENTS = 32  # discretization of the 240° arc, 7.5° per segment (radius/crown height follow from the width)
+# Tube cross-section (see tunnels/tunnel_mesh.py::tunnel_profile()): a curb adjoins the carriageway on each side; the
+# circle meets the floor plane at the outer curb edges and lies TUNNEL_EDGE_HEIGHT above the carriageway edge, unless
+# the arc above the floor plane would then exceed TUNNEL_MAX_ARC_DEG (narrow roads) - then the arc is capped instead.
+TUNNEL_CURB_WIDTH = 0.4  # width of the curb per side, outside the carriageway width, in meters
+TUNNEL_CURB_HEIGHT = 0.2  # height of the curb above the carriageway, in meters
+TUNNEL_EDGE_HEIGHT = 4.2  # clear height vertically above the carriageway edge, in meters
+TUNNEL_MAX_ARC_DEG = 240.0  # largest circular arc above the floor plane, in degrees
+TUNNEL_ARC_SEGMENTS = 32  # discretization of the arc above the floor (radius/center follow from the width)
 TUNNEL_SEGMENT_STEP = 10.0  # extrusion step size along the axis, in meters (coarse, since straight)
 # The OSM tunnel start often already lies in the hillside (DGM = portal embankment instead of road level): portal
 # height and the last meters of the approach are brought to the stable gradient of the approach (see

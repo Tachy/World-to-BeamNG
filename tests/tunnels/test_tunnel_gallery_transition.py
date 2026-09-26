@@ -32,7 +32,7 @@ def _gallery(coords, width=6.5, gallery_id=2, open_side=None):
 
 def _plans(tunnels, galleries=None, collar_ratio=0.0):
     return plan_tunnels(
-        tunnels, width_margin=1.5, segment_step=10.0, collar_ratio=collar_ratio, flat_depth=1.5, length=3.5,
+        tunnels, segment_step=10.0, collar_ratio=collar_ratio, flat_depth=1.5, length=3.5,
         galleries=galleries, gallery_height=5.0, gallery_roof_thickness=ROOF, gallery_wall_thickness=WALL,
         transition_tol=0.5, shell_ratio=1.0 / 15.0,
     )
@@ -108,8 +108,8 @@ def test_transition_closes_exactly_the_gap_between_tube_arc_and_gallery_section(
     portal = plans[0]["portals"][0]
     mesh = build_portal_block_mesh(portal, "concrete", arc_segments=12)
     g, gh = portal["gallery_half_width"], portal["gallery_height"]
-    arc = Polygon(arc_cross_section(portal["radius"], 12))
-    shell = Polygon(shell_cross_section(portal["radius"], 12, portal["shell"]))
+    arc = Polygon(arc_cross_section(portal["radius"], 12, portal["center_z"]))
+    shell = Polygon(shell_cross_section(portal["radius"], 12, portal["shell"], portal["center_z"]))
     # Without a known valley side: leave out the mountain wall on both sides (the gallery end face covers it)
     body = box(-g - WALL, 0.0, g + WALL, gh + ROOF)
 
@@ -150,7 +150,7 @@ def test_transition_step_leaves_out_the_gallery_roof_and_mountain_wall(coords, o
     portal = plans[0]["portals"][0]  # axis +x: portal right = -y; both galleries are open toward -y
     mesh = build_portal_block_mesh(portal, "concrete", arc_segments=12)
     g, gh = portal["gallery_half_width"], portal["gallery_height"]
-    arc = Polygon(arc_cross_section(portal["radius"], 12))
+    arc = Polygon(arc_cross_section(portal["radius"], 12, portal["center_z"]))
     body = box(-g, 0.0, g, gh + ROOF).union(box(-g - WALL, 0.0, -g, gh + ROOF))  # wall left (+y), valley right
 
     step = sum(_area(t) for t in _plane_faces(mesh, "concrete", 1.0, x=COVER))
@@ -167,8 +167,8 @@ def test_transition_collar_is_the_same_rectangle_and_its_front_closes_the_galler
     mesh = build_portal_block_mesh(start, "concrete", arc_segments=12)
     radius, crown, wall = start["radius"], start["crown"], start["collar"]
     g, gh = start["gallery_half_width"], start["gallery_height"]
-    arc = Polygon(arc_cross_section(radius, 12))
-    shell = Polygon(shell_cross_section(radius, 12, start["shell"]))
+    arc = Polygon(arc_cross_section(radius, 12, start["center_z"]))
+    shell = Polygon(shell_cross_section(radius, 12, start["shell"], start["center_z"]))
     frame = box(-radius - wall, -wall, radius + wall, crown + wall)
 
     body = box(-g - WALL, 0.0, g + WALL, gh + ROOF)

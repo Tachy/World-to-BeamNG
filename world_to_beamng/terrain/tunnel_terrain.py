@@ -103,7 +103,7 @@ def _tube_windows(heights, origin_x, origin_y, square_size, xy, reach):
 def _cover_tube(heights, origin_x, origin_y, square_size, plan, cover, protected) -> None:
     """Step 1 (see module docstring), in-place."""
     xy, _, floor_z = _dense_centerline(plan["coords"])
-    radius = plan["radius"]
+    radius, center_z = plan["radius"], plan["center_z"]
     outer = radius + plan.get("shell", 0.0)
     last = len(xy) - 1
 
@@ -119,7 +119,7 @@ def _cover_tube(heights, origin_x, origin_y, square_size, plan, cover, protected
 
     for view_slice, gx, gy, dist, idx in windows:
         valid = footprint(dist, idx) & enters[idx] & _unprotected(protected, gx, gy)
-        required = floor_z[idx] + radius / 2.0 + np.sqrt(np.maximum(outer**2 - dist**2, 0.0)) + cover
+        required = floor_z[idx] + center_z + np.sqrt(np.maximum(outer**2 - dist**2, 0.0)) + cover
         view = heights[view_slice]
         view[valid] = np.maximum(view[valid], required[valid])
 
@@ -152,7 +152,7 @@ def _shape_portal(heights, origin_x, origin_y, square_size, portal, protected) -
     if portal.get("collar", 0.0) > 0.0:
         limit = np.full(gx.shape, portal["top_z"] - STRUCTURE_CLEARANCE)
     else:
-        limit = floor_z + radius / 2.0 + np.sqrt(np.maximum(half_width**2 - across**2, 0.0)) - STRUCTURE_CLEARANCE
+        limit = floor_z + portal["center_z"] + np.sqrt(np.maximum(half_width**2 - across**2, 0.0)) - STRUCTURE_CLEARANCE
     view[behind] = np.minimum(view[behind], limit[behind])
 
 
