@@ -341,3 +341,15 @@ def test_zone_next_to_a_free_end_still_shrinks_symmetrically():
     new_a, new_b = apply_width_transitions([a, b], **KW)
 
     assert _width_at(new_a, 18.0) == pytest.approx(6.5) and _width_at(new_b, 22.0) == pytest.approx(9.75)
+
+
+def test_variable_width_polygon_follows_the_node_widths():
+    from world_to_beamng.geometry.road_width_transitions import variable_width_polygon
+    from shapely.geometry import Point, Polygon
+
+    nodes = [[x, 0.0, 0.0, 4.0 + 4.0 * x / 40.0] for x in range(0, 41, 5)]
+    polygon = Polygon(variable_width_polygon(nodes))
+
+    assert polygon.is_valid
+    assert polygon.area == pytest.approx(40.0 * 6.0, rel=0.01)  # mean width 6 m over 40 m
+    assert polygon.contains(Point(39.0, 3.5)) and not polygon.contains(Point(1.0, 3.5))

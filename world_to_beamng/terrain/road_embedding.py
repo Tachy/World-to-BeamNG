@@ -326,6 +326,10 @@ def build_road_embankment_profiles(
         min_slope_width: config.MIN_SLOPE_WIDTH
         max_slope_width: upper limit of the embankment width (meters)
 
+    Optional field per road dict: "width_nodes" ((M,4) x, y, z, width) - the centerline with the width blended along the
+    width transitions (geometry/road_width_transitions.py). Replaces "trimmed_centerline" and the constant OSM width; the
+    profile arrays then have one entry per width node. Only set for roads whose width changes.
+
     Optional field per road dict: "embankment_cuts" - [(point_xy, outward_normal_xy), ...]: the embankment ends flush
     at these lines (cells on the outward side are not touched). Without a cut the corridor of the first/last edge
     point reaches around the road end like a round cap - at a gallery end that cap overwrote the approach road's
@@ -385,6 +389,12 @@ def build_road_embankment_profiles(
         width = osm_mapper.get_road_properties(poly.get("osm_tags", {}))["width"]
         half_width = width / 2.0
 
+        width_nodes = poly.get("width_nodes")
+        if width_nodes is not None:
+            # Width transition (lane change, structure): the edge runs along the blended width of the DecalRoad
+            centerline = np.asarray(width_nodes, dtype=float)
+            half_width = centerline[:, 3] / 2.0
+
         xy = centerline[:, :2]
         z = centerline[:, 2]
 
@@ -407,8 +417,9 @@ def build_road_embankment_profiles(
         # geometric meaning (perp points to the left in driving direction,
         # but the assignment + / - is arbitrary) - apply_embankment_blend
         # treats both sides symmetrically, so the choice is uncritical.
-        left_xy = xy - perp * half_width
-        right_xy = xy + perp * half_width
+        offset = perp * np.reshape(half_width, (-1, 1))
+        left_xy = xy - offset
+        right_xy = xy + offset
 
         left_natural_z = sample_heightmap_bilinear(heights, origin_x, origin_y, square_size, left_xy)
         right_natural_z = sample_heightmap_bilinear(heights, origin_x, origin_y, square_size, right_xy)
@@ -435,7 +446,7 @@ def build_road_embankment_profiles(
             # Sample natural_z NOT at the carriageway edge (there the DGM shows the structure itself at a gallery,
             # see docstring), but at the FAR end of the overridden corridor - only there does
             # the DGM show real terrain again. Width 0 thus samples at the edge by itself.
-            far = xy + sign * perp * (half_width + widths)[:, None]
+            far = xy + sign * perp * (half_width + widths).reshape(-1, 1)
             return widths, sample_heightmap_bilinear(heights, origin_x, origin_y, square_size, far)
 
         if "left" in override:

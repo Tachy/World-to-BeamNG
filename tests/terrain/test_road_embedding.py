@@ -787,3 +787,16 @@ def test_slope_corridors_of_two_underpass_roads_give_the_cell_to_the_nearer_edge
 
     assert blended[25, 30] == pytest.approx(94.0, abs=0.8)  # 4 m from the south road's edge (y=21), 6 m from the other
     assert blended[27, 30] == pytest.approx(94.0, abs=0.8)  # 4 m from the north road's edge (y=31)
+
+
+def test_embankment_edges_follow_the_blended_widths_of_a_width_transition():
+    heights = np.full((60, 60), 90.0)
+    nodes = np.array([[x, 30.0, 90.0, 4.0 + 4.0 * (x - 10) / 40.0] for x in range(10, 51, 5)])
+    poly = {"trimmed_centerline": nodes[:, :3].copy(), "width_nodes": nodes, "osm_tags": {"highway": "service"}}
+
+    (road,) = build_road_embankment_profiles([poly], heights, 0.0, 0.0, 1.0, _Mapper2m(), slope_angle_deg=45.0,
+                                             min_slope_width=2.0, max_slope_width=30.0)
+
+    gap = np.abs(road["left_edge_xyz"][:, 1] - road["right_edge_xyz"][:, 1])
+    assert gap[0] == pytest.approx(4.0) and gap[-1] == pytest.approx(8.0)
+    assert len(road["left_edge_xyz"]) == len(nodes)

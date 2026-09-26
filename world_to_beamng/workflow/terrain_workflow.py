@@ -353,6 +353,88 @@ def _tunnel_light_items(tunnel_plans: List[Dict]) -> List[Dict]:
     )
 
 
+def _road_width_specs(road_slope_polygons_2d: List[Dict], dropped_tunnel_road_ids: frozenset = frozenset()):
+    """
+    (specs, node_lists) of all roads that get a DecalRoad: specs = [(road_slope_polygon, road_props, nodes)], node_lists =
+    their DecalRoad nodes [x, y, z, width] with the widths blended along the width transitions (lane changes, structures).
+    Shared by the terrain (embankment/embedding follow the blended width) and export_decal_roads().
+    """
+    from ..geometry.polygon import drop_close_nodes
+    from ..geometry.road_markings import lane_count
+    from ..geometry.road_width_transitions import apply_width_transitions
+
+    specs = []  # (road_slope_polygon, road_props, nodes) per exportable DecalRoad
+
+    for poly in road_slope_polygons_2d:
+        if not _gets_decal_road(poly, dropped_tunnel_road_ids):
+            continue
+        road_id = poly.get("road_id")
+        centerline = poly.get("trimmed_centerline")
+        if road_id is None or centerline is None or len(centerline) < 2:
+            continue
+
+        # Skip degenerate (zero-length) roads: clipping/junction
+        # split can occasionally leave a "remainder" with 2 identical points.
+        # A DecalRoad of length 0 is a degenerate
+        # spline (in the old mesh approach this was an invisible
+        # zero triangle, here it would produce a broken decal item).
+        xy_unique = {(round(float(x), 3), round(float(y), 3)) for x, y, _ in centerline}
+        if len(xy_unique) < 2:
+            continue
+
+        props = config.OSM_MAPPER.get_road_properties(poly.get("osm_tags", {}))
+        width = float(props.get("width", 4.0))
+        nodes = [[float(x), float(y), float(z), width] for x, y, z in centerline]
+
+        # Remove segments that are too short: BeamNG does not draw a DecalRoad with
+        # a too-short segment (e.g. 0.10 m from the junction cut next to
+        # a resample point) at all - the whole piece is then missing.
+        nodes = drop_close_nodes(nodes, config.DECAL_ROAD_MIN_NODE_SPACING)
+        if len(nodes) < 2:
+            continue
+        specs.append((poly, props, nodes))
+
+    # Smooth width transitions at straight-through joints (5 m before/after each, spline) - see
+    # geometry/road_width_transitions.py. Inserts nodes only with >= DECAL_ROAD_MIN_NODE_SPACING spacing.
+    # Lane-count changes to 3+ lanes blend over ROAD_LANE_CHANGE_TRANSITION_LENGTH; structures (bridges, tunnels,
+    # galleries) keep their width - there the whole transition lies on the road (ROAD_STRUCTURE_TRANSITION_LENGTH).
+    node_lists = apply_width_transitions(
+        [nodes for _, _, nodes in specs],
+        transition_length=config.ROAD_WIDTH_TRANSITION_LENGTH,
+        step=config.ROAD_WIDTH_TRANSITION_STEP,
+        endpoint_tol=config.ROAD_CONTINUATION_ENDPOINT_TOL,
+        max_angle_deg=config.ROAD_CONTINUATION_MAX_ANGLE_DEG,
+        min_delta=config.ROAD_WIDTH_TRANSITION_MIN_DELTA,
+        min_spacing=config.DECAL_ROAD_MIN_NODE_SPACING,
+        lanes=[lane_count(poly.get("osm_tags", {}), float(props.get("width", 4.0)), config.ROAD_MARKING_MIN_TWO_LANE_WIDTH)
+               for poly, props, _ in specs],
+        lane_change_length=config.ROAD_LANE_CHANGE_TRANSITION_LENGTH,
+        fixed=[poly.get("structure_type") in config.ROAD_FIXED_WIDTH_STRUCTURES for poly, _, _ in specs],
+        fixed_transition_length=config.ROAD_STRUCTURE_TRANSITION_LENGTH,
+    )
+    return specs, node_lists
+
+
+def _attach_width_nodes(road_slope_polygons_2d: List[Dict]) -> int:
+    """
+    Gives every road whose width changes along a width transition the blended nodes ("width_nodes") and an outline
+    ("road_polygon") that follow them, so that the embankment and the embedding of the terrain fit the DecalRoad that is
+    exported later. Roads of constant width and structures with a fixed width stay untouched. Returns the number of roads.
+    """
+    from ..geometry.road_width_transitions import variable_width_polygon
+
+    specs, node_lists = _road_width_specs(road_slope_polygons_2d)
+    count = 0
+    for (poly, _, _), nodes in zip(specs, node_lists):
+        arr = np.asarray(nodes, dtype=float)
+        if np.ptp(arr[:, 3]) < 1e-6 or poly.get("structure_type") in config.ROAD_FIXED_WIDTH_STRUCTURES:
+            continue
+        poly["width_nodes"] = arr
+        poly["road_polygon"] = variable_width_polygon(arr)
+        count += 1
+    return count
+
+
 def _road_marking_lines(specs: List[Tuple[Dict, Dict, List]], node_lists: List[List[List[float]]]) -> List[Dict]:
     """
     Marking lines (edge and center lines) of all marked DecalRoads as {"name", "nodes", "material"} - see
@@ -700,6 +782,11 @@ class TerrainWorkflow:
                 width=2.0,
                 label=f"Road_{road_id}",
             )
+
+        # The terrain follows the widths that the DecalRoads get along the width transitions (lane changes, structures)
+        widened = _attach_width_nodes(road_slope_polygons_2d)
+        if widened:
+            logger.debug(f"  [OK] {widened} road(s) with a width transition: embankment follows the blended width")
 
         # 8. Create the grid (with builder)
         from ..builders import GridBuilder
@@ -1676,64 +1763,12 @@ class TerrainWorkflow:
             Number of created DecalRoad items
         """
         from ..config import OSM_MAPPER
-        from ..geometry.polygon import drop_close_nodes
         from ..geometry.decal_chunks import split_decal_nodes
-        from ..geometry.road_width_transitions import apply_width_transitions, close_continuation_gaps
+        from ..geometry.road_width_transitions import close_continuation_gaps
 
         road_slope_polygons_2d = mesh_data["road_slope_polygons_2d"]
         unique_materials: Dict[str, Dict] = {}
-        specs = []  # (road_slope_polygon, road_props, nodes) per exportable DecalRoad
-
-        dropped_tunnel_road_ids = mesh_data.get("dropped_tunnel_road_ids") or frozenset()
-        for poly in road_slope_polygons_2d:
-            if not _gets_decal_road(poly, dropped_tunnel_road_ids):
-                continue
-            road_id = poly.get("road_id")
-            centerline = poly.get("trimmed_centerline")
-            if road_id is None or centerline is None or len(centerline) < 2:
-                continue
-
-            # Skip degenerate (zero-length) roads: clipping/junction
-            # split can occasionally leave a "remainder" with 2 identical points.
-            # A DecalRoad of length 0 is a degenerate
-            # spline (in the old mesh approach this was an invisible
-            # zero triangle, here it would produce a broken decal item).
-            xy_unique = {(round(float(x), 3), round(float(y), 3)) for x, y, _ in centerline}
-            if len(xy_unique) < 2:
-                continue
-
-            props = OSM_MAPPER.get_road_properties(poly.get("osm_tags", {}))
-            width = float(props.get("width", 4.0))
-            nodes = [[float(x), float(y), float(z), width] for x, y, z in centerline]
-
-            # Remove segments that are too short: BeamNG does not draw a DecalRoad with
-            # a too-short segment (e.g. 0.10 m from the junction cut next to
-            # a resample point) at all - the whole piece is then missing.
-            nodes = drop_close_nodes(nodes, config.DECAL_ROAD_MIN_NODE_SPACING)
-            if len(nodes) < 2:
-                continue
-            specs.append((poly, props, nodes))
-
-        # Smooth width transitions at straight-through joints (5 m before/after each, spline) - see
-        # geometry/road_width_transitions.py. Inserts nodes only with >= DECAL_ROAD_MIN_NODE_SPACING spacing.
-        # Lane-count changes to 3+ lanes blend over ROAD_LANE_CHANGE_TRANSITION_LENGTH; structures (bridges, tunnels,
-        # galleries) keep their width - there the whole transition lies on the road (ROAD_STRUCTURE_TRANSITION_LENGTH).
-        from ..geometry.road_markings import lane_count
-
-        node_lists = apply_width_transitions(
-            [nodes for _, _, nodes in specs],
-            transition_length=config.ROAD_WIDTH_TRANSITION_LENGTH,
-            step=config.ROAD_WIDTH_TRANSITION_STEP,
-            endpoint_tol=config.ROAD_CONTINUATION_ENDPOINT_TOL,
-            max_angle_deg=config.ROAD_CONTINUATION_MAX_ANGLE_DEG,
-            min_delta=config.ROAD_WIDTH_TRANSITION_MIN_DELTA,
-            min_spacing=config.DECAL_ROAD_MIN_NODE_SPACING,
-            lanes=[lane_count(poly.get("osm_tags", {}), float(props.get("width", 4.0)), config.ROAD_MARKING_MIN_TWO_LANE_WIDTH)
-                   for poly, props, _ in specs],
-            lane_change_length=config.ROAD_LANE_CHANGE_TRANSITION_LENGTH,
-            fixed=[poly.get("structure_type") in config.ROAD_FIXED_WIDTH_STRUCTURES for poly, _, _ in specs],
-            fixed_transition_length=config.ROAD_STRUCTURE_TRANSITION_LENGTH,
-        )
+        specs, node_lists = _road_width_specs(road_slope_polygons_2d, mesh_data.get("dropped_tunnel_road_ids") or frozenset())
 
         if config.GUARDRAILS_ENABLED and mesh_data.get("heightmap") is not None:
             mesh_data["guardrail_instances"] = _guardrail_instances(specs, node_lists, mesh_data)

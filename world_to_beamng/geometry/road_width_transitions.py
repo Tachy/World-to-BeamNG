@@ -268,3 +268,31 @@ def close_continuation_gaps(
             node[0] -= float(outward[0]) * extension
             node[1] -= float(outward[1]) * extension
     return result
+
+
+def variable_width_polygon(nodes: Sequence[Sequence[float]]) -> np.ndarray:
+    """
+    (M, 2) outline of a road whose width changes along its nodes [x, y, z, width] - the union of one quad per segment,
+    so that tight curves do not fold the outline over itself. Same result as a flat-capped buffer where the width is
+    constant.
+    """
+    from shapely.geometry import Polygon
+    from shapely.ops import unary_union
+
+    arr = np.asarray(nodes, dtype=float)
+    directions = np.diff(arr[:, :2], axis=0)
+    lengths = np.linalg.norm(directions, axis=1, keepdims=True)
+    lengths[lengths < 1e-9] = 1.0
+    directions /= lengths
+    point_dirs = np.vstack([directions[:1], directions[:-1] + directions[1:], directions[-1:]])
+    norms = np.linalg.norm(point_dirs, axis=1)
+    fallback = np.vstack([directions[:1], directions])[: len(arr)]  # a 180 degree turn has no averaged direction
+    point_dirs = np.where((norms > 1e-9)[:, None], point_dirs / np.maximum(norms, 1e-9)[:, None], fallback)
+    normals = np.column_stack([-point_dirs[:, 1], point_dirs[:, 0]]) * (arr[:, 3:4] / 2.0)
+    left, right = arr[:, :2] + normals, arr[:, :2] - normals
+    quads = [Polygon([left[i], left[i + 1], right[i + 1], right[i]]) for i in range(len(arr) - 1)]
+    quads = [quad if quad.is_valid else quad.buffer(0) for quad in quads]
+    union = unary_union([quad for quad in quads if not quad.is_empty])
+    if union.geom_type != "Polygon":
+        union = max(union.geoms, key=lambda part: part.area)
+    return np.array(union.exterior.coords[:-1])
