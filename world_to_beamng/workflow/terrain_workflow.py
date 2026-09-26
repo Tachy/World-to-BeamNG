@@ -325,6 +325,19 @@ def _tunnel_zone_items(tunnel_plans: List[Dict]) -> List[Dict]:
     )
 
 
+def _tunnel_light_items(tunnel_plans: List[Dict]) -> List[Dict]:
+    """SpotLight fixtures inside the tunnel tubes (tunnels/tunnel_lights.py), with the values from the config."""
+    from ..tunnels.tunnel_lights import plan_tunnel_lights
+
+    return plan_tunnel_lights(
+        tunnel_plans,
+        spacing=config.TUNNEL_LIGHT_SPACING,
+        start_inset=config.TUNNEL_LIGHT_START_INSET,
+        ceiling_margin=config.TUNNEL_LIGHT_CEILING_MARGIN,
+        fields=config.TUNNEL_LIGHT_FIELDS,
+    )
+
+
 def _road_marking_lines(specs: List[Tuple[Dict, Dict, List]], node_lists: List[List[List[float]]]) -> List[Dict]:
     """
     Marking lines (edge and center lines) of all marked DecalRoads as {"name", "nodes", "material"} - see
@@ -971,8 +984,10 @@ class TerrainWorkflow:
         tunnel_meshes = []
         roadblocks = []
         tunnel_zones = []
+        tunnel_lights = []
         if config.TUNNELS_ENABLED:
             tunnel_zones = _tunnel_zone_items(tunnel_plans)
+            tunnel_lights = _tunnel_light_items(tunnel_plans)
             tunnel_meshes = self._build_tunnels(structure_road_polygons, tunnel_plans, heights, terrain_origin_x, terrain_origin_y)
             roadblocks = _roadblock_items(
                 tunnel_plans, heights, terrain_origin_x, terrain_origin_y, grid_bounds_local, surface_road_polygons
@@ -1019,6 +1034,7 @@ class TerrainWorkflow:
             "tunnel_spawns": tunnel_spawns,  # Spawn points in front of tunnel entrances for ItemManager.save(fixed_spawns=...)
             "roadblocks": roadblocks,  # Roadblocks in front of entrances of tunnels beyond the map border, for export_roadblocks()
             "tunnel_zones": tunnel_zones,  # Zone boxes for dark tunnel tubes, for export_tunnel_zones()
+            "tunnel_lights": tunnel_lights,  # SpotLight fixtures inside the tubes, for export_tunnel_lights()
             "dropped_tunnel_road_ids": dropped_tunnel_road_ids,  # pieces of pass-through tunnels: no AI DecalRoad
             "grid": grid,
             "road_polygons": road_polygons,
@@ -1332,6 +1348,24 @@ class TerrainWorkflow:
                 **zone["fields"],
             )
         return len(zones)
+
+    def export_tunnel_lights(self, mesh_data: Dict) -> int:
+        """SpotLight fixtures inside tunnel tubes (see _tunnel_light_items()).
+
+        Returns:
+            Number of lights
+        """
+        lights = mesh_data.get("tunnel_lights") or []
+        for light in lights:
+            self.items.add_item(
+                light["name"],
+                item_class=light["class"],
+                position=light["position"],
+                rotation_matrix=light["rotation_matrix"],
+                overwrite=True,
+                **light["fields"],
+            )
+        return len(lights)
 
     def export_roadblocks(self, mesh_data: Dict) -> int:
         """Roadblocks (see _roadblock_items()) as TSStatic with the BeamNG default asset config.ROADBLOCK_SHAPE.
@@ -1892,9 +1926,11 @@ class TerrainWorkflow:
             count = self.export_tunnels(mesh_data)
             blocked = self.export_roadblocks(mesh_data)
             zones = self.export_tunnel_zones(mesh_data)
+            lights = self.export_tunnel_lights(mesh_data)
             sub.finish(
                 (f"{count} mesh(es)" if count else "no tunnels/galleries")
                 + (f", {zones} darkness zones" if zones else "")
+                + (f", {lights} lights" if lights else "")
                 + (f", {blocked} barrier elements" if blocked else "")
             )
 

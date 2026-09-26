@@ -401,6 +401,24 @@ TUNNEL_ZONE_WIDTH_MARGIN = 2.0  # zone this much wider than the tube, in meters
 TUNNEL_ZONE_HEIGHT_MARGIN = 2.0  # zone this much taller than the crown (half each at the bottom/top), in meters
 TUNNEL_ZONE_PORTAL_INSET = 1.0  # zones begin this far behind a closed tube end (no daylight), in meters
 TUNNEL_ZONE_ENTRANCE_INSET = 50.0  # darkness begins this far behind an open portal (entrance, gallery transition), in m
+# Tunnel lighting (tunnels/tunnel_lights.py): SpotLight fixtures along the tube, copied 1:1 from BeamNG's own italy
+# level (tunnelLight_* in levels/italy/main/MissionGroup/.../items.level.json) - mounted near the ceiling, aimed
+# straight down. User's choice 2026-09-26: real per-fixture shadow-casting lights like vanilla, spacing/brightness
+# unchanged even for the multi-km tunnels on this map (only tunnels with at least one open portal are built at all,
+# see shape_terrain_for_tunnels()).
+TUNNEL_LIGHT_SPACING = 11.0  # in meters (italy.zip: median 11.2 m)
+TUNNEL_LIGHT_START_INSET = 5.0  # kept clear at an open portal so the fixture does not clip into the collar, in meters
+TUNNEL_LIGHT_CEILING_MARGIN = 0.3  # fixture mounted this far below the crown apex, in meters
+TUNNEL_LIGHT_FIELDS = {
+    "brightness": 4,
+    "color": [1, 0.62263, 0.35778, 1],
+    "innerAngle": 100,
+    "outerAngle": 160,
+    "intensity": 20000,
+    "range": 15,
+    "castShadows": True,
+    "useColorTemperature": "true",
+}
 TUNNEL_ZONE_PORTAL_DEPTH = 3.0  # depth of the portal objects at the zone ends (vanilla: 3.6-5.9 m), in meters
 GALLERY_HEIGHT = 5.0  # clear height of the (rectangular, not circular) gallery, in meters
 GALLERY_COLUMN_SPACING = 6.0  # column spacing on the open valley side, in meters

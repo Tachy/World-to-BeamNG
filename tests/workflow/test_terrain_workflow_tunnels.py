@@ -241,6 +241,28 @@ def test_tunnel_zones_are_planned_from_the_config_and_exported_as_zone_objects()
     assert any(kw["item_class"] == "Portal" for kw in added.values())
 
 
+def test_tunnel_lights_are_planned_from_the_config_and_exported_as_spotlights():
+    from world_to_beamng.workflow.terrain_workflow import _tunnel_light_items
+
+    roads = [_structure(1, [(0.0, 0.0, 500.0), (100.0, 0.0, 500.0)], tunnel="yes")]
+    plans = _plan_tunnels(roads)
+
+    lights = _tunnel_light_items(plans)
+
+    assert lights and all(l["name"].startswith("tunnel_light_1_") for l in lights)
+
+    added = {}
+    stub = SimpleNamespace(items=SimpleNamespace(add_item=lambda name, **kw: added.__setitem__(name, kw)))
+    count = TerrainWorkflow.export_tunnel_lights(stub, {"tunnel_lights": lights})
+
+    assert count == len(lights) and set(added) == {l["name"] for l in lights}
+    first = added[lights[0]["name"]]
+    assert first["item_class"] == "SpotLight"
+    assert first["rotation_matrix"] == lights[0]["rotation_matrix"]
+    assert first["brightness"] == config.TUNNEL_LIGHT_FIELDS["brightness"]
+    assert first["castShadows"] is True
+
+
 def test_untagged_gallery_embankment_uses_the_terrain_valley_side():
     from world_to_beamng import config
     from world_to_beamng.workflow.terrain_workflow import _gallery_embedding
