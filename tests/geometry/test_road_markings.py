@@ -657,3 +657,47 @@ def test_a_zone_does_not_continue_into_a_piece_of_another_road_width():
     for zone in taper_zones(roads, layouts, own, fixed, pairs):
         widths = {own[p] for p, _, _ in zone["pieces"]}
         assert len(widths) == 2  # the wide and the narrow road of this joint, nothing else
+
+
+# --- no-overtaking double line on the narrow road after a change to more lanes -------------------------------------
+from world_to_beamng.geometry.road_markings import no_overtaking_masks  # noqa: E402
+
+
+def _long_symmetric_pair():
+    """Like _symmetric_pair(), but the narrow 2-lane road (no direction split of its own) runs to x=250."""
+    roads, layouts, own, fixed, pairs = _symmetric_pair()
+    roads[1] = [[float(x), 0.0, 100.0, 9.75 + (6.5 - 9.75) * _blend(x)] for x in np.arange(0.0, 251.0, 10.0)]
+    layouts[1] = MarkingLayout(lanes=2)
+    return roads, layouts, own, fixed, pairs
+
+
+def test_double_line_continues_over_the_transition_and_100_m_beyond_it_on_the_narrow_road():
+    roads, layouts, own, fixed, pairs = _long_symmetric_pair()
+
+    masks = no_overtaking_masks(roads, layouts, own, fixed, pairs, extra=100.0)
+
+    xs = [n[0] for n, keep in zip(roads[1], masks[1]) if keep]
+    assert xs[0] == 0.0 and xs[-1] == pytest.approx(150.0)  # the transition ends at x=50, plus 100 m
+    assert 0 not in masks  # the wider road has the double line anyway
+
+
+def test_no_double_line_extension_for_equal_lanes_or_a_narrow_road_with_its_own_double_line():
+    roads, layouts, own, fixed, pairs = _long_symmetric_pair()
+    layouts[1] = MarkingLayout(lanes=2, forward=1)
+    assert no_overtaking_masks(roads, layouts, own, fixed, pairs, extra=100.0) == {}
+    layouts[1] = MarkingLayout(lanes=3)
+    assert no_overtaking_masks(roads, layouts, own, fixed, pairs, extra=100.0) == {}
+
+
+def test_double_line_replaces_the_dashed_centre_line_only_where_the_mask_says():
+    roads, layouts, own, fixed, pairs = _long_symmetric_pair()
+    masks = no_overtaking_masks(roads, layouts, own, fixed, pairs, extra=100.0)
+
+    lines = build_marking_lines(roads[1], layouts[1], 0.25, center_gap=0.1, line_width=0.15, double_keep=masks[1])
+
+    centers = [line for kind, line in lines if kind == CENTER]
+    dividers = [line for kind, line in lines if kind == DIVIDER]
+    assert len(centers) == 2 and len(dividers) == 1
+    assert all(line[:, 0].min() == 0.0 and line[:, 0].max() == pytest.approx(150.0) for line in centers)
+    assert dividers[0][:, 0].min() <= 150.0 and dividers[0][:, 0].max() == pytest.approx(250.0)  # takes over, no gap
+    assert abs(centers[0][0, 1] - centers[1][0, 1]) == pytest.approx(0.25)  # the two lines of the double line

@@ -332,11 +332,17 @@ def test_two_lane_centre_line_runs_onto_the_double_line_of_the_three_lane_road()
                     found.append(node[1])
         return sorted(found)
 
-    divider = y_near_joint("marking_1_", config.ROAD_MARKING_DIVIDER_MATERIAL)
-    centers = y_near_joint("marking_2_", config.ROAD_MARKING_CENTER_MATERIAL, keep=lambda y: abs(y) < 3.0)
-    assert len(divider) == 1 and len(centers) == 2
-    assert divider[0] == pytest.approx(sum(centers) / 2.0, abs=0.1)  # the single line ends where the double line begins
-    assert divider[0] == pytest.approx(-(8.125 / 2.0 - 3.25), abs=0.05)  # 3.25 m from the right edge, not the middle
+    narrow_centers = y_near_joint("marking_1_", config.ROAD_MARKING_CENTER_MATERIAL, keep=lambda y: abs(y) < 3.0)
+    wide_centers = y_near_joint("marking_2_", config.ROAD_MARKING_CENTER_MATERIAL, keep=lambda y: abs(y) < 3.0)
+    assert len(narrow_centers) == 2 and len(wide_centers) == 2
+    # the double line of the wide road goes on without a jump ...
+    assert sum(narrow_centers) / 2.0 == pytest.approx(sum(wide_centers) / 2.0, abs=0.1)
+    assert sum(narrow_centers) / 2.0 == pytest.approx(-(8.125 / 2.0 - 3.25), abs=0.05)  # 3.25 m from the right edge, not the middle
+    # ... over the rest of the transition (50 m) and 100 m beyond it, then the dashed centre line takes over
+    double_xs = [n[0] for name, road in _markings(roads).items() if name.startswith("marking_1_") and road["material"] == config.ROAD_MARKING_CENTER_MATERIAL and abs(road["nodes"][0][1]) < 2.0 for n in road["nodes"]]  # not the edge lines (same material)
+    dashed_xs = [n[0] for name, road in _markings(roads).items() if name.startswith("marking_1_") and road["material"] == config.ROAD_MARKING_DIVIDER_MATERIAL for n in road["nodes"]]
+    assert min(double_xs) == pytest.approx(-150.0, abs=1.5)
+    assert max(dashed_xs) == pytest.approx(-149.0, abs=2.5) and min(dashed_xs) <= -195.0
 
 
 def test_road_double_line_runs_into_the_tunnels_double_line_at_the_tunnel(monkeypatch):
@@ -415,11 +421,12 @@ def test_uninvolved_lane_keeps_a_constant_width_through_a_three_to_two_lane_tape
     right_edges = {1: [nodes for nodes in lines("marking_1_", config.ROAD_MARKING_EDGE_MATERIAL) if y_at(nodes, -100) < -3.0],
                    2: [nodes for nodes in lines("marking_2_", config.ROAD_MARKING_EDGE_MATERIAL) if y_at(nodes, 100) < -2.5]}
     double = [nodes for nodes in lines("marking_1_", config.ROAD_MARKING_CENTER_MATERIAL) if abs(y_at(nodes, -100)) < 2.5]
-    divider = lines("marking_2_", config.ROAD_MARKING_DIVIDER_MATERIAL)
-    assert right_edges[1] and right_edges[2] and len(double) == 2 and len(divider) == 1
+    narrow_double = [nodes for nodes in lines("marking_2_", config.ROAD_MARKING_CENTER_MATERIAL) if abs(y_at(nodes, 100)) < 2.5 or abs(y_at(nodes, 10)) < 3.5]
+    assert right_edges[1] and right_edges[2] and len(double) == 2 and len(narrow_double) == 2
 
     for x in (-50.0, -40.0, -25.0, -10.0, -1.0):  # wide side of the zone
         boundary = (y_at(double[0], x) + y_at(double[1], x)) / 2.0
         assert boundary - y_at(right_edges[1][0], x) == pytest.approx(3.25 - config.ROAD_MARKING_EDGE_INSET, abs=0.02)
     for x in (1.0, 10.0, 25.0, 40.0, 50.0):  # narrow side
-        assert y_at(divider[0], x) - y_at(right_edges[2][0], x) == pytest.approx(3.25 - config.ROAD_MARKING_EDGE_INSET, abs=0.02)
+        boundary = (y_at(narrow_double[0], x) + y_at(narrow_double[1], x)) / 2.0  # the double line goes on here (no overtaking)
+        assert boundary - y_at(right_edges[2][0], x) == pytest.approx(3.25 - config.ROAD_MARKING_EDGE_INSET, abs=0.02)

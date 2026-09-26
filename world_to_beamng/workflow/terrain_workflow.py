@@ -453,6 +453,7 @@ def _road_marking_lines(specs: List[Tuple[Dict, Dict, List]], node_lists: List[L
         CENTER,
         EDGE,
         block_inputs,
+        no_overtaking_masks,
         structure_boundary_shifts,
         taper_zones,
         zone_boundary_shifts,
@@ -500,6 +501,8 @@ def _road_marking_lines(specs: List[Tuple[Dict, Dict, List]], node_lists: List[L
     zones = taper_zones(node_lists, layouts, own_widths, fixed, pairs)
     blocks, masks = block_inputs(zones), zone_divider_masks(zones)
     shifts = zone_boundary_shifts(zones)
+    # The double line of the wider road (no overtaking) continues on the two-lane road beyond the transition
+    double_lines = no_overtaking_masks(node_lists, layouts, own_widths, fixed, pairs, config.ROAD_MARKING_NO_OVERTAKING_EXTRA)
     # Other joints: the centre line of a narrower road (2 lanes) runs onto the double line of a wider one (3+ lanes), and at a
     # structure the road's lines are aligned with the structure's 50 m before it (the width still changes up to it)
     plain_pairs = [pair for pair in pairs if pair not in {zone["pair"] for zone in zones}]
@@ -534,6 +537,7 @@ def _road_marking_lines(specs: List[Tuple[Dict, Dict, List]], node_lists: List[L
             boundary_shift=shifts.get(index),
             divider_keep=masks.get(index),
             blocks=blocks.get(index),
+            double_keep=double_lines.get(index),
         )
         materials = {EDGE: config.ROAD_MARKING_EDGE_MATERIAL, CENTER: config.ROAD_MARKING_CENTER_MATERIAL,
                      BLOCK: config.ROAD_MARKING_BLOCK_MATERIAL}

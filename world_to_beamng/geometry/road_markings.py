@@ -15,6 +15,8 @@ import numpy as np
 EDGE = "edge"
 DIVIDER = "divider"
 CENTER = "center"  # one of the two solid lines between the directions
+DIVIDER_MID = "divider_mid"  # internal (line_offsets): the middle divider of a road that may get a double line
+CENTER_ZONE = "center_zone"  # internal (line_offsets): the double line that replaces it where build_marking_lines() says so
 BLOCK = "block"  # block stripes: the dashed divider of a lane that is dropped or added along a taper zone
 MAX_MITRE_FACTOR = 2.0  # sharp kinks: offset at most twice as far as requested
 BOUNDARY_EPS = 0.01  # shrink obstacle areas by 1 cm, see junction_obstacles()
@@ -87,12 +89,15 @@ def line_offsets(
     center_gap: float = 0.0,
     line_width: float = 0.0,
     boundary_shift: Optional[np.ndarray] = None,
+    double_zone: bool = False,
 ) -> List[Tuple[str, np.ndarray]]:
     """(kind, lateral offset per node), positive = left of the travel direction. Edge lines at +-(width/2 -
     edge_inset), dividers at the lanes-1 lane boundaries. With `forward` (right-hand traffic: the forward lanes lie on
     the right) the boundary after `forward` lanes from the right edge becomes two CENTER lines, `center_gap` apart.
     `boundary_shift` (per node, see boundary_shifts()) moves the boundary between the directions - the CENTER lines, or
-    without `forward` the middle divider - so that it runs onto the double line of a wider neighbour."""
+    without `forward` the middle divider - so that it runs onto the double line of a wider neighbour. `double_zone`
+    (roads without `forward`): the middle divider comes as DIVIDER_MID plus a CENTER_ZONE pair, of which
+    build_marking_lines() keeps the one or the other per node."""
     widths = np.asarray(widths, dtype=float)
     half = widths / 2.0
     shift = np.zeros(len(widths)) if boundary_shift is None else np.asarray(boundary_shift, dtype=float)
@@ -105,6 +110,9 @@ def line_offsets(
         if k == forward:
             gap = (center_gap + line_width) / 2.0
             lines += [(CENTER, boundary - gap), (CENTER, boundary + gap)]
+        elif double_zone and forward is None and k == boundary_lane:
+            gap = (center_gap + line_width) / 2.0
+            lines += [(DIVIDER_MID, boundary), (CENTER_ZONE, boundary - gap), (CENTER_ZONE, boundary + gap)]
         else:
             lines.append((DIVIDER, boundary))
     return lines
@@ -327,6 +335,48 @@ def zone_boundary_shifts(zones) -> Dict[int, np.ndarray]:
     return result
 
 
+def no_overtaking_masks(roads, layouts, own_widths, fixed, pairs, extra: float, eps: float = 1e-6) -> Dict[int, np.ndarray]:
+    """
+    Per road piece: the nodes that carry the solid double line although the road has only two lanes (no direction split of its
+    own) - the narrow side of a change to more lanes (`pairs` from find_continuations()). The wider road has the double line
+    (no overtaking); it continues on the narrow road over the rest of the width transition (up to the first node with the
+    road's own width) and `extra` meters beyond it, across following pieces of the same width. Joints with structures
+    are left alone (tunnels and galleries have the double line anyway).
+    """
+    partner = {}
+    for a, b in pairs:
+        partner[a], partner[b] = b, a
+    result: Dict[int, np.ndarray] = {}
+    for (ia, ea), (ib, eb) in pairs:
+        la, lb = layouts[ia], layouts[ib]
+        if la is None or lb is None or la.lanes == lb.lanes:
+            continue
+        (wide, _), (narrow, narrow_end) = ((ia, ea), (ib, eb)) if la.lanes > lb.lanes else ((ib, eb), (ia, ea))
+        if layouts[wide].forward is None or layouts[narrow].forward is not None or fixed[narrow]:
+            continue
+        # nodes of the narrow road and the pieces that follow, from the joint on, with their distance from it
+        segments, road, end, offset, seen = [], narrow, narrow_end, 0.0, set()
+        while road is not None and road not in seen and not fixed[road]:
+            seen.add(road)
+            nodes = np.asarray(roads[road], dtype=float)
+            order = np.arange(len(nodes)) if end == "start" else np.arange(len(nodes))[::-1]
+            distance = offset + np.concatenate([[0.0], np.cumsum(np.linalg.norm(np.diff(nodes[order, :2], axis=0), axis=1))])
+            segments.append((road, order, distance, np.abs(nodes[order, 3] - own_widths[road])))
+            offset = distance[-1]
+            far = "end" if end == "start" else "start"
+            nxt = partner.get((road, far))
+            if nxt is None or abs(own_widths[nxt[0]] - own_widths[road]) > 0.05 or layouts[nxt[0]] is None or layouts[nxt[0]].forward is not None:
+                break
+            road, end = nxt
+        distances = np.concatenate([seg[2] for seg in segments])
+        settled = np.flatnonzero(np.concatenate([seg[3] for seg in segments]) <= eps)
+        limit = (distances[settled[0]] if len(settled) else distances[-1]) + extra
+        for piece, order, distance, _ in segments:
+            mask = result.setdefault(piece, np.zeros(len(roads[piece]), dtype=bool))
+            mask[order[distance <= limit + 1e-9]] = True
+    return result
+
+
 def block_inputs(zones) -> Dict[int, list]:
     """Per road piece: [(node mask, side sign, lane width), ...] of the block stripes it carries (build_marking_lines())."""
     result: Dict[int, list] = {}
@@ -411,6 +461,7 @@ def build_marking_lines(
     boundary_shift: Optional[np.ndarray] = None,
     divider_keep: Optional[Dict[float, np.ndarray]] = None,
     blocks: Optional[Sequence] = None,
+    double_keep: Optional[np.ndarray] = None,
 ) -> List[Tuple[str, np.ndarray]]:
     """(kind, (N, 3) line) for all marking lines of a road from its DecalRoad nodes [x, y, z, width];
     z per line node from the corresponding carriageway node (BeamNG projects the line onto the terrain anyway).
@@ -419,11 +470,18 @@ def build_marking_lines(
     arr = np.asarray(nodes, dtype=float)
     center_xy = arr[:, :2]
     lines = []
+    double = None if double_keep is None else np.asarray(double_keep, dtype=bool)
+    # the dashed centre line takes over one node before the double line ends, so that there is no gap between them
+    dashed = None if double is None else ~double | np.r_[~double[1:], False] | np.r_[False, ~double[:-1]]
     for kind, offsets in line_offsets(
-        arr[:, 3], layout.lanes, edge_inset, layout.forward, center_gap, line_width, boundary_shift
+        arr[:, 3], layout.lanes, edge_inset, layout.forward, center_gap, line_width, boundary_shift, double is not None
     ):
         offset_xy = offset_polyline(center_xy, offsets, start_normal, end_normal)
         kept = forward_indices(offset_xy, center_xy)
+        if kind == DIVIDER_MID:
+            kind, kept = DIVIDER, kept[dashed[kept]]
+        elif kind == CENTER_ZONE:
+            kind, kept = CENTER, kept[double[kept]]
         if kind == DIVIDER and divider_keep is not None:
             keep = divider_keep.get(1.0 if float(np.mean(offsets)) > 0.0 else -1.0)
             if keep is not None:

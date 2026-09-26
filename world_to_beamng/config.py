@@ -286,6 +286,9 @@ ROAD_MARKING_CENTER_GAP = 0.1  # gap between the two lines, in meters
 # The texture (blocks BLOCK_LENGTH long, GAP apart) is generated at export - its period is the textureLength of
 # "line_block_white" in data/osm_to_beamng.json.
 ROAD_MARKING_BLOCK_MATERIAL = "line_block_white"
+# After a change from two to more lanes the solid double line (no overtaking) of the wider road continues on the two-lane road
+# to the end of the width transition and this far beyond it, in meters
+ROAD_MARKING_NO_OVERTAKING_EXTRA = 100.0
 ROAD_MARKING_BLOCK_WIDTH = 0.3  # width of the block stripe, in meters
 # Blocks have the length and gap of the dashes of the dashed divider (stock texture: 6 m dash, 6 m gap per 24 m repeat), only
 # the width differs
