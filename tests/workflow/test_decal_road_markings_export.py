@@ -361,3 +361,17 @@ def test_road_lines_reach_the_tunnels_double_line_50_m_before_the_tunnel(monkeyp
                            and l["name"].startswith("marking_2_") and abs(l["nodes"][0][1]) < 1.0)
     assert len(centre) == 2 and len(tunnel_double) == 2
     assert sorted(centre) == pytest.approx(tunnel_double, abs=0.1)  # same double line as inside the tunnel
+
+
+def test_dashed_divider_of_a_third_lane_ends_50_m_before_a_two_lane_tunnel(monkeypatch):
+    monkeypatch.setattr(config, "STRUCTURE_AI_ROADS", True)
+    road = _poly(1, [(x, 0) for x in range(-300, 1)], highway="primary", lanes="3",
+                 **{"lanes:forward": "1", "lanes:backward": "2"})
+    tunnel = dict(_poly(2, [(x, 0) for x in range(0, 201)], highway="primary", lanes="2", tunnel="yes"), structure_type="tunnel")
+
+    _, roads, _ = _export([road, tunnel])
+
+    dashed = [r for n, r in _markings(roads).items() if n.startswith("marking_1_") and r["material"] == config.ROAD_MARKING_DIVIDER_MATERIAL]
+    edges = [r for n, r in _markings(roads).items() if n.startswith("marking_1_") and r["material"] == config.ROAD_MARKING_EDGE_MATERIAL]
+    assert dashed and max(node[0] for r in dashed for node in r["nodes"]) == pytest.approx(-50.0, abs=1.5)
+    assert max(node[0] for r in edges for node in r["nodes"]) > -2.0  # edge lines run up to the tunnel

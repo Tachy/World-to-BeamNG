@@ -441,3 +441,55 @@ def test_boundary_shifts_leave_structure_joints_to_the_structure_rule():
 
     assert boundary_shifts([narrow, wide], [MarkingLayout(lanes=2), MarkingLayout(lanes=3, forward=1)], [6.5, 9.75],
                            [((0, "end"), (1, "start"))], fixed=[False, True]) == {}
+
+
+# --- dashed dividers that the structure does not have end 50 m before it ------------------------------------------------
+from world_to_beamng.geometry.road_markings import divider_masks  # noqa: E402
+
+
+def test_dashed_divider_ends_50_m_before_a_structure_without_dividers():
+    road, tunnel = _approach(-200.0, _wide_to_narrow), _struct(100.0, 6.5)
+    layouts = [MarkingLayout(lanes=3, forward=1), MarkingLayout(lanes=2, forward=1)]
+
+    masks = divider_masks([road, tunnel], layouts, [False, True], [((0, "end"), (1, "start"))], DONE)
+
+    distance = -np.array([n[0] for n in road])
+    assert np.array_equal(masks[0], distance >= DONE - 1e-9)  # kept up to 50 m before the tunnel
+    assert 1 not in masks
+
+
+def test_divider_mask_continues_across_road_pieces():
+    first = [[float(x), 0.0, 100.0, 9.75] for x in np.arange(-200.0, -59.0, 10.0)]
+    second = _approach(-60.0, _wide_to_narrow)
+    layouts = [MarkingLayout(lanes=3, forward=1)] * 2 + [MarkingLayout(lanes=2, forward=1)]
+
+    masks = divider_masks([first, second, _struct(50.0, 6.5)], layouts, [False, False, True],
+                          [((0, "end"), (1, "start")), ((1, "end"), (2, "start"))], DONE)
+
+    distance = -np.array([n[0] for n in second])
+    assert np.array_equal(masks[1], distance >= DONE - 1e-9)  # the 50 m limit lies inside the second piece
+    assert 0 not in masks  # the first piece is further away than 50 m: no restriction
+
+
+def test_no_divider_mask_when_the_road_has_no_dividers_or_the_structure_has_its_own():
+    two_lane = [[float(x), 0.0, 100.0, 6.5] for x in np.arange(-100.0, 0.1, 10.0)]
+    four_lane_tunnel = _struct(50.0, 13.0)
+    three_lane_tunnel = _struct(50.0, 9.75)
+    road = _approach(-100.0, _wide_to_narrow)
+
+    assert divider_masks([two_lane, _struct(50.0, 6.5)], [MarkingLayout(lanes=2), MarkingLayout(lanes=2, forward=1)],
+                         [False, True], [((0, "end"), (1, "start"))], DONE) == {}
+    assert divider_masks([road, three_lane_tunnel], [MarkingLayout(lanes=4, forward=2), MarkingLayout(lanes=3, forward=1)],
+                         [False, True], [((0, "end"), (1, "start"))], DONE) == {}
+
+
+def test_build_marking_lines_ends_the_divider_where_the_mask_says():
+    nodes = [[x, 0.0, 100.0, 9.75] for x in np.arange(0.0, 101.0, 10.0)]
+    mask = np.array([True] * 6 + [False] * 5)  # dividers only over the first 50 m
+
+    lines = build_marking_lines(nodes, MarkingLayout(lanes=3, forward=1), 0.25, center_gap=0.1, line_width=0.15,
+                                divider_keep=mask)
+
+    divider = next(line for kind, line in lines if kind == DIVIDER)
+    assert divider[:, 0].max() == pytest.approx(50.0)
+    assert all(line[:, 0].max() == pytest.approx(100.0) for kind, line in lines if kind != DIVIDER)

@@ -369,6 +369,7 @@ def _road_marking_lines(specs: List[Tuple[Dict, Dict, List]], node_lists: List[L
     from ..geometry.road_markings import (
         CENTER,
         EDGE,
+        divider_masks,
         structure_boundary_shifts,
         boundary_shifts,
         build_marking_lines,
@@ -414,6 +415,8 @@ def _road_marking_lines(specs: List[Tuple[Dict, Dict, List]], node_lists: List[L
         node_lists, layouts, fixed, pairs, config.ROAD_STRUCTURE_TRANSITION_LENGTH, config.ROAD_STRUCTURE_LINES_DONE_AT
     ).items():
         shifts[road_index] = shifts.get(road_index, 0.0) + shift
+    # Dashed dividers that the structure does not have end 50 m before it, where the lines are aligned
+    masks = divider_masks(node_lists, layouts, fixed, pairs, config.ROAD_STRUCTURE_LINES_DONE_AT)
 
     lines = []
     for index, ((poly, props, _), nodes) in enumerate(zip(specs, node_lists)):
@@ -437,6 +440,7 @@ def _road_marking_lines(specs: List[Tuple[Dict, Dict, List]], node_lists: List[L
             center_gap=config.ROAD_MARKING_CENTER_GAP,
             line_width=config.ROAD_MARKING_LINE_WIDTH,
             boundary_shift=shifts.get(index),
+            divider_keep=masks.get(index),
         )
         materials = {EDGE: config.ROAD_MARKING_EDGE_MATERIAL, CENTER: config.ROAD_MARKING_CENTER_MATERIAL}
         for line_idx, (kind, line) in enumerate(marking_lines):

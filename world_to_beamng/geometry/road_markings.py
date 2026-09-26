@@ -157,6 +157,30 @@ def _boundary_line_offset(width: float, layout: "MarkingLayout") -> float:
     return direction_boundary_offset(width, layout.lanes, layout.forward if layout.forward is not None else layout.lanes // 2)
 
 
+def _approach_pieces(roads, partner, fixed, road: int, road_end: str, span: float):
+    """Road pieces up to `span` meters before a structure, walking back along straight continuations from `road` (which
+    touches the structure with end `road_end`): (piece index, end facing the structure, offset = distance of that end
+    from the structure, arc length per node from that end + offset)."""
+    offset, entry, current, seen = 0.0, road_end, road, set()
+    while current is not None and current not in seen and offset < span:
+        seen.add(current)
+        nodes = np.asarray(roads[current], dtype=float)
+        arc = np.concatenate([[0.0], np.cumsum(np.linalg.norm(np.diff(nodes[:, :2], axis=0), axis=1))])
+        yield current, entry, offset, offset + (arc if entry == "start" else arc[-1] - arc)
+        offset += float(arc[-1])
+        nxt = partner.get((current, "end" if entry == "start" else "start"))
+        if nxt is None or fixed[nxt[0]]:
+            return
+        current, entry = nxt
+
+
+def _structure_joints(pairs, fixed):
+    """(structure, structure end, road, road end) for every joint of a structure with a normal road."""
+    for (ia, ea), (ib, eb) in pairs:
+        if fixed[ia] != fixed[ib]:
+            yield (ia, ea, ib, eb) if fixed[ia] else (ib, eb, ia, ea)
+
+
 def structure_boundary_shifts(roads, layouts, fixed, pairs, span: float, done_at: float) -> Dict[int, np.ndarray]:
     """
     Lateral shift of the direction-boundary line per node for roads that end at a structure (`fixed`: bridge, tunnel,
@@ -170,10 +194,7 @@ def structure_boundary_shifts(roads, layouts, fixed, pairs, span: float, done_at
     for a, b in pairs:
         partner[a], partner[b] = b, a
     result: Dict[int, np.ndarray] = {}
-    for (ia, ea), (ib, eb) in pairs:
-        if fixed[ia] == fixed[ib]:
-            continue
-        (struct, struct_end), (road, road_end) = ((ia, ea), (ib, eb)) if fixed[ia] else ((ib, eb), (ia, ea))
+    for struct, struct_end, road, road_end in _structure_joints(pairs, fixed):
         struct_layout = layouts[struct]
         if struct_layout is None or struct_layout.lanes < 2 or layouts[road] is None or layouts[road].lanes < 2:
             continue
@@ -181,24 +202,39 @@ def structure_boundary_shifts(roads, layouts, fixed, pairs, span: float, done_at
         target = _boundary_line_offset(struct_width, struct_layout)
         if struct_end == road_end:  # opposite digitization: left and right swap
             target = -target
-        offset, entry, current, seen = 0.0, road_end, road, set()
-        while current is not None and current not in seen and offset < span:
-            seen.add(current)
+        for current, _, _, distance in _approach_pieces(roads, partner, fixed, road, road_end, span):
             layout = layouts[current]
-            nodes = np.asarray(roads[current], dtype=float)
-            arc = np.concatenate([[0.0], np.cumsum(np.linalg.norm(np.diff(nodes[:, :2], axis=0), axis=1))])
-            distance = offset + (arc if entry == "start" else arc[-1] - arc)
+            if layout is None:
+                continue
             f = np.clip((span - distance) / (span - done_at), 0.0, 1.0)
             f = f * f * (3.0 - 2.0 * f)  # cubic Hermite spline, 1 within done_at of the structure
-            own = np.array([_boundary_line_offset(w, layout) for w in nodes[:, 3]]) if layout is not None else 0.0
-            if layout is not None:
-                result[current] = result.get(current, 0.0) + f * (target - own)
-            offset += float(arc[-1])
-            far = "end" if entry == "start" else "start"
-            nxt = partner.get((current, far))
-            if nxt is None or fixed[nxt[0]]:
-                break
-            current, entry = nxt
+            own = np.array([_boundary_line_offset(w, layout) for w in np.asarray(roads[current], dtype=float)[:, 3]])
+            result[current] = result.get(current, 0.0) + f * (target - own)
+    return result
+
+
+def _divider_count(layout) -> int:
+    """Dashed dividers of a layout (all lane boundaries except the one between the directions)."""
+    return max(layout.lanes - 2, 0) if layout.lanes >= 2 and (layout.forward is not None or layout.lanes == 2) else max(layout.lanes - 1, 0)
+
+
+def divider_masks(roads, layouts, fixed, pairs, done_at: float) -> Dict[int, np.ndarray]:
+    """
+    Nodes (per road piece) that may carry the dashed lane dividers: the dividers of a road end `done_at` meters before
+    a structure that has none of its own (a lane is dropped there and the lines are aligned by then, see
+    structure_boundary_shifts()). Only roads with dividers next to a structure without any get a mask.
+    """
+    partner = {}
+    for a, b in pairs:
+        partner[a], partner[b] = b, a
+    result: Dict[int, np.ndarray] = {}
+    for struct, _, road, road_end in _structure_joints(pairs, fixed):
+        struct_layout, road_layout = layouts[struct], layouts[road]
+        if struct_layout is None or road_layout is None or _divider_count(struct_layout) > 0 or _divider_count(road_layout) == 0:
+            continue
+        for current, _, _, distance in _approach_pieces(roads, partner, fixed, road, road_end, done_at):
+            keep = distance >= done_at - 1e-9
+            result[current] = result[current] & keep if current in result else keep
     return result
 
 
@@ -263,6 +299,7 @@ def build_marking_lines(
     center_gap: float = 0.0,
     line_width: float = 0.0,
     boundary_shift: Optional[np.ndarray] = None,
+    divider_keep: Optional[np.ndarray] = None,
 ) -> List[Tuple[str, np.ndarray]]:
     """(kind, (N, 3) line) for all marking lines of a road from its DecalRoad nodes [x, y, z, width];
     z per line node from the corresponding carriageway node (BeamNG projects the line onto the terrain anyway).
@@ -276,6 +313,8 @@ def build_marking_lines(
     ):
         offset_xy = offset_polyline(center_xy, offsets, start_normal, end_normal)
         kept = forward_indices(offset_xy, center_xy)
+        if kind == DIVIDER and divider_keep is not None:
+            kept = kept[np.asarray(divider_keep, dtype=bool)[kept]]  # dashed dividers end where the mask does
         if len(kept) >= 2:
             lines.append((kind, np.column_stack([offset_xy[kept], arr[kept, 2]])))
     return lines
