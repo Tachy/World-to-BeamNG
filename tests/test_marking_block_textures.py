@@ -49,3 +49,14 @@ def test_blocks_have_the_length_and_gap_of_the_dashes_of_the_dashed_divider():
 
     assert config.ROAD_MARKING_BLOCK_LENGTH == pytest.approx(dash)
     assert config.ROAD_MARKING_BLOCK_GAP == pytest.approx(dash)
+
+
+def test_texture_height_is_a_power_of_two_and_keeps_the_block_gap_ratio(tmp_path):
+    # BeamNG skips cooking (and shows the decal as a thin red line) for textures whose size is not a power of two
+    write_block_stripe_textures(tmp_path, block_length=6.0, gap_length=6.0, pixels_per_meter=64)
+
+    opacity = np.array(Image.open(tmp_path / f"{BLOCK_TEXTURE_NAME}_o.data.png").convert("L"))
+    height, width = opacity.shape
+    assert height == 1024 and width == 16
+    column = opacity[:, width // 2]
+    assert (column[:512] > 0).all() and (column[512:] == 0).all()
