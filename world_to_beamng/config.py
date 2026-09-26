@@ -207,6 +207,15 @@ ROAD_SMOOTH_WEIGHT = 0.6  # Chaikin filter weight (0.5-0.9; higher = less smooth
 # 0.32 m -> ok; verified on Eichgasse). Typical spacing after
 # resampling is ~0.8 m.
 DECAL_ROAD_MIN_NODE_SPACING = 0.5
+# Roads on bridges, in galleries and in tunnels: a visible DecalRoad does not work there (in game 2026-09-26: in tunnels
+# BeamNG projects it onto the terrain above the tube, in galleries it z-fights with the floor mesh). The carriageway
+# is part of the structure mesh instead (same texture and UV layout as the DecalRoad, see ROAD_DECAL_TEXTURE_LENGTH),
+# the markings are thin mesh strips (structure_markings.dae), and an invisible DecalRoad (alpha-tested, fully
+# transparent texture - like vanilla "road_invisible") keeps the AI road network continuous.
+STRUCTURE_AI_ROADS = True
+STRUCTURE_AI_ROAD_MATERIAL = "structure_road_invisible"
+STRUCTURE_MARKING_LIFT = 0.01  # marking strips this far above the structure floor, in meters
+ROAD_DECAL_TEXTURE_LENGTH = 5.0  # BeamNG's DecalRoad default: one texture repeat along the road per this many meters
 # BeamNG draws only a limited amount of geometry per DecalRoad (the decal is clipped to the terrain triangles under its
 # area; whatever exceeds the budget is missing without an error message - in game: cut-off after ~510 m^2 at 6.5 m width).
 # Carriageway decals are therefore split into pieces of at most this much area (geometry/decal_chunks.py), in m^2;

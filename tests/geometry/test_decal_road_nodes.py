@@ -93,7 +93,7 @@ class _RecordingItems:
 
 
 def _export(polys):
-    stub = SimpleNamespace(items=_RecordingItems(), materials=SimpleNamespace(materials={}))
+    stub = SimpleNamespace(items=_RecordingItems(), materials=SimpleNamespace(materials={}), _export_structure_road_assets=lambda lines: None)
     count = TerrainWorkflow.export_decal_roads(stub, {"road_slope_polygons_2d": polys})
     return count, stub.items.roads
 

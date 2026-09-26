@@ -388,3 +388,15 @@ def test_build_galleries_uses_a_given_open_side():
 
     assert np.any(np.isclose(y, -(3.25 + 5.0)))  # forced open on the left -> mountain wall on the right, despite terrain
     assert not np.any(np.isclose(y, 3.25 + 5.0))
+
+
+def test_carriageway_uvs_follow_the_decal_road_layout():
+    ground_at = lambda x, y: 500.0 - 2.0 * np.asarray(y, float)
+    mesh = build_gallery_mesh(
+        _straight_coords(length=60.0, z=500.0), width=8.0, height=5.0, ground_at=ground_at, floor_material=FLOOR,
+        roof_material=ROOF, road_texture_length=5.0,
+    )
+    uv = mesh["uvs"][np.array(mesh["faces"][FLOOR]).ravel()]
+
+    assert set(np.round(uv[:, 0], 6)) == {0.0, 1.0}
+    assert uv[:, 1].min() == pytest.approx(0.0) and uv[:, 1].max() == pytest.approx(60.0 / 5.0)

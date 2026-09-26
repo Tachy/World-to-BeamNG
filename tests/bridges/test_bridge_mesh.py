@@ -133,3 +133,17 @@ def test_build_bridges_skips_degenerate_bridges():
     bridges = [{"id": 1, "coords": [(0.0, 0.0, 200.0)], "width": 8.0, "deck_material": DECK}]
 
     assert build_bridges(bridges, _flat_ground(150.0), pier_material=PIER, railing_material=RAIL) == []
+
+
+def test_carriageway_uvs_follow_the_decal_road_layout():
+    # Same texture placement as the DecalRoad on the approach: u across the carriageway 0..1, v along in repeats of
+    # road_texture_length meters
+    mesh = build_bridge_mesh(
+        _coords(length=60.0, n=7, z=200.0), width=8.0, ground_at=_flat_ground(150.0), deck_material=DECK,
+        pier_material=PIER, railing_material=RAIL, pier_spacing=1000.0, road_texture_length=5.0,
+    )
+    up = [f for f in mesh["faces"][DECK] if mesh["normals"][f[0]][2] > 0.99]
+    uv = np.array([mesh["uvs"][i] for f in up for i in f])
+
+    assert set(np.round(uv[:, 0], 6)) == {0.0, 1.0}
+    assert uv[:, 1].min() == pytest.approx(0.0) and uv[:, 1].max() == pytest.approx(60.0 / 5.0)

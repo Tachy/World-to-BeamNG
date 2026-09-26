@@ -99,6 +99,7 @@ def build_gallery_mesh(
     open_side: Optional[str] = None,
     cap_start: bool = True,
     cap_end: bool = True,
+    road_texture_length: float = 5.0,
 ) -> Dict:
     """
     Gallery mesh: floor, roof and mountain-side wall are real boxes (not just thin faces) - floor
@@ -124,6 +125,8 @@ def build_gallery_mesh(
             this side counts as open for the ENTIRE gallery. Without a tag, ONE side also applies to the whole
             gallery: the majority of the per-point valley_side() (height comparison, fallback only).
         cap_start, cap_end: Build the end face at the start/end (default: both).
+        road_texture_length: carriageway UVs like a DecalRoad - u across the carriageway 0..1, v along in repeats of this many
+            meters (config.ROAD_DECAL_TEXTURE_LENGTH), so the texture continues 1:1 from the approach
 
     Returns:
         {"vertices", "uvs", "normals", "faces": {floor_material: [...], roof_material: [...]}}
@@ -165,6 +168,7 @@ def build_gallery_mesh(
 
     steps = np.linalg.norm(np.diff(xy, axis=0), axis=1)
     along = np.concatenate([[0.0], np.cumsum(steps)]) / tile_m
+    road_v = along * tile_m / road_texture_length
     across = width / tile_m
     slab_across = (width + curb_width) / tile_m
     # The wall ends flush with the roof TOP EDGE (not just the interior height) - so it reaches
@@ -194,7 +198,7 @@ def build_gallery_mesh(
         # Floor: carriageway top (road material) + bottom + both side faces (box).
         floor_builder.quad(
             [p3(left[i], floor_z[i]), p3(left[j], floor_z[j]), p3(right[j], floor_z[j]), p3(right[i], floor_z[i])],
-            [[u0, 0.0], [u1, 0.0], [u1, across], [u0, across]],
+            [[0.0, road_v[i]], [0.0, road_v[j]], [1.0, road_v[j]], [1.0, road_v[i]]],
             [0.0, 0.0, 1.0],
         )
         roof_builder.quad(
@@ -401,6 +405,7 @@ def build_galleries(
     column_size: float = 0.4,
     curb_height: float = 0.5,
     curb_width: float = 0.4,
+    road_texture_length: float = 5.0,
 ) -> List[Dict]:
     """Mesh dicts for the DAE export, one per gallery (`galleries`: [{"id","coords","width","floor_material",
     "osm_tags"}, ...] - "osm_tags" optional, for resolve_open_side()). Both ends get an end face, also at the
@@ -416,6 +421,7 @@ def build_galleries(
             coords, gallery["width"], height, ground_at, gallery["floor_material"], roof_material,
             column_spacing=column_spacing, roof_thickness=roof_thickness, floor_thickness=floor_thickness,
             wall_thickness=wall_thickness, column_size=column_size, curb_height=curb_height, curb_width=curb_width,
+            road_texture_length=road_texture_length,
             # Default from the embankment logic (terrain_workflow._gallery_embedding), otherwise tag or terrain
             open_side=gallery.get("open_side") or resolve_open_side(gallery.get("osm_tags", {})),
         )

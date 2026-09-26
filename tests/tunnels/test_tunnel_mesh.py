@@ -491,3 +491,12 @@ def test_collar_sides_are_at_least_the_minimum_side_width_top_stays_a_tenth():
     assert portal["half_width"] == pytest.approx(radius + 1.5)
     assert portal["top_z"] == pytest.approx(500.0 + crown + 0.2 * radius)
     assert np.abs(v[:, 1]).max() == pytest.approx(radius + 1.5)
+
+
+def test_carriageway_uvs_follow_the_decal_road_layout():
+    mesh = build_tunnel_mesh(_straight_coords(length=100.0, z=500.0), width=8.0, floor_material=FLOOR, wall_material=WALL,
+                             road_texture_length=5.0)
+    uv = mesh["uvs"][np.array(mesh["faces"][FLOOR]).ravel()]
+
+    assert set(np.round(uv[:, 0], 6)) == {0.0, 1.0}
+    assert uv[:, 1].min() == pytest.approx(0.0) and uv[:, 1].max() == pytest.approx(100.0 / 5.0)

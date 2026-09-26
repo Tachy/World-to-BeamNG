@@ -98,6 +98,7 @@ def build_bridge_mesh(
     railing_post_spacing: float = 2.0,
     railing_post_size: float = 0.08,
     tile_m: float = 5.0,
+    road_texture_length: float = 5.0,
 ) -> Dict:
     """
     Deck, curb, railing and pier mesh for a bridge along `coords` (already the
@@ -105,7 +106,8 @@ def build_bridge_mesh(
 
     Cross section from outside to inside: railing (posts + handrail) - curb (curb_width/curb_height,
     pier_material) - carriageway (deck_material, exactly `width` wide). Curb and railing stand OUTSIDE the carriageway,
-    so the deck slab is `width` + 2x curb_width wide.
+    so the deck slab is `width` + 2x curb_width wide. The carriageway UVs follow the DecalRoad layout (u across 0..1, v
+    along in repeats of road_texture_length meters), so the road texture continues 1:1 from the approach.
 
     Returns:
         {"vertices": (N,3), "uvs": (N,2), "normals": (N,3),
@@ -123,7 +125,7 @@ def build_bridge_mesh(
 
     cum = _arc_length(xy)
     along = cum / tile_m
-    carriageway_across = width / tile_m
+    road_v = cum / road_texture_length
     deck_across = (width + 2.0 * curb_width) / tile_m
     curb_across = curb_width / tile_m
 
@@ -143,7 +145,7 @@ def build_bridge_mesh(
         # Carriageway (top side, between the curbs)
         deck_builder.quad(
             [p3(inner_left[i], top[i]), p3(inner_left[j], top[j]), p3(inner_right[j], top[j]), p3(inner_right[i], top[i])],
-            [[u0, 0.0], [u1, 0.0], [u1, carriageway_across], [u0, carriageway_across]],
+            [[0.0, road_v[i]], [0.0, road_v[j]], [1.0, road_v[j]], [1.0, road_v[i]]],
             [0.0, 0.0, 1.0],
         )
         # Underside (full width)
@@ -277,6 +279,7 @@ def build_bridges(
     railing_height: float = 0.9,
     railing_post_spacing: float = 2.0,
     railing_post_size: float = 0.08,
+    road_texture_length: float = 5.0,
 ) -> List[Dict]:
     """Mesh dicts for the DAE export, one per bridge (`bridges`: [{"id","coords","width","deck_material"}, ...])."""
     meshes = []
@@ -289,6 +292,7 @@ def build_bridges(
             deck_thickness=deck_thickness, pier_spacing=pier_spacing, pier_size=pier_size, min_pier_clearance=min_pier_clearance,
             curb_width=curb_width, curb_height=curb_height, railing_height=railing_height,
             railing_post_spacing=railing_post_spacing, railing_post_size=railing_post_size,
+            road_texture_length=road_texture_length,
         )
         meshes.append({"id": f"bridge_{bridge['id']}", **mesh})
     return meshes

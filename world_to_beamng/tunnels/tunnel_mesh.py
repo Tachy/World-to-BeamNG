@@ -192,12 +192,15 @@ def build_tunnel_mesh(
     curb_height: float = 0.2,
     edge_height: float = 4.2,
     max_arc_deg: float = 240.0,
+    road_texture_length: float = 5.0,
 ) -> Dict:
     """
     Tube mesh (carriageway `width` wide, a curb on each side, circular arc above) along `coords` (already the tunnel
     elevation profile). Radius and circle center follow from tunnel_profile(). The curbs (wall material) run from the
     carriageway edge to the tube wall: inner face at width/2, top face at curb_height up to where it meets the arc, so
     no gap remains between curb and wall; the lowest arc strip behind them stays hidden. Both curb ends are closed.
+    The carriageway UVs follow the DecalRoad layout (u across 0..1, v along in repeats of road_texture_length meters), so
+    the road texture continues 1:1 from the approach.
 
     With shell_thickness > 0 the tube gets an outer shell (see shell_cross_section()) including end rings at
     both ends: it is then a solid cylinder from the outside too and may stand freely in the terrain. cap_start/
@@ -234,7 +237,7 @@ def build_tunnel_mesh(
 
     seg_len = np.linalg.norm(np.diff(xy, axis=0), axis=1)
     along = np.concatenate([[0.0], np.cumsum(seg_len)]) / tile_m
-    across_floor = width / tile_m
+    road_v = along * tile_m / road_texture_length
     across_arc = (radius * (angles[-1] - angles[0])) / tile_m
 
     # Curb cross-section per side (sign +1 = right): inner foot, inner top, top at the wall, wall foot
@@ -262,7 +265,7 @@ def build_tunnel_mesh(
         # Floor (normal pointing up, into the tube interior)
         floor_builder.quad(
             [p3(left[i], floor_z[i]), p3(left[j], floor_z[j]), p3(right[j], floor_z[j]), p3(right[i], floor_z[i])],
-            [[u0, 0.0], [u1, 0.0], [u1, across_floor], [u0, across_floor]],
+            [[0.0, road_v[i]], [0.0, road_v[j]], [1.0, road_v[j]], [1.0, road_v[i]]],
             [0.0, 0.0, 1.0],
         )
 
@@ -390,7 +393,12 @@ def _build_shell(xy, floor_z, miter_right, shift, radius, center_z, arc_segments
 
 
 def build_tunnels(
-    plans: Sequence[Dict], wall_material: str, portal_material: str, arc_segments: int = 12, transition_cover: float = 0.2
+    plans: Sequence[Dict],
+    wall_material: str,
+    portal_material: str,
+    arc_segments: int = 12,
+    transition_cover: float = 0.2,
+    road_texture_length: float = 5.0,
 ) -> List[Dict]:
     """
     Mesh dicts for the DAE export: per tunnel chain the tube (with outer shell from plan["shell"], material like the
@@ -400,6 +408,7 @@ def build_tunnels(
         plans: result of tunnel_portal.plan_tunnels() - portals with "top_z"/"bottom_z" already set
             (see terrain/tunnel_terrain.py::shape_terrain_for_tunnels())
         transition_cover: thickness of the solid cover slabs at the transition into a gallery, in meters
+        road_texture_length: see build_tunnel_mesh()
     """
     from .tunnel_portal import build_portal_block_mesh
 
@@ -415,7 +424,7 @@ def build_tunnels(
         tube = build_tunnel_mesh(
             plan["coords"], plan["road_width"], plan["floor_material"], wall_material, arc_segments=arc_segments,
             curb_width=plan["curb_width"], curb_height=plan["curb_height"], edge_height=plan["edge_height"],
-            max_arc_deg=plan["max_arc_deg"],
+            max_arc_deg=plan["max_arc_deg"], road_texture_length=road_texture_length,
             shell_thickness=plan.get("shell", 0.0), shell_material=portal_material,
             cap_start=not any(p is start for p in collared), cap_end=not any(p is end for p in collared),
             tilt_start=start.get("tilt", 0.0) if start.get("open", True) else 0.0,

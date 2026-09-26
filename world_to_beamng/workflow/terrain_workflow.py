@@ -39,6 +39,40 @@ def water_bounds(grid_bounds_local):
 
 
 
+def _gets_decal_road(road: Dict) -> bool:
+    """Whether a road is exported as a DecalRoad: surface roads always; bridges, galleries and tunnels only with
+    config.STRUCTURE_AI_ROADS (as an invisible DecalRoad for the AI road network) - except tunnels that get no tube
+    (TUNNEL_EXCLUDED_HIGHWAYS)."""
+    structure_type = road.get("structure_type", "surface")
+    if structure_type == "surface":
+        return True
+    if not config.STRUCTURE_AI_ROADS:
+        return False
+    if structure_type == "tunnel":
+        return (road.get("osm_tags") or {}).get("highway") not in config.TUNNEL_EXCLUDED_HIGHWAYS
+    return True
+
+
+def _invisible_road_material(name: str) -> Dict:
+    """materials.json entry of the invisible DecalRoad on structures: alpha-tested, fully transparent texture
+    (TerrainWorkflow._export_structure_road_assets() writes it) - schema like vanilla "road_invisible"
+    (art/shapes/common/decalroads/main.materials.json), which itself points into west_coast_usa. Deliberately a
+    version-1 material (no "version" field): only those read "colorMap" - as a 1.5 (PBR) material the texture was ignored,
+    there was no alpha to test and the decal rendered black on the terrain above the tunnel."""
+    return {
+        "name": name,
+        "mapTo": name,
+        "class": "Material",
+        "Stages": [{"colorMap": str(config.RELATIVE_DIR_TEXTURES / f"{name}.png")}, {}, {}, {}],
+        "alphaRef": 127,
+        "alphaTest": True,
+        "annotation": "STREET",
+        "castShadows": False,
+        "materialTag0": "RoadAndPath",
+        "materialTag1": "beamng",
+    }
+
+
 def _structure_items(structure_road_polygons: List[Dict], structure_type: str) -> List[Dict]:
     """Tunnel/gallery inputs for tunnels/*: {"id", "coords", "width", "floor_material", "osm_tags"} per road
     with the given structure_type."""
@@ -262,9 +296,12 @@ def _road_marking_lines(specs: List[Tuple[Dict, Dict, List]], node_lists: List[L
                 # Inside curves the line nodes bunch up - same minimum segment length as for the road surface
                 line_nodes = drop_close_nodes(line_nodes, config.DECAL_ROAD_MIN_NODE_SPACING)
                 if len(line_nodes) >= 2:
-                    lines.append(
-                        {"name": f"marking_{poly['road_id']}_{line_idx}_{piece_idx}", "nodes": line_nodes, "material": material}
-                    )
+                    lines.append({
+                        "name": f"marking_{poly['road_id']}_{line_idx}_{piece_idx}",
+                        "nodes": line_nodes,
+                        "material": material,
+                        "structure": poly.get("structure_type", "surface") != "surface",
+                    })
     return lines
 
 
@@ -998,6 +1035,7 @@ class TerrainWorkflow:
             railing_height=config.BRIDGE_RAILING_HEIGHT,
             railing_post_spacing=config.BRIDGE_RAILING_POST_SPACING,
             railing_post_size=config.BRIDGE_RAILING_POST_SIZE,
+            road_texture_length=config.ROAD_DECAL_TEXTURE_LENGTH,
         )
 
     def export_bridges(self, mesh_data: Dict) -> int:
@@ -1082,6 +1120,7 @@ class TerrainWorkflow:
             portal_material=config.TUNNEL_MATERIAL_NAME,
             arc_segments=config.TUNNEL_ARC_SEGMENTS,
             transition_cover=config.TUNNEL_TRANSITION_COVER_THICKNESS,
+            road_texture_length=config.ROAD_DECAL_TEXTURE_LENGTH,
         )
         gallery_meshes = build_galleries(
             _structure_items(structure_road_polygons, "gallery"),
@@ -1095,6 +1134,7 @@ class TerrainWorkflow:
             column_size=config.GALLERY_COLUMN_SIZE,
             curb_height=config.GALLERY_CURB_HEIGHT,
             curb_width=config.GALLERY_CURB_WIDTH,
+            road_texture_length=config.ROAD_DECAL_TEXTURE_LENGTH,
         )
         return tunnel_meshes + gallery_meshes
 
@@ -1335,6 +1375,38 @@ class TerrainWorkflow:
         logger.debug(f"  [OK] {len(meshes)} wall(s) exported (walls.dae)")
         return len(meshes)
 
+    def _export_structure_road_assets(self, marking_lines: List[Dict]) -> None:
+        """
+        Files for the roads on structures (see config.STRUCTURE_AI_ROADS): the fully transparent texture of the invisible
+        AI DecalRoad and the marking lines as mesh strips (geometry/marking_mesh.py) in ONE DAE with ONE TSStatic
+        without collision (the strips must not make bumps). Without lines, leftovers of a previous export are removed.
+        """
+        from PIL import Image
+
+        from ..geometry.marking_mesh import build_marking_meshes
+
+        if config.STRUCTURE_AI_ROADS:
+            config.BEAMNG_DIR_TEXTURES.mkdir(parents=True, exist_ok=True)
+            Image.new("RGBA", (4, 4), (0, 0, 0, 0)).save(config.BEAMNG_DIR_TEXTURES / f"{config.STRUCTURE_AI_ROAD_MATERIAL}.png")
+
+        markings_dir = config.BEAMNG_DIR_SHAPES / "structure_markings"
+        texture_lengths = {name: entry["textureLength"] for name, entry in config.OSM_MAPPER.road_markings.items()}
+        meshes = build_marking_meshes(marking_lines, texture_lengths, config.STRUCTURE_MARKING_LIFT)
+        if not meshes:
+            for suffix in (".dae", ".cdae"):
+                (markings_dir / f"structure_markings{suffix}").unlink(missing_ok=True)
+            return
+        self.dae.export_multi_mesh(output_path=markings_dir / "structure_markings.dae", meshes=meshes, with_uv=True)
+        self.items.add_item(
+            "structure_markings",
+            item_class="TSStatic",
+            shape_name=str(config.RELATIVE_DIR_SHAPES / "structure_markings" / "structure_markings.dae"),
+            position=(0, 0, 0),
+            overwrite=True,
+            collisionType="None",
+        )
+        logger.debug(f"  [OK] {len(meshes)} marking strip(s) on structures exported (structure_markings.dae)")
+
     def export_decal_roads(self, mesh_data: Dict) -> int:
         """
         Exports each road as its own BeamNG `DecalRoad` item - a
@@ -1365,7 +1437,7 @@ class TerrainWorkflow:
         specs = []  # (road_slope_polygon, road_props, nodes) per exportable DecalRoad
 
         for poly in road_slope_polygons_2d:
-            if poly.get("structure_type", "surface") != "surface":
+            if not _gets_decal_road(poly):
                 continue
             road_id = poly.get("road_id")
             centerline = poly.get("trimmed_centerline")
@@ -1413,8 +1485,13 @@ class TerrainWorkflow:
 
         count = 0
         for (poly, props, _), nodes in zip(specs, decal_node_lists):
-            mat_name = props.get("internal_name", "road_default")
-            unique_materials[mat_name] = props
+            if poly.get("structure_type", "surface") != "surface":
+                # Structure: only the AI road network - the visible carriageway is part of the structure mesh
+                mat_name = config.STRUCTURE_AI_ROAD_MATERIAL
+                self.materials.materials[mat_name] = _invisible_road_material(mat_name)
+            else:
+                mat_name = props.get("internal_name", "road_default")
+                unique_materials[mat_name] = props
 
             # Derive renderPriority from the existing "priority" field
             # (surface_types in data/osm_to_beamng.json): at junctions the
@@ -1457,9 +1534,14 @@ class TerrainWorkflow:
         # Road markings as their own narrow DecalRoads on top (geometry/road_markings.py). drivability=-1:
         # BeamNG's AI road network (lua/ge/map.lua) only picks up DecalRoads with drivability > 0.
         marking_count = 0
+        structure_lines = []
         if config.ROAD_MARKINGS_ENABLED:
             used_markings = set()
             for line in _road_marking_lines(specs, node_lists):
+                used_markings.add(line["material"])
+                if line["structure"]:
+                    structure_lines.append(line)  # mesh strips on the structure floor, see _export_structure_road_assets()
+                    continue
                 marking = OSM_MAPPER.road_markings[line["material"]]
                 self.items.add_decal_road(
                     name=line["name"],
@@ -1471,12 +1553,12 @@ class TerrainWorkflow:
                     textureLength=marking["textureLength"],
                     renderPriority=config.ROAD_MARKING_RENDER_PRIORITY,
                 )
-                used_markings.add(line["material"])
                 marking_count += 1
             for mat_name in sorted(used_markings):
                 self.materials.materials[mat_name] = OSM_MAPPER.generate_marking_material_entry(
                     mat_name, OSM_MAPPER.road_markings[mat_name]
                 )
+        self._export_structure_road_assets(structure_lines)
 
         logger.debug(
             f"  [OK] {count} DecalRoad item(s) exported ({len(unique_materials)} materials), "
