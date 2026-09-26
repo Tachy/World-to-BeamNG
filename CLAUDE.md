@@ -5,6 +5,8 @@
 - Antworten im Chat: auf Deutsch.
 - Code-Kommentare und Docstrings: auf Englisch (das Projekt ist öffentlich).
 - Code selbst (Bezeichner, Funktionsnamen, Variablen, Strings im Code, Commit-Titel-Präfixe wie `fix:`/`feat:` etc.): auf Englisch.
+- Alle Texte, die ins Git bzw. nach GitHub gehen: auf Englisch - Commit-Messages (Titel und Body), Branch-Namen,
+  Tags, Pull Requests und Issues (Titel, Beschreibung, Kommentare), Release Notes und Changelog-Einträge.
 - Log-Meldungen und alle anderen Laufzeit-Ausgaben: auf Englisch - `logger.*`-Aufrufe, Namen und Statustexte der
   Fortschrittsanzeige (`pipeline.task()`, `subtask()`, `finish()`/`done()`/`warn()`/`fail()`) und Texte von
   Exceptions. Neue Meldungen nie auf Deutsch schreiben.
