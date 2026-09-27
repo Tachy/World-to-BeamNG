@@ -273,7 +273,6 @@ def detect_junctions_in_centerlines(road_polygons, height_points=None, height_el
             return z_mid[best_idx]
 
     def _add_junction(position_xyz, cluster_indices, extra_connections=None):
-        cluster_points = [endpoints[i] for i in cluster_indices]
         avg_x, avg_y, avg_z = position_xyz
 
         junction_roads = {}

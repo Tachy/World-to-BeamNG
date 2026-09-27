@@ -20,7 +20,7 @@ import re
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
-from shapely.geometry import LineString, MultiLineString, Polygon, box
+from shapely.geometry import LineString, MultiLineString, box
 from shapely.geometry.base import BaseGeometry
 from shapely.prepared import prep
 

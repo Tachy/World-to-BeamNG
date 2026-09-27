@@ -155,7 +155,6 @@ def build_gallery_mesh(
     steps = np.linalg.norm(np.diff(xy, axis=0), axis=1)
     along = np.concatenate([[0.0], np.cumsum(steps)]) / tile_m
     road_v = along * tile_m / road_texture_length
-    across = width / tile_m
     slab_across = (width + curb_width) / tile_m
     # The wall ends flush with the roof TOP EDGE (not just the interior height) - so it reaches
     # height + roof_thickness, not just height.

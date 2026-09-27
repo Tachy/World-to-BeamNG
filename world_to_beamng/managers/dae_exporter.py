@@ -8,11 +8,14 @@ Consolidates the DAE export for:
 """
 
 import numpy as np
-from typing import List, Tuple, Dict, Any, Optional
+from typing import TYPE_CHECKING, List, Tuple, Dict, Any, Optional
 from datetime import datetime
 from pathlib import Path
 
 from ..facade.material_names import DAE_EFFECT_COLORS
+
+if TYPE_CHECKING:
+    from .material_manager import MaterialManager
 
 
 class DAEExporter:

@@ -140,7 +140,6 @@ class OSMMapper:
 
     def generate_materials_json_entry(self, mat_name, props):
         """Creates a single entry for main.materials.json."""
-        from .. import config
 
         tex = props.get("textures", {})
 

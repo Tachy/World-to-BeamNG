@@ -12,7 +12,6 @@ import numpy as np
 from PIL import Image
 from scipy.ndimage import gaussian_filter
 
-from .. import config
 from ..facade.texture_utils import gaussian_blur_wrap, gray_to_rgb, normal_from_height, to_uint8
 from ..geometry.polyline import smoothstep
 

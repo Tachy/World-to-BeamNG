@@ -272,7 +272,7 @@ class ForestWorkflow:
         roads = extract_roads_from_osm(osm_data)
 
         if not roads:
-            logger.debug(f"  [Forest] No roads found for the road buffer")
+            logger.debug("  [Forest] No roads found for the road buffer")
             return None
 
         # Convert road ways to LineStrings (coordinates MUST be local!)
@@ -289,7 +289,7 @@ class ForestWorkflow:
                 road_lines.append(LineString(coords_local))
 
         if not road_lines:
-            logger.debug(f"  [Forest] No valid road lines created")
+            logger.debug("  [Forest] No valid road lines created")
             return None
 
         # Union all roads and create the buffer
@@ -478,7 +478,7 @@ class ForestWorkflow:
 
             # Check whether set_forest_config() was called
             if not self.normalizer or not self.instance_generator:
-                logger.error(f"[Forest ERROR] set_forest_config() not called!")
+                logger.error("[Forest ERROR] set_forest_config() not called!")
                 return {
                     "status": "error",
                     "tile_name": tile_name,
@@ -510,7 +510,7 @@ class ForestWorkflow:
 
             # Phase 1b: Normalization (with already loaded OSM data)
             if not osm_data:
-                logger.debug(f"  [→] Loading OSM data from cache...")
+                logger.debug("  [→] Loading OSM data from cache...")
                 from ..osm.downloader import get_osm_data
                 from ..geometry.coordinates import transformer_to_wgs84
 
@@ -537,7 +537,7 @@ class ForestWorkflow:
                 logger.debug(f"  [→] {len(osm_data) if osm_data else 0} OSM elements loaded")
 
             if not osm_data:
-                logger.warning(f"  [→] No OSM data available")
+                logger.warning("  [→] No OSM data available")
                 return {
                     "status": "no_forests",
                     "tile_name": tile_name,
@@ -548,7 +548,7 @@ class ForestWorkflow:
                     "error": None,
                 }
 
-            logger.debug(f"  [→] Normalizing OSM forest polygons...")
+            logger.debug("  [→] Normalizing OSM forest polygons...")
 
             # Compute local_offset for the coordinate transformation
             # global_offset can be (x, y) or (x, y, z) - we only need (x, y)
@@ -558,7 +558,7 @@ class ForestWorkflow:
                 ox, oy = 0, 0
 
             # CENTRAL TRANSFORMATION: convert ALL OSM geometries to local coordinates once
-            logger.debug(f"  [→] Transforming OSM data to local coordinates...")
+            logger.debug("  [→] Transforming OSM data to local coordinates...")
             osm_data = self._transform_osm_to_local(osm_data, (ox, oy))
 
             # From now on: ALL geometries in osm_data are in local coordinates!
@@ -610,7 +610,7 @@ class ForestWorkflow:
             logger.debug(f"  [→] {len(forests)} forest polygons to process")
 
             # Phase 2: Point generation (Poisson disk sampling)
-            logger.debug(f"  [→] Generating tree positions (Poisson disk)...")
+            logger.debug("  [→] Generating tree positions (Poisson disk)...")
 
             # Create the road buffer (OSM data already in local coordinates!)
             road_buffer = self._create_road_buffer(osm_data)
@@ -619,7 +619,7 @@ class ForestWorkflow:
                     f"  [Forest] Road buffer created - bounds: {road_buffer.bounds}, area: {road_buffer.area:.0f}m²"
                 )
             else:
-                logger.debug(f"  [Forest] Road buffer is None!")
+                logger.debug("  [Forest] Road buffer is None!")
             # Trees/bushes must stand neither on roads nor in/at buildings (gardens, residential areas)
             building_buffer = self._create_building_buffer(osm_data)
             if building_buffer is not None:
@@ -662,7 +662,7 @@ class ForestWorkflow:
             logger.debug(f"  [→] {total_points} tree positions generated")
 
             # Phase 3: Height interpolation (bilinear interpolation)
-            logger.debug(f"  [→] Interpolating heights...")
+            logger.debug("  [→] Interpolating heights...")
             forest_points_3d = self.height_calculator.calculate_heights_for_forest_points(
                 forest_points=forest_points,
                 height_points=elevation_data,
@@ -674,7 +674,7 @@ class ForestWorkflow:
             logger.debug(f"  [→] Heights interpolated for {total_points} points")
 
             # Phase 4: Instance generation (type, rotation, scale)
-            logger.debug(f"  [→] Generating tree instances...")
+            logger.debug("  [→] Generating tree instances...")
             # The origins keep the distances; the trunks of group assets (up to ~9 m beside them) must do so too,
             # and they must not hang in the air. Same zones and distances as above, only checked per trunk.
             fitter = TrunkFitter(
@@ -803,7 +803,7 @@ class ForestWorkflow:
             # Statistics
             statistics = self.json_writer.get_statistics(self.all_tree_instances)
 
-            logger.info(f"[✓] Forest export finished:")
+            logger.info("[✓] Forest export finished:")
             logger.info(f"  - Total trees: {statistics['total_trees']}")
             logger.info(f"  - Tree species: {len(statistics['types'])}")
             for tree_type, count in sorted(statistics["types"].items()):

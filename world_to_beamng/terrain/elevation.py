@@ -47,7 +47,7 @@ def get_height_data_hash():
     # If the hash has changed or the file is missing: cleanup
     if old_hash != new_hash:
         if old_hash is None:
-            logger.debug(f"  [i] height_data_hash.txt missing - deleting old cache files...")
+            logger.debug("  [i] height_data_hash.txt missing - deleting old cache files...")
         else:
             logger.debug(f"  [i] Height data changed ({old_hash} -> {new_hash}) - deleting old cache files...")
 
@@ -67,7 +67,7 @@ def get_height_data_hash():
                         logger.error(f"    [!] Error deleting {old_file.name}: {e}")
         else:
             # If old_hash is empty/None: delete ALL potential old caches (safety measure)
-            logger.info(f"    Deleting all _*.npz and _*.json cache files...")
+            logger.info("    Deleting all _*.npz and _*.json cache files...")
             for pattern in ["height_raw_*.npz", "grid_v3_*.npz", "osm_all_*.json", "elevations_*.json"]:
                 for old_file in config.CACHE_DIR.glob(pattern):
                     try:
@@ -77,7 +77,7 @@ def get_height_data_hash():
                         logger.error(f"    [!] Error deleting {old_file.name}: {e}")
 
         # Also delete the generated DAE tiles in the BeamNG directory
-        logger.info(f"    Deleting terrain tiles in the BeamNG directory...")
+        logger.info("    Deleting terrain tiles in the BeamNG directory...")
         beamng_shapes = config.BEAMNG_DIR_SHAPES
         if beamng_shapes.exists():
             for file_path in beamng_shapes.glob("*.dae"):
@@ -97,7 +97,7 @@ def get_height_data_hash():
                         logger.error(f"    [!] Error deleting {meta_path.name}: {e}")
 
         # Also delete texture tiles
-        logger.info(f"    Deleting texture tiles in the BeamNG directory...")
+        logger.info("    Deleting texture tiles in the BeamNG directory...")
         beamng_textures = config.BEAMNG_DIR_TEXTURES
         if beamng_textures.exists():
             for file_path in beamng_textures.glob("tile*"):
@@ -144,7 +144,7 @@ def get_elevation_cache(bbox, height_hash=None):
                     logger.info(f"  [OK] Elevation cache loaded: {len(cache_data)-1} coordinates")
                     return cache_data
                 else:
-                    logger.debug(f"  [i] Old cache format detected, ignored")
+                    logger.debug("  [i] Old cache format detected, ignored")
         except:
             pass
     return {"_cache_version": 2}

@@ -345,7 +345,7 @@ def process_aerial_images(aerial_dir, output_dir, grid_bounds, global_offset, ta
 
     images_with_geo = [(name, data, info) for name, data, info in images if info is not None]
     if not images_with_geo:
-        logger.error(f"  [!] No georeferencing found (missing .tfw files or embedded GeoTIFF tags?)")
+        logger.error("  [!] No georeferencing found (missing .tfw files or embedded GeoTIFF tags?)")
         return 0
 
     logger.debug(f"  [i] {len(images_with_geo)} aerial photos with georeferencing found")

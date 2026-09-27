@@ -9,10 +9,9 @@ Format: CityGML 2km x 2km tiles in ZIP archives
 Output: .dae files per tile + main.items.json entries
 """
 
-import json
 import pickle
 from pathlib import Path
-from typing import List, Dict, Tuple, Optional
+from typing import List, Dict, Tuple
 import numpy as np
 from lxml import etree
 import zipfile

@@ -55,7 +55,7 @@ def create_terrain_grid(height_points, height_elevations, grid_spacing=10.0, til
     grid_points = np.column_stack([grid_x.ravel(), grid_y.ravel()])
 
     # Interpolate heights for grid points (CHUNKED for better performance)
-    logger.info(f"  Creating interpolator...")
+    logger.info("  Creating interpolator...")
     interpolator = NearestNDInterpolator(height_points, height_elevations)
 
     logger.info(f"  Interpolating {len(grid_points)} grid points (in chunks)...")
@@ -88,6 +88,6 @@ def create_terrain_grid(height_points, height_elevations, grid_spacing=10.0, til
             nx=nx,
             ny=ny,
         )
-        logger.info(f"  [OK] Grid cache created")
+        logger.info("  [OK] Grid cache created")
 
     return grid_points, grid_elevations, nx, ny

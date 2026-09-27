@@ -15,11 +15,9 @@ Pipeline:
 """
 
 import hashlib
-import glob
 import numpy as np
 from pathlib import Path
 from PIL import Image
-import json
 from world_to_beamng.logging_config import LoggerConfig
 
 from .. import config
@@ -43,7 +41,6 @@ def _load_geotiff_as_xyz(geotiff_path):
     """
     try:
         import rasterio
-        from rasterio.transform import Affine
     except ImportError:
         logger.error("  [!] rasterio not installed. Install: pip install rasterio")
         return None, None
@@ -307,7 +304,7 @@ def _load_local_dgm30(dgm30_path, tile_hash=None, local_offset=None, area_utm=No
             all_elevations.append(elevations)
 
     if not all_points:
-        logger.error(f"  [!] No DGM30 data loaded from GeoTIFF")
+        logger.error("  [!] No DGM30 data loaded from GeoTIFF")
         return None, None
 
     # Combine all data (still in UTM, absolute - see _load_geotiff_as_xyz())
@@ -444,7 +441,7 @@ def load_sentinel2_geotiff(sentinel2_file, bbox_utm, tile_hash=None):
                 rgb_data = rgb_data.astype(np.uint8)
 
             # Enhance Sentinel-2 colors to match DOP20
-            from PIL import Image, ImageEnhance
+            from PIL import Image
 
             pil_image = Image.fromarray(rgb_data, "RGB")
             pil_image = enhance_sentinel2_image(pil_image)
@@ -501,8 +498,6 @@ def generate_horizon_mesh(
     _ = local_offset  # kept for the caller signature; data is already local
 
     if terrain_height_at is not None and tile_bounds:
-        from ..mesh.vertex_manager import VertexManager
-        from ..mesh.mesh import Mesh
         from .horizon_seam import build_horizon_geometry
 
         hole = (
@@ -707,7 +702,7 @@ def texture_horizon_mesh(vertices, horizon_image, nx, ny, bounds_utm, transform,
 
     tex_x_min, tex_y_min, tex_x_max, tex_y_max = bounds_utm
 
-    logger.debug(f"  [i] Coordinate check:")
+    logger.debug("  [i] Coordinate check:")
     logger.debug(f"      Mesh (UTM):    X=[{mesh_x_min:.0f}..{mesh_x_max:.0f}], Y=[{mesh_y_min:.0f}..{mesh_y_max:.0f}]")
     logger.debug(f"      Texture (UTM): X=[{tex_x_min:.0f}..{tex_x_max:.0f}], Y=[{tex_y_min:.0f}..{tex_y_max:.0f}]")
 
@@ -754,7 +749,7 @@ def texture_horizon_mesh(vertices, horizon_image, nx, ny, bounds_utm, transform,
         str(temp_tif),
     ]
 
-    logger.debug(f"  [i] Converting to DDS (BC1, 8192x8192, mipmaps)...")
+    logger.debug("  [i] Converting to DDS (BC1, 8192x8192, mipmaps)...")
     subprocess.run(cmd, capture_output=True, text=True, check=True)
 
     # texconv names the output after the input: horizon_temp.dds -> rename
@@ -817,8 +812,8 @@ def export_horizon_dae(mesh, texture_info, output_dir, level_name="default", glo
         tex_x_min, tex_y_min, tex_x_max, tex_y_max = bounds_utm
 
         # Mesh bounds in UTM
-        mesh_x_min, mesh_x_max = vertices[:, 0].min() + ox, vertices[:, 0].max() + ox
-        mesh_y_min, mesh_y_max = vertices[:, 1].min() + oy, vertices[:, 1].max() + oy
+        mesh_x_min = vertices[:, 0].min() + ox
+        mesh_y_min = vertices[:, 1].min() + oy
 
         # Offsets in UTM meters
         offset_x_m = mesh_x_min - tex_x_min
@@ -840,7 +835,7 @@ def export_horizon_dae(mesh, texture_info, output_dir, level_name="default", glo
         uv_scale_x = mesh_width_m / tex_width_m
         uv_scale_y = mesh_height_m / tex_height_m
 
-        logger.debug(f"  [i] UV mapping with offset:")
+        logger.debug("  [i] UV mapping with offset:")
         logger.debug(f"      UV-Offset: ({uv_offset_x:.4f}, {uv_offset_y:.4f})")
         logger.debug(f"      UV scale: ({uv_scale_x:.4f}, {uv_scale_y:.4f})")
     else:

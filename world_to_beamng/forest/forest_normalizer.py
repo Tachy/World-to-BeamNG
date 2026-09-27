@@ -8,7 +8,7 @@ Per tile (2x2 km):
 """
 
 from typing import Dict, List, Optional, Tuple
-from shapely.geometry import box, Polygon
+from shapely.geometry import box
 
 from ..osm.osm_mapper import OSMMapper
 from world_to_beamng.logging_config import LoggerConfig
@@ -196,7 +196,6 @@ class ForestNormalizer:
             List of dicts with "geometry" (Shapely Polygon), "tags"
         """
         from shapely.geometry import Polygon, LineString
-        from shapely.ops import unary_union
 
         forests = []
 

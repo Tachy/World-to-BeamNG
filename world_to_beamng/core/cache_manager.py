@@ -4,7 +4,6 @@ Central cache manager for all cache operations.
 Simplifies and centralizes cache access.
 """
 
-import json
 from pathlib import Path
 from typing import Optional, Dict
 import hashlib

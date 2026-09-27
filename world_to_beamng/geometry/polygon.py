@@ -4,7 +4,6 @@ Polygon operations and road extraction.
 
 import numpy as np
 from scipy.spatial import cKDTree
-from shapely.geometry import Polygon
 
 from ..terrain.elevation import get_elevations_for_points
 from ..geometry.coordinates import transformer_to_utm
@@ -76,7 +75,6 @@ def clip_road_polygons(road_polygons, grid_bounds_local, margin=3.0):
             runs.append(current_run)
 
         osm_tags = road.get("osm_tags", {})
-        road_width = OSM_MAPPER.get_road_properties(osm_tags)["width"]
         max_seg = config.GRID_SPACING
 
         for run_idx, new_coords in enumerate(runs):
@@ -768,7 +766,7 @@ def get_road_polygons(roads, bbox, height_points, height_elevations, global_offs
         )
 
     # STEP 2: XY resampling (densify centerlines BEFORE elevation sampling)
-    logger.info(f"  Resampling centerlines in the XY plane...")
+    logger.info("  Resampling centerlines in the XY plane...")
     points_before_resampling = sum(len(r["xy_coords"]) for r in temp_roads_xy)
 
     for road in temp_roads_xy:
@@ -843,14 +841,14 @@ def get_road_polygons(roads, bbox, height_points, height_elevations, global_offs
 
     # STEP 4: Optional - mild XY smoothing (Z is kept or only lightly smoothed)
     if config.ENABLE_ROAD_SMOOTHING:
-        logger.info(f"  Mild XY smoothing...")
+        logger.info("  Mild XY smoothing...")
         road_polygons = smooth_roads_xy_only(road_polygons)
 
         # STEP 4b: at unambiguous bridge/tunnel/gallery transitions, the kink left by the independent
         # per-road smoothing is additionally smoothed away (see smooth_structure_transitions).
         road_polygons = smooth_structure_transitions(road_polygons)
     else:
-        logger.info(f"  Smoothing skipped (config.ENABLE_ROAD_SMOOTHING=False)")
+        logger.info("  Smoothing skipped (config.ENABLE_ROAD_SMOOTHING=False)")
 
     return road_polygons
 

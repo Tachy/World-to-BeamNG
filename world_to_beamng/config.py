@@ -2,7 +2,6 @@
 Central configuration for World-to-BeamNG.
 """
 
-import logging
 import os
 from pathlib import Path, PurePosixPath
 

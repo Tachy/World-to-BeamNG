@@ -709,8 +709,6 @@ class ItemManager:
                 _compute_poi_spawn_points()
             fixed_spawns: additional spawn points with a fixed pose (optional) - see _fixed_spawn_points()
         """
-        from .. import config
-
         # BeamNG expects the following structure:
         # 1. main/items.level.json - MissionGroup only
         # 2. main/MissionGroup/items.level.json - LevelInfo, Sky, Sun + all terrain/building items
