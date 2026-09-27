@@ -6,6 +6,8 @@
 The format is recognised from the file contents, not from the file name:
 
 - LGL Baden-Württemberg: ZIP files with CityGML 1.0 (LoD2), e.g. `LoD2_32_<x>_<y>_2_bw.zip`.
+- Hessen: loose CityGML 1.0 files (LoD2), e.g. `Flughafen-LoD2.gml`; the delivery note `.txt` next to it is not
+  needed and ignored.
 - swisstopo swissBUILDINGS3D 2.0: ASCII DXF, loose or in ZIP files, e.g.
   `swissbuildings3d_2_2023-05_1251-24_2056_5728.dxf.zip`. The layers (object types) decide what is built, see
   `config.SWISSBUILDINGS_LAYER_KINDS`.

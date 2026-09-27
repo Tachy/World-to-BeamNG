@@ -90,7 +90,7 @@ missing, the export reports an error in the log.
 
 | Folder | Content | File name | If it is missing |
 |---|---|---|---|
-| `data/buildings/` | 3D building models: LoD2 (ZIP with CityGML) or swissBUILDINGS3D 2.0 (DXF, loose or in a ZIP) | any, recognised by content | no buildings (`LOD2_ENABLED`) |
+| `data/buildings/` | 3D building models: LoD2 (CityGML, loose or in a ZIP) or swissBUILDINGS3D 2.0 (DXF, loose or in a ZIP) | any, recognised by content | no buildings (`LOD2_ENABLED`) |
 
 Finished example layout:
 

@@ -185,12 +185,16 @@ GEOMETRY_KEYS = ("walls", "roofs", "soffits", "fascias", "stone")
 LOD2_CACHE_FORMAT = 2
 
 
+BUILDING_FILE_SUFFIXES = (".zip", ".dxf", ".gml", ".xml")
+
+
 def building_source_files(lod2_dir) -> List[Path]:
-    """All building files in the directory: ZIP archives (CityGML or DXF inside) and loose DXF files."""
+    """All building files in the directory: ZIP archives (CityGML or DXF inside), loose DXF and loose CityGML files.
+    Anything else (e.g. the delivery note .txt next to a Hessian GML) is ignored."""
     path = Path(lod2_dir)
     if not path.exists():
         return []
-    return sorted(p for p in path.iterdir() if p.is_file() and p.suffix.lower() in (".zip", ".dxf"))
+    return sorted(p for p in path.iterdir() if p.is_file() and p.suffix.lower() in BUILDING_FILE_SUFFIXES)
 
 
 def lod2_cache_file(lod2_dir, cache_dir, height_hash: str) -> Path:
@@ -207,8 +211,12 @@ def load_buildings_from_file(path: Path) -> List[Dict]:
 
     if is_dxf_source(path):
         return load_swissbuildings(path)
+    if Path(path).suffix.lower() in (".gml", ".xml"):
+        roots = [etree.parse(str(path)).getroot()]  # loose CityGML (e.g. the Hessian LoD2 delivery)
+    else:
+        roots = load_citygml_from_zip(path)
     buildings = []
-    for gml_root in load_citygml_from_zip(path):
+    for gml_root in roots:
         buildings.extend(parse_citygml_buildings(gml_root, None))
     return buildings
 

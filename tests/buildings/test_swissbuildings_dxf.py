@@ -238,3 +238,28 @@ def test_the_ground_level_per_wall_comes_from_the_terrain(tmp_path):
     gables = [ground for ring, ground in grounds if np.ptp(ring[:, 0]) < 1e-6]
     assert eaves == {0: pytest.approx(103.0), 8: pytest.approx(105.0)}
     assert gables == [pytest.approx(103.0)] * 2  # the lowest terrain along their bottom edge
+
+
+CITYGML = """<?xml version="1.0" encoding="UTF-8"?>
+<core:CityModel xmlns:core="http://www.opengis.net/citygml/1.0" xmlns:bldg="http://www.opengis.net/citygml/building/1.0"
+    xmlns:gml="http://www.opengis.net/gml">
+  <core:cityObjectMember>
+    <bldg:Building gml:id="DEHE_1">
+      <bldg:boundedBy><bldg:WallSurface><bldg:lod2MultiSurface><gml:MultiSurface><gml:surfaceMember><gml:Polygon>
+        <gml:exterior><gml:LinearRing><gml:posList srsDimension="3">
+          471500 5544500 100 471510 5544500 100 471510 5544500 106 471500 5544500 106 471500 5544500 100
+        </gml:posList></gml:LinearRing></gml:exterior>
+      </gml:Polygon></gml:surfaceMember></gml:MultiSurface></bldg:lod2MultiSurface></bldg:WallSurface></bldg:boundedBy>
+    </bldg:Building>
+  </core:cityObjectMember>
+</core:CityModel>
+"""
+
+
+def test_a_loose_citygml_file_is_read_and_its_delivery_note_is_ignored(tmp_path):
+    (tmp_path / "Flughafen-LoD2.gml").write_text(CITYGML, encoding="utf-8")
+    (tmp_path / "Flughafen-LoD2.txt").write_text("Land: HE\n", encoding="utf-8")  # the delivery note next to it
+
+    assert [f.name for f in lod2.building_source_files(tmp_path)] == ["Flughafen-LoD2.gml"]
+    (building,) = lod2.load_buildings_from_file(tmp_path / "Flughafen-LoD2.gml")
+    assert building["id"] == "DEHE_1" and len(building["walls"]) == 1

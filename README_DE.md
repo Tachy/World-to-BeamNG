@@ -92,7 +92,7 @@ Luftbild, meldet der Export einen Fehler im Log.
 
 | Ordner | Inhalt | Dateiname | Wenn es fehlt |
 |---|---|---|---|
-| `data/buildings/` | 3D-Gebäudemodelle: LoD2 (ZIP mit CityGML) oder swissBUILDINGS3D 2.0 (DXF, lose oder im ZIP) | beliebig, Erkennung am Inhalt | keine Gebäude (`LOD2_ENABLED`) |
+| `data/buildings/` | 3D-Gebäudemodelle: LoD2 (CityGML, lose oder im ZIP) oder swissBUILDINGS3D 2.0 (DXF, lose oder im ZIP) | beliebig, Erkennung am Inhalt | keine Gebäude (`LOD2_ENABLED`) |
 
 Fertiges Beispiel-Layout:
 
