@@ -58,6 +58,29 @@ def parse_world_file(tfw_data):
         return None
 
 
+RASTER_SUFFIXES = (".tif", ".tiff", ".jpg", ".jpeg", ".png")
+
+
+def world_file_for(image_name: str, candidates):
+    """
+    Name of the world file that belongs to `image_name` among `candidates` (case-insensitive), or None. ESRI naming:
+    first and last letter of the image suffix plus "w" (.tif -> .tfw, .jpg/.jpeg -> .jgw, .png -> .pgw), the whole
+    suffix plus "w" (.jpgw, .tifw), or .wld; a .tfw is accepted for any image (it was the only name looked for
+    before).
+    """
+    path = Path(image_name)
+    suffix = path.suffix.lower().lstrip(".")
+    if not suffix:
+        return None
+    wanted = {f"{suffix[0]}{suffix[-1]}w", f"{suffix}w", "wld", "tfw"}
+    stem = str(path.with_suffix("")).lower()
+    for candidate in candidates:
+        candidate_path = Path(candidate)
+        if str(candidate_path.with_suffix("")).lower() == stem and candidate_path.suffix.lower().lstrip(".") in wanted:
+            return candidate
+    return None
+
+
 def extract_images_from_zips(aerial_dir=config.AERIAL_DATA_DIR):
     """
     Extracts all images with georeferencing from ZIP files.
@@ -88,29 +111,18 @@ def extract_images_from_zips(aerial_dir=config.AERIAL_DATA_DIR):
                 file_list = zip_ref.namelist()
 
                 # Find image files (TIF, TIFF, JPG, JPEG, PNG)
-                image_extensions = [".tif", ".tiff", ".jpg", ".jpeg", ".png"]
-                image_files = [f for f in file_list if any(f.lower().endswith(ext) for ext in image_extensions)]
+                image_files = [f for f in file_list if f.lower().endswith(RASTER_SUFFIXES)]
 
                 for img_file in image_files:
                     img_data = zip_ref.read(img_file)
 
-                    # Look for the matching .tfw file
-                    # Replace the image extension with .tfw (e.g. .tif → .tfw)
-                    img_path = Path(img_file)
-                    tfw_file = str(img_path.with_suffix(".tfw"))
-
+                    # The matching world file (.tfw, .jgw, .pgw, .wld, ...), see world_file_for()
                     world_info = None
-                    if tfw_file in file_list:
-                        tfw_data = zip_ref.read(tfw_file)
-                        world_info = parse_world_file(tfw_data)
-                    else:
-                        # Debugging: look for a .tfw with the same stem name (case-insensitive)
-                        base_name = img_path.stem.lower()
-                        for f in file_list:
-                            if f.lower().endswith(".tfw") and Path(f).stem.lower() == base_name:
-                                tfw_data = zip_ref.read(f)
-                                world_info = parse_world_file(tfw_data)
-                                break
+                    world_file = world_file_for(img_file, file_list)
+                    if world_file is not None:
+                        world_info = parse_world_file(zip_ref.read(world_file))
+                        if world_info is not None:
+                            world_info["crs_epsg"] = None
 
                     if world_info is None:
                         # No .tfw found - the image itself may have embedded GeoTIFF
@@ -154,9 +166,9 @@ def _read_geotiff_world_info(path_or_vsi):
 
 def extract_loose_images(aerial_dir=config.AERIAL_DATA_DIR):
     """
-    Loose raster files directly in the directory (*.tif, *.tiff) - not in a ZIP. Georeferencing
-    as in extract_images_from_zips(): embedded GeoTIFF tags preferred, otherwise an accompanying
-    .tfw file of the same name.
+    Loose raster files directly in the directory (*.tif, *.tiff, *.jpg, *.jpeg, *.png) - not in a ZIP.
+    Georeferencing as in extract_images_from_zips(): embedded GeoTIFF tags preferred, otherwise an accompanying world
+    file (.tfw, .jgw, .pgw, .wld, see world_file_for()). Images with neither are left out with a warning.
 
     Returns:
         List of (image_name, image_path: Path, world_info) - image_path (not bytes!), since loose
@@ -167,15 +179,18 @@ def extract_loose_images(aerial_dir=config.AERIAL_DATA_DIR):
     if not aerial_path.exists():
         return images
 
-    paths = sorted(aerial_path.glob("*.tif")) + sorted(aerial_path.glob("*.tiff"))
-    for path in paths:
+    files = [p for p in aerial_path.iterdir() if p.is_file()]
+    for path in sorted(p for p in files if p.suffix.lower() in RASTER_SUFFIXES):
         world_info = _read_geotiff_world_info(str(path))
         if world_info is None:
-            tfw = path.with_suffix(".tfw")
-            if tfw.exists():
-                world_info = parse_world_file(tfw.read_bytes())
+            world_file = world_file_for(path.name, [p.name for p in files])
+            if world_file is not None:
+                world_info = parse_world_file((aerial_path / world_file).read_bytes())
                 if world_info is not None:
                     world_info["crs_epsg"] = None
+        if world_info is None:
+            logger.warning(f"[!] {path.name}: no georeferencing (neither GeoTIFF tags nor a world file) - left out")
+            continue
         images.append((path.name, path, world_info))
     return images
 
@@ -189,7 +204,14 @@ def extract_georeferenced_images(aerial_dir=config.AERIAL_DATA_DIR):
     Returns:
         List of (image_name, source: bytes|Path, world_info|None)
     """
-    return extract_images_from_zips(aerial_dir) + extract_loose_images(aerial_dir)
+    images = extract_images_from_zips(aerial_dir) + extract_loose_images(aerial_dir)
+    without_crs = sum(1 for _, _, info in images if info is not None and info.get("crs_epsg") is None)
+    if without_crs:
+        from ..geometry.coordinates import get_source_crs_epsg
+
+        logger.info(f"  [i] {without_crs} aerial photo(s) georeferenced by a world file without CRS: "
+                    f"assuming EPSG:{get_source_crs_epsg()} of the elevation data")
+    return images
 
 
 def _open_image(source):
@@ -491,9 +513,11 @@ def process_aerial_tiles(aerial_dir, output_dir, photos, global_offset, target_p
 
 
 def _aerial_source_files(aerial_dir):
-    """ZIPs AND loose raster files (*.tif/*.tiff) - both count as source images (see extract_georeferenced_images())."""
+    """ZIPs AND loose raster files (RASTER_SUFFIXES) - both count as source images (see extract_georeferenced_images())."""
     p = Path(aerial_dir)
-    return sorted(p.glob("*.zip")) + sorted(p.glob("*.tif")) + sorted(p.glob("*.tiff"))
+    if not p.exists():
+        return []
+    return sorted(f for f in p.iterdir() if f.is_file() and f.suffix.lower() in (".zip",) + RASTER_SUFFIXES)
 
 
 def aerial_photos_signature(aerial_dir, photos, global_offset, target_pixel_size=None, fill_areas=None):

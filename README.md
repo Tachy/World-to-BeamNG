@@ -80,7 +80,7 @@ Example for a 4×4 km area: `399`/`401` × `5296`/`5298`.
 
 The file name only matters for the LGL BW format above. Any other georeferenced GeoTIFF DEM (loose file or inside a
 ZIP) works too, under any file name, and is always resampled to `GRID_SPACING` regardless of its native resolution;
-the same applies to any georeferenced orthophoto (embedded GeoTIFF tags or a `.tfw` world file) under `data/satellite/`.
+the same applies to any georeferenced orthophoto (embedded GeoTIFF tags, or a world file such as `.tfw`/`.jgw`/`.pgw` next to a TIF/JPG/PNG) under `data/satellite/`.
 See "Using data from other regions" below.
 
 Without DGM1 the export aborts ("no DGM1 tiles found"). If the aerial photo is

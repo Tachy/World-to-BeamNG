@@ -80,6 +80,66 @@ def test_empty_directory_yields_no_images(tmp_path):
     assert extract_loose_images(tmp_path / "does_not_exist") == []
 
 
+def _write_jpeg(path, size=(5, 5)):
+    """Plain JPEG (PNG for a .png name) without any georeferencing, like the Hessian DOP20 next to their .jgw."""
+    from PIL import Image
+
+    image_format = "PNG" if str(path).lower().endswith(".png") else "JPEG"
+    Image.fromarray(np.full((size[1], size[0], 3), 120, dtype="uint8")).save(path, image_format)
+    return path
+
+
+def test_loose_jpeg_with_jgw_is_recognised(tmp_path):
+    _write_jpeg(tmp_path / "dop20_32_471_5544_1_he.jpg")
+    _write_tfw(tmp_path / "dop20_32_471_5544_1_he.jgw", 0.2, 471000.1, 5544999.9)
+
+    images = extract_loose_images(tmp_path)
+
+    assert [name for name, _, _ in images] == ["dop20_32_471_5544_1_he.jpg"]
+    _, source, world_info = images[0]
+    assert isinstance(source, Path)
+    assert world_info["crs_epsg"] is None  # a world file has no CRS: the elevation data's CRS is assumed
+    assert world_info["pixel_size_x"] == pytest.approx(0.2)
+
+
+@pytest.mark.parametrize("image, sidecar", [
+    ("a.png", "a.pgw"), ("a.jpeg", "a.jgw"), ("a.jpg", "a.jpgw"), ("a.jpg", "a.wld"), ("A.JPG", "A.JGW"),
+])
+def test_world_files_follow_the_esri_naming(tmp_path, image, sidecar):
+    _write_jpeg(tmp_path / image)
+    _write_tfw(tmp_path / sidecar, 0.2, 471000.1, 5544999.9)
+
+    (entry,) = extract_loose_images(tmp_path)
+
+    assert entry[2] is not None and entry[2]["pixel_size_x"] == pytest.approx(0.2)
+
+
+def test_jpeg_with_jgw_in_a_zip_is_recognised(tmp_path):
+    jpg = _write_jpeg(tmp_path / "dop.jpg")
+    _write_tfw(tmp_path / "dop.jgw", 0.2, 471000.1, 5544999.9)
+    with zipfile.ZipFile(tmp_path / "dop.zip", "w") as zf:
+        zf.write(jpg, arcname="dop.jpg")
+        zf.write(tmp_path / "dop.jgw", arcname="dop.jgw")
+    jpg.unlink()
+    (tmp_path / "dop.jgw").unlink()
+
+    (entry,) = extract_images_from_zips(tmp_path)
+
+    assert entry[0] == "dop.jpg" and entry[2]["crs_epsg"] is None
+
+
+def test_an_image_without_any_georeference_is_left_out(tmp_path):
+    _write_jpeg(tmp_path / "holiday.jpg")
+
+    assert extract_loose_images(tmp_path) == []
+
+
+def test_aerial_source_files_include_loose_jpegs(tmp_path):
+    _write_jpeg(tmp_path / "dop.jpg")
+
+    assert [f.name for f in _aerial_source_files(tmp_path)] == ["dop.jpg"]
+
+
 # ---------------------------------------------------------------- GeoTIFF in ZIP without .tfw
 
 

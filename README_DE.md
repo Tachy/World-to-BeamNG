@@ -82,7 +82,7 @@ Gebäude vorliegen. Beispiel für ein 4×4-km-Gebiet: `399`/`401` × `5296`/`529
 Der Dateiname spielt nur für das LGL-BW-Format oben eine Rolle. Jedes andere georeferenzierte GeoTIFF-Höhenmodell
 (lose Datei oder in einem ZIP) funktioniert ebenfalls, unter beliebigem Dateinamen, und wird immer auf
 `GRID_SPACING` umgetastet, unabhängig von seiner nativen Auflösung; entsprechend für jedes georeferenzierte
-Orthophoto (eingebettete GeoTIFF-Tags oder eine `.tfw`-Weltdatei) unter `data/satellite/`. Siehe „Daten aus anderen
+Orthophoto (eingebettete GeoTIFF-Tags oder eine Weltdatei wie `.tfw`/`.jgw`/`.pgw` neben einem TIF/JPG/PNG) unter `data/satellite/`. Siehe „Daten aus anderen
 Regionen verwenden" unten.
 
 Ohne DGM1 bricht der Export ab („no DGM1 tiles found" - keine DGM1-/GeoTIFF-Kacheln gefunden). Fehlt das
