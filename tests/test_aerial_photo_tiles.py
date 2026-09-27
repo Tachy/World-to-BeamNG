@@ -41,7 +41,9 @@ def _png(width, height, left_color, right_color=None):
 
 
 def _zip(path, name, png_bytes, x_origin, y_origin):
-    tfw = f"1.0\n0.0\n0.0\n-1.0\n{x_origin}\n{y_origin}\n"
+    """ZIP with a PNG whose upper left CORNER lies at (x_origin, y_origin), 1 m pixels; the .tfw names the centre of
+    that pixel, as world files do."""
+    tfw = f"1.0\n0.0\n0.0\n-1.0\n{x_origin + 0.5}\n{y_origin - 0.5}\n"
     with zipfile.ZipFile(path, "w") as z:
         z.writestr(f"{name}.png", png_bytes)
         z.writestr(f"{name}.tfw", tfw)

@@ -39,7 +39,16 @@ def _write_geotiff(path, bounds, crs="EPSG:25832", size=(4, 4)):
 
 
 def _write_tfw(path, pixel_size, x_origin, y_origin):
-    path.write_text(f"{pixel_size}\n0.0\n0.0\n{-pixel_size}\n{x_origin}\n{y_origin}\n")
+    """World file for an image whose upper left CORNER lies at (x_origin, y_origin): it names that pixel's centre."""
+    path.write_text(f"{pixel_size}\n0.0\n0.0\n{-pixel_size}\n{x_origin + pixel_size / 2}\n{y_origin - pixel_size / 2}\n")
+
+
+def test_a_world_file_names_the_centre_of_the_upper_left_pixel():
+    from world_to_beamng.io.aerial import parse_world_file
+
+    info = parse_world_file("0.2\n0.0\n0.0\n-0.2\n471000.1\n5544999.9\n")  # Hessian DOP20
+
+    assert (info["x_origin"], info["y_origin"]) == (pytest.approx(471000.0, abs=1e-6), pytest.approx(5545000.0, abs=1e-6))  # the corner
 
 
 # ---------------------------------------------------------------- loose files
@@ -91,7 +100,7 @@ def _write_jpeg(path, size=(5, 5)):
 
 def test_loose_jpeg_with_jgw_is_recognised(tmp_path):
     _write_jpeg(tmp_path / "dop20_32_471_5544_1_he.jpg")
-    _write_tfw(tmp_path / "dop20_32_471_5544_1_he.jgw", 0.2, 471000.1, 5544999.9)
+    _write_tfw(tmp_path / "dop20_32_471_5544_1_he.jgw", 0.2, 471000.0, 5545000.0)
 
     images = extract_loose_images(tmp_path)
 
@@ -107,7 +116,7 @@ def test_loose_jpeg_with_jgw_is_recognised(tmp_path):
 ])
 def test_world_files_follow_the_esri_naming(tmp_path, image, sidecar):
     _write_jpeg(tmp_path / image)
-    _write_tfw(tmp_path / sidecar, 0.2, 471000.1, 5544999.9)
+    _write_tfw(tmp_path / sidecar, 0.2, 471000.0, 5545000.0)
 
     (entry,) = extract_loose_images(tmp_path)
 
@@ -116,7 +125,7 @@ def test_world_files_follow_the_esri_naming(tmp_path, image, sidecar):
 
 def test_jpeg_with_jgw_in_a_zip_is_recognised(tmp_path):
     jpg = _write_jpeg(tmp_path / "dop.jpg")
-    _write_tfw(tmp_path / "dop.jgw", 0.2, 471000.1, 5544999.9)
+    _write_tfw(tmp_path / "dop.jgw", 0.2, 471000.0, 5545000.0)
     with zipfile.ZipFile(tmp_path / "dop.zip", "w") as zf:
         zf.write(jpg, arcname="dop.jpg")
         zf.write(tmp_path / "dop.jgw", arcname="dop.jgw")

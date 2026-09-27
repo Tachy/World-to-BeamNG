@@ -27,13 +27,17 @@ logger = LoggerConfig.get_logger()
 
 def parse_world_file(tfw_data):
     """
-    Parses World File (.tfw) data.
+    Parses World File (.tfw, .jgw, ...) data.
+
+    A world file names the CENTRE of the upper left pixel; x_origin/y_origin are returned as its upper left CORNER,
+    like the transform of a GeoTIFF (_read_geotiff_world_info()) - taking the centre as the corner shifted every
+    world-file photo half a pixel to the south-east.
 
     Args:
-        tfw_data: Bytes or string of the .tfw file
+        tfw_data: Bytes or string of the world file
 
     Returns:
-        Dict with pixel_size_x, pixel_size_y, x_origin, y_origin
+        Dict with pixel_size_x, pixel_size_y, x_origin, y_origin (upper left pixel corner)
     """
     if isinstance(tfw_data, bytes):
         tfw_data = tfw_data.decode("utf-8")
@@ -51,8 +55,8 @@ def parse_world_file(tfw_data):
         return {
             "pixel_size_x": pixel_size_x,
             "pixel_size_y": pixel_size_y,
-            "x_origin": x_origin,
-            "y_origin": y_origin,
+            "x_origin": x_origin - pixel_size_x / 2.0,
+            "y_origin": y_origin - pixel_size_y / 2.0,  # pixel_size_y is negative: half a pixel up
         }
     except (ValueError, IndexError):
         return None
@@ -398,7 +402,7 @@ def process_aerial_images(aerial_dir, output_dir, grid_bounds, global_offset, ta
             image = enhance_dop20_image(image)
             pixel_size = abs(world_info["pixel_size_x"])
 
-            # The .tfw origin is the upper left (northwest) pixel corner.
+            # world_info origin = upper left (northwest) pixel corner (see parse_world_file())
             img_local_x = world_info["x_origin"] - offset_x
             img_local_y = world_info["y_origin"] - offset_y
 
@@ -438,7 +442,7 @@ def process_aerial_images(aerial_dir, output_dir, grid_bounds, global_offset, ta
 
 
 AERIAL_SIGNATURE_FILENAME = "aerial_photo.json"
-AERIAL_SIGNATURE_VERSION = 2
+AERIAL_SIGNATURE_VERSION = 3  # 3: world file origin is the pixel centre (half a pixel fix)
 SINGLE_PHOTO_NAME = AERIAL_PHOTO_FILENAME[: -len(".png")]  # "aerial_photo"
 
 
@@ -490,7 +494,7 @@ def process_aerial_tiles(aerial_dir, output_dir, photos, global_offset, target_p
                 image = image.resize(
                     (max(1, round(image.width * scale)), max(1, round(image.height * scale))), Image.Resampling.LANCZOS
                 )
-            img_x = world_info["x_origin"] - offset_x  # .tfw origin = upper left (northwest) pixel corner
+            img_x = world_info["x_origin"] - offset_x  # upper left (northwest) pixel corner, see parse_world_file()
             img_y = world_info["y_origin"] - offset_y
             for photo, canvas in zip(photos, canvases):
                 x_min, _, _, y_max = photo["bounds"]
