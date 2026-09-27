@@ -257,6 +257,21 @@ GUARDRAIL_EXCLUDED_HIGHWAYS = frozenset({
     "path", "footway", "cycleway", "bridleway", "steps", "pedestrian", "track", "corridor", "via_ferrata",
 })
 
+# === SIDEWALKS ===
+# Raised sidewalks with a kerb (sidewalks/) on every road side whose OSM tags name a sidewalk (sidewalk=left/right/both/
+# yes/separate, sidewalk:<side>=yes/separate) - untagged roads get none. The kerb face stands exactly at the carriageway
+# edge (width / 2), the sidewalk reaches SIDEWALK_KERB_WIDTH + SIDEWALK_WIDTH beyond it; the terrain embedding is widened
+# by the same amount on that side, so the embankment starts behind the sidewalk.
+SIDEWALKS_ENABLED = True
+SIDEWALK_WIDTH = 1.0  # walkable width behind the kerb, in meters (OSM has no sidewalk width tags on the test maps)
+SIDEWALK_KERB_WIDTH = 0.15  # kerb stone width, in meters
+SIDEWALK_KERB_HEIGHT = 0.12  # kerb/sidewalk top above the carriageway edge, in meters
+SIDEWALK_SKIRT_DEPTH = 0.3  # kerb face and outer edge reach this far below the carriageway level, in meters
+SIDEWALK_MAX_SEGMENT = 1.0  # longest mesh segment along the road, in meters
+SIDEWALK_MIN_LENGTH = 2.0  # shorter pieces (after the junction cut) are dropped, in meters
+SIDEWALK_TEXTURE_TILE_M = 2.0  # one texture repeat per this many meters on the sidewalk and kerb faces
+SIDEWALK_EXCLUDED_HIGHWAYS = GUARDRAIL_EXCLUDED_HIGHWAYS  # ways that neither get nor interrupt sidewalks
+
 # === WIDTH TRANSITIONS / ROAD MARKINGS ===
 # See docs/OSM_ROAD_ANALYSIS.md.
 # Width transition at straight-through joints of two DecalRoads (geometry/road_width_transitions.py): over 10 m,
