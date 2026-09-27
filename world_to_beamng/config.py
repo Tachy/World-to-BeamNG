@@ -230,6 +230,10 @@ ROAD_ASPHALT_TILE_PX = 1024  # strip = 3072 x 2048 px
 # remainders shorter than ROAD_DECAL_MIN_TAIL_LENGTH (m) are attached to the previous piece.
 ROAD_DECAL_MAX_AREA = 250.0
 ROAD_DECAL_MIN_TAIL_LENGTH = 5.0
+# BeamNG also groups DecalRoads by material and render priority and draws only part of a group that is too large (in game
+# 2026-09-27: one asphalt group of 302 000 m^2 only in patches, three of ~100 000 m^2 complete, 178 000 m^2 fine).
+# Every material is spread over up to ROAD_RENDER_PRIORITY_STEP neighbouring priorities so that no group exceeds this, in m^2.
+ROAD_DECAL_GROUP_MAX_AREA = 100_000.0
 
 # === GUARD RAILS ===
 # Where the finished terrain GUARDRAIL_PROBE_OFFSET beside the carriageway edge lies more than GUARDRAIL_MIN_DROP below
@@ -318,8 +322,10 @@ ROAD_MARKING_CENTER_STRUCTURES = frozenset({"tunnel", "gallery"})
 # last and lies on top (confirmed in game: lines with 20 lay under the asphalt with 8; vanilla: lines 1-2,
 # roads up to 12; Road Architect gives the carriageway decal the highest value). Carriageways get
 # ROAD_RENDER_PRIORITY_BASE - surface_types[*].priority (asphalt 12 above gravel 16 above dirt track 18), markings the
-# smallest value, right on top.
+# smallest value, right on top. Each of these levels owns ROAD_RENDER_PRIORITY_STEP priorities (level * step ... + step - 1,
+# asphalt 72-77) for the groups of ROAD_DECAL_GROUP_MAX_AREA; the highest value stays below 128 (20 * 6 + 5 = 125).
 ROAD_RENDER_PRIORITY_BASE = 20
+ROAD_RENDER_PRIORITY_STEP = 6
 ROAD_MARKING_RENDER_PRIORITY = 1
 ROAD_MARKING_JUNCTION_CLEARANCE = 0.5  # the gap in the edge line extends this far beyond the joining carriageway
 ROAD_MARKING_MIN_PIECE_LENGTH = 2.0  # shorter line remnants after the junction cut are dropped, in meters

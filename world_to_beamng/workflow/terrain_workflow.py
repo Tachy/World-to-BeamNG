@@ -1493,7 +1493,7 @@ class TerrainWorkflow:
             Number of created DecalRoad items
         """
         from ..config import OSM_MAPPER
-        from ..geometry.decal_chunks import split_decal_nodes
+        from ..geometry.decal_chunks import assign_render_priorities, decal_area, split_decal_nodes
         from ..geometry.road_width_transitions import close_continuation_gaps
 
         road_slope_polygons_2d = mesh_data["road_slope_polygons_2d"]
@@ -1517,6 +1517,7 @@ class TerrainWorkflow:
         }
 
         count = 0
+        pieces = []  # (name, nodes, material, drivability, priority level) per carriageway DecalRoad
         for (poly, props, _), nodes in zip(specs, decal_node_lists):
             if poly.get("structure_type", "surface") != "surface":
                 # Structure: only the AI road network - the visible carriageway is part of the structure mesh
@@ -1536,25 +1537,35 @@ class TerrainWorkflow:
             # config.ROAD_RENDER_PRIORITY_BASE) - higher-grade roads
             # (asphalt) therefore get the smaller value and lie above
             # lower-grade ones (dirt/concrete).
-            render_priority = config.ROAD_RENDER_PRIORITY_BASE - int(props.get("priority", 0))
+            level = config.ROAD_RENDER_PRIORITY_BASE - int(props.get("priority", 0))
 
             # Split long carriageways into pieces - BeamNG only draws a limited amount of geometry per DecalRoad (see
             # geometry/decal_chunks.py). The marking lines stay unsplit: narrow, far below the budget.
             chunks = split_decal_nodes(nodes, config.ROAD_DECAL_MAX_AREA, config.ROAD_DECAL_MIN_TAIL_LENGTH)
             for chunk_idx, chunk in enumerate(chunks):
                 name = f"road_{poly.get('road_id')}" if len(chunks) == 1 else f"road_{poly.get('road_id')}_{chunk_idx}"
-                self.items.add_decal_road(
-                    name=name,
-                    nodes=chunk,
-                    material=mat_name,
-                    drivability=props.get("drivability", 1.0),
-                    overwrite=True,
-                    autoLanes=True,
-                    autoJunction=True,
-                    improvedSpline=True,
-                    renderPriority=render_priority,
-                )
-                count += 1
+                pieces.append((name, chunk, mat_name, props.get("drivability", 1.0), level))
+
+        # BeamNG also has a budget per (material, render priority) group: spread every material over several
+        # neighbouring priorities so that no group gets too large (see geometry/decal_chunks.py)
+        priorities = assign_render_priorities(
+            [(mat, level, decal_area(chunk)) for _, chunk, mat, _, level in pieces],
+            config.ROAD_DECAL_GROUP_MAX_AREA,
+            config.ROAD_RENDER_PRIORITY_STEP,
+        )
+        for (name, chunk, mat_name, drivability, _), render_priority in zip(pieces, priorities):
+            self.items.add_decal_road(
+                name=name,
+                nodes=chunk,
+                material=mat_name,
+                drivability=drivability,
+                overwrite=True,
+                autoLanes=True,
+                autoJunction=True,
+                improvedSpline=True,
+                renderPriority=render_priority,
+            )
+            count += 1
 
         road_material_entries = [
             OSM_MAPPER.generate_materials_json_entry(mat_name, props) for mat_name, props in unique_materials.items()

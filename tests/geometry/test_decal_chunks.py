@@ -70,3 +70,44 @@ def test_every_chunk_has_at_least_two_nodes_even_with_sparse_nodes():
 
     assert all(len(c) >= 2 for c in chunks)
     assert chunks[0][0] == nodes[0] and chunks[-1][-1] == nodes[-1]
+
+
+# ---------------------------------------------------------------- render priority groups
+
+from world_to_beamng.geometry.decal_chunks import assign_render_priorities
+
+
+def test_one_small_group_keeps_the_first_priority_of_its_level():
+    priorities = assign_render_priorities([("asphalt", 12, 5000.0)] * 4, max_group_area=100_000.0, step=6)
+
+    assert priorities == [72] * 4  # level 12 x step 6
+
+
+def test_a_material_is_spread_so_that_no_group_exceeds_the_budget():
+    # 3000 asphalt pieces of 100 m^2 = 300 000 m^2 -> 3 groups (like the in-game test: 3 x 100 000 m^2 all visible)
+    entries = [("asphalt", 12, 100.0)] * 3000
+
+    priorities = assign_render_priorities(entries, max_group_area=100_000.0, step=6)
+
+    groups = {p: sum(a for (_, _, a), q in zip(entries, priorities) if q == p) for p in set(priorities)}
+    assert sorted(groups) == [72, 73, 74]
+    assert max(groups.values()) <= 100_000.0
+
+
+def test_the_surface_order_is_kept_between_levels():
+    entries = [("asphalt", 12, 60_000.0)] * 5 + [("gravel", 16, 60_000.0)] * 5 + [("dirt", 18, 1000.0)]
+
+    priorities = assign_render_priorities(entries, max_group_area=100_000.0, step=6)
+
+    asphalt, gravel, dirt = priorities[:5], priorities[5:10], priorities[10]
+    assert max(asphalt) < min(gravel) < dirt  # smaller value = drawn later = on top: asphalt above gravel above dirt
+    assert max(priorities) <= 127
+
+
+def test_more_groups_than_the_step_allows_are_capped_and_reported(caplog):
+    entries = [("dirt", 18, 100_000.0)] * 8  # needs 8 groups, the level has room for 6
+
+    priorities = assign_render_priorities(entries, max_group_area=100_000.0, step=6)
+
+    assert set(priorities) == set(range(108, 114))
+    assert "dirt" in caplog.text
