@@ -518,7 +518,7 @@ GALLERY_CURB_WIDTH = 0.4  # width of the plinth (beyond the carriageway edge, ou
 #   a smooth, short blend into the terrain.
 GALLERY_VALLEY_SLOPE_WIDTH = 5.0  # minimum embankment width on the valley side, in meters
 # Search the valley-side reference behind the gallery roof in the DGM
-# (terrain_workflow._gallery_valley_slope_widths()): downvalley to the first point with lower terrain (at most
+# (terrain_structures._gallery_valley_slope_widths()): downvalley to the first point with lower terrain (at most
 # STRUCTURE_HEIGHT above the carriageway) - that is the reference.
 # 0: only terrain below the carriageway counts; with +2 m the reference was often still at the steep roof edge in the
 # DGM.

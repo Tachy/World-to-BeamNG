@@ -111,7 +111,7 @@ def test_export_decal_roads_still_works_without_a_structure_type_field():
 
 
 def test_invisible_road_material_is_alpha_tested_like_vanilla_road_invisible():
-    from world_to_beamng.workflow.terrain_workflow import _invisible_road_material
+    from world_to_beamng.workflow.terrain_roads import _invisible_road_material
 
     entry = _invisible_road_material("structure_road_invisible")
 
@@ -129,7 +129,7 @@ def _line(*points):
 
 
 def test_gallery_and_approach_road_end_flush_at_the_same_line():
-    from world_to_beamng.workflow.terrain_workflow import _gallery_embankment_cuts
+    from world_to_beamng.workflow.terrain_structures import _gallery_embankment_cuts
 
     road = _line((-30.0, 0.0), (0.0, 0.0))
     gallery = _line((0.0, 0.0), (50.0, 0.0))
@@ -143,7 +143,7 @@ def test_gallery_and_approach_road_end_flush_at_the_same_line():
 
 
 def test_kinked_transition_is_cut_on_the_bisector_so_no_wedge_stays_open():
-    from world_to_beamng.workflow.terrain_workflow import _gallery_embankment_cuts
+    from world_to_beamng.workflow.terrain_structures import _gallery_embankment_cuts
 
     road = _line((-30.0, -30.0), (0.0, 0.0))  # reaches the gallery at 45 degrees
     gallery = _line((50.0, 0.0), (0.0, 0.0))  # digitized toward the road
@@ -158,7 +158,7 @@ def test_kinked_transition_is_cut_on_the_bisector_so_no_wedge_stays_open():
 
 
 def test_roads_away_from_galleries_keep_their_round_end_caps():
-    from world_to_beamng.workflow.terrain_workflow import _gallery_embankment_cuts
+    from world_to_beamng.workflow.terrain_structures import _gallery_embankment_cuts
 
     road = _line((100.0, 0.0), (130.0, 0.0))
     gallery = _line((0.0, 0.0), (50.0, 0.0))
@@ -171,7 +171,7 @@ def test_roads_away_from_galleries_keep_their_round_end_caps():
 def test_bridge_footprint_covers_deck_curbs_and_margin():
     from shapely.geometry import Polygon
 
-    from world_to_beamng.workflow.terrain_workflow import _bridge_footprints
+    from world_to_beamng.workflow.terrain_structures import _bridge_footprints
 
     bridge = {
         "road_polygon": np.array([[0.0, -3.25], [40.0, -3.25], [40.0, 3.25], [0.0, 3.25]]),
@@ -186,7 +186,7 @@ def test_bridge_footprint_covers_deck_curbs_and_margin():
 
 
 def test_gets_decal_road_skips_a_tunnel_piece_that_belonged_to_a_dropped_pass_through_chain():
-    from world_to_beamng.workflow.terrain_workflow import _gets_decal_road
+    from world_to_beamng.workflow.terrain_roads import _gets_decal_road
 
     road = {"structure_type": "tunnel", "road_id": 5, "osm_tags": {"highway": "trunk"}}
 
@@ -196,7 +196,7 @@ def test_gets_decal_road_skips_a_tunnel_piece_that_belonged_to_a_dropped_pass_th
 
 
 def test_dropped_tunnel_road_ids_is_every_piece_of_a_chain_that_did_not_survive_filtering():
-    from world_to_beamng.workflow.terrain_workflow import _dropped_tunnel_road_ids
+    from world_to_beamng.workflow.terrain_structures import _dropped_tunnel_road_ids
 
     all_ids = {1, 2, 3, 4}  # chain A = pieces 1+2 (dropped), chain B = piece 3 (kept), piece 4 (kept, single)
     kept_plans = [{"id": 3, "piece_ids": [3]}, {"id": 4, "piece_ids": [4]}]
@@ -208,7 +208,7 @@ def test_bridge_photo_areas_cover_deck_curbs_and_the_photo_margin(monkeypatch):
     from shapely.geometry import Polygon
 
     from world_to_beamng import config
-    from world_to_beamng.workflow.terrain_workflow import _bridge_photo_areas
+    from world_to_beamng.workflow.terrain_structures import _bridge_photo_areas
 
     monkeypatch.setattr(config, "AERIAL_BRIDGE_RETOUCH", True)
     monkeypatch.setattr(config, "BRIDGE_CURB_WIDTH", 0.4)
@@ -228,7 +228,7 @@ def test_bridge_photo_areas_cover_deck_curbs_and_the_photo_margin(monkeypatch):
 
 def test_road_width_specs_start_a_split_branch_with_its_slot_width():
     from world_to_beamng import config
-    from world_to_beamng.workflow.terrain_workflow import _road_width_specs
+    from world_to_beamng.workflow.terrain_roads import _road_width_specs
 
     def poly(road_id, coords, **extra):
         centerline = np.array([(x, y, 100.0) for x, y in coords])
@@ -248,7 +248,7 @@ def test_road_width_specs_start_a_split_branch_with_its_slot_width():
 
 
 def test_bridge_groups_join_the_bridges_of_a_lane_split_and_their_nearby_continuations():
-    from world_to_beamng.workflow.terrain_workflow import _bridge_groups
+    from world_to_beamng.workflow.terrain_structures import _bridge_groups
 
     def bridge(road_id, coords, **extra):
         return {"road_id": road_id, "structure_type": "bridge", "trimmed_centerline": np.array([(x, y, 100.0) for x, y in coords]), **extra}
@@ -268,7 +268,7 @@ def test_bridge_groups_join_the_bridges_of_a_lane_split_and_their_nearby_continu
 
 
 def test_bridge_stems_only_where_the_trunk_itself_is_a_bridge():
-    from world_to_beamng.workflow.terrain_workflow import _bridge_stems
+    from world_to_beamng.workflow.terrain_structures import _bridge_stems
 
     node = (0.0, 0.0)
     mark = {"node": node, "hold": 12.0, "stem_length": 30.0, "trunk_width": 13.0,
@@ -286,7 +286,7 @@ def test_bridge_stems_only_where_the_trunk_itself_is_a_bridge():
 
 def test_bridge_photo_areas_are_empty_when_the_retouch_is_switched_off(monkeypatch):
     from world_to_beamng import config
-    from world_to_beamng.workflow.terrain_workflow import _bridge_photo_areas
+    from world_to_beamng.workflow.terrain_structures import _bridge_photo_areas
 
     monkeypatch.setattr(config, "AERIAL_BRIDGE_RETOUCH", False)
     bridge = {

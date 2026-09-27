@@ -333,7 +333,7 @@ def build_road_embankment_profiles(
     Optional field per road dict: "embankment_cuts" - [(point_xy, outward_normal_xy), ...]: the embankment ends flush
     at these lines (cells on the outward side are not touched). Without a cut the corridor of the first/last edge
     point reaches around the road end like a round cap - at a gallery end that cap overwrote the approach road's
-    embankment with the gallery's valley-side slope (pit beside the road, see terrain_workflow._gallery_embankment_cuts()).
+    embankment with the gallery's valley-side slope (pit beside the road, see terrain_structures._gallery_embankment_cuts()).
 
     Optional field per road dict: "slope_width_override" (dict, keys "left"/"right", value = fixed
     embankment width in meters, as a number or as an array per centerline point) - replaces the computed

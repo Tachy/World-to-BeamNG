@@ -20,7 +20,7 @@ def build_marking_meshes(lines: Sequence[Dict], texture_lengths: Mapping[str, fl
     One mesh per marking line.
 
     Args:
-        lines: [{"name", "material", "nodes": [[x, y, z, width], ...]}, ...] (see terrain_workflow._road_marking_lines())
+        lines: [{"name", "material", "nodes": [[x, y, z, width], ...]}, ...] (see terrain_roads._road_marking_lines())
         texture_lengths: material -> textureLength of the marking decal, in meters
         lift: height of the strip above the line nodes, in meters
 

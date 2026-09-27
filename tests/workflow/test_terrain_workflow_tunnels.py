@@ -13,7 +13,8 @@ import pytest
 from world_to_beamng import config
 from world_to_beamng.textures import registry
 from world_to_beamng.tunnels.tunnel_portal import plan_tunnels
-from world_to_beamng.workflow.terrain_workflow import TerrainWorkflow, _structure_items
+from world_to_beamng.workflow.terrain_workflow import TerrainWorkflow
+from world_to_beamng.workflow.terrain_structures import _structure_items
 
 
 class _Items:
@@ -153,7 +154,8 @@ def test_build_tunnels_skips_surface_and_bridge_roads():
 
 from types import SimpleNamespace
 
-from world_to_beamng.workflow.terrain_workflow import TerrainWorkflow, _plan_tunnels
+from world_to_beamng.workflow.terrain_workflow import TerrainWorkflow
+from world_to_beamng.workflow.terrain_structures import _plan_tunnels
 
 
 def _structure(road_id, coords, **tags):
@@ -193,7 +195,7 @@ def test_gallery_at_a_transition_keeps_its_end_cap_in_the_workflow():
 
 def test_roadblocks_are_placed_on_the_ground_and_exported_as_barrier_statics():
     from world_to_beamng import config
-    from world_to_beamng.workflow.terrain_workflow import _roadblock_items
+    from world_to_beamng.workflow.terrain_structures import _roadblock_items
 
     roads = [_structure(1, [(100.0, 0.0, 500.0), (400.0, 0.0, 500.0)], tunnel="yes")]  # end outside the map
     plans = _plan_tunnels(roads)
@@ -218,7 +220,7 @@ def test_roadblocks_are_placed_on_the_ground_and_exported_as_barrier_statics():
 
 
 def test_tunnel_zones_are_planned_from_the_config_and_exported_as_zone_objects():
-    from world_to_beamng.workflow.terrain_workflow import _tunnel_zone_items
+    from world_to_beamng.workflow.terrain_structures import _tunnel_zone_items
 
     # 300 m: long enough for the entrance insets (config.TUNNEL_ZONE_ENTRANCE_INSET) at both open portals
     roads = [
@@ -245,7 +247,7 @@ def test_tunnel_zones_are_planned_from_the_config_and_exported_as_zone_objects()
 
 
 def test_tunnel_lights_are_planned_from_the_config_and_exported_as_spotlights():
-    from world_to_beamng.workflow.terrain_workflow import _tunnel_light_items
+    from world_to_beamng.workflow.terrain_structures import _tunnel_light_items
 
     roads = [_structure(1, [(0.0, 0.0, 500.0), (100.0, 0.0, 500.0)], tunnel="yes")]
     plans = _plan_tunnels(roads)
@@ -268,7 +270,7 @@ def test_tunnel_lights_are_planned_from_the_config_and_exported_as_spotlights():
 
 def test_untagged_gallery_embankment_uses_the_terrain_valley_side():
     from world_to_beamng import config
-    from world_to_beamng.workflow.terrain_workflow import _gallery_embedding
+    from world_to_beamng.workflow.terrain_structures import _gallery_embedding
 
     road = _structure(2, [(-50.0, 0.0, 500.0), (0.0, 0.0, 500.0)], covered="yes", layer="-1")
     ground_at = lambda x, y: 500.0 + 1.0 * np.asarray(y, float)  # travel direction +x: valley on the right (-y)
@@ -288,7 +290,7 @@ def test_gallery_valley_embankment_reaches_past_the_roof_the_dgm_still_shows():
     # reference 5 m behind the edge (8.25 m) would still lie on the roof -> terrain spike downhill (long gallery
     # Nuova strada). The reference is searched downhill until the DGM drops below the roof level.
     from world_to_beamng import config
-    from world_to_beamng.workflow.terrain_workflow import _gallery_embedding
+    from world_to_beamng.workflow.terrain_structures import _gallery_embedding
 
     road = _structure(2, [(-50.0, 0.0, 500.0), (0.0, 0.0, 500.0)], covered="yes", layer="-1")
     half = config.OSM_MAPPER.get_road_properties(road["osm_tags"])["width"] / 2.0
@@ -308,7 +310,7 @@ def test_gallery_valley_embankment_reaches_past_the_roof_the_dgm_still_shows():
 
 def test_gallery_valley_embankment_keeps_the_minimum_width_when_the_valley_side_is_higher():
     from world_to_beamng import config
-    from world_to_beamng.workflow.terrain_workflow import _gallery_embedding
+    from world_to_beamng.workflow.terrain_structures import _gallery_embedding
 
     road = _structure(2, [(-50.0, 0.0, 500.0), (0.0, 0.0, 500.0)], covered="yes", layer="-1")
     ground_at = lambda x, y: 500.0 + 30.0 + 0.1 * np.asarray(y, float)  # everything far above the road surface
@@ -321,7 +323,7 @@ def test_gallery_valley_embankment_keeps_the_minimum_width_when_the_valley_side_
 @pytest.mark.parametrize("highway", ["path", "footway", "steps", "bridleway", "pedestrian", "construction"])
 def test_tunnels_of_footpaths_and_non_roads_are_not_built(highway):
     # In the mountains there are "tunnels" for paths (fortress galleries) - only roads and cycleways get a tunnel
-    from world_to_beamng.workflow.terrain_workflow import _plan_tunnels
+    from world_to_beamng.workflow.terrain_structures import _plan_tunnels
 
     roads = [_structure(1, [(0.0, 0.0, 500.0), (100.0, 0.0, 500.0)], tunnel="yes", highway=highway)]
 
@@ -330,7 +332,7 @@ def test_tunnels_of_footpaths_and_non_roads_are_not_built(highway):
 
 @pytest.mark.parametrize("highway", ["primary", "track", "cycleway", "service"])
 def test_tunnels_of_roads_and_cycleways_are_built(highway):
-    from world_to_beamng.workflow.terrain_workflow import _plan_tunnels
+    from world_to_beamng.workflow.terrain_structures import _plan_tunnels
 
     roads = [_structure(1, [(0.0, 0.0, 500.0), (100.0, 0.0, 500.0)], tunnel="yes", highway=highway)]
 

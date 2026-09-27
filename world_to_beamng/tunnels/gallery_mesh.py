@@ -63,7 +63,7 @@ def gallery_open_side(osm_tags: Dict, coords, ground_at: HeightAt, width: float)
     """
     Open (valley) side of a gallery in digitization direction: from `avalanche_protector:left/right=open`, otherwise from
     the terrain comparison (sum of valley_score() over the whole gallery, >= 0 -> "right"). ONE place for the gallery
-    mesh and the embankment (terrain_workflow), so that both take the same side.
+    mesh and the embankment (workflow/terrain_structures.py), so that both take the same side.
     """
     tagged = resolve_open_side(osm_tags or {})
     if tagged:
@@ -401,7 +401,7 @@ def build_galleries(
             column_spacing=column_spacing, roof_thickness=roof_thickness, floor_thickness=floor_thickness,
             wall_thickness=wall_thickness, column_size=column_size, curb_height=curb_height, curb_width=curb_width,
             road_texture_length=road_texture_length,
-            # Default from the embankment logic (terrain_workflow._gallery_embedding), otherwise tag or terrain
+            # Default from the embankment logic (terrain_structures._gallery_embedding), otherwise tag or terrain
             open_side=gallery.get("open_side") or resolve_open_side(gallery.get("osm_tags", {})),
         )
         meshes.append({"id": f"gallery_{gallery['id']}", **mesh})
