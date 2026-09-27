@@ -104,11 +104,20 @@ class FacadeMapper:
             return FacadeMesh.empty(plaster)
 
         points = np.vstack(rings)
-        z_base, z_eave = float(points[:, 2].min()), self._eave_z(building, points)
+        # Ground level: the lowest wall point (LoD2 walls start on the terrain), or the terrain itself where the source
+        # models the body deeper into the ground ("wall_ground" per wall, see attach_wall_ground())
+        wall_ground = building.get("wall_ground")
+        z_base = float(points[:, 2].min())
+        if wall_ground:
+            z_base = max(z_base, float(min(wall_ground)))
+        z_eave = self._eave_z(building, points)
         storeys, remainder = self._storeys(z_eave - z_base)
         normals = [newell_normal(ring) for ring in rings]
         flips = self._rings_point_inward(rings, normals, points)
         walls = self._build_walls(building["walls"], rings, normals, flips)
+        if wall_ground:
+            for wall in walls:
+                wall.min_z = max(wall.min_z, float(wall_ground[wall.index]))
         tower = set(building.get("tower_walls", ()))
         for wall in walls:
             if wall.index in tower:

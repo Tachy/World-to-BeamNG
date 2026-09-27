@@ -62,7 +62,7 @@ ITEMS_JSON = Path("main") / "MissionGroup" / "items.level.json"  # items in the 
 MATERIALS_JSON = Path("main") / "materials.json"  # contains material definitions
 
 # Flow control
-LOD2_ENABLED = False  # process LoD2 buildings
+LOD2_ENABLED = True  # process LoD2 buildings
 PHASE5_ENABLED = True  # enable the horizon layer (requires DGM30 + DOP300 data)
 FORESTS_ENABLED = True  # enable/disable forest export globally
 
@@ -643,7 +643,23 @@ MINIMAP_PIXEL_SIZE = 2048  # edge length of the minimap in pixels, independent o
 CACHE_DIR = Path("cache")  # directory for cache files
 HEIGHT_DATA_DIR = Path("data/height")  # directory with elevation data (DGM1)
 AERIAL_DATA_DIR = Path("data/satellite")  # directory with aerial photos (DOP20)
-LOD2_DATA_DIR = Path("data/buildings")  # directory with 3D building models (LoD2/CityGML)
+LOD2_DATA_DIR = Path("data/buildings")  # directory with 3D building models (LoD2 CityGML ZIPs or swissBUILDINGS3D DXF)
+# swissBUILDINGS3D 2.0 (DXF): object type (layer) -> how it is built. "building" = facade/roof pipeline (open
+# buildings and canopies mostly have just a roof), "wall" = rubble stone like the OSM walls, None = left out.
+# Layers not listed count as "building".
+SWISSBUILDINGS_LAYER_KINDS = {
+    "Gebaeude Einzelhaus": "building",
+    "Sakrales Gebaeude": "building",
+    "Kapelle": "building",
+    "Sakraler Turm": "building",
+    "Im Bau": "building",
+    "Offenes Gebaeude": "building",
+    "Flugdach": "building",
+    "Lagertank": "building",
+    "Mauer gross": "wall",
+    "Unterirdisches Gebaeude": None,
+    "Gebaeude unsichtbar": None,
+}
 # 30 m elevation data for the horizon: ALWAYS downloaded fully automatically from Copernicus (dgm30_fetch.py),
 # never placed manually - therefore belongs under cache/ (always safe to delete/reload),
 # not under data/ (which stays for self-supplied raw data such as elevation/aerial photo/buildings).

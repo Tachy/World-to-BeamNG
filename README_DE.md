@@ -17,7 +17,7 @@ Bäche und Teiche, Gebäude und einen Horizont. Alpha-Status, in Entwicklung.
 | **Wald, Einzelbäume, Weinberge, Bodenbewuchs** | OpenStreetMap |
 | **Bäche und Teiche** (`River`, `WaterBlock`) | OpenStreetMap + DGM1 |
 | **Bruchsteinmauern** (50 cm dick, Steinplatten oben drauf, folgen dem Gelände; neben einer Straße stehen sie auf deren Centerline-Höhe) für `barrier=wall`/`retaining_wall` mit `height`-Tag | OpenStreetMap + DGM1 |
-| **Gebäude** aus LOD2: verputzte Wände in Weiß/Beige/vereinzelt Rot, Fenster, Türen, Kellerfenster, Dächer mit Überstand, Kies auf Flachdächern, Kirchtürme mit Turmuhr | LOD2 (+ OpenStreetMap für Kirchen) |
+| **Gebäude** aus LOD2 oder swissBUILDINGS3D: verputzte Wände in Weiß/Beige/vereinzelt Rot, Fenster, Türen, Kellerfenster, Dächer mit Überstand, Kies auf Flachdächern, Kirchtürme mit Turmuhr | LOD2-CityGML oder swissBUILDINGS3D-DXF (+ OpenStreetMap für Kirchen) |
 | **Horizont** bis 50 km (optional) | DGM30 + Satellitenbild |
 
 ## 📋 Voraussetzungen
@@ -28,7 +28,7 @@ Bäche und Teiche, Gebäude und einen Horizont. Alpha-Status, in Entwicklung.
 | BeamNG.drive | installiert und **mindestens einmal gestartet** (legt den Benutzerordner an) |
 | Python | **3.11 oder neuer**, getestet mit 3.13 |
 | Internet | für OpenStreetMap (Overpass API) und den einmaligen Download von `texconv.exe` |
-| Gebiet | Jede Region mit georeferenziertem GeoTIFF-Höhenmodell und -Orthophoto: CRS und Ausdehnung werden automatisch aus dem Dateiinhalt erkannt, kein festes Namensschema oder feste Kachelgröße nötig. Reine ASCII-XYZ-Punktwolken in einem ZIP (das LGL-Baden-Württemberg-Format) werden genauso am Inhalt statt am Namen erkannt (siehe „Daten aus anderen Regionen verwenden" unten). Gebäude (LoD2/CityGML) bleiben Baden-Württemberg-spezifisch und müssen anderswo deaktiviert werden (`LOD2_ENABLED = False`). |
+| Gebiet | Jede Region mit georeferenziertem GeoTIFF-Höhenmodell und -Orthophoto: CRS und Ausdehnung werden automatisch aus dem Dateiinhalt erkannt, kein festes Namensschema oder feste Kachelgröße nötig. Reine ASCII-XYZ-Punktwolken in einem ZIP (das LGL-Baden-Württemberg-Format) werden genauso am Inhalt statt am Namen erkannt (siehe „Daten aus anderen Regionen verwenden" unten). Gebäude werden aus LoD2-CityGML (Baden-Württemberg) oder swissBUILDINGS3D 2.0 als DXF (Schweiz) gelesen, ebenfalls am Inhalt erkannt; anderswo deaktivieren (`LOD2_ENABLED = False`). |
 | Speicher | pro 2×2-km-Kachel etwa 250 MB Rohdaten (siehe unten) plus Cache und Ergebnis |
 
 ## 🚀 Schnellstart
@@ -92,7 +92,7 @@ Luftbild, meldet der Export einen Fehler im Log.
 
 | Ordner | Inhalt | Dateiname | Wenn es fehlt |
 |---|---|---|---|
-| `data/buildings/` | 3D-Gebäudemodelle LoD2 (ZIP mit CityGML) | `LoD2_32_<x>_<y>_2_bw.zip` | keine Gebäude (`LOD2_ENABLED`) |
+| `data/buildings/` | 3D-Gebäudemodelle: LoD2 (ZIP mit CityGML) oder swissBUILDINGS3D 2.0 (DXF, lose oder im ZIP) | beliebig, Erkennung am Inhalt | keine Gebäude (`LOD2_ENABLED`) |
 
 Fertiges Beispiel-Layout:
 
@@ -151,8 +151,9 @@ genutzt:
 - Die Quell-CRS wird automatisch aus den GeoTIFFs erkannt; `config.SOURCE_CRS_EPSG` ist nur der Fallback für
   Höhendaten ohne eingebettetes CRS (reine ASCII-XYZ-Punktwolken, z. B. das LGL-BW-Format) und wird sonst ignoriert.
   Weicht das CRS des Orthophotos vom CRS der Höhendaten ab, wird es automatisch umprojiziert.
-- `LOD2_ENABLED = False` in `config.py` setzen - Gebäude (LoD2/CityGML) bleiben spezifisch für das
-  Baden-Württemberg-CityGML-1.0-Schema.
+- Gebäude: LoD2-CityGML 1.0 (Baden-Württemberg-Schema) und swissBUILDINGS3D 2.0 als DXF werden unterstützt; für
+  andere Quellen `LOD2_ENABLED = False` in `config.py` setzen. swissBUILDINGS3D bringt die Dachüberstände schon mit,
+  für einen solchen Import wird keiner berechnet.
 - Höhendaten-GeoTIFFs in unterschiedlichen CRS lassen sich mischen: Die Fläche wird im CRS der meisten Kacheln
   verarbeitet, die übrigen werden automatisch umprojiziert. Der Horizont-Auto-Download (DGM30/Satellitenbild) bleibt
   weltweit nutzbar (siehe „Horizont" oben).

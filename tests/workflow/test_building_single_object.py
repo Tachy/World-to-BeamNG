@@ -83,6 +83,9 @@ def test_dae_is_written_under_the_single_name(tmp_path, monkeypatch):
     import world_to_beamng.builders as builders
 
     class _Builder:
+        def __init__(self, compute_overhang=True):
+            pass
+
         def with_buildings(self, b):
             return self
 

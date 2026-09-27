@@ -1,14 +1,15 @@
 """
 LoD2 building data processing for BeamNG.
 
-Loads 3D building models from CityGML files (LGL Baden-Württemberg),
-transforms them into the local coordinate system and exports them
-as TSStatic objects for BeamNG.
+Loads 3D building models, transforms them into the local coordinate system and exports them as TSStatic objects for
+BeamNG. The format is recognised from the file contents:
+- CityGML 1.0 in ZIP archives (LGL Baden-Württemberg, 2 km x 2 km tiles)
+- swissBUILDINGS3D 2.0 DXF, loose or in ZIP archives (see io/swissbuildings_dxf.py)
 
-Format: CityGML 2km x 2km tiles in ZIP archives
 Output: .dae files per tile + main.items.json entries
 """
 
+import hashlib
 import pickle
 from pathlib import Path
 from typing import List, Dict, Tuple
@@ -176,6 +177,42 @@ def _extract_surface_geometry(
     return geometries
 
 
+# Polygon lists of a building dict: [(verts (N, 3), faces), ...]
+GEOMETRY_KEYS = ("walls", "roofs", "soffits", "fascias", "stone")
+
+# Version of the cached building format: part of the cache name, so a cache written by an older reader is rebuilt
+# (2: swissBUILDINGS3D DXF, extra keys kept)
+LOD2_CACHE_FORMAT = 2
+
+
+def building_source_files(lod2_dir) -> List[Path]:
+    """All building files in the directory: ZIP archives (CityGML or DXF inside) and loose DXF files."""
+    path = Path(lod2_dir)
+    if not path.exists():
+        return []
+    return sorted(p for p in path.iterdir() if p.is_file() and p.suffix.lower() in (".zip", ".dxf"))
+
+
+def lod2_cache_file(lod2_dir, cache_dir, height_hash: str) -> Path:
+    """Cache file of the normalized buildings: terrain area (height_hash), building files (name, size, modification
+    time) and cache format - new or changed building files give a new cache instead of the old buildings."""
+    files = building_source_files(lod2_dir)
+    signature = f"v{LOD2_CACHE_FORMAT}|" + "|".join(f"{f.name}:{f.stat().st_size}:{int(f.stat().st_mtime)}" for f in files)
+    return Path(cache_dir) / f"lod2_{height_hash}_{hashlib.sha1(signature.encode('utf-8')).hexdigest()[:10]}.pkl"
+
+
+def load_buildings_from_file(path: Path) -> List[Dict]:
+    """Raw buildings (source CRS) of one building file; the format is recognised from its contents."""
+    from .swissbuildings_dxf import is_dxf_source, load_swissbuildings
+
+    if is_dxf_source(path):
+        return load_swissbuildings(path)
+    buildings = []
+    for gml_root in load_citygml_from_zip(path):
+        buildings.extend(parse_citygml_buildings(gml_root, None))
+    return buildings
+
+
 def normalize_buildings_full(
     buildings: List[Dict],
     local_offset: Tuple[float, float, float],
@@ -202,40 +239,27 @@ def normalize_buildings_full(
     normalized = []
 
     for building in buildings:
-        # Copy the building structure
-        building_norm = {
-            "id": building.get("id"),
-            "walls": [],
-            "roofs": [],
-            "bounds": building.get("bounds"),
-        }
+        # Copy the building structure (other keys such as "kind" or "overhang_modeled" are kept as they are)
+        building_norm = {key: value for key, value in building.items() if key not in GEOMETRY_KEYS}
+        building_norm["walls"], building_norm["roofs"] = [], []
 
-        # Normalize all wall vertices
-        for verts, faces in building.get("walls", []):
-            # Verts: (N, 3) array - convert to float for subtraction
-            verts_norm = np.asarray(verts, dtype=np.float64).copy()
-            verts_norm[:, 0] -= ox
-            verts_norm[:, 1] -= oy
-            verts_norm[:, 2] -= oz
-            building_norm["walls"].append((verts_norm, faces))
-
-        # Normalize all roof vertices
-        for verts, faces in building.get("roofs", []):
-            # Verts: (N, 3) array - convert to float for subtraction
-            verts_norm = np.asarray(verts, dtype=np.float64).copy()
-            verts_norm[:, 0] -= ox
-            verts_norm[:, 1] -= oy
-            verts_norm[:, 2] -= oz
-            building_norm["roofs"].append((verts_norm, faces))
+        # Normalize all polygon vertices (walls, roofs and, from swissBUILDINGS3D, the modelled overhang)
+        for key in GEOMETRY_KEYS:
+            if key not in building:
+                continue
+            building_norm[key] = []
+            for verts, faces in building[key]:
+                # Verts: (N, 3) array - convert to float for subtraction
+                verts_norm = np.asarray(verts, dtype=np.float64).copy()
+                verts_norm[:, 0] -= ox
+                verts_norm[:, 1] -= oy
+                verts_norm[:, 2] -= oz
+                building_norm[key].append((verts_norm, faces))
 
         # IMPORTANT: RECOMPUTE bounds from the normalized vertices!
         # (Do not simply subtract the offset, since parse_citygml_buildings has already
         # partially normalized X/Y)
-        all_normalized_verts = []
-        for verts, _ in building_norm["walls"]:
-            all_normalized_verts.append(verts)
-        for verts, _ in building_norm["roofs"]:
-            all_normalized_verts.append(verts)
+        all_normalized_verts = [verts for key in GEOMETRY_KEYS for verts, _ in building_norm.get(key, [])]
 
         if all_normalized_verts:
             all_verts_combined = np.vstack(all_normalized_verts)
@@ -284,9 +308,8 @@ def cache_lod2_buildings(
 
     bbox_utm = (min_x_utm, min_y_utm, max_x_utm, max_y_utm)
 
-    # Cache key: use height_hash (tile_hash) directly for uniform consistency
-    # All cache files for this tile (OSM, LoD2, elevations, grid) use the same hash
-    cache_file = Path(cache_dir) / f"lod2_{height_hash}.pkl"
+    # Cache key: the terrain area (height_hash, like the other caches of this area) plus the building files
+    cache_file = lod2_cache_file(lod2_dir, cache_dir, height_hash)
 
     if cache_file.exists():
         logger.debug(f"  [i] LoD2 cache found: {cache_file.name}")
@@ -299,27 +322,22 @@ def cache_lod2_buildings(
         logger.error(f"  [!] LoD2 directory not found: {lod2_dir}")
         return None
 
-    # Collect all ZIP files
-    zip_files = list(lod2_path.glob("*.zip"))
-    if not zip_files:
-        logger.error(f"  [!] No ZIP files found in {lod2_dir}")
+    # Collect all building files (ZIP archives and loose DXF files)
+    source_files = building_source_files(lod2_path)
+    if not source_files:
+        logger.error(f"  [!] No building files (ZIP/DXF) found in {lod2_dir}")
         return None
 
-    logger.debug(f"  [i] {len(zip_files)} ZIP archives found")
+    logger.debug(f"  [i] {len(source_files)} building file(s) found")
 
     # CENTRAL PIPELINE: parse → bbox filter (UTM) → normalization (ONCE!)
     all_buildings_raw_utm = []  # RAW UTM buildings before filtering
-    total_parsed = 0
 
-    # PHASE 1: Parse all buildings from the ZIPs (RAW UTM coordinates)
-    for zip_path in zip_files:
-        gml_roots = load_citygml_from_zip(zip_path)
-        for gml_root in gml_roots:
-            buildings_raw = parse_citygml_buildings(gml_root, None)
-            all_buildings_raw_utm.extend(buildings_raw)
-            total_parsed += len(buildings_raw)
+    # PHASE 1: Parse all buildings from the files (RAW UTM coordinates), format recognised per file
+    for source_file in source_files:
+        all_buildings_raw_utm.extend(load_buildings_from_file(source_file))
 
-    logger.debug(f"  [i] {total_parsed} buildings parsed from ZIPs")
+    logger.debug(f"  [i] {len(all_buildings_raw_utm)} buildings parsed")
 
     # PHASE 2: bbox filtering in UTM coordinates (BEFORE normalization!)
     buildings_in_bbox_utm = []

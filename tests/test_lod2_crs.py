@@ -27,14 +27,16 @@ def test_cache_lod2_buildings_uses_the_central_transformer_and_hits_cache_withou
     cache_dir = tmp_path / "cache"
     cache_dir.mkdir()
     height_hash = "regressiontest"
-    (cache_dir / f"lod2_{height_hash}.pkl").write_bytes(b"")  # cache hit, no real LoD2 directory needed
+    lod2_dir = tmp_path / "does_not_exist"
+    cached = lod2.lod2_cache_file(lod2_dir, cache_dir, height_hash)
+    cached.write_bytes(b"")  # cache hit, no real LoD2 directory needed
 
     result = cache_lod2_buildings(
-        lod2_dir=str(tmp_path / "does_not_exist"),
+        lod2_dir=str(lod2_dir),
         bbox=(48.0, 8.0, 48.1, 8.1),
         local_offset=(0.0, 0.0, 0.0),
         cache_dir=str(cache_dir),
         height_hash=height_hash,
     )
 
-    assert Path(result) == cache_dir / f"lod2_{height_hash}.pkl"
+    assert Path(result) == cached

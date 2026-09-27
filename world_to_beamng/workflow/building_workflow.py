@@ -45,6 +45,12 @@ def group_buildings(buildings: List[Dict], tile_size: Optional[float]) -> Dict[T
     return dict(groups)
 
 
+def overhangs_modeled(buildings: List[Dict]) -> bool:
+    """Whether the imported source already models the roof overhangs (swissBUILDINGS3D): then none is computed for
+    the whole import - decided once for all buildings, not per building."""
+    return any(building.get("overhang_modeled") for building in buildings)
+
+
 def plan_building_shapes(
     buildings: List[Dict], tile_size: Optional[float], max_per_shape: int
 ) -> List[Tuple[int, int, Optional[str], List[Dict]]]:
@@ -125,6 +131,7 @@ class BuildingWorkflow:
         tile_y: int,
         grid_bounds: Optional[tuple] = None,
         name: Optional[str] = None,
+        compute_overhang: bool = True,
     ) -> Optional[str]:
         """
         Export buildings as DAE.
@@ -135,6 +142,7 @@ class BuildingWorkflow:
             grid_bounds: optional - (min_x, max_x, min_y, max_y) for filtering
             name: optional - file name without extension (e.g. "buildings" for ONE object on the whole area);
                 default: buildings_tile_<x>_<y>
+            compute_overhang: False when the source already models the roof overhangs (see overhangs_modeled())
 
         Returns:
             Path to the DAE file or None
@@ -145,7 +153,7 @@ class BuildingWorkflow:
             return None
 
         # Use the builder for mesh generation
-        meshes = BuildingMeshBuilder().with_buildings(buildings).with_bounds_filter(grid_bounds).build()
+        meshes = BuildingMeshBuilder(compute_overhang).with_buildings(buildings).with_bounds_filter(grid_bounds).build()
 
         if not meshes:
             return None

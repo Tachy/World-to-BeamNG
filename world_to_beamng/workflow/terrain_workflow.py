@@ -201,6 +201,7 @@ class TerrainWorkflow:
         self._tile_heightmap(s)
         self._tile_shape_terrain(s)
         self._tile_ponds(s)
+        self._tile_building_ground(s)
         self._tile_layer_map(s)
         self._tile_scene_objects(s)
 
@@ -616,6 +617,22 @@ class TerrainWorkflow:
         s.surface_road_polygons, s.structure_road_polygons = surface_road_polygons, structure_road_polygons
         s.gallery_roads, s.bridge_roads = gallery_roads, bridge_roads
         s.tunnel_plans, s.tunnel_holes, s.dropped_tunnel_road_ids = tunnel_plans, tunnel_holes, dropped_tunnel_road_ids
+
+    def _tile_building_ground(self, s: "TileState") -> None:
+        """Ground level per wall on the finished terrain for buildings whose body reaches into the ground
+        (swissBUILDINGS3D, see io/swissbuildings_dxf.py::attach_wall_ground())."""
+        if not s.buildings_data:
+            return
+        from ..io.swissbuildings_dxf import attach_wall_ground
+        from ..terrain.road_embedding import sample_heightmap_bilinear
+
+        heights, origin_x, origin_y = s.heights, s.terrain_origin_x, s.terrain_origin_y
+        count = attach_wall_ground(
+            s.buildings_data,
+            lambda xy: sample_heightmap_bilinear(heights, origin_x, origin_y, config.TERRAIN_SQUARE_SIZE, np.asarray(xy)),
+        )
+        if count:
+            logger.debug(f"  [OK] {count} building(s): ground level per wall from the terrain")
 
     def _tile_ponds(self, s: "TileState") -> None:
         """OSM land use polygons and the pond basins lowered into the terrain; keeps the heights before the basins as

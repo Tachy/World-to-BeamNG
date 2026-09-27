@@ -53,7 +53,9 @@ class RoofParts:
 class RoofMeshBuilder:
     """Builds all roof faces of a building dict (`roofs`, `walls`)."""
 
-    def __init__(self):
+    def __init__(self, compute_overhang: bool = True):
+        # False when the source already models the overhangs (swissBUILDINGS3D): the roofs are taken as they are
+        self._compute_overhang = compute_overhang
         self._overhang = RoofOverhangBuilder()
         self._tile_uv = RoofUvMapper()
         self._gravel_uv = RoofUvMapper(repeat_m=config.FLAT_ROOF_GRAVEL_REPEAT_M)
@@ -64,17 +66,26 @@ class RoofMeshBuilder:
         sloped, flat, trim = _PartBuilder(), _PartBuilder(), _PartBuilder()
 
         for index, ring in enumerate(roofs):
-            if is_flat_roof(ring):
+            flat_roof = is_flat_roof(ring)
+            if flat_roof or not self._compute_overhang:
                 ordered = orient_counter_clockwise(ring)
                 if ordered is None:
                     continue
-                self._add_polygon(flat, ordered, self._gravel_uv)
+                if flat_roof:
+                    self._add_polygon(flat, ordered, self._gravel_uv)
+                else:
+                    self._add_polygon(sloped, ordered, self._tile_uv)
                 continue
 
             roof = self._overhang.build(ring, index, roofs, lines)
             self._add_polygon(sloped, roof.ring, self._tile_uv)
             if len(roof.trim_vertices):
                 trim.add(roof.trim_vertices, np.zeros((len(roof.trim_vertices), 2)), roof.trim_faces)
+
+        for key in ("soffits", "fascias"):  # the modelled overhang's underside and edge, untextured like the trim
+            for verts, faces in building.get(key, []):
+                verts = np.asarray(verts, dtype=np.float64)
+                trim.add(verts, np.zeros((len(verts), 2)), [list(face) for face in np.asarray(faces).tolist()])
 
         return RoofParts(sloped.build(), flat.build(), trim.build())
 

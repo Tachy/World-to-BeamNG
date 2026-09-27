@@ -270,3 +270,21 @@ def test_plaster_colours_follow_the_weights():
         assert measured == pytest.approx(color.weight / 1000, abs=0.012)
     assert share[0] > 0.5  # predominantly white
     assert share[-2:].sum() < 0.08  # red tones very rare
+
+
+def test_a_body_reaching_into_the_ground_counts_its_storeys_from_the_terrain():
+    # swissBUILDINGS3D models the walls 3 m into the ground; the terrain per wall is the ground level
+    sunk = _house(height=6.0, floor_z=(-3.0, -3.0, -3.0, -3.0))
+    sunk["wall_ground"] = [0.0, 0.0, 0.0, 0.0]
+    on_ground = _house(height=6.0)
+
+    sunk_mesh, ground_mesh = FacadeMapper().map_building(sunk), FacadeMapper().map_building(on_ground)
+
+    assert _sills(sunk_mesh, exclude=DOORS) == _sills(ground_mesh, exclude=DOORS) == [0.9, 3.9]
+    assert [s for s, _ in _windows(sunk_mesh) if s in DOORS]  # the door sits on the terrain, not 3 m below it
+
+
+def test_without_the_terrain_the_sunk_body_would_get_windows_underground():
+    sunk = _house(height=6.0, floor_z=(-3.0, -3.0, -3.0, -3.0))
+
+    assert min(_sills(FacadeMapper().map_building(sunk), exclude=DOORS)) < 0.0

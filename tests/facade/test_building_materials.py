@@ -36,7 +36,12 @@ LIBRARY = {
         "baseColorMap": "levels/x/gravel_b.dds",
         "normalMap": "levels/x/gravel_nm.dds",
         "roughnessMap": "levels/x/gravel_r.dds",
-    }
+    },
+    config.WALL_TEXTURE_NAME: {
+        "baseColorMap": "levels/x/stone_b.dds",
+        "normalMap": "levels/x/stone_nm.dds",
+        "roughnessMap": "levels/x/stone_r.dds",
+    },
 }
 
 
@@ -70,6 +75,13 @@ def test_windows_use_the_sprite_atlas(tmp_path, monkeypatch):
 
     assert stage["baseColorMap"] == GENERATED["windows_color"]
     assert stage["normalMap"] == GENERATED["windows_normal"]
+    MaterialManager.reset_instance()
+
+
+def test_free_standing_walls_get_the_rubble_stone_material(tmp_path, monkeypatch):
+    stage = _materials(tmp_path, monkeypatch)[config.WALL_MATERIAL_NAME]["Stages"][0]
+
+    assert stage["baseColorMap"] == "levels/x/stone_b.dds"
     MaterialManager.reset_instance()
 
 

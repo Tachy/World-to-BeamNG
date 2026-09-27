@@ -17,7 +17,7 @@ streams and ponds, buildings and a horizon. Alpha status, under development.
 | **Forest, single trees, vineyards, ground cover** | OpenStreetMap |
 | **Streams and ponds** (`River`, `WaterBlock`) | OpenStreetMap + DGM1 |
 | **Rubble stone walls** (50 cm thick, stone slabs on top, following the terrain; next to a road they stand on its centerline height) for `barrier=wall`/`retaining_wall` with a `height` tag | OpenStreetMap + DGM1 |
-| **Buildings** from LOD2: plastered walls in white/beige/occasionally red, windows, doors, basement windows, roofs with overhang, gravel on flat roofs, church towers with a tower clock | LOD2 (+ OpenStreetMap for churches) |
+| **Buildings** from LOD2 or swissBUILDINGS3D: plastered walls in white/beige/occasionally red, windows, doors, basement windows, roofs with overhang, gravel on flat roofs, church towers with a tower clock | LOD2 CityGML or swissBUILDINGS3D DXF (+ OpenStreetMap for churches) |
 | **Horizon** up to 50 km (optional) | DGM30 + satellite image |
 
 ## 📋 Requirements
@@ -28,7 +28,7 @@ streams and ponds, buildings and a horizon. Alpha status, under development.
 | BeamNG.drive | installed and **started at least once** (this creates the user folder) |
 | Python | **3.11 or newer**, tested with 3.13 |
 | Internet | for OpenStreetMap (Overpass API) and the one-time download of `texconv.exe` |
-| Area | Any region with a georeferenced GeoTIFF DEM and orthophoto: CRS and extent are detected automatically from the file content, no fixed file naming or tile size required. Plain ASCII-XYZ point clouds in a ZIP (the LGL Baden-Württemberg format) are recognised the same way, by content, not by name (see "Using data from other regions" below). Buildings (LoD2/CityGML) remain Baden-Württemberg-specific and must be disabled (`LOD2_ENABLED = False`) elsewhere. |
+| Area | Any region with a georeferenced GeoTIFF DEM and orthophoto: CRS and extent are detected automatically from the file content, no fixed file naming or tile size required. Plain ASCII-XYZ point clouds in a ZIP (the LGL Baden-Württemberg format) are recognised the same way, by content, not by name (see "Using data from other regions" below). Buildings are read from LoD2 CityGML (Baden-Württemberg) or swissBUILDINGS3D 2.0 DXF (Switzerland), also recognised by content; elsewhere disable them (`LOD2_ENABLED = False`). |
 | Disk space | about 250 MB of raw data per 2×2 km tile (see below), plus cache and result |
 
 ## 🚀 Quick start
@@ -90,7 +90,7 @@ missing, the export reports an error in the log.
 
 | Folder | Content | File name | If it is missing |
 |---|---|---|---|
-| `data/buildings/` | 3D building models LoD2 (ZIP with CityGML) | `LoD2_32_<x>_<y>_2_bw.zip` | no buildings (`LOD2_ENABLED`) |
+| `data/buildings/` | 3D building models: LoD2 (ZIP with CityGML) or swissBUILDINGS3D 2.0 (DXF, loose or in a ZIP) | any, recognised by content | no buildings (`LOD2_ENABLED`) |
 
 Finished example layout:
 
@@ -146,8 +146,9 @@ guessed from a naming scheme. To use data from a region other than Baden-Württe
 - The source CRS is auto-detected from the GeoTIFFs; `config.SOURCE_CRS_EPSG` is only the fallback for elevation data
   without an embedded CRS (plain ASCII-XYZ point clouds, e.g. the LGL BW format) and otherwise ignored. If the
   orthophoto's CRS differs from the elevation data's CRS, it is reprojected automatically.
-- Set `LOD2_ENABLED = False` in `config.py` — buildings (LoD2/CityGML) remain specific to the Baden-Württemberg
-  CityGML 1.0 schema.
+- Buildings: LoD2 CityGML 1.0 (Baden-Württemberg schema) and swissBUILDINGS3D 2.0 DXF are supported; for other
+  sources set `LOD2_ENABLED = False` in `config.py`. swissBUILDINGS3D already models the roof overhangs, so none is
+  computed for such an import.
 - Elevation GeoTIFFs in different CRSs can be mixed: the area is processed in the CRS of most tiles, the others are
   reprojected automatically. The horizon's DGM30/satellite auto-download stays worldwide-capable (see "Horizon" above).
 

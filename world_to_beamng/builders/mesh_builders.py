@@ -132,11 +132,11 @@ class BuildingMeshBuilder:
         ...     .build())
     """
 
-    def __init__(self):
+    def __init__(self, compute_overhang: bool = True):
         self._buildings = None
         self._grid_bounds = None
         self._facade_mapper = FacadeMapper()
-        self._roof_builder = RoofMeshBuilder()
+        self._roof_builder = RoofMeshBuilder(compute_overhang)
         self._rim_builder = FlatRoofRimBuilder()
 
     def with_buildings(self, buildings: List[Dict]) -> "BuildingMeshBuilder":
@@ -209,8 +209,11 @@ class BuildingMeshBuilder:
         Convert a building to a mesh dict.
 
         Walls: seamless plaster (color per building) plus windows/doors as separate faces. Pitched roofs: beavertail
-        tiles with overhang (fascia board/soffit as trim). Flat roofs: gravel plus sheet-metal rim.
+        tiles with overhang (fascia board/soffit as trim). Flat roofs: gravel plus sheet-metal rim. Free-standing
+        walls from swissBUILDINGS3D ("kind" "wall"): rubble stone like the OSM walls.
         """
+        if building.get("kind") == "wall":
+            return self._stone_mesh(building, idx)
         facade = self._facade_mapper.map_building(building)
         roof = self._roof_builder.build(building)
         rim = self._rim_builder.build(building)
@@ -238,3 +241,39 @@ class BuildingMeshBuilder:
         if not vertices:
             return None
         return {"id": f"building_{idx}", "vertices": np.vstack(vertices), "uvs": np.vstack(uvs), "faces": faces}
+
+    @staticmethod
+    def _stone_mesh(building: Dict, idx: int) -> Optional[Dict]:
+        """All triangles of a free-standing wall with the rubble stone material, metric UVs in the plane of each
+        face (steep faces: along the wall and up, flat ones: plan view) - the same texture scale as the OSM walls."""
+        from .. import config
+        from ..textures import library
+
+        tile_m = library.texture_tile_m(config.WALL_TEXTURE_NAME, config.WALL_TEXTURE_TILE_M)
+        pieces = building.get("stone", [])
+        if not pieces:
+            return None
+        origin = np.asarray(pieces[0][0], dtype=np.float64)[0]  # keeps the UVs small
+        vertices, uvs, faces, count = [], [], [], 0
+        for verts, tri_faces in pieces:
+            verts = np.asarray(verts, dtype=np.float64)
+            normal = np.cross(verts[1] - verts[0], verts[2] - verts[0])
+            length = np.linalg.norm(normal)
+            if length < 1e-12:
+                continue
+            normal /= length
+            local = verts - origin
+            if abs(normal[2]) < 0.7:
+                along = np.array([-normal[1], normal[0], 0.0])
+                along /= max(np.linalg.norm(along), 1e-12)
+                uv = np.column_stack([local @ along, local[:, 2]])
+            else:
+                uv = local[:, :2].copy()
+            base, count = count, count + len(verts)
+            vertices.append(verts)
+            uvs.append(uv / tile_m)
+            faces.extend([[base + i for i in face] for face in np.asarray(tri_faces).tolist()])
+        if not vertices:
+            return None
+        return {"id": f"building_{idx}", "vertices": np.vstack(vertices), "uvs": np.vstack(uvs),
+                "faces": {config.WALL_MATERIAL_NAME: faces}}

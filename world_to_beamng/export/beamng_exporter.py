@@ -541,7 +541,7 @@ class BeamNGExporter:
         """The "Export buildings" task: building shapes (split below BeamNG's node limit), their items and materials."""
         with self.pipeline.task("Export buildings") as task:
             # Buildings: ONE object over the whole area (like the roads) or - if disabled - one per 500 m tile
-            from ..workflow.building_workflow import plan_building_shapes, remove_stale_building_daes
+            from ..workflow.building_workflow import overhangs_modeled, plan_building_shapes, remove_stale_building_daes
 
             # BeamNG discards shapes with more than 2048 nodes -> split the whole area into partial shapes
             # (buildings, buildings_part_N)
@@ -550,10 +550,15 @@ class BeamNGExporter:
                 None if config.BUILDINGS_AS_ONE_OBJECT else config.TILE_SIZE,
                 config.MAX_BUILDINGS_PER_SHAPE,
             )
+            # The source already models the roof overhangs: none is computed for the whole import
+            compute_overhang = not overhangs_modeled(all_buildings)
+            logger.info(f"  [i] Roof overhangs: {'computed' if compute_overhang else 'taken from the source'}")
 
             written = set()
             for tile_x, tile_y, name, tile_buildings in shapes:
-                dae_path = self.buildings.export_buildings(tile_buildings, tile_x, tile_y, grid_bounds=None, name=name)
+                dae_path = self.buildings.export_buildings(
+                    tile_buildings, tile_x, tile_y, grid_bounds=None, name=name, compute_overhang=compute_overhang
+                )
                 if dae_path:
                     written.add(Path(dae_path).stem)
                     self.buildings.add_items(tile_buildings, tile_x, tile_y, name=name)
@@ -657,6 +662,9 @@ class BeamNGExporter:
         self.materials.add_building_material(
             ROOF_TRIM_MATERIAL, **untextured(OSM_MAPPER.get_building_properties("roof_trim")), **hints("roof")
         )
+        # Free-standing walls from swissBUILDINGS3D: the rubble stone of the OSM walls
+        stone = registry.prepared_textures()[config.WALL_TEXTURE_NAME]
+        self.materials.add_building_material(config.WALL_MATERIAL_NAME, textures={**stone, "useAnisotropic": True}, **hints("wall"))
 
     def _finalize_export(self, include_forests: bool = False, task=None):
         """Finalize the export: save materials/items/forest JSON and debug data (one subtask per step)."""
