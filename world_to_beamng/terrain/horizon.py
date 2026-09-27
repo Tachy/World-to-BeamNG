@@ -67,16 +67,20 @@ def _load_geotiff_as_xyz(geotiff_path):
                     src_crs, dst_crs, src.width, src.height, *src.bounds
                 )
 
-                # Create a temporary array for the reprojected data
-                dem_data = np.empty((height, width), dtype=np.float32)
+                # The tile is a skewed quadrilateral in the target CRS: the corners of its bounding box have no source
+                # data. They must stay NaN (skipped below) - as 0 m points they lay among the real points of the
+                # neighbour tile and dug a trench along every tile seam into the horizon.
+                dem_data = np.full((height, width), np.nan, dtype=np.float32)
 
                 reproject(
                     source=rasterio.band(src, 1),
                     destination=dem_data,
                     src_transform=src.transform,
                     src_crs=src_crs,
+                    src_nodata=src.nodata,
                     dst_transform=transform,
                     dst_crs=dst_crs,
+                    dst_nodata=np.nan,
                     resampling=Resampling.bilinear,
                 )
 
@@ -141,6 +145,11 @@ def _load_geotiff_as_xyz(geotiff_path):
         return None, None
 
 
+# Version of the 200 m grid conversion: part of both DGM30 cache names, so grids written by an older conversion are not
+# reused (2: no 0 m fill points outside the footprint of a reprojected tile)
+_DGM30_GRID_FORMAT = 2
+
+
 def _dgm30_tile_cache_file(tif_file):
     """
     Cache file of the 200 m grid conversion of ONE single DGM30 tile, in UTM (absolute).
@@ -156,7 +165,7 @@ def _dgm30_tile_cache_file(tif_file):
     tile.
     """
     st = tif_file.stat()
-    signature = f"{tif_file.name}:{st.st_size}:{int(st.st_mtime)}"
+    signature = f"v{_DGM30_GRID_FORMAT}:{tif_file.name}:{st.st_size}:{int(st.st_mtime)}"
     return config.CACHE_DIR / f"dgm30_tile_{hashlib.sha1(signature.encode('utf-8')).hexdigest()[:16]}.npz"
 
 
@@ -186,7 +195,7 @@ def _dgm30_cache_file(dgm30_path, tile_hash):
     if not tile_hash:
         return None
     files = sorted(list(dgm30_path.glob("*.tif")) + list(dgm30_path.glob("*.tiff"))) if dgm30_path.exists() else []
-    signature = "|".join(f"{f.name}:{f.stat().st_size}:{int(f.stat().st_mtime)}" for f in files)
+    signature = f"v{_DGM30_GRID_FORMAT}|" + "|".join(f"{f.name}:{f.stat().st_size}:{int(f.stat().st_mtime)}" for f in files)
     return config.CACHE_DIR / f"dgm30_horizon_{tile_hash}_{hashlib.sha1(signature.encode('utf-8')).hexdigest()[:10]}.npz"
 
 

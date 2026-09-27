@@ -191,3 +191,35 @@ def test_per_tile_cache_survives_process_restart(tmp_path):
     mock_load.assert_not_called()  # second "process" never calls the expensive original function
     assert np.array_equal(points_a, points_b)
     assert np.array_equal(elevations_a, elevations_b)
+
+
+# ---------------------------------------------------------------- Reprojection
+
+
+def test_reprojected_tile_has_no_fill_heights_outside_its_footprint(tmp_path):
+    """A WGS84 tile is a skewed quadrilateral in the metric CRS; its bounding box has corners without any source data.
+    Those corners must be left out, not come back as 0 m points - where two tiles meet, such points lay among the
+    real ones of the neighbour tile and dug a trench along the tile seam into the horizon."""
+    path = tmp_path / "flat.tif"
+    bounds = (CENTER_LON - 0.3, CENTER_LAT - 0.2, CENTER_LON + 0.3, CENTER_LAT + 0.2)
+    cols, rows = 240, 160
+    with rasterio.open(
+        path, "w", driver="GTiff", width=cols, height=rows, count=1, dtype="float32", crs="EPSG:4326",
+        transform=from_bounds(*bounds, cols, rows),
+    ) as dst:
+        dst.write(np.full((rows, cols), 500.0, dtype="float32"), 1)
+
+    points, elevations = horizon._load_geotiff_as_xyz(str(path))
+
+    assert len(elevations) > 1000
+    assert np.allclose(elevations, 500.0, atol=0.5)  # only real heights, no 0 m fill
+
+
+def test_a_new_grid_format_does_not_reuse_old_caches(tmp_path, monkeypatch):
+    tile = _tile(tmp_path / "a.tif", CENTER_LON - 0.02, CENTER_LON + 0.02)
+    tile_cache, area_cache = horizon._dgm30_tile_cache_file(tile), horizon._dgm30_cache_file(tmp_path, "hash")
+
+    monkeypatch.setattr(horizon, "_DGM30_GRID_FORMAT", horizon._DGM30_GRID_FORMAT + 1)
+
+    assert horizon._dgm30_tile_cache_file(tile) != tile_cache
+    assert horizon._dgm30_cache_file(tmp_path, "hash") != area_cache
