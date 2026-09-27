@@ -82,6 +82,11 @@ def unit_vector(vector: np.ndarray) -> List[float]:
     return [0.0, 0.0, 1.0] if length < 1e-12 else [float(c) for c in vector / length]
 
 
+def point3(pt_xy: Sequence[float], z: float) -> List[float]:
+    """Vertex [x, y, z] from a plan point and a height (plain floats for MeshBuilder)."""
+    return [float(pt_xy[0]), float(pt_xy[1]), float(z)]
+
+
 def add_box_column(
     builder: "MeshBuilder",
     cx: float,

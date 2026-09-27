@@ -17,7 +17,7 @@ from typing import Dict, List, Sequence, Tuple
 import numpy as np
 from scipy.spatial import cKDTree
 
-from ..walls.mesh_parts import MeshBuilder, offset_points
+from ..walls.mesh_parts import MeshBuilder, offset_points, point3
 
 JOINT_TOLERANCE = 0.05  # how close two piece ends must come to count as a joint, in meters
 
@@ -253,9 +253,6 @@ def build_tunnel_mesh(
         curbs.append((sign, foot, section_points(sign * width / 2.0, curb_height),
                       section_points(sign * curb_top_across, curb_height), section_points(sign * half_chord, 0.0)))
 
-    def p3(pt_xy, z):
-        return [float(pt_xy[0]), float(pt_xy[1]), float(z)]
-
     floor_builder = MeshBuilder()
     wall_builder = MeshBuilder()
     for i in range(len(points) - 1):
@@ -267,7 +264,7 @@ def build_tunnel_mesh(
 
         # Floor (normal pointing up, into the tube interior)
         floor_builder.quad(
-            [p3(left[i], floor_z[i]), p3(left[j], floor_z[j]), p3(right[j], floor_z[j]), p3(right[i], floor_z[i])],
+            [point3(left[i], floor_z[i]), point3(left[j], floor_z[j]), point3(right[j], floor_z[j]), point3(right[i], floor_z[i])],
             [[0.0, road_v[i]], [0.0, road_v[j]], [1.0, road_v[j]], [1.0, road_v[i]]],
             [0.0, 0.0, 1.0],
         )

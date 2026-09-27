@@ -14,6 +14,7 @@ from scipy.ndimage import gaussian_filter
 
 from .. import config
 from ..facade.texture_utils import gaussian_blur_wrap, gray_to_rgb, normal_from_height, to_uint8
+from ..geometry.polyline import smoothstep
 
 LIGHTING_SIGMA_FRAC = 0.12  # Radius of the lighting compensation relative to the tile size
 DEFAULT_BLEND = 0.4  # Width of the blend at the edges relative to the tile size (at most 0.5)
@@ -45,11 +46,6 @@ def flatten_lighting(image: np.ndarray, sigma_frac: float = LIGHTING_SIGMA_FRAC)
     return np.clip(flat * (image.mean() / max(float(flat.mean()), 1e-6)), 0.0, 1.0)
 
 
-def _smoothstep(t: np.ndarray) -> np.ndarray:
-    t = np.clip(t, 0.0, 1.0)
-    return t * t * (3.0 - 2.0 * t)
-
-
 def make_seamless(image: np.ndarray, blend: float = DEFAULT_BLEND) -> np.ndarray:
     """
     Makes the image tileable at all four edges.
@@ -63,7 +59,7 @@ def make_seamless(image: np.ndarray, blend: float = DEFAULT_BLEND) -> np.ndarray
 
     def edge_weight(count: int) -> np.ndarray:
         position = (np.arange(count) + 0.5) / count
-        return _smoothstep(np.minimum(position, 1.0 - position) / blend)
+        return smoothstep(np.minimum(position, 1.0 - position) / blend)
 
     weight = (edge_weight(height)[:, None] * edge_weight(width)[None, :])[..., None]
     shifted = np.roll(image, (height // 2, width // 2), axis=(0, 1))

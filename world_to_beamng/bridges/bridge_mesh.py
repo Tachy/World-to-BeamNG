@@ -13,14 +13,10 @@ from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
-from ..walls.mesh_parts import MeshBuilder, add_box_column, offset_points
+from ..geometry.polyline import arc_lengths
+from ..walls.mesh_parts import MeshBuilder, add_box_column, offset_points, point3
 
 HeightAt = Callable[[np.ndarray, np.ndarray], np.ndarray]
-
-
-def _arc_length(xy: np.ndarray) -> np.ndarray:
-    steps = np.linalg.norm(np.diff(xy, axis=0), axis=1)
-    return np.concatenate([[0.0], np.cumsum(steps)])
 
 
 def _interp_at(cum: np.ndarray, arr: np.ndarray, s: float):
@@ -43,12 +39,9 @@ def _build_edge_beam(xy_line: np.ndarray, top_z: np.ndarray, thickness: float, t
     `top_z` gives the top edge per point of `xy_line` (so it follows the same height profile as the deck)."""
     edge_left, edge_right = offset_points(xy_line, thickness / 2.0, closed=False)
     bottom_z = top_z - thickness
-    cum = _arc_length(xy_line)
+    cum = arc_lengths(xy_line)
     along = cum / tile_m
     across = thickness / tile_m
-
-    def p3(pt_xy, z):
-        return [float(pt_xy[0]), float(pt_xy[1]), float(z)]
 
     builder = MeshBuilder()
     for i in range(len(xy_line) - 1):
@@ -59,22 +52,22 @@ def _build_edge_beam(xy_line: np.ndarray, top_z: np.ndarray, thickness: float, t
         side_normal = [float(-direction[1]), float(direction[0]), 0.0]
 
         builder.quad(
-            [p3(edge_left[i], top_z[i]), p3(edge_left[j], top_z[j]), p3(edge_right[j], top_z[j]), p3(edge_right[i], top_z[i])],
+            [point3(edge_left[i], top_z[i]), point3(edge_left[j], top_z[j]), point3(edge_right[j], top_z[j]), point3(edge_right[i], top_z[i])],
             [[u0, 0.0], [u1, 0.0], [u1, across], [u0, across]],
             [0.0, 0.0, 1.0],
         )
         builder.quad(
-            [p3(edge_left[i], bottom_z[i]), p3(edge_right[i], bottom_z[i]), p3(edge_right[j], bottom_z[j]), p3(edge_left[j], bottom_z[j])],
+            [point3(edge_left[i], bottom_z[i]), point3(edge_right[i], bottom_z[i]), point3(edge_right[j], bottom_z[j]), point3(edge_left[j], bottom_z[j])],
             [[u0, 0.0], [u0, across], [u1, across], [u1, 0.0]],
             [0.0, 0.0, -1.0],
         )
         builder.quad(
-            [p3(edge_left[i], bottom_z[i]), p3(edge_left[j], bottom_z[j]), p3(edge_left[j], top_z[j]), p3(edge_left[i], top_z[i])],
+            [point3(edge_left[i], bottom_z[i]), point3(edge_left[j], bottom_z[j]), point3(edge_left[j], top_z[j]), point3(edge_left[i], top_z[i])],
             [[u0, 0.0], [u1, 0.0], [u1, across], [u0, across]],
             side_normal,
         )
         builder.quad(
-            [p3(edge_right[i], bottom_z[i]), p3(edge_right[j], bottom_z[j]), p3(edge_right[j], top_z[j]), p3(edge_right[i], top_z[i])],
+            [point3(edge_right[i], bottom_z[i]), point3(edge_right[j], bottom_z[j]), point3(edge_right[j], top_z[j]), point3(edge_right[i], top_z[i])],
             [[u0, 0.0], [u1, 0.0], [u1, across], [u0, across]],
             [-side_normal[0], -side_normal[1], 0.0],
         )
@@ -84,7 +77,7 @@ def _build_edge_beam(xy_line: np.ndarray, top_z: np.ndarray, thickness: float, t
 def _pier_sites(xy, bottom, half, ground_at, pier_spacing, min_pier_clearance, pier_width_fraction) -> List[Tuple]:
     """Piers every pier_spacing meters along the arc length, only where there is enough clearance above the terrain:
     [(x, y, ground_z, deck_bottom_z, pier_width, direction)]."""
-    cum = _arc_length(xy)
+    cum = arc_lengths(xy)
     total_len = float(cum[-1])
     positions = np.arange(pier_spacing, total_len, pier_spacing) if total_len > pier_spacing else np.array([])
     sites = []
@@ -196,14 +189,11 @@ def build_bridge_mesh(
     outer = {side: np.where(joined[side][:, None], surface[side], curb_edge[side]) for side in ("left", "right")}
     width = float(np.mean(half) * 2.0)  # UV scale only
 
-    cum = _arc_length(xy)
+    cum = arc_lengths(xy)
     along = cum / tile_m
     road_v = cum / road_texture_length
     deck_across = (width + 2.0 * curb_width) / tile_m
     curb_across = curb_width / tile_m
-
-    def p3(pt_xy, z):
-        return [float(pt_xy[0]), float(pt_xy[1]), float(z)]
 
     deck_builder = MeshBuilder()
     pier_builder = MeshBuilder()
@@ -217,13 +207,13 @@ def build_bridge_mesh(
 
         # Carriageway (top side, between the curbs - up to the neighbouring part where joined)
         deck_builder.quad(
-            [p3(surface["left"][i], top[i]), p3(surface["left"][j], top[j]), p3(surface["right"][j], top[j]), p3(surface["right"][i], top[i])],
+            [point3(surface["left"][i], top[i]), point3(surface["left"][j], top[j]), point3(surface["right"][j], top[j]), point3(surface["right"][i], top[i])],
             [[0.0, road_v[i]], [0.0, road_v[j]], [1.0, road_v[j]], [1.0, road_v[i]]],
             [0.0, 0.0, 1.0],
         )
         # Underside (full width)
         deck_builder.quad(
-            [p3(outer["left"][i], bottom[i]), p3(outer["right"][i], bottom[i]), p3(outer["right"][j], bottom[j]), p3(outer["left"][j], bottom[j])],
+            [point3(outer["left"][i], bottom[i]), point3(outer["right"][i], bottom[i]), point3(outer["right"][j], bottom[j]), point3(outer["left"][j], bottom[j])],
             [[u0, 0.0], [u0, deck_across], [u1, deck_across], [u1, 0.0]],
             [0.0, 0.0, -1.0],
         )
@@ -233,23 +223,23 @@ def build_bridge_mesh(
             edge_in, edge_out = inner[side], curb_edge[side]
             # Fascia (deck bottom edge up to carriageway level)
             deck_builder.quad(
-                [p3(edge_out[i], bottom[i]), p3(edge_out[j], bottom[j]), p3(edge_out[j], top[j]), p3(edge_out[i], top[i])],
+                [point3(edge_out[i], bottom[i]), point3(edge_out[j], bottom[j]), point3(edge_out[j], top[j]), point3(edge_out[i], top[i])],
                 [[u0, 0.0], [u1, 0.0], [u1, deck_thickness / tile_m], [u0, deck_thickness / tile_m]],
                 normal,
             )
             # Curb: top, outer (continuation of the fascia) and inner face (toward the carriageway)
             pier_builder.quad(
-                [p3(edge_out[i], curb_top[i]), p3(edge_out[j], curb_top[j]), p3(edge_in[j], curb_top[j]), p3(edge_in[i], curb_top[i])],
+                [point3(edge_out[i], curb_top[i]), point3(edge_out[j], curb_top[j]), point3(edge_in[j], curb_top[j]), point3(edge_in[i], curb_top[i])],
                 [[u0, 0.0], [u1, 0.0], [u1, curb_across], [u0, curb_across]],
                 [0.0, 0.0, 1.0],
             )
             pier_builder.quad(
-                [p3(edge_out[i], top[i]), p3(edge_out[j], top[j]), p3(edge_out[j], curb_top[j]), p3(edge_out[i], curb_top[i])],
+                [point3(edge_out[i], top[i]), point3(edge_out[j], top[j]), point3(edge_out[j], curb_top[j]), point3(edge_out[i], curb_top[i])],
                 [[u0, 0.0], [u1, 0.0], [u1, curb_height / tile_m], [u0, curb_height / tile_m]],
                 normal,
             )
             pier_builder.quad(
-                [p3(edge_in[i], top[i]), p3(edge_in[j], top[j]), p3(edge_in[j], curb_top[j]), p3(edge_in[i], curb_top[i])],
+                [point3(edge_in[i], top[i]), point3(edge_in[j], top[j]), point3(edge_in[j], curb_top[j]), point3(edge_in[i], curb_top[i])],
                 [[u0, 0.0], [u1, 0.0], [u1, curb_height / tile_m], [u0, curb_height / tile_m]],
                 [-normal[0], -normal[1], 0.0],
             )
@@ -262,7 +252,7 @@ def build_bridge_mesh(
         direction = direction / np.linalg.norm(direction)
         face_normal = [float(sign * direction[0]), float(sign * direction[1]), 0.0]
         deck_builder.quad(
-            [p3(outer["left"][index], bottom[index]), p3(outer["right"][index], bottom[index]), p3(outer["right"][index], top[index]), p3(outer["left"][index], top[index])],
+            [point3(outer["left"][index], bottom[index]), point3(outer["right"][index], bottom[index]), point3(outer["right"][index], top[index]), point3(outer["left"][index], top[index])],
             [[0.0, 0.0], [deck_across, 0.0], [deck_across, deck_thickness / tile_m], [0.0, deck_thickness / tile_m]],
             face_normal,
         )
@@ -270,7 +260,7 @@ def build_bridge_mesh(
             if joined[side][index]:
                 continue
             pier_builder.quad(
-                [p3(curb_edge[side][index], top[index]), p3(inner[side][index], top[index]), p3(inner[side][index], curb_top[index]), p3(curb_edge[side][index], curb_top[index])],
+                [point3(curb_edge[side][index], top[index]), point3(inner[side][index], top[index]), point3(inner[side][index], curb_top[index]), point3(curb_edge[side][index], curb_top[index])],
                 [[0.0, 0.0], [curb_across, 0.0], [curb_across, curb_height / tile_m], [0.0, curb_height / tile_m]],
                 face_normal,
             )
@@ -285,7 +275,7 @@ def build_bridge_mesh(
             direction = direction / np.linalg.norm(direction)
             sign = -1.0 if joined[side][k] else 1.0
             pier_builder.quad(
-                [p3(curb_edge[side][at], top[at]), p3(inner[side][at], top[at]), p3(inner[side][at], curb_top[at]), p3(curb_edge[side][at], curb_top[at])],
+                [point3(curb_edge[side][at], top[at]), point3(inner[side][at], top[at]), point3(inner[side][at], curb_top[at]), point3(curb_edge[side][at], curb_top[at])],
                 [[0.0, 0.0], [curb_across, 0.0], [curb_across, curb_height / tile_m], [0.0, curb_height / tile_m]],
                 [float(sign * direction[0]), float(sign * direction[1]), 0.0],
             )
@@ -343,7 +333,7 @@ def build_bridge_mesh(
 def _densified(member: Dict, step: float) -> Dict:
     """The member with a point at least every `step` meters (coords and widths interpolated along the arc length)."""
     points = np.array(member["coords"], dtype=float)
-    cum = _arc_length(points[:, :2])
+    cum = arc_lengths(points[:, :2])
     if cum[-1] <= 0.0:
         return member
     stations = np.unique(np.concatenate([cum, np.arange(0.0, cum[-1], step)]))

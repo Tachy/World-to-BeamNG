@@ -15,6 +15,8 @@ from typing import Dict, List, Optional, Sequence, Set, Tuple
 import numpy as np
 from scipy.spatial import cKDTree
 
+from .polyline import arc_lengths
+
 Endpoint = Tuple[int, str]  # (road index, "start" | "end")
 
 
@@ -26,7 +28,7 @@ def smoothstep(t: float) -> float:
 
 def _arc_lengths(nodes: Sequence[Sequence[float]]) -> np.ndarray:
     xy = np.asarray(nodes, dtype=float)[:, :2]
-    return np.concatenate([[0.0], np.cumsum(np.linalg.norm(np.diff(xy, axis=0), axis=1))])
+    return arc_lengths(xy)
 
 
 def outward_direction(nodes: Sequence[Sequence[float]], end: str) -> Optional[np.ndarray]:

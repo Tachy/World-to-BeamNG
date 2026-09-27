@@ -11,6 +11,7 @@ from typing import Dict, List, Mapping, Sequence
 
 import numpy as np
 
+from .polyline import arc_lengths
 from ..walls.mesh_parts import MeshBuilder, offset_points
 
 
@@ -33,7 +34,7 @@ def build_marking_meshes(lines: Sequence[Dict], texture_lengths: Mapping[str, fl
             continue
         xy, z = nodes[:, :2], nodes[:, 2] + lift
         left, right = offset_points(xy, float(nodes[0, 3]) / 2.0, closed=False)
-        along = np.concatenate([[0.0], np.cumsum(np.linalg.norm(np.diff(xy, axis=0), axis=1))])
+        along = arc_lengths(xy)
         v = along / texture_lengths[line["material"]]
 
         builder = MeshBuilder()

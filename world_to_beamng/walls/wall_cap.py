@@ -12,7 +12,8 @@ from typing import List, Sequence, Tuple
 
 import numpy as np
 
-from .mesh_parts import MeshBuilder, offset_points, unit_vector
+from ..geometry.polyline import arc_lengths
+from .mesh_parts import MeshBuilder, offset_points, point3, unit_vector
 
 CORNER_DEG = 15.0  # from this change of direction on a bend counts as a corner (slab joint on the miter)
 LENGTH_VARIATION = 0.5  # slab length = target value * (0.75 ... 1.25)
@@ -98,7 +99,7 @@ def add_cap(
         ring_top = np.concatenate([[top[0]], top, [top[-1]]])
         left, right = offset_points(ring, half, closed=False)
 
-    arc = np.concatenate([[0.0], np.cumsum(np.linalg.norm(np.diff(ring, axis=0), axis=1))])
+    arc = arc_lengths(ring)
     total = float(arc[-1])
     corner_points = ring[:-1] if closed else ring
     corners = corner_arcs(corner_points, closed, arc)
@@ -133,9 +134,6 @@ def _add_plate(
     bottoms = tops - thickness
     across = float(np.linalg.norm(lefts[0] - rights[0])) / tile_m
 
-    def p3(xy: np.ndarray, z: float) -> List[float]:
-        return [float(xy[0]), float(xy[1]), float(z)]
-
     centers = (lefts + rights) / 2.0
     for k in range(len(stations) - 1):
         j = k + 1
@@ -144,19 +142,19 @@ def _add_plate(
         direction = direction / np.linalg.norm(direction)
         left_normal = [float(-direction[1]), float(direction[0]), 0.0]
 
-        corners = [p3(lefts[k], tops[k]), p3(lefts[j], tops[j]), p3(rights[j], tops[j]), p3(rights[k], tops[k])]
+        corners = [point3(lefts[k], tops[k]), point3(lefts[j], tops[j]), point3(rights[j], tops[j]), point3(rights[k], tops[k])]
         top_normal = unit_vector(np.cross(np.array(corners[1]) - np.array(corners[0]), np.array(corners[3]) - np.array(corners[0])))
         if top_normal[2] < 0:
             top_normal = [-c for c in top_normal]
         builder.quad(corners, [[u0, 0.0], [u1, 0.0], [u1, across], [u0, across]], top_normal)
         builder.quad(
-            [p3(lefts[k], bottoms[k]), p3(lefts[j], bottoms[j]), p3(rights[j], bottoms[j]), p3(rights[k], bottoms[k])],
+            [point3(lefts[k], bottoms[k]), point3(lefts[j], bottoms[j]), point3(rights[j], bottoms[j]), point3(rights[k], bottoms[k])],
             [[u0, 0.0], [u1, 0.0], [u1, across], [u0, across]],
             [0.0, 0.0, -1.0],
         )
         for edge, normal in ((lefts, left_normal), (rights, [-left_normal[0], -left_normal[1], 0.0])):
             builder.quad(
-                [p3(edge[k], bottoms[k]), p3(edge[j], bottoms[j]), p3(edge[j], tops[j]), p3(edge[k], tops[k])],
+                [point3(edge[k], bottoms[k]), point3(edge[j], bottoms[j]), point3(edge[j], tops[j]), point3(edge[k], tops[k])],
                 [[u0, bottoms[k] / tile_m], [u1, bottoms[j] / tile_m], [u1, tops[j] / tile_m], [u0, tops[k] / tile_m]],
                 normal,
             )
@@ -166,7 +164,7 @@ def _add_plate(
         direction = centers[index] - centers[neighbour]
         direction = direction / np.linalg.norm(direction)
         builder.quad(
-            [p3(lefts[index], bottoms[index]), p3(rights[index], bottoms[index]), p3(rights[index], tops[index]), p3(lefts[index], tops[index])],
+            [point3(lefts[index], bottoms[index]), point3(rights[index], bottoms[index]), point3(rights[index], tops[index]), point3(lefts[index], tops[index])],
             [[0.0, bottoms[index] / tile_m], [across, bottoms[index] / tile_m], [across, tops[index] / tile_m], [0.0, tops[index] / tile_m]],
             [float(direction[0]), float(direction[1]), 0.0],
         )

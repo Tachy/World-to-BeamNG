@@ -15,6 +15,8 @@ from typing import Callable, Dict, List, Sequence, Tuple
 
 import numpy as np
 
+from .polyline import arc_lengths
+
 HeightAt = Callable[[np.ndarray, np.ndarray], np.ndarray]
 
 
@@ -126,7 +128,7 @@ def plan_guardrail_runs(
         if len(nodes) < 2:
             continue
         xy, z, half = nodes[:, :2], nodes[:, 2], nodes[:, 3] / 2.0
-        cum = np.concatenate([[0.0], np.cumsum(np.linalg.norm(np.diff(xy, axis=0), axis=1))])
+        cum = arc_lengths(xy)
         normals = _left_normals(xy)
         members = {i for i, _ in chain}
 
@@ -149,7 +151,7 @@ def plan_guardrail_runs(
                     run = np.asarray(piece.coords, dtype=float)[:, :2]
                     # heights from the arc length along the uncut line (independent of how GEOS carries Z)
                     line_xyz = np.asarray(line.coords, dtype=float)
-                    line_cum = np.concatenate([[0.0], np.cumsum(np.linalg.norm(np.diff(line_xyz[:, :2], axis=0), axis=1))])
+                    line_cum = arc_lengths(line_xyz[:, :2])
                     s = np.array([line.project(Point(p)) for p in run])
                     run = np.column_stack([run, np.interp(s, line_cum, line_xyz[:, 2])])
                     # the road must lie on the right: a left rail runs with the road, a right rail against it
@@ -186,7 +188,7 @@ def place_guardrail_items(
     items = []
     for run in runs:
         run = np.asarray(run, dtype=float)
-        cum = np.concatenate([[0.0], np.cumsum(np.linalg.norm(np.diff(run[:, :2], axis=0), axis=1))])
+        cum = arc_lengths(run[:, :2])
         count = int(cum[-1] // segment_length)
         if count < 1:
             continue

@@ -7,6 +7,8 @@ from typing import Callable, Dict, List, Tuple
 
 import numpy as np
 
+from .polyline import arc_lengths
+
 
 def _below_ground(osm_tags: Dict) -> bool:
     """`layer` is a negative integer (unparsable values like "-1;0" do not count)."""
@@ -148,7 +150,7 @@ def fix_underpass_elevations(
         owners = [(k, reverse) for k, reverse in chain]
         xyz = np.vstack([pieces[0]] + [p[1:] for p in pieces[1:]])  # the shared joint node once
         line = LineString(xyz[:, :2])
-        arc = np.concatenate([[0.0], np.cumsum(np.linalg.norm(np.diff(xyz[:, :2], axis=0), axis=1))])
+        arc = arc_lengths(xyz[:, :2])
         z = xyz[:, 2].copy()
         grade_ok = np.abs(np.gradient(z, np.maximum(arc, np.arange(len(arc)) * 1e-9))) < max_grade if len(z) > 2 else np.ones(len(z), bool)
         modified = False

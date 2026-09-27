@@ -16,6 +16,7 @@ from typing import Callable, Dict, List, NamedTuple, Optional, Tuple
 import numpy as np
 from scipy.spatial import cKDTree
 
+from .polyline import arc_lengths, smoothstep
 from .road_markings import lane_count, parse_lanes
 
 ONEWAY_FORWARD = ("yes", "true", "1")
@@ -187,11 +188,6 @@ def _split_with_trunk(ends, members, trunk_index, node, width_of) -> Optional[La
     return LaneSplit(node, trunk.road, trunk.at_start, width, (float(left_normal[0]), float(left_normal[1])), result)
 
 
-def _smoothstep(t: np.ndarray) -> np.ndarray:
-    t = np.clip(t, 0.0, 1.0)
-    return t * t * (3.0 - 2.0 * t)
-
-
 def _branch_pieces(roads, first, at_start, length, endpoint_tol, max_angle_deg, keep=None):
     """[(road, enters_at_start, arc offset from the node)] along the branch and its straight continuations until
     `length` is covered or the branch ends (or the next piece fails `keep`); plus the covered length."""
@@ -307,10 +303,10 @@ class _SideProfile:
 
     def lateral(self, arc: np.ndarray, raw: np.ndarray) -> np.ndarray:
         smooth = np.interp(arc, self.grid, self.smooth)
-        osm = smooth + (raw - smooth) * _smoothstep((arc - self.connector - self.blend) / self.smoothing_end)
+        osm = smooth + (raw - smooth) * smoothstep((arc - self.connector - self.blend) / self.smoothing_end)
         since = arc - self.connector
-        fade = 1.0 - (_smoothstep(since / self.blend) if self.blend > 0.0 else (since > 0.0).astype(float))
-        turning = 1.0 - _smoothstep(since / self.turn)
+        fade = 1.0 - (smoothstep(since / self.blend) if self.blend > 0.0 else (since > 0.0).astype(float))
+        turning = 1.0 - smoothstep(since / self.turn)
         target = osm + self.offset * fade - self.slope * since * turning
         return np.where(since < 0.0, self.slot, target)
 
@@ -339,7 +335,7 @@ def _level_side_bridge(roads, chain, main, main_z, endpoint_tol, max_angle_deg) 
     leaves_at = min(chain["leaves_at"], total)
     offset = 0.0
     for (road, entry, piece), piece_length in zip(oriented, lengths):
-        arc = offset + np.concatenate([[0.0], np.cumsum(np.linalg.norm(np.diff(piece[:, :2], axis=0), axis=1))])
+        arc = offset + arc_lengths(piece[:, :2])
         along, _ = path_frame(main["xy"], piece[:, :2])
         on_deck = main_z(along)
         if leaves_at >= total:
@@ -359,7 +355,7 @@ def _point_at(oriented, lengths, s: float) -> np.ndarray:
     offset = 0.0
     for (_, _, piece), piece_length in zip(oriented, lengths):
         if s <= offset + piece_length or piece is oriented[-1][2]:
-            arc = offset + np.concatenate([[0.0], np.cumsum(np.linalg.norm(np.diff(piece[:, :2], axis=0), axis=1))])
+            arc = offset + arc_lengths(piece[:, :2])
             return np.array([np.interp(s, arc, piece[:, 0]), np.interp(s, arc, piece[:, 1])])
         offset += piece_length
     return oriented[-1][2][-1, :2]
@@ -406,7 +402,7 @@ def shift_branches_into_slots(
             for road, entry, offset in pieces:
                 coords = np.asarray(road["coords"], dtype=float)
                 piece = coords if entry else coords[::-1]
-                arc = offset + np.concatenate([[0.0], np.cumsum(np.linalg.norm(np.diff(piece[:, :2], axis=0), axis=1))])
+                arc = offset + arc_lengths(piece[:, :2])
                 oriented.append((road, entry, offset, piece, arc))
             chain_arc = np.concatenate([o[4] for o in oriented])
             chain_xy = np.vstack([o[3][:, :2] for o in oriented])
@@ -455,10 +451,10 @@ def shift_branches_into_slots(
             zone_end = connector + blend + smoothing_end
             for road, entry, offset, piece, _ in chain["pieces"]:
                 piece = _densify(piece, offset, max(connector, stem_length) + length + smoothing_end, step)
-                arc = offset + np.concatenate([[0.0], np.cumsum(np.linalg.norm(np.diff(piece[:, :2], axis=0), axis=1))])
+                arc = offset + arc_lengths(piece[:, :2])
                 if chain is main:
                     # the slot offset of the main axis at the node fades out along its own OSM course
-                    fade = 1.0 - (_smoothstep(arc / blend) if blend > 0.0 else np.ones(len(arc)))
+                    fade = 1.0 - (smoothstep(arc / blend) if blend > 0.0 else np.ones(len(arc)))
                     shifted = piece[:, :2] + (fade * slot)[:, None] * reference.normal(arc)
                 else:
                     shifted = piece[:, :2].copy()
@@ -470,7 +466,7 @@ def shift_branches_into_slots(
                 piece[:, :2] = shifted
                 if chain is not main and not _is_bridge(road):
                     # on the ground the branch takes the main road's height on the stem and returns to its own
-                    own_height = _smoothstep((arc - stem_length) / length) if length > 0.0 else (arc > stem_length).astype(float)
+                    own_height = smoothstep((arc - stem_length) / length) if length > 0.0 else (arc > stem_length).astype(float)
                     along, _ = path_frame(main["xy"], piece[:, :2])
                     piece[:, 2] = stem_z(along) * (1.0 - own_height) + piece[:, 2] * own_height
                 result = piece if entry else piece[::-1]

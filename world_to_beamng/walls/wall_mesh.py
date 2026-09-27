@@ -22,7 +22,7 @@ from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
-from .mesh_parts import MeshBuilder, offset_points, unit_vector
+from .mesh_parts import MeshBuilder, offset_points, point3, unit_vector
 from .wall_cap import add_cap
 
 HeightAt = Callable[[np.ndarray, np.ndarray], np.ndarray]
@@ -128,9 +128,6 @@ def build_wall_mesh(
     along = np.concatenate([[0.0], np.cumsum(steps)]) / tile_m  # u per point; for a ring the closing point holds the total value
     across = thickness / tile_m
 
-    def p3(xy: np.ndarray, z: float) -> List[float]:
-        return [float(xy[0]), float(xy[1]), float(z)]
-
     builder = MeshBuilder()
     segments = len(points) if closed else len(points) - 1
     for i in range(segments):
@@ -142,17 +139,17 @@ def build_wall_mesh(
 
         # Long sides: from the bottom edge (below the ground) to the top edge
         builder.quad(
-            [p3(left[i], bottom_left[i]), p3(left[j], bottom_left[j]), p3(left[j], top[j]), p3(left[i], top[i])],
+            [point3(left[i], bottom_left[i]), point3(left[j], bottom_left[j]), point3(left[j], top[j]), point3(left[i], top[i])],
             [[u0, bottom_left[i] / tile_m], [u1, bottom_left[j] / tile_m], [u1, top[j] / tile_m], [u0, top[i] / tile_m]],
             left_normal,
         )
         builder.quad(
-            [p3(right[i], bottom_right[i]), p3(right[j], bottom_right[j]), p3(right[j], top[j]), p3(right[i], top[i])],
+            [point3(right[i], bottom_right[i]), point3(right[j], bottom_right[j]), point3(right[j], top[j]), point3(right[i], top[i])],
             [[u0, bottom_right[i] / tile_m], [u1, bottom_right[j] / tile_m], [u1, top[j] / tile_m], [u0, top[i] / tile_m]],
             [-left_normal[0], -left_normal[1], 0.0],
         )
         # Top face
-        corners = [p3(left[i], top[i]), p3(left[j], top[j]), p3(right[j], top[j]), p3(right[i], top[i])]
+        corners = [point3(left[i], top[i]), point3(left[j], top[j]), point3(right[j], top[j]), point3(right[i], top[i])]
         top_normal = unit_vector(np.cross(np.array(corners[1]) - np.array(corners[0]), np.array(corners[3]) - np.array(corners[0])))
         if top_normal[2] < 0:
             top_normal = [-c for c in top_normal]
@@ -164,10 +161,10 @@ def build_wall_mesh(
             direction = direction / np.linalg.norm(direction)
             builder.quad(
                 [
-                    p3(left[index], bottom_left[index]),
-                    p3(right[index], bottom_right[index]),
-                    p3(right[index], top[index]),
-                    p3(left[index], top[index]),
+                    point3(left[index], bottom_left[index]),
+                    point3(right[index], bottom_right[index]),
+                    point3(right[index], top[index]),
+                    point3(left[index], top[index]),
                 ],
                 [
                     [0.0, bottom_left[index] / tile_m],

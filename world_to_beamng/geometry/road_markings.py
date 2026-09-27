@@ -12,6 +12,8 @@ from typing import Collection, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
+from .polyline import arc_lengths
+
 EDGE = "edge"
 DIVIDER = "divider"
 CENTER = "center"  # one of the two solid lines between the directions
@@ -152,7 +154,7 @@ def boundary_shifts(roads, layouts, own_widths, pairs, fixed=None) -> Dict[int, 
         if abs(joint_width - own) < 1e-9:
             continue
         nodes = np.asarray(roads[small], dtype=float)
-        arc = np.concatenate([[0.0], np.cumsum(np.linalg.norm(np.diff(nodes[:, :2], axis=0), axis=1))])
+        arc = arc_lengths(nodes[:, :2])
         from_joint = arc if small_end == "start" else arc[-1] - arc
         factor = np.clip((nodes[:, 3] - own) / (joint_width - own), 0.0, 1.0)
         shift = target * factor * (from_joint <= arc[-1] / 2.0 + 1e-9)
@@ -174,7 +176,7 @@ def _approach_pieces(roads, partner, fixed, road: int, road_end: str, span: floa
     while current is not None and current not in seen and offset < span:
         seen.add(current)
         nodes = np.asarray(roads[current], dtype=float)
-        arc = np.concatenate([[0.0], np.cumsum(np.linalg.norm(np.diff(nodes[:, :2], axis=0), axis=1))])
+        arc = arc_lengths(nodes[:, :2])
         yield current, entry, offset, offset + (arc if entry == "start" else arc[-1] - arc)
         offset += float(arc[-1])
         nxt = partner.get((current, "end" if entry == "start" else "start"))
@@ -360,7 +362,7 @@ def no_overtaking_masks(roads, layouts, own_widths, fixed, pairs, extra: float, 
             seen.add(road)
             nodes = np.asarray(roads[road], dtype=float)
             order = np.arange(len(nodes)) if end == "start" else np.arange(len(nodes))[::-1]
-            distance = offset + np.concatenate([[0.0], np.cumsum(np.linalg.norm(np.diff(nodes[order, :2], axis=0), axis=1))])
+            distance = offset + arc_lengths(nodes[order, :2])
             segments.append((road, order, distance, np.abs(nodes[order, 3] - own_widths[road])))
             offset = distance[-1]
             far = "end" if end == "start" else "start"
@@ -551,7 +553,7 @@ def clip_line(line: np.ndarray, obstacles, min_length: float) -> List[np.ndarray
     else:
         rest = shape.difference(obstacles)
         pieces = list(getattr(rest, "geoms", [rest]))
-    cum = np.concatenate([[0.0], np.cumsum(np.linalg.norm(np.diff(line[:, :2], axis=0), axis=1))])
+    cum = arc_lengths(line[:, :2])
     result = []
     for piece in pieces:
         if piece.is_empty or piece.geom_type != "LineString" or piece.length < min_length:

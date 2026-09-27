@@ -12,6 +12,7 @@ import logging
 
 from .. import config
 from ..core.cache_manager import CacheManager
+from ..geometry.polyline import arc_lengths
 from ..managers import MaterialManager, ItemManager, DAEExporter
 from .tile_processor import TileProcessor
 from ..progress import PipelineTask
@@ -106,10 +107,7 @@ def _widths_along(coords, nodes) -> Optional[np.ndarray]:
         return None
     points, node_array = np.asarray(coords, dtype=float), np.asarray(nodes, dtype=float)
 
-    def arc(xy):
-        return np.concatenate([[0.0], np.cumsum(np.linalg.norm(np.diff(xy[:, :2], axis=0), axis=1))])
-
-    node_arc, point_arc = arc(node_array), arc(points)
+    node_arc, point_arc = arc_lengths(node_array[:, :2]), arc_lengths(points[:, :2])
     scale = node_arc[-1] / point_arc[-1] if point_arc[-1] > 0.0 else 1.0
     return np.interp(point_arc * scale, node_arc, node_array[:, 3])
 

@@ -12,6 +12,7 @@ from typing import Dict, List, Optional, Sequence
 
 import numpy as np
 
+from ..geometry.polyline import arc_lengths
 from ..walls.mesh_parts import MeshBuilder, add_box_column
 
 DOWN = np.array([0.0, 0.0, -1.0])
@@ -47,7 +48,7 @@ def plan_tunnel_lights(
     for plan in plans:
         coords = np.asarray(plan["coords"], dtype=float)
         xy, z = coords[:, :2], coords[:, 2]
-        cum = np.concatenate([[0.0], np.cumsum(np.linalg.norm(np.diff(xy, axis=0), axis=1))])
+        cum = arc_lengths(xy)
         total = float(cum[-1])
         start, end = plan["portals"]
         start_gap = start_inset if start.get("open", True) else 0.0

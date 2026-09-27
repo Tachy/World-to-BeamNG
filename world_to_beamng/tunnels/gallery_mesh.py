@@ -8,7 +8,7 @@ from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
-from ..walls.mesh_parts import MeshBuilder, add_box_column, offset_points
+from ..walls.mesh_parts import MeshBuilder, add_box_column, offset_points, point3
 
 HeightAt = Callable[[np.ndarray, np.ndarray], np.ndarray]
 
@@ -166,9 +166,6 @@ def build_gallery_mesh(
     curb_h = curb_height / tile_m
     curb_w = curb_width / tile_m
 
-    def p3(pt_xy, z):
-        return [float(pt_xy[0]), float(pt_xy[1]), float(z)]
-
     floor_builder = MeshBuilder()
     roof_builder = MeshBuilder()
     for i in range(len(points) - 1):
@@ -183,34 +180,34 @@ def build_gallery_mesh(
 
         # Floor: carriageway top (road material) + bottom + both side faces (box).
         floor_builder.quad(
-            [p3(left[i], floor_z[i]), p3(left[j], floor_z[j]), p3(right[j], floor_z[j]), p3(right[i], floor_z[i])],
+            [point3(left[i], floor_z[i]), point3(left[j], floor_z[j]), point3(right[j], floor_z[j]), point3(right[i], floor_z[i])],
             [[0.0, road_v[i]], [0.0, road_v[j]], [1.0, road_v[j]], [1.0, road_v[i]]],
             [0.0, 0.0, 1.0],
         )
         roof_builder.quad(
-            [p3(slab_left[i], floor_bottom_z[i]), p3(slab_right[i], floor_bottom_z[i]), p3(slab_right[j], floor_bottom_z[j]), p3(slab_left[j], floor_bottom_z[j])],
+            [point3(slab_left[i], floor_bottom_z[i]), point3(slab_right[i], floor_bottom_z[i]), point3(slab_right[j], floor_bottom_z[j]), point3(slab_left[j], floor_bottom_z[j])],
             [[u0, 0.0], [u0, slab_across], [u1, slab_across], [u1, 0.0]],
             [0.0, 0.0, -1.0],
         )
         roof_builder.quad(
-            [p3(slab_left[i], floor_bottom_z[i]), p3(slab_left[j], floor_bottom_z[j]), p3(slab_left[j], floor_z[j]), p3(slab_left[i], floor_z[i])],
+            [point3(slab_left[i], floor_bottom_z[i]), point3(slab_left[j], floor_bottom_z[j]), point3(slab_left[j], floor_z[j]), point3(slab_left[i], floor_z[i])],
             [[u0, 0.0], [u1, 0.0], [u1, floor_h], [u0, floor_h]],
             [float(side_normal[0]), float(side_normal[1]), 0.0],
         )
         roof_builder.quad(
-            [p3(slab_right[i], floor_z[i]), p3(slab_right[j], floor_z[j]), p3(slab_right[j], floor_bottom_z[j]), p3(slab_right[i], floor_bottom_z[i])],
+            [point3(slab_right[i], floor_z[i]), point3(slab_right[j], floor_z[j]), point3(slab_right[j], floor_bottom_z[j]), point3(slab_right[i], floor_bottom_z[i])],
             [[u0, 0.0], [u1, 0.0], [u1, floor_h], [u0, floor_h]],
             [-float(side_normal[0]), -float(side_normal[1]), 0.0],
         )
 
         # Roof: bottom/top (as before) + now additionally both side faces (box instead of slab).
         roof_builder.quad(
-            [p3(slab_left[i], roof_bottom_z[i]), p3(slab_right[i], roof_bottom_z[i]), p3(slab_right[j], roof_bottom_z[j]), p3(slab_left[j], roof_bottom_z[j])],
+            [point3(slab_left[i], roof_bottom_z[i]), point3(slab_right[i], roof_bottom_z[i]), point3(slab_right[j], roof_bottom_z[j]), point3(slab_left[j], roof_bottom_z[j])],
             [[u0, 0.0], [u0, slab_across], [u1, slab_across], [u1, 0.0]],
             [0.0, 0.0, -1.0],
         )
         roof_builder.quad(
-            [p3(slab_left[i], roof_top_z[i]), p3(slab_left[j], roof_top_z[j]), p3(slab_right[j], roof_top_z[j]), p3(slab_right[i], roof_top_z[i])],
+            [point3(slab_left[i], roof_top_z[i]), point3(slab_left[j], roof_top_z[j]), point3(slab_right[j], roof_top_z[j]), point3(slab_right[i], roof_top_z[i])],
             [[u0, 0.0], [u1, 0.0], [u1, slab_across], [u0, slab_across]],
             [0.0, 0.0, 1.0],
         )
@@ -219,13 +216,13 @@ def build_gallery_mesh(
         # roof side face there would be coincident geometry (z-fighting).
         if not mountain_is_left:
             roof_builder.quad(
-                [p3(slab_left[i], roof_bottom_z[i]), p3(slab_left[j], roof_bottom_z[j]), p3(slab_left[j], roof_top_z[j]), p3(slab_left[i], roof_top_z[i])],
+                [point3(slab_left[i], roof_bottom_z[i]), point3(slab_left[j], roof_bottom_z[j]), point3(slab_left[j], roof_top_z[j]), point3(slab_left[i], roof_top_z[i])],
                 [[u0, 0.0], [u1, 0.0], [u1, roof_h], [u0, roof_h]],
                 [float(side_normal[0]), float(side_normal[1]), 0.0],
             )
         if mountain_is_left:
             roof_builder.quad(
-                [p3(slab_right[i], roof_top_z[i]), p3(slab_right[j], roof_top_z[j]), p3(slab_right[j], roof_bottom_z[j]), p3(slab_right[i], roof_bottom_z[i])],
+                [point3(slab_right[i], roof_top_z[i]), point3(slab_right[j], roof_top_z[j]), point3(slab_right[j], roof_bottom_z[j]), point3(slab_right[i], roof_bottom_z[i])],
                 [[u0, 0.0], [u1, 0.0], [u1, roof_h], [u0, roof_h]],
                 [-float(side_normal[0]), -float(side_normal[1]), 0.0],
             )
@@ -239,22 +236,22 @@ def build_gallery_mesh(
         outward_normal = [-wall_normal[0], -wall_normal[1], 0.0]
 
         roof_builder.quad(  # inner face (visible from the interior, hidden from outside above the ceiling)
-            [p3(edge[i], floor_z[i]), p3(edge[j], floor_z[j]), p3(edge[j], roof_top_z[j]), p3(edge[i], roof_top_z[i])],
+            [point3(edge[i], floor_z[i]), point3(edge[j], floor_z[j]), point3(edge[j], roof_top_z[j]), point3(edge[i], roof_top_z[i])],
             [[u0, 0.0], [u1, 0.0], [u1, wall_h], [u0, wall_h]],
             wall_normal,
         )
         roof_builder.quad(  # outer face, wall_thickness further into the slope
-            [p3(outer_edge[i], floor_z[i]), p3(outer_edge[i], roof_top_z[i]), p3(outer_edge[j], roof_top_z[j]), p3(outer_edge[j], floor_z[j])],
+            [point3(outer_edge[i], floor_z[i]), point3(outer_edge[i], roof_top_z[i]), point3(outer_edge[j], roof_top_z[j]), point3(outer_edge[j], floor_z[j])],
             [[u0, 0.0], [u0, wall_h], [u1, wall_h], [u1, 0.0]],
             outward_normal,
         )
         roof_builder.quad(  # wall bottom (floor level, inner to outer edge)
-            [p3(edge[i], floor_z[i]), p3(outer_edge[i], floor_z[i]), p3(outer_edge[j], floor_z[j]), p3(edge[j], floor_z[j])],
+            [point3(edge[i], floor_z[i]), point3(outer_edge[i], floor_z[i]), point3(outer_edge[j], floor_z[j]), point3(edge[j], floor_z[j])],
             [[u0, 0.0], [u0, wall_extra], [u1, wall_extra], [u1, 0.0]],
             [0.0, 0.0, -1.0],
         )
         roof_builder.quad(  # wall top, now flush with the roof top edge (inner to outer edge)
-            [p3(edge[i], roof_top_z[i]), p3(edge[j], roof_top_z[j]), p3(outer_edge[j], roof_top_z[j]), p3(outer_edge[i], roof_top_z[i])],
+            [point3(edge[i], roof_top_z[i]), point3(edge[j], roof_top_z[j]), point3(outer_edge[j], roof_top_z[j]), point3(outer_edge[i], roof_top_z[i])],
             [[u0, 0.0], [u1, 0.0], [u1, wall_extra], [u0, wall_extra]],
             [0.0, 0.0, 1.0],
         )
@@ -266,17 +263,17 @@ def build_gallery_mesh(
         curb_outward = [-side_normal[0], -side_normal[1], 0.0] if mountain_is_left else side_normal
 
         roof_builder.quad(  # plinth top (concrete material like wall/roof, not carriageway material)
-            [p3(curb_edge[i], curb_top_z[i]), p3(curb_edge[j], curb_top_z[j]), p3(curb_inner[j], curb_top_z[j]), p3(curb_inner[i], curb_top_z[i])],
+            [point3(curb_edge[i], curb_top_z[i]), point3(curb_edge[j], curb_top_z[j]), point3(curb_inner[j], curb_top_z[j]), point3(curb_inner[i], curb_top_z[i])],
             [[u0, 0.0], [u1, 0.0], [u1, curb_w], [u0, curb_w]],
             [0.0, 0.0, 1.0],
         )
         roof_builder.quad(  # plinth outer face (facing the valley side)
-            [p3(curb_edge[i], floor_z[i]), p3(curb_edge[j], floor_z[j]), p3(curb_edge[j], curb_top_z[j]), p3(curb_edge[i], curb_top_z[i])],
+            [point3(curb_edge[i], floor_z[i]), point3(curb_edge[j], floor_z[j]), point3(curb_edge[j], curb_top_z[j]), point3(curb_edge[i], curb_top_z[i])],
             [[u0, 0.0], [u1, 0.0], [u1, curb_h], [u0, curb_h]],
             curb_outward,
         )
         roof_builder.quad(  # plinth inner face (facing the carriageway)
-            [p3(curb_inner[i], curb_top_z[i]), p3(curb_inner[j], curb_top_z[j]), p3(curb_inner[j], floor_z[j]), p3(curb_inner[i], floor_z[i])],
+            [point3(curb_inner[i], curb_top_z[i]), point3(curb_inner[j], curb_top_z[j]), point3(curb_inner[j], floor_z[j]), point3(curb_inner[i], floor_z[i])],
             [[u0, 0.0], [u1, 0.0], [u1, curb_h], [u0, curb_h]],
             [-float(curb_outward[0]), -float(curb_outward[1]), 0.0],
         )
@@ -347,16 +344,13 @@ def _add_end_caps(
     norm = float(np.hypot(outward_xy[0], outward_xy[1]))
     normal = [float(outward_xy[0] / norm), float(outward_xy[1] / norm), 0.0] if norm > 1e-9 else [1.0, 0.0, 0.0]
 
-    def p3(pt_xy, z):
-        return [float(pt_xy[0]), float(pt_xy[1]), float(z)]
-
     builder.quad(  # floor end face
-        [p3(slab_left[idx], floor_bottom_z[idx]), p3(slab_right[idx], floor_bottom_z[idx]), p3(slab_right[idx], floor_z[idx]), p3(slab_left[idx], floor_z[idx])],
+        [point3(slab_left[idx], floor_bottom_z[idx]), point3(slab_right[idx], floor_bottom_z[idx]), point3(slab_right[idx], floor_z[idx]), point3(slab_left[idx], floor_z[idx])],
         [[0.0, 0.0], [across, 0.0], [across, floor_h], [0.0, floor_h]],
         normal,
     )
     builder.quad(  # roof end face
-        [p3(slab_left[idx], roof_bottom_z[idx]), p3(slab_right[idx], roof_bottom_z[idx]), p3(slab_right[idx], roof_top_z[idx]), p3(slab_left[idx], roof_top_z[idx])],
+        [point3(slab_left[idx], roof_bottom_z[idx]), point3(slab_right[idx], roof_bottom_z[idx]), point3(slab_right[idx], roof_top_z[idx]), point3(slab_left[idx], roof_top_z[idx])],
         [[0.0, 0.0], [across, 0.0], [across, roof_h], [0.0, roof_h]],
         normal,
     )
@@ -365,7 +359,7 @@ def _add_end_caps(
     edge_pt = left[idx] if mountain_is_left else right[idx]
     outer_pt = outer_left[idx] if mountain_is_left else outer_right[idx]
     builder.quad(  # wall end face (only the wall footprint: inner to outer edge, up to the roof top edge)
-        [p3(edge_pt, floor_z[idx]), p3(outer_pt, floor_z[idx]), p3(outer_pt, roof_top_z[idx]), p3(edge_pt, roof_top_z[idx])],
+        [point3(edge_pt, floor_z[idx]), point3(outer_pt, floor_z[idx]), point3(outer_pt, roof_top_z[idx]), point3(edge_pt, roof_top_z[idx])],
         [[0.0, 0.0], [wall_extra, 0.0], [wall_extra, wall_h], [0.0, wall_h]],
         normal,
     )
@@ -373,7 +367,7 @@ def _add_end_caps(
     curb_edge_pt = curb_outer_right[idx] if mountain_is_left else curb_outer_left[idx]
     curb_inner_pt = right[idx] if mountain_is_left else left[idx]
     builder.quad(  # plinth end face (only the plinth footprint: carriageway edge to curb_width outward)
-        [p3(curb_inner_pt, floor_z[idx]), p3(curb_edge_pt, floor_z[idx]), p3(curb_edge_pt, curb_top_z[idx]), p3(curb_inner_pt, curb_top_z[idx])],
+        [point3(curb_inner_pt, floor_z[idx]), point3(curb_edge_pt, floor_z[idx]), point3(curb_edge_pt, curb_top_z[idx]), point3(curb_inner_pt, curb_top_z[idx])],
         [[0.0, 0.0], [curb_w, 0.0], [curb_w, curb_h], [0.0, curb_h]],
         normal,
     )
