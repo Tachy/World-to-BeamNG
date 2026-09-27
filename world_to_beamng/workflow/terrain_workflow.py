@@ -4,6 +4,7 @@ Terrain export workflow.
 Orchestrates the complete terrain export process.
 """
 
+from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 import json
 import numpy as np
@@ -60,6 +61,65 @@ def water_bounds(grid_bounds_local):
     return (x_min + m, y_min + m, x_max - m, y_max - m)
 
 
+@dataclass
+class TileState:
+    """Intermediate results of TerrainWorkflow.process_tile(), filled phase by phase (grouped by the _tile_* method
+    that sets them; later phases read what earlier ones set)."""
+
+    tiles: List[Dict]
+    global_offset: Tuple[float, float]
+    # _tile_load_osm()
+    local_points: Optional[np.ndarray] = None
+    elevations: Optional[np.ndarray] = None
+    tile_hash: str = ""
+    osm_bbox: Optional[Tuple] = None
+    osm_data: Optional[Dict] = None
+    road_polygons: List[Dict] = field(default_factory=list)
+    # _tile_load_buildings()
+    buildings_data: Optional[Dict] = None
+    # _tile_road_network()
+    grid_bounds_local: Optional[Tuple[float, float, float, float]] = None
+    road_slope_polygons_2d: List[Dict] = field(default_factory=list)
+    # _tile_heightmap() (heights is changed again by _tile_shape_terrain() and _tile_ponds())
+    grid: Optional[Tuple] = None
+    nx: int = 0
+    ny: int = 0
+    heights: Optional[np.ndarray] = None
+    terrain_size: int = 0
+    terrain_origin_x: float = 0.0
+    terrain_origin_y: float = 0.0
+    # _tile_shape_terrain()
+    surface_road_polygons: List[Dict] = field(default_factory=list)
+    structure_road_polygons: List[Dict] = field(default_factory=list)
+    gallery_roads: List[Dict] = field(default_factory=list)
+    bridge_roads: List[Dict] = field(default_factory=list)
+    tunnel_plans: List[Dict] = field(default_factory=list)
+    tunnel_holes: Optional[np.ndarray] = None
+    dropped_tunnel_road_ids: frozenset = frozenset()
+    # _tile_ponds()
+    landuse_polygons: List[Dict] = field(default_factory=list)
+    natural_heights: Optional[np.ndarray] = None
+    # _tile_layer_map()
+    layer_map: Optional[np.ndarray] = None
+    terrain_material_names: List[str] = field(default_factory=list)
+    photo_tile_names: List[str] = field(default_factory=list)
+    photo_tiles: Optional[Dict] = None
+    road_surface_union: Optional[object] = None
+    road_shapes: List = field(default_factory=list)
+    building_shapes: List = field(default_factory=list)
+    tree_exclusion: Optional[object] = None
+    # _tile_scene_objects()
+    vineyard_instances: List[Dict] = field(default_factory=list)
+    water: Dict = field(default_factory=dict)
+    wall_meshes: List[Dict] = field(default_factory=list)
+    tunnel_meshes: List[Dict] = field(default_factory=list)
+    roadblocks: List[Dict] = field(default_factory=list)
+    tunnel_zones: List[Dict] = field(default_factory=list)
+    tunnel_lights: List[Dict] = field(default_factory=list)
+    poi_points: List[Dict] = field(default_factory=list)
+    tunnel_spawns: List[Dict] = field(default_factory=list)
+
+
 class TerrainWorkflow:
     """
     Orchestrates the terrain export workflow.
@@ -103,6 +163,9 @@ class TerrainWorkflow:
         tile borders. A single tile is simply the special case
         len(tiles) == 1 of the same code path.
 
+        The work is split into phases (the _tile_* methods) that run in this order and pass their results on in a
+        TileState - the order matters, e.g. the embankment needs the still natural heightmap.
+
         Args:
             tiles: List of tile metadata (typically all DGM1 tiles
                 of an export)
@@ -114,13 +177,90 @@ class TerrainWorkflow:
         Returns:
             Dict with processing results
         """
-        from ..osm.parser import calculate_bbox_from_height_data, extract_roads_from_osm
-        from ..osm.downloader import get_osm_data
-        from ..geometry.polygon import get_road_polygons, clip_road_polygons
-        from ..geometry.junctions import build_junction_network
-        from ..io.cache import calculate_global_tiles_hash
+        s = TileState(tiles=tiles, global_offset=global_offset)
 
         sub = task.begin_subtask("Load OSM data")
+        failure = self._tile_load_osm(s, bbox_margin, sub)
+        if failure:
+            return failure
+        sub.finish()  # covers the OSM query AND road extraction - both part of "Load OSM data"
+
+        # 6a. Aerial photos: are NO longer processed per tile here - with
+        # several tiles the file existence check ("is there already
+        # any .dds?") would skip the export for all tiles except the first.
+        # Instead, BeamNGExporter.export_complete_level() calls
+        # process_aerial_images() once for the total BBox of all tiles,
+        # before the tile loop begins.
+
+        sub = task.begin_subtask("Normalize buildings")
+        self._tile_load_buildings(s, buildings_data)
+        sub.finish(f"{len(s.buildings_data)} buildings" if s.buildings_data else "no LoD2 buildings")
+
+        sub = task.begin_subtask("Road network + infrastructure")
+        self._tile_road_network(s)
+        self._tile_heightmap(s)
+        self._tile_shape_terrain(s)
+        self._tile_ponds(s)
+        self._tile_layer_map(s)
+        self._tile_scene_objects(s)
+
+        heights = s.heights
+        z_min = float(heights.min())
+        z_max = float(heights.max())
+        max_height = (z_max - z_min) + config.TERRAIN_MAX_HEIGHT_BUFFER
+
+        sub.finish(f"{len(s.road_slope_polygons_2d)} road segments")
+
+        photo_tiles = s.photo_tiles
+        return {
+            "status": "success",
+            "heightmap": heights,
+            "terrain_size": s.terrain_size,
+            "terrain_origin_x": s.terrain_origin_x,
+            "terrain_origin_y": s.terrain_origin_y,
+            "z_min": z_min,
+            "max_height": max_height,
+            "layer_map": s.layer_map,
+            "terrain_material_names": s.terrain_material_names,
+            "photo_tile_names": s.photo_tile_names,
+            # Four-photo mode (otherwise None): tile variants of the layers, their photo and the photo size per tile
+            "layer_variants": photo_tiles["layer_variants"] if photo_tiles else None,
+            "variant_parents": photo_tiles["variant_parents"] if photo_tiles else None,
+            "photo_extents": photo_tiles["photo_extents"] if photo_tiles else None,
+            "poi_points": s.poi_points,  # Villages/towns and large parking lots for ItemManager._compute_poi_spawn_points()
+            "vineyard_instances": s.vineyard_instances,  # Forest-Items (grape_vine)
+            "water": s.water,  # {"rivers": [...], "ponds": [...]} for export_water()
+            "wall_meshes": s.wall_meshes,  # Mesh dicts of the rubble stone walls for export_walls()
+            "tunnel_meshes": s.tunnel_meshes,  # Tunnel/gallery mesh dicts for export_tunnels()
+            "tunnel_spawns": s.tunnel_spawns,  # Spawn points in front of tunnel entrances for ItemManager.save(fixed_spawns=...)
+            "roadblocks": s.roadblocks,  # Roadblocks in front of entrances of tunnels beyond the map border, for export_roadblocks()
+            "tunnel_zones": s.tunnel_zones,  # Zone boxes for dark tunnel tubes, for export_tunnel_zones()
+            "tunnel_lights": s.tunnel_lights,  # SpotLight fixtures inside the tubes, for export_tunnel_lights()
+            "dropped_tunnel_road_ids": s.dropped_tunnel_road_ids,  # pieces of pass-through tunnels: no AI DecalRoad
+            "grid": s.grid,
+            "road_polygons": s.road_polygons,
+            "road_slope_polygons_2d": s.road_slope_polygons_2d,  # For DecalRoad export
+            "structure_road_polygons": s.structure_road_polygons,  # Bridges/tunnels/galleries - for export_bridges()/export_tunnels()
+            "bridge_photo_areas": _bridge_photo_areas(s.structure_road_polygons),  # retouched out of the aerial photo
+            "road_surface_union": s.road_surface_union,  # unioned road surface for exclusion zones (or None)
+            "tree_exclusion": s.tree_exclusion,  # road surfaces plus the areas under bridges: no trees there (or None)
+            "grid_bounds_local": s.grid_bounds_local,
+            "global_offset": s.global_offset,
+            "buildings_data": s.buildings_data,  # Pass on the building data
+            "height_points": s.local_points,  # For spawn point calculation
+            "height_elevations": s.elevations,  # For spawn point calculation
+            "height_hash": s.tile_hash,  # For cache consistency in the forest workflow
+        }
+
+    def _tile_load_osm(self, s: "TileState", bbox_margin: float, sub) -> Optional[Dict]:
+        """Elevation point cloud, OSM data and road polygons of the whole area. Returns a failure result dict (and
+        fails `sub`) when there is no height or OSM data, otherwise None."""
+        from ..osm.parser import calculate_bbox_from_height_data, extract_roads_from_osm
+        from ..osm.downloader import get_osm_data
+        from ..geometry.polygon import get_road_polygons
+        from ..io.cache import calculate_global_tiles_hash
+
+        tiles, global_offset = s.tiles, s.global_offset
 
         # 1. Combine the elevation data of all tiles into one point cloud
         height_points, height_elevations = self.tile_processor.load_height_data_multi(tiles)
@@ -156,17 +296,16 @@ class TerrainWorkflow:
         # IMPORTANT: Pass LOCAL coordinates! All internal calculations in local!
 
         road_polygons = get_road_polygons(roads, osm_bbox, local_points, elevations, global_offset, tile_hash=tile_hash)
-        sub.finish()  # covers the OSM query AND road extraction - both part of "Load OSM data"
 
-        # 6a. Aerial photos: are NO longer processed per tile here - with
-        # several tiles the file existence check ("is there already
-        # any .dds?") would skip the export for all tiles except the first.
-        # Instead, BeamNGExporter.export_complete_level() calls
-        # process_aerial_images() once for the total BBox of all tiles,
-        # before the tile loop begins.
+        s.local_points, s.elevations, s.tile_hash = local_points, elevations, tile_hash
+        s.osm_bbox, s.osm_data, s.road_polygons = osm_bbox, osm_data, road_polygons
+        return None
+
+    def _tile_load_buildings(self, s: "TileState", buildings_data: Optional[Dict]) -> None:
+        """LoD2 buildings (if enabled and not passed in), with church towers marked for a tower clock."""
+        osm_data, global_offset = s.osm_data, s.global_offset
 
         # 6b. Load LoD2 buildings (if enabled and not yet passed in)
-        sub = task.begin_subtask("Normalize buildings")
         if buildings_data is None and config.LOD2_ENABLED:
             from ..io.lod2 import cache_lod2_buildings, load_buildings_from_cache
 
@@ -183,10 +322,10 @@ class TerrainWorkflow:
             # (they were already normalized by cache_lod2_buildings)
             buildings_cache_path = cache_lod2_buildings(
                 lod2_dir=config.LOD2_DATA_DIR,
-                bbox=osm_bbox,  # WGS84-BBox
+                bbox=s.osm_bbox,  # WGS84-BBox
                 local_offset=local_offset_3d,  # 3D offset with Z-min!
                 cache_dir=config.CACHE_DIR,
-                height_hash=tile_hash,
+                height_hash=s.tile_hash,
             )
             if buildings_cache_path:
                 buildings_data = load_buildings_from_cache(buildings_cache_path)
@@ -204,9 +343,15 @@ class TerrainWorkflow:
             towers = ChurchTowerFinder.from_osm(osm_data, make_local_transform(global_offset)).mark(buildings_data)
             logger.info(f"  [OK] {towers} churches with a tower detected (tower clock instead of windows)")
 
-        sub.finish(f"{len(buildings_data)} buildings" if buildings_data else "no LoD2 buildings")
+        s.buildings_data = buildings_data
 
-        sub = task.begin_subtask("Road network + infrastructure")
+    def _tile_road_network(self, s: "TileState") -> None:
+        """Clipped road network with junctions, underpass heights and lane splits, converted into the road dicts
+        (road_slope_polygons_2d) that the terrain and the DecalRoad export work on."""
+        from ..geometry.polygon import clip_road_polygons
+        from ..geometry.junctions import build_junction_network
+
+        local_points, road_polygons = s.local_points, s.road_polygons
 
         # Compute grid bounds from local points for clipping
         grid_bounds_local = (
@@ -263,7 +408,7 @@ class TerrainWorkflow:
         # IMPORTANT: Create actual road polygons (buffer around the centerline)
         from shapely.geometry import LineString
         from ..config import OSM_MAPPER
-        from ..geometry.road_structures import classify_structure, split_by_structure_type
+        from ..geometry.road_structures import classify_structure
         from ..utils.debug_exporter import DebugNetworkExporter
 
         road_slope_polygons_2d = []
@@ -314,15 +459,20 @@ class TerrainWorkflow:
         if widened:
             logger.debug(f"  [OK] {widened} road(s) with a width transition: embankment follows the blended width")
 
+        s.grid_bounds_local, s.road_polygons, s.road_slope_polygons_2d = grid_bounds_local, road_polygons, road_slope_polygons_2d
+
+    def _tile_heightmap(self, s: "TileState") -> None:
+        """Regular grid and the still natural terrain heightmap built from it."""
         # 8. Create the grid (with builder)
         from ..builders import GridBuilder
+        from ..terrain.heightmap import build_heightmap
 
         grid_builder = GridBuilder()
         grid = (
-            grid_builder.with_points(local_points)
-            .with_elevations(elevations)
+            grid_builder.with_points(s.local_points)
+            .with_elevations(s.elevations)
             .with_spacing(config.GRID_SPACING)
-            .with_cache_key(f"grid_{tile_hash}")
+            .with_cache_key(f"grid_{s.tile_hash}")
             .build()
         )
 
@@ -334,29 +484,28 @@ class TerrainWorkflow:
         # Since the switch to DecalRoad, roads are no longer built as a mesh
         # (no RoadMeshBuilder/junction fan material majority vote
         # needed anymore) - see export_decal_roads().
+        heightmap_result = build_heightmap(
+            grid_points, grid_elevations, nx, ny, config.TERRAIN_SQUARE_SIZE
+        )
+        s.grid, s.nx, s.ny = grid, nx, ny
+        s.heights = heightmap_result["heights"]
+        s.terrain_size = heightmap_result["size"]
+        s.terrain_origin_x = heightmap_result["origin_x"]
+        s.terrain_origin_y = heightmap_result["origin_y"]
+
+    def _tile_shape_terrain(self, s: "TileState") -> None:
+        """Embankments and embedding of the surface roads and galleries, bridge abutments capped to the deck, tunnel
+        cover and portals - all on the heightmap, in this order."""
         from ..config import OSM_MAPPER
-        from ..terrain.heightmap import build_heightmap
+        from ..geometry.road_structures import split_by_structure_type
         from ..terrain.road_embedding import (
             embed_roads_into_heightmap,
             build_road_embankment_profiles,
             apply_embankment_blend,
             sample_heightmap_bilinear,
         )
-        from ..terrain.terrain_materials import (
-            DEFAULT_LANDUSE_CATEGORY,
-            build_photo_fallback_layer,
-            mark_padding_as_holes,
-            mask_layer_map_with_photo,
-            paint_landuse_materials,
-        )
 
-        heightmap_result = build_heightmap(
-            grid_points, grid_elevations, nx, ny, config.TERRAIN_SQUARE_SIZE
-        )
-        heights = heightmap_result["heights"]
-        terrain_size = heightmap_result["size"]
-        terrain_origin_x = heightmap_result["origin_x"]
-        terrain_origin_y = heightmap_result["origin_y"]
+        heights, terrain_origin_x, terrain_origin_y = s.heights, s.terrain_origin_x, s.terrain_origin_y
 
         # Embankment: create the transition from the road edge to the natural surroundings directly
         # in the heightmap (the mesh no longer generates embankment geometry - see spec section 4b).
@@ -366,7 +515,7 @@ class TerrainWorkflow:
         # (the terrain below/beside them stays completely natural). Galleries,
         # on the other hand, ARE embedded like normal roads (see below) - no separate terrain hole
         # needed anymore, since floor/wall/roof are solid boxes (tunnels/gallery_mesh.py).
-        surface_road_polygons, structure_road_polygons = split_by_structure_type(road_slope_polygons_2d)
+        surface_road_polygons, structure_road_polygons = split_by_structure_type(s.road_slope_polygons_2d)
 
         # Embed galleries like normal roads (same embankment/embedding parameters), but with
         # fixed instead of computed embankment widths on both sides (slope_width_override, see
@@ -457,22 +606,28 @@ class TerrainWorkflow:
                     tunnel_plans,
                     cover=config.TUNNEL_COVER,
                     protected=protected,
-                    bounds=grid_bounds_local,
+                    bounds=s.grid_bounds_local,
                     edge_margin=config.MAP_EDGE_TUNNEL_MARGIN,
                 )
                 # tunnel_plans was filtered in place: pass-through chains without a reachable portal are gone
                 dropped_tunnel_road_ids = _dropped_tunnel_road_ids(all_tunnel_piece_ids, tunnel_plans)
 
-        # Layer map: ONE aerial photo material for the whole area, then OSM
-        # land use on top (see build_photo_fallback_layer()).
-        layer_map, photo_tile_names = build_photo_fallback_layer(terrain_size)
+        s.heights = heights
+        s.surface_road_polygons, s.structure_road_polygons = surface_road_polygons, structure_road_polygons
+        s.gallery_roads, s.bridge_roads = gallery_roads, bridge_roads
+        s.tunnel_plans, s.tunnel_holes, s.dropped_tunnel_road_ids = tunnel_plans, tunnel_holes, dropped_tunnel_road_ids
 
+    def _tile_ponds(self, s: "TileState") -> None:
+        """OSM land use polygons and the pond basins lowered into the terrain; keeps the heights before the basins as
+        natural_heights (the water level comes from the natural edge)."""
         from ..osm.landuse_polygons import build_landuse_polygons, make_local_transform
+
+        heights = s.heights
 
         # At this point osm_data still contains RAW Overpass geometry (lat/lon).
         # Land use polygons are built from ways AND multipolygon relations
         # (large forest/vineyard/residential areas are usually relations in OSM).
-        landuse_polygons = build_landuse_polygons(osm_data, make_local_transform(global_offset))
+        landuse_polygons = build_landuse_polygons(s.osm_data, make_local_transform(s.global_offset))
 
         # Pond basins: lower the terrain within the water areas (before everything that reuses the elevations:
         # streams, trees, vines). The water level comes from the natural edge, see _build_water().
@@ -480,12 +635,12 @@ class TerrainWorkflow:
         if config.WATER_ENABLED:
             from ..terrain.water import carve_pond_basins, select_pond_areas
 
-            pond_areas = select_pond_areas(landuse_polygons, water_bounds(grid_bounds_local))
+            pond_areas = select_pond_areas(landuse_polygons, water_bounds(s.grid_bounds_local))
             if pond_areas:
                 heights = carve_pond_basins(
                     heights,
-                    terrain_origin_x,
-                    terrain_origin_y,
+                    s.terrain_origin_x,
+                    s.terrain_origin_y,
                     config.TERRAIN_SQUARE_SIZE,
                     pond_areas,
                     depth=config.WATER_POND_BANK_DEPTH,
@@ -495,6 +650,31 @@ class TerrainWorkflow:
                     f"  [OK] Pond basins: {len(pond_areas)} water area(s), terrain {config.WATER_POND_BANK_DEPTH * 100:.0f} cm lower "
                     f"(bank {config.WATER_POND_BANK_SLOPE_DEG:.0f} degrees)"
                 )
+
+        s.landuse_polygons, s.natural_heights, s.heights = landuse_polygons, natural_heights, heights
+
+    def _tile_layer_map(self, s: "TileState") -> None:
+        """Terrain layer map: aerial photo base, OSM land use painted on top, ground cover masked off roads, buildings
+        and near bridge decks, holes (padding, tunnel portals), split per photo tile in four-photo mode. Also the
+        road/building shapes and the tree exclusion zone that the vegetation reuses."""
+        from ..geometry.road_surfaces import union_road_surfaces
+        from ..osm.landuse_polygons import build_landuse_polygons, make_local_transform
+        from ..terrain.terrain_materials import (
+            DEFAULT_LANDUSE_CATEGORY,
+            build_photo_fallback_layer,
+            mark_padding_as_holes,
+            mask_layer_map_with_photo,
+            paint_landuse_materials,
+        )
+
+        heights, terrain_size = s.heights, s.terrain_size
+        terrain_origin_x, terrain_origin_y = s.terrain_origin_x, s.terrain_origin_y
+        osm_data, global_offset = s.osm_data, s.global_offset
+        tunnel_plans, bridge_roads = s.tunnel_plans, s.bridge_roads
+
+        # Layer map: ONE aerial photo material for the whole area, then OSM
+        # land use on top (see build_photo_fallback_layer()).
+        layer_map, photo_tile_names = build_photo_fallback_layer(terrain_size)
 
         # background_category: areas without any land use polygon (no OSM element covers them)
         # still get meadow this way instead of staying on the photo fallback forever - closes the gap that
@@ -507,7 +687,7 @@ class TerrainWorkflow:
             terrain_origin_x,
             terrain_origin_y,
             config.TERRAIN_SQUARE_SIZE,
-            landuse_polygons,
+            s.landuse_polygons,
             config.OSM_MAPPER.config.get("landuse_mappings", {}),
             background_category=DEFAULT_LANDUSE_CATEGORY,
         )
@@ -525,7 +705,7 @@ class TerrainWorkflow:
         portal_footprints = [
             {"road_polygon": np.array(portal_footprint(portal))} for plan in tunnel_plans for portal in plan["portals"] if portal["open"]
         ]
-        road_surface_union = union_road_surfaces(surface_road_polygons + gallery_roads + portal_footprints)
+        road_surface_union = union_road_surfaces(s.surface_road_polygons + s.gallery_roads + portal_footprints)
         road_shapes = [road_surface_union] if road_surface_union is not None else []
         building_shapes = [
             p["geometry"]
@@ -577,8 +757,9 @@ class TerrainWorkflow:
         # terrain ends exactly at the data edge, the horizon covers the strip behind it.
         # Last, so that painting/masking above run unchanged on the full layer map.
         if config.TERRAIN_PADDING_AS_HOLES:
-            layer_map = mark_padding_as_holes(layer_map, data_cols=nx, data_rows=ny)
+            layer_map = mark_padding_as_holes(layer_map, data_cols=s.nx, data_rows=s.ny)
         # Tunnel portals: hole cells at the portal level (hidden by the tube shell or collar)
+        tunnel_holes = s.tunnel_holes
         if tunnel_holes is not None and np.any(tunnel_holes):
             from ..terrain.ter_writer import EMPTY_LAYER_VALUE
 
@@ -593,7 +774,7 @@ class TerrainWorkflow:
         from ..terrain.photo_tiles import build_processing_tile_grid
         from ..utils.tile_scanner import compute_global_bbox
 
-        processing_tiles = build_processing_tile_grid(compute_global_bbox(tiles), config.PHOTO_TILE_SIZE_M)
+        processing_tiles = build_processing_tile_grid(compute_global_bbox(s.tiles), config.PHOTO_TILE_SIZE_M)
 
         photo_tiles = None
         if config.AERIAL_PHOTO_PER_TILE and len(processing_tiles) > 1:
@@ -615,6 +796,20 @@ class TerrainWorkflow:
                 f"  [OK] Four-photo mode: {len(photo_tile_names)} aerial photos, {len(terrain_material_names)} terrain materials"
             )
 
+        s.layer_map, s.terrain_material_names, s.photo_tile_names, s.photo_tiles = (
+            layer_map, terrain_material_names, photo_tile_names, photo_tiles
+        )
+        s.road_surface_union, s.road_shapes, s.building_shapes, s.tree_exclusion = (
+            road_surface_union, road_shapes, building_shapes, tree_exclusion
+        )
+
+    def _tile_scene_objects(self, s: "TileState") -> None:
+        """Everything placed on the finished heightmap: vineyard vines, water, stone walls, tunnel/gallery meshes with
+        zones, lights and roadblocks, POI and tunnel entrance spawn points."""
+        heights, terrain_origin_x, terrain_origin_y = s.heights, s.terrain_origin_x, s.terrain_origin_y
+        osm_data, global_offset, grid_bounds_local = s.osm_data, s.global_offset, s.grid_bounds_local
+        landuse_polygons, tunnel_plans = s.landuse_polygons, s.tunnel_plans
+
         # Vineyard vines (forest items) along the fall line, on the finished heightmap
         vineyard_instances = []
         if config.VINEYARDS_ENABLED and config.FORESTS_ENABLED:
@@ -625,7 +820,7 @@ class TerrainWorkflow:
                 landuse_polygons,
                 config.OSM_MAPPER.config.get("landuse_mappings", {}),
                 make_height_sampler(heights, terrain_origin_x, terrain_origin_y, config.TERRAIN_SQUARE_SIZE),
-                exclusion=build_exclusion_geometry(road_shapes + building_shapes, config.VINEYARD_EXCLUSION_MARGIN),
+                exclusion=build_exclusion_geometry(s.road_shapes + s.building_shapes, config.VINEYARD_EXCLUSION_MARGIN),
                 # Only over real elevation data: the OSM query extends beyond the terrain,
                 # and the terrain edge is filled in (there are no real elevations there)
                 bounds=box(
@@ -646,7 +841,7 @@ class TerrainWorkflow:
                 global_offset,
                 make_height_sampler_for_water(heights, terrain_origin_x, terrain_origin_y),
                 grid_bounds_local,
-                rim_height_at=make_height_sampler_for_water(natural_heights, terrain_origin_x, terrain_origin_y),
+                rim_height_at=make_height_sampler_for_water(s.natural_heights, terrain_origin_x, terrain_origin_y),
             )
 
         # Rubble stone walls (OSM barrier=wall with height) on the finished heightmap
@@ -656,7 +851,7 @@ class TerrainWorkflow:
                 osm_data,
                 global_offset,
                 make_height_sampler_for_water(heights, terrain_origin_x, terrain_origin_y),
-                road_slope_polygons_2d,
+                s.road_slope_polygons_2d,
             )
 
         # Bridges (deck + piers) are built in export_bridges(): their width follows the blended widths of the transitions,
@@ -672,7 +867,7 @@ class TerrainWorkflow:
 
             tunnel_zones = _tunnel_zone_items(tunnel_plans)
             tunnel_lights = _tunnel_light_items(tunnel_plans)
-            tunnel_meshes = self._build_tunnels(structure_road_polygons, tunnel_plans, heights, terrain_origin_x, terrain_origin_y)
+            tunnel_meshes = self._build_tunnels(s.structure_road_polygons, tunnel_plans, heights, terrain_origin_x, terrain_origin_y)
             lamps = build_lamp_mesh(
                 tunnel_lights, config.TUNNEL_LAMP_MATERIAL_NAME, config.TUNNEL_LAMP_LENGTH, config.TUNNEL_LAMP_WIDTH,
                 config.TUNNEL_LAMP_HEIGHT, config.TUNNEL_LIGHT_CEILING_MARGIN,
@@ -680,7 +875,7 @@ class TerrainWorkflow:
             if lamps is not None:
                 tunnel_meshes.append({"id": "tunnel_lamps", **lamps})
             roadblocks = _roadblock_items(
-                tunnel_plans, heights, terrain_origin_x, terrain_origin_y, grid_bounds_local, surface_road_polygons
+                tunnel_plans, heights, terrain_origin_x, terrain_origin_y, grid_bounds_local, s.surface_road_polygons
             )
 
         # POI candidates (villages/towns, large parking lots) for additional spawn points selectable in the
@@ -692,53 +887,11 @@ class TerrainWorkflow:
         # Selectable spawn points in front of tunnel chain entrances, facing into the tunnel (tunnels/entrance_spawns.py)
         from ..tunnels.entrance_spawns import plan_entrance_spawns
 
-        tunnel_spawns = plan_entrance_spawns(road_slope_polygons_2d, config.TUNNEL_SPAWN_DISTANCE, config.POI_SPAWN_EXCLUDED_HIGHWAYS)
+        tunnel_spawns = plan_entrance_spawns(s.road_slope_polygons_2d, config.TUNNEL_SPAWN_DISTANCE, config.POI_SPAWN_EXCLUDED_HIGHWAYS)
 
-        z_min = float(heights.min())
-        z_max = float(heights.max())
-        max_height = (z_max - z_min) + config.TERRAIN_MAX_HEIGHT_BUFFER
-
-        sub.finish(f"{len(road_slope_polygons_2d)} road segments")
-
-        return {
-            "status": "success",
-            "heightmap": heights,
-            "terrain_size": terrain_size,
-            "terrain_origin_x": terrain_origin_x,
-            "terrain_origin_y": terrain_origin_y,
-            "z_min": z_min,
-            "max_height": max_height,
-            "layer_map": layer_map,
-            "terrain_material_names": terrain_material_names,
-            "photo_tile_names": photo_tile_names,
-            # Four-photo mode (otherwise None): tile variants of the layers, their photo and the photo size per tile
-            "layer_variants": photo_tiles["layer_variants"] if photo_tiles else None,
-            "variant_parents": photo_tiles["variant_parents"] if photo_tiles else None,
-            "photo_extents": photo_tiles["photo_extents"] if photo_tiles else None,
-            "poi_points": poi_points,  # Villages/towns and large parking lots for ItemManager._compute_poi_spawn_points()
-            "vineyard_instances": vineyard_instances,  # Forest-Items (grape_vine)
-            "water": water,  # {"rivers": [...], "ponds": [...]} for export_water()
-            "wall_meshes": wall_meshes,  # Mesh dicts of the rubble stone walls for export_walls()
-            "tunnel_meshes": tunnel_meshes,  # Tunnel/gallery mesh dicts for export_tunnels()
-            "tunnel_spawns": tunnel_spawns,  # Spawn points in front of tunnel entrances for ItemManager.save(fixed_spawns=...)
-            "roadblocks": roadblocks,  # Roadblocks in front of entrances of tunnels beyond the map border, for export_roadblocks()
-            "tunnel_zones": tunnel_zones,  # Zone boxes for dark tunnel tubes, for export_tunnel_zones()
-            "tunnel_lights": tunnel_lights,  # SpotLight fixtures inside the tubes, for export_tunnel_lights()
-            "dropped_tunnel_road_ids": dropped_tunnel_road_ids,  # pieces of pass-through tunnels: no AI DecalRoad
-            "grid": grid,
-            "road_polygons": road_polygons,
-            "road_slope_polygons_2d": road_slope_polygons_2d,  # For DecalRoad export
-            "structure_road_polygons": structure_road_polygons,  # Bridges/tunnels/galleries - for export_bridges()/export_tunnels()
-            "bridge_photo_areas": _bridge_photo_areas(structure_road_polygons),  # retouched out of the aerial photo
-            "road_surface_union": road_surface_union,  # unioned road surface for exclusion zones (or None)
-            "tree_exclusion": tree_exclusion,  # road surfaces plus the areas under bridges: no trees there (or None)
-            "grid_bounds_local": grid_bounds_local,
-            "global_offset": global_offset,
-            "buildings_data": buildings_data,  # Pass on the building data
-            "height_points": local_points,  # For spawn point calculation
-            "height_elevations": elevations,  # For spawn point calculation
-            "height_hash": tile_hash,  # For cache consistency in the forest workflow
-        }
+        s.vineyard_instances, s.water, s.wall_meshes = vineyard_instances, water, wall_meshes
+        s.tunnel_meshes, s.roadblocks, s.tunnel_zones, s.tunnel_lights = tunnel_meshes, roadblocks, tunnel_zones, tunnel_lights
+        s.poi_points, s.tunnel_spawns = poi_points, tunnel_spawns
 
     def _build_water(self, osm_data, landuse_polygons, global_offset, height_at, grid_bounds_local, rim_height_at=None) -> Dict:
         """

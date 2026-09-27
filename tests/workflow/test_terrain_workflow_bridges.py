@@ -165,6 +165,10 @@ def test_export_builds_the_bridge_meshes_once_with_the_blended_widths(shapes_dir
 def test_process_tile_does_not_build_bridge_meshes_itself():
     import inspect
 
-    from world_to_beamng.workflow import terrain_workflow
+    from world_to_beamng.workflow.terrain_workflow import TerrainWorkflow
 
-    assert "self._build_bridges(" not in inspect.getsource(terrain_workflow.TerrainWorkflow.process_tile)
+    phases = [TerrainWorkflow.process_tile] + [
+        method for name, method in vars(TerrainWorkflow).items() if name.startswith("_tile_")
+    ]
+    assert len(phases) > 1
+    assert all("self._build_bridges(" not in inspect.getsource(method) for method in phases)
