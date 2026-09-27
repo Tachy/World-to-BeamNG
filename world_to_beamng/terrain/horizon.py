@@ -152,20 +152,23 @@ _DGM30_GRID_FORMAT = 2
 
 def _dgm30_tile_cache_file(tif_file):
     """
-    Cache file of the 200 m grid conversion of ONE single DGM30 tile, in UTM (absolute).
+    Cache file of the 200 m grid conversion of ONE single DGM30 tile, in the target CRS (absolute).
 
     Independent of the core area (tile_hash) - Copernicus DEM tiles are reusable worldwide,
     their expensive conversion (read GeoTIFF, reproject if needed, downsample to 200 m grid) does not
     have to be recomputed when the core area changes (e.g. between two test regions) -
     only the subsequent combination/clipping/shift into local coordinates depends
-    on the core area (see _dgm30_cache_file()).
+    on the core area (see _dgm30_cache_file()). It does depend on the target CRS: the same tile seen from a Swiss
+    area (LV95) and from Baden-Württemberg (UTM32) are two different grids, so the EPSG code is part of the name.
 
     The name contains the file signature (size + modification time): replacing the tile file
     (e.g. a different version/source) immediately forces a recomputation instead of returning a wrong old
     tile.
     """
+    from ..geometry.coordinates import get_source_crs_epsg
+
     st = tif_file.stat()
-    signature = f"v{_DGM30_GRID_FORMAT}:{tif_file.name}:{st.st_size}:{int(st.st_mtime)}"
+    signature = f"v{_DGM30_GRID_FORMAT}:EPSG{get_source_crs_epsg()}:{tif_file.name}:{st.st_size}:{int(st.st_mtime)}"
     return config.CACHE_DIR / f"dgm30_tile_{hashlib.sha1(signature.encode('utf-8')).hexdigest()[:16]}.npz"
 
 
@@ -195,7 +198,9 @@ def _dgm30_cache_file(dgm30_path, tile_hash):
     if not tile_hash:
         return None
     files = sorted(list(dgm30_path.glob("*.tif")) + list(dgm30_path.glob("*.tiff"))) if dgm30_path.exists() else []
-    signature = f"v{_DGM30_GRID_FORMAT}|" + "|".join(f"{f.name}:{f.stat().st_size}:{int(f.stat().st_mtime)}" for f in files)
+    from ..geometry.coordinates import get_source_crs_epsg
+
+    signature = f"v{_DGM30_GRID_FORMAT}|EPSG{get_source_crs_epsg()}|" + "|".join(f"{f.name}:{f.stat().st_size}:{int(f.stat().st_mtime)}" for f in files)
     return config.CACHE_DIR / f"dgm30_horizon_{tile_hash}_{hashlib.sha1(signature.encode('utf-8')).hexdigest()[:10]}.npz"
 
 

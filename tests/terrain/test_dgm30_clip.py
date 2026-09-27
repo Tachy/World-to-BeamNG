@@ -223,3 +223,20 @@ def test_a_new_grid_format_does_not_reuse_old_caches(tmp_path, monkeypatch):
 
     assert horizon._dgm30_tile_cache_file(tile) != tile_cache
     assert horizon._dgm30_cache_file(tmp_path, "hash") != area_cache
+
+
+def test_the_tile_cache_is_kept_per_target_crs(tmp_path):
+    """The cached 200 m grid holds points in the target CRS: a region in another CRS (Switzerland LV95 vs.
+    Baden-Württemberg UTM32) must not get the other one's grid ("DGM30 files completely outside the horizon area")."""
+    from world_to_beamng.geometry import coordinates
+
+    tile = _tile(tmp_path / "a.tif", CENTER_LON - 0.02, CENTER_LON + 0.02)
+    try:
+        coordinates.set_source_crs(25832)
+        utm = horizon._dgm30_tile_cache_file(tile), horizon._dgm30_cache_file(tmp_path, "hash")
+        coordinates.set_source_crs(2056)
+        lv95 = horizon._dgm30_tile_cache_file(tile), horizon._dgm30_cache_file(tmp_path, "hash")
+    finally:
+        coordinates.set_source_crs(25832)
+
+    assert utm[0] != lv95[0] and utm[1] != lv95[1]
