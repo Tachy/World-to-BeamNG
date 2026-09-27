@@ -20,8 +20,13 @@ def _road(tags, structure="surface", **extra):
     return {"trimmed_centerline": centerline, "road_polygon": outline, "osm_tags": tags, "structure_type": structure, **extra}
 
 
+def _props(poly):
+    surface = (poly.get("osm_tags") or {}).get("surface")
+    return {"width": 6.0, "internal_name": "concrete" if surface == "concrete" else "asphalt_road_standard"}
+
+
 def _attach(roads):
-    return attach_sidewalks(roads, lambda poly: 6.0, MAPPING, EXCLUDED, extra=1.15)
+    return attach_sidewalks(roads, _props, MAPPING, EXCLUDED, frozenset({"concrete"}), extra=1.15)
 
 
 def test_left_sidewalk_widens_only_the_left_side():
@@ -49,3 +54,11 @@ def test_width_transition_nodes_are_followed():
     _attach([road])
     ys_at_end = road["road_polygon"][np.isclose(road["road_polygon"][:, 0], 20.0), 1]
     assert ys_at_end.max() == pytest.approx(5.0 + 1.15) and ys_at_end.min() == pytest.approx(-5.0 - 1.15)
+
+
+def test_roads_without_a_decal_road_get_no_sidewalk():
+    road = _road({"highway": "residential", "sidewalk": "both", "surface": "concrete"})
+    before = road["road_polygon"].copy()
+    assert _attach([road]) == 0
+    assert "sidewalk_sides" not in road
+    np.testing.assert_array_equal(road["road_polygon"], before)

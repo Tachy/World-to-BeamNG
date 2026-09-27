@@ -15,7 +15,8 @@ SIDE_STREET = [[30.0, y, 100.3, 5.0] for y in np.arange(0.0, 30.5, 5.0)]  # join
 
 
 def _plan(roads, sides, blocking=None):
-    return plan_sidewalk_runs(roads, sides, blocking or [True] * len(roads), clearance=1.15, min_length=2.0)
+    return plan_sidewalk_runs(roads, sides, blocking or [True] * len(roads), clearance=1.15, min_length=2.0,
+                              endpoint_tol=0.5, max_angle_deg=30.0)
 
 
 def test_kerb_line_lies_on_the_carriageway_edge_at_road_height():
@@ -50,3 +51,15 @@ def test_non_blocking_ways_do_not_cut_the_sidewalk():
 def test_pieces_shorter_than_min_length_are_dropped():
     short = [[0.0, 0.0, 100.0, 6.0], [1.5, 0.0, 100.0, 6.0]]
     assert _plan([short], [{"left": "a"}]) == []
+
+
+def test_straight_through_continuation_does_not_cut_the_sidewalk():
+    # two pieces of the same street split at a node with a 15 degree kink (inner side of the bend = left)
+    kink = np.radians(15.0)
+    first = [[x, 0.0, 100.0, 6.0] for x in np.arange(0.0, 50.5, 5.0)]
+    second = [[50.0 + d * np.cos(kink), d * np.sin(kink), 100.0, 6.0] for d in np.arange(0.0, 50.5, 5.0)]
+    runs = plan_sidewalk_runs([first, second], [{"left": "a"}, {"left": "a"}], [True, True], clearance=1.15, min_length=2.0,
+                              endpoint_tol=0.5, max_angle_deg=30.0)
+    assert len(runs) == 2
+    for run in runs:
+        assert np.linalg.norm(np.diff(run["points"][:, :2], axis=0), axis=1).sum() == pytest.approx(50.0, abs=0.01)

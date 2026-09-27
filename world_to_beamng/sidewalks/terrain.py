@@ -13,17 +13,21 @@ from .selection import select_sidewalk_sides
 
 def attach_sidewalks(
     roads: List[Dict],
-    road_width: Callable[[Dict], float],
+    road_props: Callable[[Dict], Dict],
     mapping: Mapping,
     excluded_highways: FrozenSet[str],
+    excluded_surfaces: FrozenSet[str],
     extra: float,
 ) -> int:
     """
     Sets "sidewalk_sides" ({side: surface type}), "sidewalk_extra" ({side: extra}) and a widened "road_polygon" on every
-    surface road with a sidewalk; structures (bridges, tunnels, galleries) are skipped. Returns the number of roads.
+    surface road with a sidewalk; structures (bridges, tunnels, galleries) and roads that get no DecalRoad (only the aerial
+    photo shows them, so a kerb could not follow their edge) are skipped. Returns the number of roads.
 
     Args:
-        road_width: carriageway width of a road dict (used where the road has no blended "width_nodes")
+        road_props: OSM mapper properties of a road dict - "internal_name" (surface type) and "width" (carriageway width,
+            used where the road has no blended "width_nodes")
+        excluded_surfaces: surface types without a DecalRoad
         extra: width added beyond the carriageway edge on a sidewalk side (kerb + sidewalk), in meters
     """
     count = 0
@@ -31,12 +35,13 @@ def attach_sidewalks(
         if poly.get("structure_type", "surface") != "surface":
             continue
         sides = select_sidewalk_sides(poly.get("osm_tags") or {}, excluded_highways, mapping)
-        if not sides:
+        props = road_props(poly) if sides else {}
+        if not sides or props.get("internal_name") in excluded_surfaces:
             continue
         nodes = poly.get("width_nodes")
         if nodes is None:
             centerline = np.asarray(poly["trimmed_centerline"], dtype=float)
-            nodes = np.column_stack([centerline[:, :3], np.full(len(centerline), road_width(poly))])
+            nodes = np.column_stack([centerline[:, :3], np.full(len(centerline), props["width"])])
         poly["sidewalk_sides"] = sides
         poly["sidewalk_extra"] = {side: extra for side in sides}
         poly["road_polygon"] = variable_width_polygon(

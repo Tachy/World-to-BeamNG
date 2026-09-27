@@ -467,9 +467,10 @@ class TerrainWorkflow:
 
             with_sidewalks = attach_sidewalks(
                 road_slope_polygons_2d,
-                lambda poly: OSM_MAPPER.get_road_properties(poly.get("osm_tags", {}))["width"],
+                lambda poly: OSM_MAPPER.get_road_properties(poly.get("osm_tags", {})),
                 OSM_MAPPER.config.get("sidewalks", {}),
                 config.SIDEWALK_EXCLUDED_HIGHWAYS,
+                config.ROAD_DECAL_EXCLUDED_SURFACES,
                 extra=config.SIDEWALK_KERB_WIDTH + config.SIDEWALK_WIDTH,
             )
             if with_sidewalks:

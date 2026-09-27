@@ -81,6 +81,8 @@ def _sidewalk_meshes(specs: List[Tuple[Dict, Dict, List]], node_lists: List[List
         [(poly.get("osm_tags") or {}).get("highway") not in config.SIDEWALK_EXCLUDED_HIGHWAYS for poly, _ in surface],
         clearance=config.SIDEWALK_KERB_WIDTH + config.SIDEWALK_WIDTH,
         min_length=config.SIDEWALK_MIN_LENGTH,
+        endpoint_tol=config.ROAD_CONTINUATION_ENDPOINT_TOL,
+        max_angle_deg=config.ROAD_CONTINUATION_MAX_ANGLE_DEG,
     )
     meshes = []
     for number, run in enumerate(runs):

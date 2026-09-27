@@ -4,7 +4,9 @@ Kerb lines of the sidewalks: the carriageway edge of a road on each sidewalk sid
 
 With `clearance` = kerb + sidewalk width, a joining street leaves a gap of its own width plus both of its sidewalks, and
 its own sidewalk ends at the outer edge of the through road's sidewalk - the two bands never overlap. Only `blocking`
-roads cut: footways, paths and tracks run through sidewalks without interrupting them.
+roads cut: footways, paths and tracks run through sidewalks without interrupting them. A straight-through continuation
+(the same street split at a node, e.g. where a footway joins) never cuts: its widened carriageway would otherwise trim
+the inner side of every kinked joint.
 """
 
 from typing import Dict, List, Sequence
@@ -21,6 +23,8 @@ def plan_sidewalk_runs(
     blocking: Sequence[bool],
     clearance: float,
     min_length: float,
+    endpoint_tol: float,
+    max_angle_deg: float,
 ) -> List[Dict]:
     """
     Args:
@@ -29,6 +33,7 @@ def plan_sidewalk_runs(
         blocking: per road, whether its carriageway interrupts the sidewalks of other roads
         clearance: added to the half width of a blocking road for the cut, in meters
         min_length: shorter pieces are dropped, in meters
+        endpoint_tol, max_angle_deg: which road ends continue straight into each other (see find_continuations())
 
     Returns:
         [{"road_index", "side", "surface", "points"}] - points (M, 3) along the carriageway edge at road height, ordered
@@ -38,8 +43,13 @@ def plan_sidewalk_runs(
     from shapely.geometry import LineString, Point
 
     from ..geometry.road_markings import road_surface_polygon
+    from ..geometry.road_width_transitions import find_continuations
 
     arrays = [np.asarray(r, dtype=float) for r in roads]
+    partners = {i: {i} for i in range(len(arrays))}
+    for (a, _), (b, _) in find_continuations([r.tolist() for r in arrays], endpoint_tol, max_angle_deg):
+        partners[a].add(b)
+        partners[b].add(a)
     blockers = [i for i, a in enumerate(arrays) if blocking[i] and len(a) >= 2]
     surfaces = [road_surface_polygon(arrays[i], clearance) for i in blockers]
     tree = STRtree(surfaces) if surfaces else None
@@ -57,7 +67,7 @@ def plan_sidewalk_runs(
             line = LineString(edge)
             if line.length < min_length:
                 continue
-            cutters = [] if tree is None else [surfaces[k] for k in tree.query(line) if blockers[k] != index]
+            cutters = [] if tree is None else [surfaces[k] for k in tree.query(line) if blockers[k] not in partners[index]]
             pieces = line.difference(union_all(cutters)) if cutters else line
             cum = arc_lengths(edge)
             for piece in getattr(pieces, "geoms", [pieces]):
