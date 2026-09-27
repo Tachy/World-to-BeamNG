@@ -335,6 +335,9 @@ def build_road_embankment_profiles(
     point reaches around the road end like a round cap - at a gallery end that cap overwrote the approach road's
     embankment with the gallery's valley-side slope (pit beside the road, see terrain_structures._gallery_embankment_cuts()).
 
+    Optional field per road dict: "sidewalk_extra" (dict, keys "left"/"right" in the STANDARD convention, meters) - the
+    edge on that side lies this much further out (kerb + sidewalk, see sidewalks/terrain.py).
+
     Optional field per road dict: "slope_width_override" (dict, keys "left"/"right", value = fixed
     embankment width in meters, as a number or as an array per centerline point) - replaces the computed
     embankment width on the respective side with a fixed value instead of deriving it from the height
@@ -417,9 +420,11 @@ def build_road_embankment_profiles(
         # geometric meaning (perp points to the left in driving direction,
         # but the assignment + / - is arbitrary) - apply_embankment_blend
         # treats both sides symmetrically, so the choice is uncritical.
-        offset = perp * np.reshape(half_width, (-1, 1))
-        left_xy = xy - offset
-        right_xy = xy + offset
+        # Sidewalk sides (sidewalks/terrain.py, STANDARD convention): the edge - and with it the embankment start - lies
+        # behind the kerb and sidewalk; the embedding polygon was widened by the same amount
+        extra = poly.get("sidewalk_extra") or {}
+        left_xy = xy - perp * np.reshape(half_width + extra.get("right", 0.0), (-1, 1))
+        right_xy = xy + perp * np.reshape(half_width + extra.get("left", 0.0), (-1, 1))
 
         left_natural_z = sample_heightmap_bilinear(heights, origin_x, origin_y, square_size, left_xy)
         right_natural_z = sample_heightmap_bilinear(heights, origin_x, origin_y, square_size, right_xy)
