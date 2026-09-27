@@ -151,6 +151,52 @@ class BeamNGExporter:
             f"Forests: {'on' if forests_enabled else 'off'}"
         )
 
+        self._prepare_level_dirs()
+        install_dir = install_dir_or_none()
+        self._prepare_textures(install_dir)
+
+        # NEW: Phase 0 - forest asset initialization (DIRECTLY BEFORE the tile loop)
+        vineyard_assets_ready = False
+        guardrail_assets_ready = False
+        if forests_enabled:
+            vineyard_assets_ready, guardrail_assets_ready = self._prepare_forest_assets(install_dir, stats)
+        else:
+            self.pipeline.skip("Forest assets", "FORESTS_ENABLED=False")
+
+        photos, combined_grid_bounds_local = self._plan_aerial_photos(tiles, global_offset)
+
+        # Phase 1: terrain + roads (with aerial photo, minimap and forest placement)
+        all_buildings, tile_bounds_local, terrain_height_at = self._export_terrain(
+            tiles, global_offset, photos, combined_grid_bounds_local, stats,
+            forests_enabled=forests_enabled,
+            vineyard_assets_ready=vineyard_assets_ready,
+            guardrail_assets_ready=guardrail_assets_ready,
+            include_buildings=include_buildings,
+        )
+
+        # Phase 2: buildings (after the terrain export, as in the old multitile.py)
+        if include_buildings and all_buildings:
+            self._export_buildings(all_buildings, stats)
+        elif not include_buildings:
+            self.pipeline.skip("Export buildings", "LOD2_ENABLED=False")
+        else:
+            self.pipeline.skip("Export buildings", "no building data found")
+
+        # Phase 3: horizon layer (optional)
+        if include_horizon:
+            self._export_horizon(global_offset, tile_hash, tile_bounds_local, terrain_height_at, stats)
+        else:
+            self.pipeline.skip("Export horizon", "PHASE5_ENABLED=False")
+
+        # Phase 4: finalization
+        with self.pipeline.task("Finalization") as task:
+            self._finalize_export(forests_enabled, task=task)
+            task.done()
+
+        return stats
+
+    def _prepare_level_dirs(self) -> None:
+        """Level/cache directories and the generated block stripe texture of the tapering lanes."""
         # Create directories
         config.BEAMNG_DIR_SHAPES.mkdir(parents=True, exist_ok=True)
         config.BEAMNG_DIR_TEXTURES.mkdir(parents=True, exist_ok=True)
@@ -166,11 +212,12 @@ class BeamNGExporter:
                 grey=config.ROAD_MARKING_BLOCK_GREY, opacity=config.ROAD_MARKING_BLOCK_OPACITY,
             )
 
+    def _prepare_textures(self, install_dir) -> None:
+        """The "Textures" task: texture library and the BeamNG stock textures the OSM mapping references."""
         # Check all textures from data/textures (generate procedural ones once if needed); if a photo texture is missing,
         # the export aborts here (MissingTexturesError) - before the compute-intensive part
         from ..textures import registry
 
-        install_dir = install_dir_or_none()
         with self.pipeline.task("Textures") as task:
             with task.subtask("Texture library"):
                 registry.prepare_textures()
@@ -188,82 +235,88 @@ class BeamNGExporter:
                         sub.finish(f"{result['copied']} copied" if result["copied"] else "up to date")
             task.done()
 
-        # NEW: Phase 0 - forest asset initialization (DIRECTLY BEFORE the tile loop)
-        registered_trees = {}
+    def _prepare_forest_assets(self, install_dir, stats: Dict) -> Tuple[bool, bool]:
+        """
+        The "Forest assets" task: tree, vine and guard rail assets in the level, then the forest workflow configured with
+        the registered trees. Returns (vineyard_assets_ready, guardrail_assets_ready).
+        """
         vineyard_assets_ready = False
         guardrail_assets_ready = False
-        if forests_enabled:
-            with self.pipeline.task("Forest assets") as task:
-                # Tree shapes + managedItemData.json from the BeamNG installation (idempotent), then the vine assets,
-                # which add their items to the same file - both BEFORE loading managedItemData.json below.
-                if install_dir is not None:
+        with self.pipeline.task("Forest assets") as task:
+            # Tree shapes + managedItemData.json from the BeamNG installation (idempotent), then the vine assets,
+            # which add their items to the same file - both BEFORE loading managedItemData.json below.
+            if install_dir is not None:
+                try:
+                    trees = ensure_tree_assets(config.BEAMNG_DIR, install_dir, config.LEVEL_NAME)
+                    if trees["extracted"]:
+                        logger.info(f"  [OK] Tree assets: {trees['extracted']} file(s) extracted, {trees['items']} tree items")
+                except Exception as e:
+                    logger.warning(f"Tree assets not available - the level gets no forest: {e}")
+                if config.VINEYARDS_ENABLED:
                     try:
-                        trees = ensure_tree_assets(config.BEAMNG_DIR, install_dir, config.LEVEL_NAME)
-                        if trees["extracted"]:
-                            logger.info(f"  [OK] Tree assets: {trees['extracted']} file(s) extracted, {trees['items']} tree items")
+                        ensure_vineyard_assets(config.BEAMNG_DIR, install_dir, config.LEVEL_NAME)
+                        vineyard_assets_ready = True
                     except Exception as e:
-                        logger.warning(f"Tree assets not available - the level gets no forest: {e}")
-                    if config.VINEYARDS_ENABLED:
-                        try:
-                            ensure_vineyard_assets(config.BEAMNG_DIR, install_dir, config.LEVEL_NAME)
-                            vineyard_assets_ready = True
-                        except Exception as e:
-                            logger.warning(f"Vine assets not available - vineyards stay without vines: {e}")
-                if config.GUARDRAILS_ENABLED:
-                    try:
-                        ensure_guardrail_assets(config.BEAMNG_DIR, config.LEVEL_NAME)
-                        guardrail_assets_ready = True
-                    except Exception as e:
-                        logger.warning(f"Guard rail assets not available - roads stay without guard rails: {e}")
+                        logger.warning(f"Vine assets not available - vineyards stay without vines: {e}")
+            if config.GUARDRAILS_ENABLED:
+                try:
+                    ensure_guardrail_assets(config.BEAMNG_DIR, config.LEVEL_NAME)
+                    guardrail_assets_ready = True
+                except Exception as e:
+                    logger.warning(f"Guard rail assets not available - roads stay without guard rails: {e}")
 
-                # Load managedItemData.json (trees + vines, see above)
-                forest_item_data_path = config.BEAMNG_DIR / "art" / "forest" / "managedItemData.json"
+            registered_trees = self._load_registered_trees()
+            stats["forests_registered"] = len(registered_trees)
 
-                if forest_item_data_path.exists():
-                    try:
-                        with open(forest_item_data_path, "r", encoding="utf-8") as f:
-                            forest_item_data = json.load(f)
+            # Set the forest configuration (initializes Normalizer, InstanceGenerator, JSONWriter)
+            if registered_trees:
+                self.forests.set_forest_config(
+                    self.forest_config,
+                    osm_mapper=config.OSM_MAPPER,
+                    registered_trees=registered_trees,
+                )
+            task.done(f"{len(registered_trees)} tree items")
+        return vineyard_assets_ready, guardrail_assets_ready
 
-                        # Convert to registered_trees format (key MUST be the internalName,
-                        # because forest.forest4.json references trees via the "type" field)
-                        for item_key, item_info in forest_item_data.items():
-                            internal_name = item_info.get("internalName", item_key)
-                            # Vines are not forest trees: otherwise the fallback of the
-                            # tree species selection ("first available tree") could plant them in the forest.
-                            if internal_name in VINEYARD_ITEM_NAMES or internal_name in GUARDRAIL_ITEMS.values():
-                                continue
-                            registered_trees[internal_name] = {
-                                "name": internal_name,
-                                "dae_path": item_info.get("shapeFile", ""),
-                                "radius": item_info.get("radius", 1.5),
-                            }
+    def _load_registered_trees(self) -> Dict[str, Dict]:
+        """Tree items from the level's managedItemData.json (trees + vines, see _prepare_forest_assets()), keyed by
+        internalName; vines and guard rails are left out. Empty if the file is missing or unreadable."""
+        registered_trees = {}
 
-                    except Exception as e:
-                        logger.error(f"Error loading managedItemData.json: {e}")
-                        registered_trees = {}
-                else:
-                    logger.warning(f"managedItemData.json not found: {forest_item_data_path} - the level gets no forest")
+        # Load managedItemData.json (trees + vines, see above)
+        forest_item_data_path = config.BEAMNG_DIR / "art" / "forest" / "managedItemData.json"
 
-                stats["forests_registered"] = len(registered_trees)
+        if forest_item_data_path.exists():
+            try:
+                with open(forest_item_data_path, "r", encoding="utf-8") as f:
+                    forest_item_data = json.load(f)
 
-                # Set the forest configuration (initializes Normalizer, InstanceGenerator, JSONWriter)
-                if registered_trees:
-                    self.forests.set_forest_config(
-                        self.forest_config,
-                        osm_mapper=config.OSM_MAPPER,
-                        registered_trees=registered_trees,
-                    )
-                task.done(f"{len(registered_trees)} tree items")
+                # Convert to registered_trees format (key MUST be the internalName,
+                # because forest.forest4.json references trees via the "type" field)
+                for item_key, item_info in forest_item_data.items():
+                    internal_name = item_info.get("internalName", item_key)
+                    # Vines are not forest trees: otherwise the fallback of the
+                    # tree species selection ("first available tree") could plant them in the forest.
+                    if internal_name in VINEYARD_ITEM_NAMES or internal_name in GUARDRAIL_ITEMS.values():
+                        continue
+                    registered_trees[internal_name] = {
+                        "name": internal_name,
+                        "dae_path": item_info.get("shapeFile", ""),
+                        "radius": item_info.get("radius", 1.5),
+                    }
+
+            except Exception as e:
+                logger.error(f"Error loading managedItemData.json: {e}")
+                registered_trees = {}
         else:
-            self.pipeline.skip("Forest assets", "FORESTS_ENABLED=False")
+            logger.warning(f"managedItemData.json not found: {forest_item_data_path} - the level gets no forest")
+        return registered_trees
 
-        # Collect all buildings across all tiles
-        all_buildings = []
-        tile_bounds_local = []  # collect tile bounds for horizon clipping
-
-        # Height lookup on the finished terrain heightmap (seam and height transition of the horizon)
-        terrain_height_at = None
-
+    def _plan_aerial_photos(self, tiles: List[Dict], global_offset) -> Tuple[List[Dict], Tuple[float, float, float, float]]:
+        """
+        The aerial photo(s) to build - one for the whole area or one per photo tile in four-image mode - and the local
+        bounds (x_min, x_max, y_min, y_max) of the padded terrain they cover. Also sets self.aerial_photos.
+        """
         # Generate ONE combined aerial photo for the whole area (no longer
         # one texture per 500 m tile - see io/aerial.py::process_aerial_images()
         # docstring: BeamNG's terrain atlas packer visibly rotates tiles when
@@ -292,9 +345,7 @@ class BeamNGExporter:
             utm_min_y - global_offset[1],
             utm_min_y - global_offset[1] + padded_extent,
         )
-        textures_dir = config.BEAMNG_DIR_TEXTURES
-        aerial_dir = config.AERIAL_DATA_DIR
-        from ..io.aerial import ensure_aerial_photos, SINGLE_PHOTO_NAME
+        from ..io.aerial import SINGLE_PHOTO_NAME
         from ..terrain.photo_tiles import build_processing_tile_grid, photo_tile_specs
 
         # Four-image mode: fixed tile grid over the whole area (config.PHOTO_TILE_SIZE_M),
@@ -307,9 +358,34 @@ class BeamNGExporter:
         else:
             photos = [{"name": SINGLE_PHOTO_NAME, "bounds": combined_grid_bounds_local}]
 
-        # The aerial photos are built after the terrain processing (see below): the bridges are retouched out of them
-        status = "none"  # fallback in case the aerial photo step does not run or raises (see minimap step further below)
+        # The aerial photos are built after the terrain processing (see _export_terrain()): the bridges are retouched
+        # out of them
         self.aerial_photos = photos
+        return photos, combined_grid_bounds_local
+
+    def _export_terrain(
+        self,
+        tiles: List[Dict],
+        global_offset,
+        photos: List[Dict],
+        combined_grid_bounds_local,
+        stats: Dict,
+        forests_enabled: bool,
+        vineyard_assets_ready: bool,
+        guardrail_assets_ready: bool,
+        include_buildings: bool,
+    ):
+        """
+        "Terrain + roads" task: terrain, roads and everything on them, then the aerial photo, the minimap and the forest
+        placement on the finished heightmap. Returns (all_buildings, tile_bounds_local, terrain_height_at) for the
+        building and horizon phases (empty/None if the terrain processing failed).
+        """
+        # Collect all buildings across all tiles
+        all_buildings = []
+        tile_bounds_local = []  # collect tile bounds for horizon clipping
+
+        # Height lookup on the finished terrain heightmap (seam and height transition of the horizon)
+        terrain_height_at = None
 
         # Phase 1: terrain + roads - process ALL tiles as ONE contiguous
         # area (one grid, one road network, one junction pass).
@@ -332,27 +408,7 @@ class BeamNGExporter:
 
                 self.terrain.export_tile(0, 0, result, task=task)
 
-                # The photos are rebuilt as soon as area, origin, resolution, tile layout, source images or bridge
-                # outlines no longer match the existing ones (e.g. switching from one to four DGM1 tiles) - not only
-                # when they are missing. Nothing in the terrain export reads them, BeamNG loads them when the level starts.
-                with task.subtask("Aerial photo") as sub:
-                    try:
-                        bridge_areas = result.get("bridge_photo_areas") or []
-                        status = ensure_aerial_photos(
-                            aerial_dir=aerial_dir, output_dir=textures_dir, photos=photos, global_offset=global_offset,
-                            fill_areas=bridge_areas,
-                        )
-                        if status == "current":
-                            sub.finish(f"{len(photos)} aerial photo(s) match the area - reused")
-                        elif status == "built":
-                            sub.finish(f"{len(photos)} aerial photo(s) rebuilt, {len(bridge_areas)} bridge(s) retouched")
-                        elif status == "failed":
-                            sub.fail("Aerial photo could not be built")
-                        else:
-                            sub.finish("no source images")
-                    except Exception as e:
-                        logger.error(f"Aerial photo failed: {e}")
-                        sub.fail(str(e))
+                status = self._build_aerial_photos(task, photos, global_offset, result.get("bridge_photo_areas") or [])
                 # For POI preview images in _finalize_export() (build_poi_preview_image() crops from the
                 # already built aerial photo PNGs, see there) - only useful if a photo actually exists.
                 self.aerial_photo_status = status
@@ -360,23 +416,7 @@ class BeamNGExporter:
                 # BigMap preview image from the already built aerial photo PNGs (only if any were built/are current -
                 # without an aerial photo a minimap image makes no sense, see io/aerial.py::build_minimap_image()).
                 if config.MINIMAP_ENABLED and status in ("current", "built"):
-                    from ..io.aerial import MINIMAP_FILENAME, MINIMAP_SUBDIR, ensure_minimap_image, minimap_info_json_fields
-
-                    with task.subtask("Minimap") as sub:
-                        x_min, x_max, y_min, y_max = combined_grid_bounds_local
-                        minimap_path = config.BEAMNG_DIR / MINIMAP_SUBDIR / MINIMAP_FILENAME
-                        minimap_status = ensure_minimap_image(textures_dir, minimap_path, photos, combined_grid_bounds_local)
-                        if minimap_status != "missing":
-                            self.items.set_info_json_fields(**minimap_info_json_fields(x_min, y_max, x_max - x_min))
-                            if minimap_status == "current":
-                                logger.info(f"[OK] Minimap matches the aerial photo - reused: {minimap_path}")
-                                sub.finish(f"{minimap_path.name} reused")
-                            else:
-                                logger.info(f"[OK] Minimap saved: {minimap_path}")
-                                sub.finish(minimap_path.name)
-                        else:
-                            logger.info("[i] Minimap skipped (source photo missing)")
-                            sub.warn("source photo missing")
+                    self._build_minimap(task, photos, combined_grid_bounds_local)
 
                 # Height lookup on the finished heightmap: the horizon derives its terrain hole
                 # including the edge heights from it (no terrain mesh anymore that could be stitched)
@@ -389,115 +429,160 @@ class BeamNGExporter:
                     np.column_stack([np.atleast_1d(x), np.atleast_1d(y)]),
                 )
 
-                from ..forest.vineyard_generator import make_height_sampler
-
-                terrain_height_at_1d = make_height_sampler(heightmap, hm_origin[0], hm_origin[1], config.TERRAIN_SQUARE_SIZE)
-
                 # Overall bbox in local coordinates for horizon clipping
                 x_min, x_max, y_min, y_max = result["grid_bounds_local"]
                 tile_bounds_local.append((x_min, y_min, x_max, y_max))
 
                 # Phase 1b: forest processing (for the whole area, no longer per tile)
                 if forests_enabled:
-                    with task.subtask("Forest placement") as sub:
-                        forest_result = self.forests.process_tile(
-                            tile_bounds=(x_min, y_min, x_max, y_max),
-                            tile_name="combined_area",
-                            elevation_data=result.get("height_points"),
-                            height_grid_info={
-                                "origin": (x_min, y_min),
-                                "spacing": 1.0,
-                                "elevations": result.get("height_elevations"),
-                            },
-                            height_hash=result.get("height_hash"),  # for cache consistency
-                            global_offset=global_offset,  # NEW: for the WGS84 transformation
-                            # Trees stand on the finished heightmap (after road embedding), not on raw DGM1 points,
-                            # and avoid the road surfaces that were actually embedded
-                            height_at=terrain_height_at_1d,
-                            road_surfaces=result.get("tree_exclusion", result.get("road_surface_union")),
-                        )
-                        if forest_result["status"] == "success":
-                            stats["trees_generated"] += forest_result.get("tree_count", 0)
-
-                        # Vineyard vines (forest items) together with the trees in forest.forest4.json
-                        vine_segments = 0
-                        if vineyard_assets_ready and result.get("vineyard_instances"):
-                            vine_segments = self.forests.add_instances(result["vineyard_instances"])
-                            stats["vine_segments"] += vine_segments
-
-                        # Guard rails (forest items, planned in TerrainWorkflow.export_decal_roads())
-                        guardrail_items = 0
-                        if guardrail_assets_ready and result.get("guardrail_instances"):
-                            guardrail_items = self.forests.add_instances(result["guardrail_instances"])
-
-                        sub.finish(
-                            f"{forest_result.get('tree_count', 0)} trees, {vine_segments} vine row segments, "
-                            f"{guardrail_items} guard rail items"
-                        )
+                    self._place_forest(task, result, global_offset, stats, vineyard_assets_ready, guardrail_assets_ready)
 
                 # Collect building data (exported later, grouped by tiles)
                 if include_buildings and result.get("buildings_data"):
                     all_buildings.extend(result["buildings_data"])
 
-        # Phase 2: buildings (after the terrain export, as in the old multitile.py)
-        if include_buildings and all_buildings:
-            with self.pipeline.task("Export buildings") as task:
-                # Buildings: ONE object over the whole area (like the roads) or - if disabled - one per 500 m tile
-                from ..workflow.building_workflow import plan_building_shapes, remove_stale_building_daes
+        return all_buildings, tile_bounds_local, terrain_height_at
 
-                # BeamNG discards shapes with more than 2048 nodes -> split the whole area into partial shapes
-                # (buildings, buildings_part_N)
-                shapes = plan_building_shapes(
-                    all_buildings,
-                    None if config.BUILDINGS_AS_ONE_OBJECT else config.TILE_SIZE,
-                    config.MAX_BUILDINGS_PER_SHAPE,
+    def _build_aerial_photos(self, task, photos: List[Dict], global_offset, bridge_areas: List) -> str:
+        """The "Aerial photo" subtask; returns the status of ensure_aerial_photos() ("none" if it raised)."""
+        from ..io.aerial import ensure_aerial_photos
+
+        status = "none"  # fallback in case the aerial photo step raises (see minimap step)
+        # The photos are rebuilt as soon as area, origin, resolution, tile layout, source images or bridge
+        # outlines no longer match the existing ones (e.g. switching from one to four DGM1 tiles) - not only
+        # when they are missing. Nothing in the terrain export reads them, BeamNG loads them when the level starts.
+        with task.subtask("Aerial photo") as sub:
+            try:
+                status = ensure_aerial_photos(
+                    aerial_dir=config.AERIAL_DATA_DIR, output_dir=config.BEAMNG_DIR_TEXTURES, photos=photos,
+                    global_offset=global_offset, fill_areas=bridge_areas,
                 )
-
-                written = set()
-                for tile_x, tile_y, name, tile_buildings in shapes:
-                    dae_path = self.buildings.export_buildings(tile_buildings, tile_x, tile_y, grid_bounds=None, name=name)
-                    if dae_path:
-                        written.add(Path(dae_path).stem)
-                        self.buildings.add_items(tile_buildings, tile_x, tile_y, name=name)
-                        stats["buildings_exported"] += len(tile_buildings)
-
-                # Remove the DAEs of the respective other layout (earlier tiles or the single overall object)
-                remove_stale_building_daes(config.BEAMNG_DIR_BUILDINGS, keep=written)
-
-                # Export materials
-                # Add LoD2 materials to the shared materials (do NOT export separately!)
-                self._add_lod2_materials()
-                task.done(f"{stats['buildings_exported']} buildings")
-        elif not include_buildings:
-            self.pipeline.skip("Export buildings", "LOD2_ENABLED=False")
-        else:
-            self.pipeline.skip("Export buildings", "no building data found")
-
-        # Phase 3: horizon layer (optional)
-        if include_horizon:
-            with self.pipeline.task("Export horizon") as task:
-                horizon_dae = self.horizon.generate_horizon(
-                    global_offset=global_offset,
-                    tile_hash=tile_hash,
-                    tile_bounds=tile_bounds_local,
-                    terrain_height_at=terrain_height_at,
-                    task=task,
-                )
-                stats["horizon_exported"] = horizon_dae is not None
-                if horizon_dae:
-                    task.done(Path(horizon_dae).name)
+                if status == "current":
+                    sub.finish(f"{len(photos)} aerial photo(s) match the area - reused")
+                elif status == "built":
+                    sub.finish(f"{len(photos)} aerial photo(s) rebuilt, {len(bridge_areas)} bridge(s) retouched")
+                elif status == "failed":
+                    sub.fail("Aerial photo could not be built")
                 else:
-                    # identical to the warning in horizon_workflow.py::generate_horizon()
-                    task.warn("DGM30 data not found - no horizon created")
-        else:
-            self.pipeline.skip("Export horizon", "PHASE5_ENABLED=False")
+                    sub.finish("no source images")
+            except Exception as e:
+                logger.error(f"Aerial photo failed: {e}")
+                sub.fail(str(e))
+        return status
 
-        # Phase 4: finalization
-        with self.pipeline.task("Finalization") as task:
-            self._finalize_export(forests_enabled, task=task)
-            task.done()
+    def _build_minimap(self, task, photos: List[Dict], combined_grid_bounds_local) -> None:
+        """The "Minimap" subtask: BigMap preview image from the aerial photo PNGs, registered in info.json."""
+        from ..io.aerial import MINIMAP_FILENAME, MINIMAP_SUBDIR, ensure_minimap_image, minimap_info_json_fields
 
-        return stats
+        with task.subtask("Minimap") as sub:
+            x_min, x_max, y_min, y_max = combined_grid_bounds_local
+            minimap_path = config.BEAMNG_DIR / MINIMAP_SUBDIR / MINIMAP_FILENAME
+            minimap_status = ensure_minimap_image(config.BEAMNG_DIR_TEXTURES, minimap_path, photos, combined_grid_bounds_local)
+            if minimap_status != "missing":
+                self.items.set_info_json_fields(**minimap_info_json_fields(x_min, y_max, x_max - x_min))
+                if minimap_status == "current":
+                    logger.info(f"[OK] Minimap matches the aerial photo - reused: {minimap_path}")
+                    sub.finish(f"{minimap_path.name} reused")
+                else:
+                    logger.info(f"[OK] Minimap saved: {minimap_path}")
+                    sub.finish(minimap_path.name)
+            else:
+                logger.info("[i] Minimap skipped (source photo missing)")
+                sub.warn("source photo missing")
+
+    def _place_forest(
+        self, task, result: Dict, global_offset, stats: Dict, vineyard_assets_ready: bool, guardrail_assets_ready: bool
+    ) -> None:
+        """The "Forest placement" subtask: trees on the finished heightmap, then vines and guard rails as forest items."""
+        from ..forest.vineyard_generator import make_height_sampler
+
+        heightmap = result["heightmap"]
+        hm_origin = (result["terrain_origin_x"], result["terrain_origin_y"])
+        terrain_height_at_1d = make_height_sampler(heightmap, hm_origin[0], hm_origin[1], config.TERRAIN_SQUARE_SIZE)
+        x_min, x_max, y_min, y_max = result["grid_bounds_local"]
+
+        with task.subtask("Forest placement") as sub:
+            forest_result = self.forests.process_tile(
+                tile_bounds=(x_min, y_min, x_max, y_max),
+                tile_name="combined_area",
+                elevation_data=result.get("height_points"),
+                height_grid_info={
+                    "origin": (x_min, y_min),
+                    "spacing": 1.0,
+                    "elevations": result.get("height_elevations"),
+                },
+                height_hash=result.get("height_hash"),  # for cache consistency
+                global_offset=global_offset,  # NEW: for the WGS84 transformation
+                # Trees stand on the finished heightmap (after road embedding), not on raw DGM1 points,
+                # and avoid the road surfaces that were actually embedded
+                height_at=terrain_height_at_1d,
+                road_surfaces=result.get("tree_exclusion", result.get("road_surface_union")),
+            )
+            if forest_result["status"] == "success":
+                stats["trees_generated"] += forest_result.get("tree_count", 0)
+
+            # Vineyard vines (forest items) together with the trees in forest.forest4.json
+            vine_segments = 0
+            if vineyard_assets_ready and result.get("vineyard_instances"):
+                vine_segments = self.forests.add_instances(result["vineyard_instances"])
+                stats["vine_segments"] += vine_segments
+
+            # Guard rails (forest items, planned in TerrainWorkflow.export_decal_roads())
+            guardrail_items = 0
+            if guardrail_assets_ready and result.get("guardrail_instances"):
+                guardrail_items = self.forests.add_instances(result["guardrail_instances"])
+
+            sub.finish(
+                f"{forest_result.get('tree_count', 0)} trees, {vine_segments} vine row segments, "
+                f"{guardrail_items} guard rail items"
+            )
+
+    def _export_buildings(self, all_buildings: List[Dict], stats: Dict) -> None:
+        """The "Export buildings" task: building shapes (split below BeamNG's node limit), their items and materials."""
+        with self.pipeline.task("Export buildings") as task:
+            # Buildings: ONE object over the whole area (like the roads) or - if disabled - one per 500 m tile
+            from ..workflow.building_workflow import plan_building_shapes, remove_stale_building_daes
+
+            # BeamNG discards shapes with more than 2048 nodes -> split the whole area into partial shapes
+            # (buildings, buildings_part_N)
+            shapes = plan_building_shapes(
+                all_buildings,
+                None if config.BUILDINGS_AS_ONE_OBJECT else config.TILE_SIZE,
+                config.MAX_BUILDINGS_PER_SHAPE,
+            )
+
+            written = set()
+            for tile_x, tile_y, name, tile_buildings in shapes:
+                dae_path = self.buildings.export_buildings(tile_buildings, tile_x, tile_y, grid_bounds=None, name=name)
+                if dae_path:
+                    written.add(Path(dae_path).stem)
+                    self.buildings.add_items(tile_buildings, tile_x, tile_y, name=name)
+                    stats["buildings_exported"] += len(tile_buildings)
+
+            # Remove the DAEs of the respective other layout (earlier tiles or the single overall object)
+            remove_stale_building_daes(config.BEAMNG_DIR_BUILDINGS, keep=written)
+
+            # Export materials
+            # Add LoD2 materials to the shared materials (do NOT export separately!)
+            self._add_lod2_materials()
+            task.done(f"{stats['buildings_exported']} buildings")
+
+    def _export_horizon(self, global_offset, tile_hash: str, tile_bounds_local: List, terrain_height_at, stats: Dict) -> None:
+        """The "Export horizon" task: distant terrain around the level, fitted to the finished heightmap."""
+        with self.pipeline.task("Export horizon") as task:
+            horizon_dae = self.horizon.generate_horizon(
+                global_offset=global_offset,
+                tile_hash=tile_hash,
+                tile_bounds=tile_bounds_local,
+                terrain_height_at=terrain_height_at,
+                task=task,
+            )
+            stats["horizon_exported"] = horizon_dae is not None
+            if horizon_dae:
+                task.done(Path(horizon_dae).name)
+            else:
+                # identical to the warning in horizon_workflow.py::generate_horizon()
+                task.warn("DGM30 data not found - no horizon created")
 
     def _add_lod2_materials(self):
         """
