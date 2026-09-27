@@ -382,3 +382,43 @@ def test_a_side_bridge_stays_on_the_main_deck_height_until_it_leaves_and_then_ru
     assert np.allclose(slope, slope[0], atol=1e-6)  # linear from where it leaves the deck ...
     assert coords[-1, 2] == pytest.approx(90.0)  # ... to its abutment
     assert np.allclose(np.asarray(ground["coords"])[:, 2], 90.0)  # the road behind the abutment is not touched
+
+
+def _link_between_two_splits():
+    """A short oneway link (about 32 m) that is a side branch at BOTH ends: it leaves split A at (0, 0) in A's right
+    slot and joins split B at (30, -10) in B's right slot (the real case: a two-way ramp splitting into its two
+    directions, each of which merges into a four-lane road a few dozen meters further on)."""
+    from world_to_beamng.geometry.lane_splits import Branch, LaneSplit
+
+    trunk_a = _road(1, [(-40.0, 0.0), (0.0, 0.0)], highway="primary", lanes="4", oneway="yes")
+    straight_a = _road(2, [(0.0, 0.0), (80.0, 0.0)], highway="primary", lanes="2", oneway="yes")
+    link = _road(3, [(0.0, 0.0), (10.0, -5.0), (20.0, -8.0), (30.0, -10.0)], highway="primary_link", lanes="2",
+                 oneway="yes")
+    trunk_b = _road(4, [(30.0, -10.0), (70.0, -10.0)], highway="primary", lanes="4", oneway="yes")
+    other_b = _road(5, [(0.0, -25.0), (15.0, -17.0), (30.0, -10.0)], highway="primary_link", lanes="2", oneway="yes")
+    split_a = LaneSplit((0.0, 0.0), trunk_a, False, 4 * LANE, (0.0, 1.0), [
+        Branch(straight_a, True, np.array([0.0, LANE]), 2 * LANE),
+        Branch(link, True, np.array([0.0, -LANE]), 2 * LANE),
+    ])
+    # B: from the node into the branches is -x, its left normal is -y; the link comes in on B's right (+y)
+    split_b = LaneSplit((30.0, -10.0), trunk_b, True, 4 * LANE, (0.0, -1.0), [
+        Branch(other_b, False, np.array([0.0, -LANE]), 2 * LANE),
+        Branch(link, False, np.array([0.0, LANE]), 2 * LANE),
+    ])
+    return [trunk_a, straight_a, link, trunk_b, other_b], [split_a, split_b], link
+
+
+@pytest.mark.parametrize("order", [(0, 1), (1, 0)])
+def test_a_short_link_between_two_splits_ends_in_both_slots_without_folding(order):
+    roads, splits, link = _link_between_two_splits()
+
+    shift_branches_into_slots([splits[i] for i in order], roads, max_connector=30.0, length=30.0)
+
+    xy = np.asarray(link["coords"])[:, :2]
+    segments = np.linalg.norm(np.diff(xy, axis=0), axis=1)
+    assert segments.min() > 1e-3  # no zero-length segment
+    # both ends one slot offset from their node (across the main axis there, see the Motto Bartola test)
+    assert np.linalg.norm(xy[0] - (0.0, 0.0)) == pytest.approx(LANE, abs=0.05)
+    assert np.linalg.norm(xy[-1] - (30.0, -10.0)) == pytest.approx(LANE, abs=0.05)
+    assert _max_kink_deg(link["coords"], until=float("inf")) < 20.0  # no fold, no sharp corner
+    assert segments.sum() == pytest.approx(32.0, abs=4.0)  # about its own length, not doubled back

@@ -361,6 +361,16 @@ def _point_at(oriented, lengths, s: float) -> np.ndarray:
     return oriented[-1][2][-1, :2]
 
 
+def _half_way_to_other_split(oriented, split_ends: set) -> float:
+    """Arc length half way from the node to the first piece end of the chain that belongs to ANOTHER split (inf if the
+    chain reaches none): the part of a branch this split may shape. `split_ends` holds (id(road), "start"/"end") of every
+    trunk and branch end at a split, taken before any split moved them."""
+    for road, entry, _, _, arc in oriented:
+        if (id(road), "end" if entry else "start") in split_ends:
+            return float(arc[-1]) / 2.0
+    return float("inf")
+
+
 def shift_branches_into_slots(
     splits: List[LaneSplit], roads: List[Dict], max_connector: float, length: float, endpoint_tol: float = 0.5,
     max_angle_deg: float = 60.0, step: float = 2.0, smoothing: float = 5.0, smoothing_end: float = 10.0,
@@ -384,11 +394,16 @@ def shift_branches_into_slots(
     the stem and returns to its own over `length` meters.
 
     The branches are followed along straight continuations where one piece is shorter (the kink where OSM's connector
-    turns into the lane may be up to max_angle_deg); bridges and ground roads are treated alike. Marks the first piece
+    turns into the lane may be up to max_angle_deg); bridges and ground roads are treated alike. A branch that reaches
+    the node of another split (a short link that is a branch at both ends) belongs to each split only up to half way:
+    connector, fade, smoothing and height blend are compressed into that half, so neither split moves the other one's
+    end and the result does not depend on the order of the splits. Marks the first piece
     of every branch with "lane_split_branch" (node end, slot width and offset, connector length as "hold", fade length,
     stem length and path [(x, y, z)], node, left normal and trunk width) and the trunk with "lane_split_trunk" (its
     ends at split nodes) and "lane_split_trunk_nodes".
     """
+    split_ends = {(id(s.trunk), "start" if s.trunk_at_start else "end") for s in splits}
+    split_ends |= {(id(b.road), "start" if b.at_start else "end") for s in splits for b in s.branches}
     for split in splits:
         split.trunk.setdefault("lane_split_trunk", set()).add("start" if split.trunk_at_start else "end")
         split.trunk.setdefault("lane_split_trunk_nodes", []).append(split.node)
@@ -410,7 +425,8 @@ def shift_branches_into_slots(
             probe = np.array([np.interp(BRANCH_PROBE, chain_arc, chain_xy[:, 0]), np.interp(BRANCH_PROBE, chain_arc, chain_xy[:, 1])]) - node
             straightness = float(probe @ axis) / max(float(np.linalg.norm(probe)), 1e-9)
             chains.append({"branch": branch, "reach": reach, "pieces": oriented, "arc": chain_arc, "xy": chain_xy,
-                           "z": chain_z, "slot": float(branch.slot_offset @ normal), "straightness": straightness})
+                           "z": chain_z, "slot": float(branch.slot_offset @ normal), "straightness": straightness,
+                           "limit": _half_way_to_other_split(oriented, split_ends)})
 
         main = max(chains, key=lambda c: (round(c["straightness"], 3), c["branch"].slot_width))
         reference = _Reference(main["arc"], main["xy"])
@@ -419,7 +435,7 @@ def shift_branches_into_slots(
                 chain["connector"] = 0.0
                 continue
             lateral = np.einsum("ij,ij->i", chain["xy"] - reference.position(chain["arc"]), reference.normal(chain["arc"]))
-            chain["connector"] = _connector_length(chain["arc"], lateral, chain["slot"], max_connector)
+            chain["connector"] = _connector_length(chain["arc"], lateral, chain["slot"], min(max_connector, chain["limit"]))
         side = [c["connector"] for c in chains if c is not main]
         stem_length = min(side) if side else 0.0
 
@@ -431,8 +447,19 @@ def shift_branches_into_slots(
         stem_path = [(float(x), float(y), float(z)) for (x, y), z in zip(reference.position(stations), stem_z(stations))]
 
         for chain in chains:
-            branch, connector = chain["branch"], chain["connector"]
-            blend = max(0.0, min(length, chain["reach"] - connector))
+            branch, connector, limit = chain["branch"], chain["connector"], chain["limit"]
+            if np.isfinite(limit):
+                # only up to half way to the other split: fade and smoothing share what is left behind the connector
+                room = max(0.0, min(chain["reach"], limit) - connector)
+                fade_end = min(smoothing_end, room / 3.0)
+                blend = max(0.0, min(length, room - fade_end))
+                height_length = min(length, max(0.0, limit - stem_length))
+                densify_until = min(max(connector, stem_length) + length + smoothing_end, limit)
+            else:
+                fade_end = smoothing_end
+                blend = max(0.0, min(length, chain["reach"] - connector))
+                height_length = length
+                densify_until = max(connector, stem_length) + length + smoothing_end
             branch.road["lane_split_branch"] = {
                 "end": "start" if branch.at_start else "end", "slot_width": branch.slot_width, "hold": connector,
                 "length": blend, "stem_length": stem_length, "stem_path": stem_path, "node": split.node,
@@ -440,7 +467,9 @@ def shift_branches_into_slots(
                 "trunk_width": split.trunk_width,
             }
             slot = chain["slot"]
-            profile = None if chain is main else _SideProfile(chain, main["xy"], slot, connector, blend, smoothing)
+            profile = None if chain is main else _SideProfile(
+                chain, main["xy"], slot, connector, blend, smoothing, smoothing_end=max(fade_end, 1e-6)
+            )
             if profile is not None:
                 # where the branch has moved `leave_gap` out of its slot, it leaves the main deck (the cut on a bridge)
                 probe = np.arange(connector, float(chain["arc"][-1]), 0.5)
@@ -448,9 +477,9 @@ def shift_branches_into_slots(
                 away = np.abs(profile.lateral(probe, raw) - slot) >= leave_gap
                 chain["leaves_at"] = float(probe[np.argmax(away)]) if away.any() else float(chain["arc"][-1])
                 branch.road["lane_split_branch"]["leaves_at"] = chain["leaves_at"]
-            zone_end = connector + blend + smoothing_end
+            zone_end = connector + blend + fade_end
             for road, entry, offset, piece, _ in chain["pieces"]:
-                piece = _densify(piece, offset, max(connector, stem_length) + length + smoothing_end, step)
+                piece = _densify(piece, offset, densify_until, step)
                 arc = offset + arc_lengths(piece[:, :2])
                 if chain is main:
                     # the slot offset of the main axis at the node fades out along its own OSM course
@@ -466,7 +495,10 @@ def shift_branches_into_slots(
                 piece[:, :2] = shifted
                 if chain is not main and not _is_bridge(road):
                     # on the ground the branch takes the main road's height on the stem and returns to its own
-                    own_height = smoothstep((arc - stem_length) / length) if length > 0.0 else (arc > stem_length).astype(float)
+                    own_height = (
+                        smoothstep((arc - stem_length) / height_length) if height_length > 0.0
+                        else (arc > stem_length).astype(float)
+                    )
                     along, _ = path_frame(main["xy"], piece[:, :2])
                     piece[:, 2] = stem_z(along) * (1.0 - own_height) + piece[:, 2] * own_height
                 result = piece if entry else piece[::-1]
@@ -567,3 +599,4 @@ def stem_marking_masks(node_lists, stems, tol: float = 0.05) -> Dict[int, Dict]:
             existing["blocks"] += entry["blocks"]
             existing["siblings"] |= set(members) - {index}
     return result
+
