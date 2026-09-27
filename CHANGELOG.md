@@ -1,5 +1,38 @@
 # Changelog
 
+## [0.2.0](https://github.com/Tachy/World-to-BeamNG/compare/v0.1.0...v0.2.0) (2026-09-27)
+
+
+### Features
+
+* End every gallery column row with a flush column at both ends ([73bb966](https://github.com/Tachy/World-to-BeamNG/commit/73bb966098416aa0848bbf82aa711ede138d3fcb))
+* Leave dirt tracks and footways without DecalRoads ([86a1d8b](https://github.com/Tachy/World-to-BeamNG/commit/86a1d8b62531ad0696d22755d064d5b161dc68af))
+* Make the bridge retouch of the aerial photo switchable, off by default ([be4fdbb](https://github.com/Tachy/World-to-BeamNG/commit/be4fdbb71d364f82aba16752b2a4aa3343ba4721))
+* Read loose CityGML files as building source ([209be33](https://github.com/Tachy/World-to-BeamNG/commit/209be3342abcd19655c8b8f59e5147b779dc3fc5))
+* Read orthophotos as JPG/PNG with any world file ([ef912da](https://github.com/Tachy/World-to-BeamNG/commit/ef912da6b64f26f5f6b318f2eca577ebd7fd7dbd))
+* Read swissBUILDINGS3D 2.0 DXF buildings next to LoD2 CityGML ([20ed4b2](https://github.com/Tachy/World-to-BeamNG/commit/20ed4b2d24cfde2c053550ed6f8adf9248fe5d5a))
+* Use an ambientCG PBR texture for asphalt roads ([83fc366](https://github.com/Tachy/World-to-BeamNG/commit/83fc366f08e51601de69363a92bef23468edf33c))
+
+
+### Bug Fixes
+
+* Keep lane split branches smooth outside a corner of the main axis ([f8b4b71](https://github.com/Tachy/World-to-BeamNG/commit/f8b4b715987d1937d35b32ed697cb075da413cad))
+* Keep the DGM30 tile cache per target CRS ([7174825](https://github.com/Tachy/World-to-BeamNG/commit/71748252b77e29695b3a74c9b4f95d0eeeb6e599))
+* Let two lane splits share a link between them ([731f58a](https://github.com/Tachy/World-to-BeamNG/commit/731f58a6931a1be0283a0153196c056f13f91890))
+* Make the asphalt strip square and use BeamNG's asphalt by default ([9e47bd4](https://github.com/Tachy/World-to-BeamNG/commit/9e47bd48184eba419f818fa9d4203ea4b25732e0))
+* Place world-file aerial photos on their pixel corners ([5994a09](https://github.com/Tachy/World-to-BeamNG/commit/5994a09aa68f0e2d492472fd258d8536204f90be))
+* Spread road decals over render priorities so BeamNG draws them all ([3814873](https://github.com/Tachy/World-to-BeamNG/commit/381487350eb25d1cae09b93130c9202e09fdacb1))
+* Stop DGM30 tile seams from digging trenches into the horizon ([e3a137e](https://github.com/Tachy/World-to-BeamNG/commit/e3a137e22e7219d8fa0806548d5bec6bb3881d3d))
+
+
+### Refactoring
+
+* Move terrain workflow helpers into their own modules ([58e9525](https://github.com/Tachy/World-to-BeamNG/commit/58e9525dec883706e1d6707bc1a40549db1e330a))
+* Remove dead gallery helper and unused locals ([1d6c3c3](https://github.com/Tachy/World-to-BeamNG/commit/1d6c3c335bc945ee0bcaff4f88dd316542ab5a5f))
+* Share arc length, smoothstep and point helpers ([1e697c4](https://github.com/Tachy/World-to-BeamNG/commit/1e697c47aa11a6c70baf4effefe1c9c46f27427d))
+* Split BeamNGExporter.export_complete_level into steps ([2126aef](https://github.com/Tachy/World-to-BeamNG/commit/2126aefaf04e108b37f4d7858a97d56e895629eb))
+* Split TerrainWorkflow.process_tile into phases ([a842835](https://github.com/Tachy/World-to-BeamNG/commit/a842835b947efe43ccf81e8895743ac2c413a1b4))
+
 ## [0.1.0](https://github.com/Tachy/World-to-BeamNG/compare/v0.0.1...v0.1.0) (2026-09-26)
 
 
