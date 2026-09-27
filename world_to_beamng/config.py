@@ -365,7 +365,7 @@ BRIDGE_TREE_MARGIN = 3.0  # beyond the curbs, in meters
 # The aerial photo shows the deck from above: with AERIAL_BRIDGE_RETOUCH the bridge outline plus BRIDGE_PHOTO_FILL_MARGIN
 # (deck edge, OSM offset against the photo) is filled with the texture mirrored from beside the bridge (see
 # io/aerial_bridge_fill.py). Switched off, the photo stays as it is - and is not rebuilt when a bridge changes.
-AERIAL_BRIDGE_RETOUCH = False
+AERIAL_BRIDGE_RETOUCH = True
 BRIDGE_PHOTO_FILL_MARGIN = 2.0  # beyond the curbs, in meters
 # Lane split on a bridge (geometry/lane_splits.py): the trunk, its branches and the bridge pieces that continue them
 # within ROAD_LANE_SPLIT_MAX_CONNECTOR + ROAD_LANE_SPLIT_LENGTH + BRIDGE_GROUP_EXTRA_REACH of the node form ONE structure:
