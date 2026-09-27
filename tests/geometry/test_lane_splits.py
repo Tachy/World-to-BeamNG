@@ -422,3 +422,22 @@ def test_a_short_link_between_two_splits_ends_in_both_slots_without_folding(orde
     assert np.linalg.norm(xy[-1] - (30.0, -10.0)) == pytest.approx(LANE, abs=0.05)
     assert _max_kink_deg(link["coords"], until=float("inf")) < 20.0  # no fold, no sharp corner
     assert segments.sum() == pytest.approx(32.0, abs=4.0)  # about its own length, not doubled back
+
+
+# the corner of the main axis itself still leaves a slight bend (the lateral profile is smoothed in its frame)
+@pytest.mark.parametrize("main_turn_deg, max_kink_deg", [(20.0, 8.0), (30.0, 12.0)])
+def test_a_side_branch_outside_a_corner_of_the_main_axis_stays_smooth(main_turn_deg, max_kink_deg):
+    # the main axis turns left at x = 20; the side branch runs outside that corner, where the nearest point of the main
+    # axis is the corner itself for a whole wedge of branch points
+    turn = np.radians(main_turn_deg)
+    trunk = _road(1, [(-40.0, 0.0), (0.0, 0.0)], highway="primary", lanes="4", oneway="yes")
+    straight = _road(2, [(0.0, 0.0), (20.0, 0.0), (20.0 + 60.0 * np.cos(turn), 60.0 * np.sin(turn))],
+                     highway="primary", lanes="2", oneway="yes")
+    turn_xy = [(0.0, 0.0), (8.0, -3.0), (20.0, -3.0), (40.0, -12.0), (60.0, -24.0), (80.0, -36.0), (100.0, -48.0)]
+    side = _road(3, turn_xy, highway="primary_link", lanes="2", oneway="yes")
+    roads = [trunk, straight, side]
+
+    shift_branches_into_slots(find_lane_splits(roads, _width), roads, max_connector=30.0, length=30.0)
+
+    assert _max_kink_deg(side["coords"], until=float("inf")) < max_kink_deg  # no zigzag at the corner
+    assert side["coords"][-1][:2] == pytest.approx((100.0, -48.0))

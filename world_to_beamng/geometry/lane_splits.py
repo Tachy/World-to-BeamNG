@@ -490,7 +490,15 @@ def shift_branches_into_slots(
                     zone = arc < zone_end
                     along, lateral = path_frame(main["xy"], piece[zone, :2])
                     target = profile.lateral(arc[zone], lateral)
-                    shifted[zone] = reference.position(along) + target[:, None] * reference.normal(along)
+                    normals = reference.normal(along)
+                    # in the slot (on the connector, close to the main axis): rebuilt from the main axis; behind it the
+                    # OSM point is only moved by the change of its lateral offset - far from the axis a rebuilt point
+                    # would carry every inaccuracy of the frame (outside a corner a whole wedge of points shares the
+                    # corner as nearest point) into the geometry and zigzag, while an unchanged offset keeps it exactly
+                    in_slot = (arc[zone] < connector)[:, None]
+                    rebuilt = reference.position(along) + target[:, None] * normals
+                    moved = piece[zone, :2] + (target - lateral)[:, None] * normals
+                    shifted[zone] = np.where(in_slot, rebuilt, moved)
                 piece = piece.copy()
                 piece[:, :2] = shifted
                 if chain is not main and not _is_bridge(road):
@@ -534,6 +542,10 @@ def path_frame(path_xy, points) -> Tuple[np.ndarray, np.ndarray]:
     d = unit[best]
     offset = points - nearest[rows, best]
     lateral = d[:, 0] * offset[:, 1] - d[:, 1] * offset[:, 0]
+    # outside a corner the nearest point is the corner itself: the offset is not perpendicular to either segment there,
+    # so the cross product would give less than the distance (and jump where the nearest segment changes)
+    at_corner = clamped[rows, best] != t[rows, best]
+    lateral = np.where(at_corner, np.sign(lateral) * distance[rows, best], lateral)
     return along, lateral
 
 
