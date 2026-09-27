@@ -17,15 +17,15 @@ def resolve_open_side(osm_tags: Dict) -> Optional[str]:
     """
     Reads the valley-side open wall directly from the OSM tags `avalanche_protector:left`/
     `avalanche_protector:right` (value "open"), if present - "left"/"right" follow the
-    digitization direction of the way, exactly the same convention as offset_points()/valley_side().
+    digitization direction of the way, exactly the same convention as offset_points()/valley_score().
 
-    Much more reliable than the height comparison in valley_side(): at the structure the DGM does not capture
+    Much more reliable than the height comparison in valley_score(): at the structure the DGM does not capture
     the original terrain, but the already finished gallery including earth cover/roof - a "natural"
     terrain height left/right of the centerline thus does not exist at this location at all, so the gallery
     may well disappear completely into the (in reality not natural at all) "terrain".
 
     Returns:
-        "left" | "right" | None (no tag present -> caller must fall back to valley_side())
+        "left" | "right" | None (no tag present -> caller must fall back to valley_score(), see gallery_open_side())
     """
     if str(osm_tags.get("avalanche_protector:left", "")).lower() == "open":
         return "left"
@@ -57,15 +57,6 @@ def valley_score(xy: np.ndarray, ground_at: HeightAt, half_width: float) -> np.n
         left_xy, right_xy = xy + perp * distance, xy - perp * distance
         score += np.asarray(ground_at(left_xy[:, 0], left_xy[:, 1]), float) - np.asarray(ground_at(right_xy[:, 0], right_xy[:, 1]), float)
     return score
-
-
-def valley_side(xy: np.ndarray, ground_at: HeightAt, half_width: float) -> np.ndarray:
-    """
-    Per point: +1.0 if the side to the RIGHT of the direction of travel lies downhill, otherwise -1.0 (see valley_score()).
-
-    ONLY a fallback for the case without an `avalanche_protector:left`/`:right` tag (see resolve_open_side()).
-    """
-    return np.where(valley_score(xy, ground_at, half_width) > 0.0, 1.0, -1.0)
 
 
 def gallery_open_side(osm_tags: Dict, coords, ground_at: HeightAt, width: float) -> str:
@@ -123,7 +114,7 @@ def build_gallery_mesh(
             so that the support sits flush on the plinth (see docstring above)
         open_side: "left" | "right" | None - if set (from resolve_open_side(), reliable OSM tag),
             this side counts as open for the ENTIRE gallery. Without a tag, ONE side also applies to the whole
-            gallery: the majority of the per-point valley_side() (height comparison, fallback only).
+            gallery: the side of gallery_open_side() (height comparison, fallback only).
         cap_start, cap_end: Build the end face at the start/end (default: both).
         road_texture_length: carriageway UVs like a DecalRoad - u across the carriageway 0..1, v along in repeats of this many
             meters (config.ROAD_DECAL_TEXTURE_LENGTH), so the texture continues 1:1 from the approach
@@ -150,16 +141,11 @@ def build_gallery_mesh(
     mid_left = (left + curb_outer_left) / 2.0
     mid_right = (right + curb_outer_right) / 2.0
     # +1 = open on the right (valley), -1 = open on the left - see open_side/resolve_open_side() docstring.
-    if open_side == "left":
-        side = np.full(len(points), -1.0)
-    elif open_side == "right":
-        side = np.full(len(points), 1.0)
-    else:
-        # Without a tag: ONE side for the whole gallery (majority of the per-point valley side) - a gallery does not
-        # switch its open side midway, but the per-point terrain comparison flips easily at the structure.
-        # Sum of the height differences instead of counting points: no silent tie at half/half
-        total = float(valley_score(xy, ground_at, width / 2.0).sum())
-        side = np.full(len(points), 1.0 if total >= 0.0 else -1.0)
+    # Without a tag: ONE side for the whole gallery (gallery_open_side()) - a gallery does not switch its open side
+    # midway, but a per-point terrain comparison flips easily at the structure.
+    if open_side not in ("left", "right"):
+        open_side = gallery_open_side({}, xy, ground_at, width)
+    side = np.full(len(points), -1.0 if open_side == "left" else 1.0)
 
     # Floor slab and roof reach from the mountain-side wall to the plinth outer edge: on the open (valley) side they are
     # curb_width wider than the carriageway so that they carry the plinth and columns. side > 0 = open on the right.

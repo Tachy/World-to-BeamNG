@@ -210,7 +210,7 @@ def detect_junctions_in_centerlines(road_polygons, height_points=None, height_el
 
     # Collect clusters
     clusters = defaultdict(list)
-    for i, endpoint in enumerate(endpoints):
+    for i in range(len(endpoints)):
         root = find(i)
         clusters[root].append(i)
 
@@ -371,7 +371,7 @@ def detect_junctions_in_centerlines(road_polygons, height_points=None, height_el
         all_dists, all_indices = line_kdtree.query(endpoint_xy, k=50, distance_upper_bound=t_search_radius)
         n_line_points = len(all_line_points)
 
-        for ep_number, (ep_x, ep_y, ep_z, road_idx, is_start) in enumerate(endpoints):
+        for ep_number, (ep_x, ep_y, _, road_idx, is_start) in enumerate(endpoints):
             nearby_indices = [
                 i for i, d in zip(all_indices[ep_number].tolist(), all_dists[ep_number].tolist()) if d <= t_search_radius
             ]
@@ -383,7 +383,7 @@ def detect_junctions_in_centerlines(road_polygons, height_points=None, height_el
                 if line_pt_idx >= n_line_points:
                     continue
 
-                lx, ly, other_road_idx, pt_idx_on_line = all_line_points[line_pt_idx]
+                _, _, other_road_idx, _ = all_line_points[line_pt_idx]
 
                 if other_road_idx == road_idx:
                     continue  # Same road

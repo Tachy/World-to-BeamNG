@@ -8,7 +8,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 import numpy as np
 import pytest
 
-from world_to_beamng.tunnels.gallery_mesh import build_gallery_mesh, build_galleries, resolve_open_side, valley_side
+from world_to_beamng.tunnels.gallery_mesh import build_gallery_mesh, build_galleries, resolve_open_side, valley_score
 
 FLOOR, ROOF = "asphalt_road_standard", "tunnel_concrete"
 
@@ -17,25 +17,25 @@ def _straight_coords(length=60.0, z=500.0, n=13):
     return [(x, 0.0, z) for x in np.linspace(0.0, length, n)]
 
 
-def test_valley_side_picks_the_lower_natural_terrain():
+def test_valley_score_picks_the_lower_natural_terrain():
     xy = np.array([[0.0, 0.0], [10.0, 0.0]])
     # Terrain falls toward +y: when driving in +x direction, +y is the LEFT side (standard convention as in
     # offset_points(): left = direction rotated by +90° CCW = (-dy,dx); for direction=(1,0) that is (0,1) = +y).
-    # So +y is the valley side -> left is downhill -> side < 0.
+    # So +y is the valley side -> left is downhill -> score < 0.
     ground_at = lambda x, y: 500.0 - 2.0 * np.asarray(y, float)
 
-    side = valley_side(xy, ground_at, half_width=4.0)
+    score = valley_score(xy, ground_at, half_width=4.0)
 
-    assert np.all(side < 0)
+    assert np.all(score < 0)
 
 
-def test_valley_side_flips_when_the_slope_is_mirrored():
+def test_valley_score_flips_when_the_slope_is_mirrored():
     xy = np.array([[0.0, 0.0], [10.0, 0.0]])
     ground_at = lambda x, y: 500.0 + 2.0 * np.asarray(y, float)  # rises toward +y -> -y (right) is the valley side
 
-    side = valley_side(xy, ground_at, half_width=4.0)
+    score = valley_score(xy, ground_at, half_width=4.0)
 
-    assert np.all(side > 0)
+    assert np.all(score > 0)
 
 
 def test_roof_and_floor_are_flat_at_the_given_heights():
@@ -272,7 +272,7 @@ def test_resolve_open_side_is_none_without_a_reliable_tag():
 
 
 def test_open_side_override_ignores_ground_at_even_when_it_disagrees():
-    # ground_at would put the valley side on +y (left) (see test_valley_side_picks_the_lower_natural_terrain) -
+    # ground_at would put the valley side on +y (left) (see test_valley_score_picks_the_lower_natural_terrain) -
     # the tag must still win, since at an existing gallery the DGM shows the structure itself.
     ground_at = lambda x, y: 500.0 - 2.0 * np.asarray(y, float)
     mesh = build_gallery_mesh(
@@ -349,12 +349,12 @@ def _embedded_slope(valley_right: bool):
 
 
 @pytest.mark.parametrize("valley_right", [True, False])
-def test_valley_side_looks_beyond_the_embedded_band(valley_right):
+def test_valley_score_looks_beyond_the_embedded_band(valley_right):
     xy = np.array([[0.0, 0.0], [10.0, 0.0], [20.0, 0.0]])
 
-    side = valley_side(xy, _embedded_slope(valley_right), half_width=3.25)
+    score = valley_score(xy, _embedded_slope(valley_right), half_width=3.25)
 
-    assert np.all(side == (1.0 if valley_right else -1.0))
+    assert np.all((score > 0) == valley_right)
 
 
 def test_untagged_gallery_on_an_embedded_slope_opens_to_the_valley():

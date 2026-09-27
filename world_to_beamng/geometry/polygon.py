@@ -882,7 +882,7 @@ def smooth_roads_xy_only(road_polygons):
         smoothed_arr = coords_arr.copy()
 
         # Chaikin smoothing for XYZ
-        for iteration in range(iterations):
+        for _ in range(iterations):
             temp = smoothed_arr.copy()
             for i in range(1, len(smoothed_arr) - 1):
                 # Smooth XYZ with configurable weight
