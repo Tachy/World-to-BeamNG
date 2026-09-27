@@ -6,7 +6,7 @@
     },
     "road_asphalt": {
       "tile_m": 5.0,
-      "source": "ambientCG Road012A_2K-PNG.zip sha1 b6d7a4a02256 (CC0), 3 tiles across x 2 along, AO baked into colour"
+      "source": "ambientCG Road012A_2K-PNG.zip sha1 b6d7a4a02256 (CC0), 4 tiles across x 4 along, AO baked into colour"
     },
     "roof_gravel": {
       "tile_m": 2.0,
