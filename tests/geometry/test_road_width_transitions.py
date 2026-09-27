@@ -405,3 +405,13 @@ def test_a_split_branch_keeps_its_slot_width_along_the_held_stretch():
     assert _width_at(result[1], 30.0) == pytest.approx(6.5)
     assert _width_at(result[1], 40.0) == pytest.approx(6.5 + 0.5 * smoothstep(0.5))
     assert _width_at(result[1], 60.0) == pytest.approx(7.0)
+
+
+def test_variable_width_polygon_widens_single_sides():
+    from world_to_beamng.geometry.road_width_transitions import variable_width_polygon
+
+    nodes = [[0.0, 0.0, 0.0, 6.0], [10.0, 0.0, 0.0, 6.0]]  # along +x: left = +y
+    plain = variable_width_polygon(nodes)
+    widened = variable_width_polygon(nodes, extra_left=1.15)
+    assert plain[:, 1].min() == pytest.approx(-3.0) and plain[:, 1].max() == pytest.approx(3.0)
+    assert widened[:, 1].min() == pytest.approx(-3.0) and widened[:, 1].max() == pytest.approx(4.15)

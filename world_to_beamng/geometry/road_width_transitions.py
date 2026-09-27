@@ -292,11 +292,12 @@ def close_continuation_gaps(
     return result
 
 
-def variable_width_polygon(nodes: Sequence[Sequence[float]]) -> np.ndarray:
+def variable_width_polygon(nodes: Sequence[Sequence[float]], extra_left: float = 0.0, extra_right: float = 0.0) -> np.ndarray:
     """
     (M, 2) outline of a road whose width changes along its nodes [x, y, z, width] - the union of one quad per segment,
     so that tight curves do not fold the outline over itself. Same result as a flat-capped buffer where the width is
-    constant.
+    constant. `extra_left`/`extra_right` widen one side beyond the carriageway (left = direction rotated by +90 degrees),
+    e.g. for a sidewalk.
     """
     from shapely.geometry import Polygon
     from shapely.ops import unary_union
@@ -310,8 +311,9 @@ def variable_width_polygon(nodes: Sequence[Sequence[float]]) -> np.ndarray:
     norms = np.linalg.norm(point_dirs, axis=1)
     fallback = np.vstack([directions[:1], directions])[: len(arr)]  # a 180 degree turn has no averaged direction
     point_dirs = np.where((norms > 1e-9)[:, None], point_dirs / np.maximum(norms, 1e-9)[:, None], fallback)
-    normals = np.column_stack([-point_dirs[:, 1], point_dirs[:, 0]]) * (arr[:, 3:4] / 2.0)
-    left, right = arr[:, :2] + normals, arr[:, :2] - normals
+    unit = np.column_stack([-point_dirs[:, 1], point_dirs[:, 0]])
+    half = arr[:, 3:4] / 2.0
+    left, right = arr[:, :2] + unit * (half + extra_left), arr[:, :2] - unit * (half + extra_right)
     quads = [Polygon([left[i], left[i + 1], right[i + 1], right[i]]) for i in range(len(arr) - 1)]
     quads = [quad if quad.is_valid else quad.buffer(0) for quad in quads]
     union = unary_union([quad for quad in quads if not quad.is_empty])

@@ -460,6 +460,20 @@ class TerrainWorkflow:
         if widened:
             logger.debug(f"  [OK] {widened} road(s) with a width transition: embankment follows the blended width")
 
+        # Sidewalks: the embedding and the vegetation exclusion reach behind the kerb and sidewalk on the tagged sides
+        if config.SIDEWALKS_ENABLED:
+            from ..sidewalks.terrain import attach_sidewalks
+
+            with_sidewalks = attach_sidewalks(
+                road_slope_polygons_2d,
+                lambda poly: OSM_MAPPER.get_road_properties(poly.get("osm_tags", {}))["width"],
+                OSM_MAPPER.config.get("sidewalks", {}),
+                config.SIDEWALK_EXCLUDED_HIGHWAYS,
+                extra=config.SIDEWALK_KERB_WIDTH + config.SIDEWALK_WIDTH,
+            )
+            if with_sidewalks:
+                logger.info(f"  [OK] {with_sidewalks} road(s) with sidewalks: terrain embedding widened")
+
         s.grid_bounds_local, s.road_polygons, s.road_slope_polygons_2d = grid_bounds_local, road_polygons, road_slope_polygons_2d
 
     def _tile_heightmap(self, s: "TileState") -> None:
