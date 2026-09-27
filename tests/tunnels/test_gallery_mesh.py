@@ -84,7 +84,7 @@ def test_wall_extends_wall_thickness_into_the_mountain():
     ground_at = lambda x, y: 500.0 - 2.0 * np.asarray(y, float)  # mountain side is -y (right)
     mesh = build_gallery_mesh(
         _straight_coords(z=500.0), width=8.0, height=5.0, ground_at=ground_at, floor_material=FLOOR,
-        roof_material=ROOF, wall_thickness=3.0, curb_width=0.25, column_spacing=1000.0,  # no columns (would distort the edge)
+        roof_material=ROOF, wall_thickness=3.0, curb_width=0.25, column_size=0.25,  # columns flush on the curb
     )
 
     v = np.array(mesh["vertices"])
@@ -98,7 +98,7 @@ def test_wall_is_flush_with_the_roof_top():
     ground_at = lambda x, y: 500.0 - 2.0 * np.asarray(y, float)  # mountain side is -y (right)
     mesh = build_gallery_mesh(
         _straight_coords(z=500.0), width=8.0, height=5.0, ground_at=ground_at, floor_material=FLOOR,
-        roof_material=ROOF, roof_thickness=0.5, column_spacing=1000.0,  # no columns (would distort the edge)
+        roof_material=ROOF, roof_thickness=0.5,
     )
 
     v = np.array(mesh["vertices"])
@@ -110,7 +110,7 @@ def test_curb_is_on_the_open_side_only():
     ground_at = lambda x, y: 500.0 - 2.0 * np.asarray(y, float)  # valley side (open) is +y
     mesh = build_gallery_mesh(
         _straight_coords(z=500.0), width=8.0, height=5.0, ground_at=ground_at, floor_material=FLOOR,
-        roof_material=ROOF, curb_height=0.5, curb_width=0.25, column_spacing=1000.0,
+        roof_material=ROOF, curb_height=0.5, curb_width=0.25, column_size=0.25,
     )
 
     v = np.array(mesh["vertices"])
@@ -132,7 +132,7 @@ def test_curb_stands_outside_the_carriageway():
     ground_at = lambda x, y: 500.0 - 2.0 * np.asarray(y, float)  # valley side (open) is +y
     mesh = build_gallery_mesh(
         _straight_coords(z=500.0), width=8.0, height=5.0, ground_at=ground_at, floor_material=FLOOR,
-        roof_material=ROOF, curb_height=0.5, curb_width=0.25, wall_thickness=0.0, column_spacing=1000.0,
+        roof_material=ROOF, curb_height=0.5, curb_width=0.25, wall_thickness=0.0, column_size=0.25,
     )
 
     curb_y = _curb_top_vertices(mesh)[:, 1]
@@ -144,7 +144,7 @@ def test_carriageway_keeps_its_full_width():
     ground_at = lambda x, y: 500.0 - 2.0 * np.asarray(y, float)
     mesh = build_gallery_mesh(
         _straight_coords(z=500.0), width=8.0, height=5.0, ground_at=ground_at, floor_material=FLOOR,
-        roof_material=ROOF, curb_width=0.25, column_spacing=1000.0,
+        roof_material=ROOF, curb_width=0.25, column_size=0.25,
     )
 
     road_faces = np.array(mesh["faces"][FLOOR]).ravel()
@@ -158,7 +158,7 @@ def test_floor_and_roof_extend_under_and_over_the_curb():
     mesh = build_gallery_mesh(
         _straight_coords(z=500.0), width=8.0, height=5.0, ground_at=ground_at, floor_material=FLOOR,
         roof_material=ROOF, roof_thickness=0.5, floor_thickness=5.0, curb_width=0.25, wall_thickness=0.0,
-        column_spacing=1000.0,
+        column_size=0.25,
     )
     v = np.array(mesh["vertices"])
 
@@ -177,7 +177,7 @@ def test_end_faces_cover_the_outside_curb_and_roof():
     ground_at = lambda x, y: 500.0 - 2.0 * np.asarray(y, float)
     mesh = build_gallery_mesh(
         _straight_coords(z=500.0), width=8.0, height=5.0, ground_at=ground_at, floor_material=FLOOR,
-        roof_material=ROOF, curb_height=0.5, curb_width=0.25, wall_thickness=0.0, column_spacing=1000.0,
+        roof_material=ROOF, curb_height=0.5, curb_width=0.25, wall_thickness=0.0, column_size=0.25,
     )
     v = mesh["vertices"]
     faces = [f for faces in mesh["faces"].values() for f in faces]
@@ -209,6 +209,51 @@ def test_columns_sit_flush_on_top_of_the_curb_not_in_the_floor():
     assert len(column_vertices) > 0
     assert column_vertices[:, 2].min() == pytest.approx(500.5)  # curb top edge (floor 500 + 0.5), not 500
     assert column_vertices[:, 2].max() == pytest.approx(505.0)  # unchanged: floor(500) + height(5)
+
+
+def test_column_stations_keep_about_the_spacing_with_a_flush_column_at_each_end():
+    from world_to_beamng.tunnels.gallery_mesh import _column_stations
+
+    stations = _column_stations(60.0, spacing=6.0, size=0.4)
+
+    assert stations[0] == pytest.approx(0.2)  # outer face flush with the start ...
+    assert stations[-1] == pytest.approx(59.8)  # ... and with the end
+    assert np.allclose(np.diff(stations), np.diff(stations)[0])  # evenly spaced
+    assert np.diff(stations)[0] == pytest.approx(6.0, abs=0.5)  # about the configured spacing
+
+
+def test_a_short_gallery_still_gets_its_two_end_columns_and_a_tiny_one_a_single_column():
+    from world_to_beamng.tunnels.gallery_mesh import _column_stations
+
+    assert _column_stations(3.0, spacing=6.0, size=0.4) == pytest.approx([0.2, 2.8])
+    assert _column_stations(0.3, spacing=6.0, size=0.4) == pytest.approx([0.15])
+    assert len(_column_stations(0.0, spacing=6.0, size=0.4)) == 0
+
+
+def test_at_an_open_end_the_column_row_stops_half_a_spacing_before_the_joint():
+    from world_to_beamng.tunnels.gallery_mesh import _column_stations
+
+    stations = _column_stations(60.0, spacing=6.0, size=0.4, flush_start=False)
+
+    assert stations[0] == pytest.approx(3.0)  # the next piece goes on here: no column on the joint
+    assert stations[-1] == pytest.approx(59.8)  # the closed end keeps its flush column
+
+
+def test_the_end_columns_are_flush_with_both_gallery_ends():
+    ground_at = lambda x, y: 500.0 - 2.0 * np.asarray(y, float)  # +y is the valley side (open)
+    mesh = build_gallery_mesh(
+        _straight_coords(length=60.0, z=500.0), width=8.0, height=5.0, ground_at=ground_at,
+        floor_material=FLOOR, roof_material=ROOF, column_spacing=6.0,
+        curb_height=0.5, curb_width=0.4, column_size=0.4,
+    )
+    v = np.array(mesh["vertices"])
+
+    def has_vertex(x, y, z):
+        return bool(np.any(np.all(np.isclose(v, [x, y, z]), axis=1)))
+
+    # inner foot corners (carriageway edge, curb top) of the first and last column: 0.4 m in from each end
+    assert has_vertex(0.4, 4.0, 500.5)
+    assert has_vertex(59.6, 4.0, 500.5)
 
 
 def test_columns_footprint_is_centered_on_the_curb_outside_the_carriageway():

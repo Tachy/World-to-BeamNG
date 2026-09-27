@@ -72,6 +72,27 @@ def gallery_open_side(osm_tags: Dict, coords, ground_at: HeightAt, width: float)
     return "right" if float(valley_score(xy, ground_at, width / 2.0).sum()) >= 0.0 else "left"
 
 
+def _column_stations(
+    length: float, spacing: float, size: float, flush_start: bool = True, flush_end: bool = True
+) -> np.ndarray:
+    """
+    Arc lengths of the column centres along a gallery of `length` meters: at a closed end the column stands flush with
+    it (outer face on the end, centre size/2 inside); at an open end (the gallery goes on in another piece) the row
+    stops half a spacing before it, so no two columns meet at the joint. The columns between are spread evenly with
+    the count that comes closest to `spacing`. A gallery shorter than one column gets a single one in its middle.
+    """
+    if length <= 0.0:
+        return np.zeros(0)
+    if length <= size:
+        return np.array([length / 2.0])
+    first = size / 2.0 if flush_start else min(spacing / 2.0, length / 2.0)
+    last = length - size / 2.0 if flush_end else max(length - spacing / 2.0, length / 2.0)
+    if last - first < 1e-9:
+        return np.array([first])
+    intervals = max(1, int(round((last - first) / spacing)))
+    return np.linspace(first, last, intervals + 1)
+
+
 def build_gallery_mesh(
     coords: Sequence[Tuple[float, float, float]],
     width: float,
@@ -289,8 +310,7 @@ def build_gallery_mesh(
 
     cum = np.concatenate([[0.0], np.cumsum(steps)])
     total_len = float(cum[-1]) if len(cum) else 0.0
-    column_positions = np.arange(column_spacing / 2.0, total_len, column_spacing) if total_len > 0 else np.array([])
-    for s in column_positions:
+    for s in _column_stations(total_len, column_spacing, column_size, flush_start=cap_start, flush_end=cap_end):
         idx = max(1, min(int(np.searchsorted(cum, s)), len(points) - 1))
         t = (s - cum[idx - 1]) / max(cum[idx] - cum[idx - 1], 1e-9)
         # Flush on the plinth: centered on its centerline in plan (mid_left/mid_right, see
