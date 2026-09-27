@@ -234,6 +234,9 @@ ROAD_DECAL_MIN_TAIL_LENGTH = 5.0
 # 2026-09-27: one asphalt group of 302 000 m^2 only in patches, three of ~100 000 m^2 complete, 178 000 m^2 fine).
 # Every material is spread over up to ROAD_RENDER_PRIORITY_STEP neighbouring priorities so that no group exceeds this, in m^2.
 ROAD_DECAL_GROUP_MAX_AREA = 100_000.0
+# Surface types (data/osm_to_beamng.json) that get no DecalRoad at all - neither visible nor for the AI road network:
+# dirt tracks/paths and footways/steps; the aerial photo shows them, the terrain under them stays shaped as before.
+ROAD_DECAL_EXCLUDED_SURFACES = frozenset({"dirt_road", "concrete"})
 
 # === GUARD RAILS ===
 # Where the finished terrain GUARDRAIL_PROBE_OFFSET beside the carriageway edge lies more than GUARDRAIL_MIN_DROP below

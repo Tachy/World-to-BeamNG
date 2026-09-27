@@ -172,12 +172,12 @@ def test_markings_and_better_surfaces_are_drawn_on_top():
     # DecalRoads are drawn in descending renderPriority: smaller value = later = on top
     polys = [
         _poly(1, [(0, 0), (10, 0), (20, 0)], highway="primary", lanes="2"),
-        _poly(2, [(0, 20), (10, 20), (20, 20)], highway="track"),
+        _poly(2, [(0, 20), (10, 20), (20, 20)], highway="track", surface="gravel"),
     ]
     _, roads, _ = _export(polys)
 
-    asphalt, dirt = roads["road_1"]["renderPriority"], roads["road_2"]["renderPriority"]
-    assert asphalt < dirt  # asphalt above dirt track (at T-junctions the ends overlap)
+    asphalt, gravel = roads["road_1"]["renderPriority"], roads["road_2"]["renderPriority"]
+    assert asphalt < gravel  # asphalt above the gravel track (at T-junctions the ends overlap)
     assert roads["marking_1_0_0"]["renderPriority"] < asphalt  # lines above the asphalt
 
 
@@ -458,3 +458,19 @@ def test_lane_split_stem_gets_one_block_marking_and_the_edge_lines_start_behind_
     between = [e for e in edges if 1.0 < e[np.argmin(e[:, 0]), 1] < 4.875]
     assert len(between) == 2 and all(e[:, 0].min() >= 30.0 - 1e-6 for e in between)
     assert max(e[:, 1].max() for e in between) > 10.0  # the ramp's edge line turns away with it
+
+
+def test_dirt_tracks_and_footways_get_no_decal_at_all():
+    polys = [
+        _poly(1, [(0, 0), (10, 0), (20, 0)], highway="track"),  # dirt_road
+        _poly(2, [(0, 20), (10, 20), (20, 20)], highway="footway"),  # concrete
+        _poly(3, [(0, 40), (10, 40), (20, 40)], highway="steps"),  # concrete
+        _poly(4, [(0, 60), (10, 60), (20, 60)], highway="track", surface="gravel"),  # gravel_road stays
+        _poly(5, [(0, 80), (10, 80), (20, 80)], highway="residential"),  # asphalt stays
+    ]
+
+    count, roads, materials = _export(polys)
+
+    assert sorted(roads) == ["road_4", "road_5"]
+    assert count == 2
+    assert "dirt_road" not in materials and "concrete" not in materials

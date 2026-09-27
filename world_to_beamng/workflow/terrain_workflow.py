@@ -1519,6 +1519,8 @@ class TerrainWorkflow:
         count = 0
         pieces = []  # (name, nodes, material, drivability, priority level) per carriageway DecalRoad
         for (poly, props, _), nodes in zip(specs, decal_node_lists):
+            if props.get("internal_name") in config.ROAD_DECAL_EXCLUDED_SURFACES:
+                continue  # no DecalRoad at all (not even for the AI) - the aerial photo shows these ways
             if poly.get("structure_type", "surface") != "surface":
                 # Structure: only the AI road network - the visible carriageway is part of the structure mesh
                 mat_name = config.STRUCTURE_AI_ROAD_MATERIAL
