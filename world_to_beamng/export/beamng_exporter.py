@@ -220,7 +220,13 @@ class BeamNGExporter:
 
         with self.pipeline.task("Textures") as task:
             with task.subtask("Texture library"):
-                registry.prepare_textures()
+                prepared = registry.prepare_textures()
+                if config.ROAD_ASPHALT_TEXTURE_NAME in prepared:
+                    from ..textures.road_asphalt import use_road_asphalt
+
+                    use_road_asphalt(
+                        config.OSM_MAPPER.surface_types, config.ROAD_ASPHALT_SURFACE, prepared[config.ROAD_ASPHALT_TEXTURE_NAME]
+                    )
             if install_dir is not None:
                 # Stock road/roof/terrain-detail textures the OSM mapping references as level files (copied once)
                 with task.subtask("BeamNG stock textures") as sub:

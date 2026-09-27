@@ -11,6 +11,9 @@ data/italy
 # Beliebige Backup-/Alternativ-Varianten der drei Ordner (z.B. _ch, _lgl, _bak, ...) - egal welches
 # Suffix als naechstes dazukommt, nie versehentlich einchecken.
 data/height_*
+# Downloaded texture sources (e.g. the ambientCG ZIP of the asphalt): too large for the repository - the texture
+# imported from them (data/textures/<name>/*.png) is checked in instead
+data/textures/*.zip
 data/satellite_*
 data/buildings_*
 

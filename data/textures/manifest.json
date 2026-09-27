@@ -4,6 +4,10 @@
       "tile_m": 0.3,
       "source": "procedural (textures/steel.py), seed 3131, 512 px"
     },
+    "road_asphalt": {
+      "tile_m": 5.0,
+      "source": "ambientCG Road012A_2K-PNG.zip sha1 b6d7a4a02256 (CC0), 3 tiles across x 2 along, AO baked into colour"
+    },
     "roof_gravel": {
       "tile_m": 2.0,
       "source": "procedural (textures/gravel.py), seed 4242, 1024 px"

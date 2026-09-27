@@ -215,6 +215,15 @@ STRUCTURE_AI_ROADS = True
 STRUCTURE_AI_ROAD_MATERIAL = "structure_road_invisible"
 STRUCTURE_MARKING_LIFT = 0.01  # marking strips this far above the structure floor, in meters
 ROAD_DECAL_TEXTURE_LENGTH = 5.0  # BeamNG's DecalRoad default: one texture repeat along the road per this many meters
+# Asphalt roads (DecalRoads and the carriageways on structures) with a PBR texture from an ambientCG ZIP in data/textures
+# instead of BeamNG's stock asphalt (None = stock). It is imported once as a road strip (textures/road_asphalt.py):
+# tiles across the carriageway (u runs once over the full width) x whole tiles per ROAD_DECAL_TEXTURE_LENGTH along it.
+ROAD_ASPHALT_TEXTURE_ZIP = "Road012A_2K-PNG.zip"
+ROAD_ASPHALT_TEXTURE_NAME = "road_asphalt"  # library folder the strip is stored in
+ROAD_ASPHALT_SURFACE = "asphalt_road_standard"  # surface type in data/osm_to_beamng.json that gets it
+ROAD_ASPHALT_TILES_ACROSS = 3  # 7 m carriageway -> 2.3 m per tile
+ROAD_ASPHALT_TILES_ALONG = 2  # 5 m texture length -> 2.5 m per tile
+ROAD_ASPHALT_TILE_PX = 1024  # strip = 3072 x 2048 px
 # BeamNG draws only a limited amount of geometry per DecalRoad (the decal is clipped to the terrain triangles under its
 # area; whatever exceeds the budget is missing without an error message - in game: cut-off after ~510 m^2 at 6.5 m width).
 # Carriageway decals are therefore split into pieces of at most this much area (geometry/decal_chunks.py), in m^2;

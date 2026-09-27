@@ -21,6 +21,7 @@ from .. import config
 from . import library
 from .concrete import generate_concrete_texture
 from .gravel import generate_gravel_texture
+from .road_asphalt import import_road_asphalt, road_asphalt_outdated
 from .steel import generate_railing_texture
 
 logger = logging.getLogger(__name__)
@@ -33,6 +34,7 @@ class TextureSpec:
     required: Callable[[], bool]  # only checked while the object is being exported
     generate: Optional[Callable[[Optional[Path]], object]] = None  # None = photo texture, cannot be generated
     hint: str = ""  # command for photo textures
+    outdated: Optional[Callable[[Path], bool]] = None  # generated from a source that has changed since: generate again
 
 
 class MissingTexturesError(RuntimeError):
@@ -57,6 +59,13 @@ REGISTRY: Sequence[TextureSpec] = (
         "bridges (piers/curbs), tunnels (walls/ceiling/portals), galleries (roof/pillars)",
         required=lambda: config.BRIDGES_ENABLED or config.TUNNELS_ENABLED,
         generate=generate_concrete_texture,
+    ),
+    TextureSpec(
+        config.ROAD_ASPHALT_TEXTURE_NAME,
+        "asphalt roads (DecalRoads and the carriageways on structures), from the ambientCG ZIP config.ROAD_ASPHALT_TEXTURE_ZIP",
+        required=lambda: config.ROAD_ASPHALT_TEXTURE_ZIP is not None,
+        generate=import_road_asphalt,
+        outdated=road_asphalt_outdated,
     ),
     TextureSpec(
         config.RAILING_TEXTURE_NAME,
@@ -99,7 +108,7 @@ def prepare_textures(
 
     missing_photos = []
     for spec in specs:
-        if library.is_complete(spec.name, library_dir):
+        if library.is_complete(spec.name, library_dir) and not (spec.outdated and spec.outdated(library_dir)):
             continue
         if spec.generate is None:
             missing_photos.append(spec)
