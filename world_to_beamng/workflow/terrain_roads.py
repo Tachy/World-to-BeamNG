@@ -47,7 +47,8 @@ def _guardrail_instances(specs: List[Tuple[Dict, Dict, List]], node_lists: List[
     surface = [(poly, nodes) for (poly, _, _), nodes in zip(specs, node_lists) if poly.get("structure_type", "surface") == "surface"]
     runs = plan_guardrail_runs(
         [nodes for _, nodes in surface],
-        [(poly.get("osm_tags") or {}).get("highway") not in config.GUARDRAIL_EXCLUDED_HIGHWAYS for poly, _ in surface],
+        [(poly.get("osm_tags") or {}).get("highway") not in config.GUARDRAIL_EXCLUDED_HIGHWAYS and not poly.get("sidewalk_sides")
+         for poly, _ in surface],
         height_at,
         probe_offset=config.GUARDRAIL_PROBE_OFFSET,
         min_drop=config.GUARDRAIL_MIN_DROP,
@@ -64,6 +65,34 @@ def _guardrail_instances(specs: List[Tuple[Dict, Dict, List]], node_lists: List[
     )
     logger.debug(f"  [OK] {len(runs)} guard rail run(s), {len(items)} forest item(s)")
     return items
+
+
+def _sidewalk_meshes(specs: List[Tuple[Dict, Dict, List]], node_lists: List[List[List[float]]]) -> List[Dict]:
+    """Kerb + sidewalk mesh dicts (sidewalks/) along the surface roads with "sidewalk_sides", from the finished DecalRoad
+    nodes - the kerb stands exactly at the carriageway edge the decal is drawn to. `specs`/`node_lists` as in
+    export_decal_roads()."""
+    from ..sidewalks.runs import plan_sidewalk_runs
+    from ..sidewalks.sidewalk_mesh import build_sidewalk_mesh
+
+    surface = [(poly, nodes) for (poly, _, _), nodes in zip(specs, node_lists) if poly.get("structure_type", "surface") == "surface"]
+    runs = plan_sidewalk_runs(
+        [nodes for _, nodes in surface],
+        [poly.get("sidewalk_sides") or {} for poly, _ in surface],
+        [(poly.get("osm_tags") or {}).get("highway") not in config.SIDEWALK_EXCLUDED_HIGHWAYS for poly, _ in surface],
+        clearance=config.SIDEWALK_KERB_WIDTH + config.SIDEWALK_WIDTH,
+        min_length=config.SIDEWALK_MIN_LENGTH,
+    )
+    meshes = []
+    for number, run in enumerate(runs):
+        mesh = build_sidewalk_mesh(
+            run["points"], config.SIDEWALK_KERB_WIDTH, config.SIDEWALK_WIDTH, config.SIDEWALK_KERB_HEIGHT,
+            config.SIDEWALK_SKIRT_DEPTH, config.SIDEWALK_MAX_SEGMENT, config.SIDEWALK_TEXTURE_TILE_M,
+            config.BRIDGE_MATERIAL_NAME, f"{run['surface']}_structure",
+        )
+        meshes.append({"id": f"sidewalk_{number}", **mesh})
+    length = sum(float(arc_lengths(run["points"][:, :2])[-1]) for run in runs)
+    logger.info(f"  [OK] {len(runs)} sidewalk run(s), {length:.0f} m")
+    return meshes
 
 
 def _widths_along(coords, nodes) -> Optional[np.ndarray]:

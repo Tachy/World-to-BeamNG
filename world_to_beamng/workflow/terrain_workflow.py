@@ -22,6 +22,7 @@ from .terrain_roads import (
     _invisible_road_material,
     _road_marking_lines,
     _road_width_specs,
+    _sidewalk_meshes,
     _widths_along,
 )
 from .terrain_structures import (
@@ -1454,6 +1455,56 @@ class TerrainWorkflow:
         logger.debug(f"  [OK] {len(meshes)} wall(s) exported (walls.dae)")
         return len(meshes)
 
+    def export_sidewalks(self, mesh_data: Dict) -> int:
+        """
+        Exports the kerbs + sidewalks as ONE DAE (each run a node) with ONE TSStatic and registers the kerb concrete and
+        the sidewalk surface materials ("<surface type>_structure", like bridge decks). Without sidewalks, leftovers of a
+        previous export are removed.
+
+        Returns:
+            Number of exported sidewalk runs
+        """
+        sidewalks_dir = config.BEAMNG_DIR_SHAPES / "sidewalks"
+        meshes = mesh_data.get("sidewalk_meshes") or []
+        if not config.SIDEWALKS_ENABLED or not meshes:
+            for suffix in (".dae", ".cdae"):
+                (sidewalks_dir / f"sidewalks{suffix}").unlink(missing_ok=True)
+            return 0
+
+        from ..textures import registry
+
+        hints = self.materials.get_templates().get("buildings", {}).get("wall", {}).get("material_hints", {})
+        concrete = registry.prepared_textures()[config.CONCRETE_TEXTURE_NAME]
+        self.materials.add_building_material(
+            config.BRIDGE_MATERIAL_NAME,
+            textures={**concrete, "useAnisotropic": True},
+            groundType=hints.get("groundType", "concrete"),
+            materialTag0=hints.get("materialTag0", "beamng"),
+            materialTag1=hints.get("materialTag1", "Building"),
+        )
+        surface_types = config.OSM_MAPPER.config.get("surface_types", {})
+        for mat_name in sorted({name for mesh in meshes for name in mesh["faces"]} - {config.BRIDGE_MATERIAL_NAME}):
+            props = surface_types.get(mat_name.removesuffix("_structure"), {})
+            self.materials.add_building_material(
+                mat_name,
+                textures=props.get("textures", {}),
+                groundType=str(props.get("groundModelName", "asphalt")).upper(),
+                materialTag0="RoadAndPath",
+                materialTag1="beamng",
+            )
+
+        self.dae.export_multi_mesh(output_path=sidewalks_dir / "sidewalks.dae", meshes=meshes, with_uv=True)
+        self.items.add_item(
+            "sidewalks",
+            item_class="TSStatic",
+            shape_name=str(config.RELATIVE_DIR_SHAPES / "sidewalks" / "sidewalks.dae"),
+            position=(0, 0, 0),
+            overwrite=True,
+            collisionType="Visible Mesh Final",
+        )
+        logger.debug(f"  [OK] {len(meshes)} sidewalk run(s) exported (sidewalks.dae)")
+        return len(meshes)
+
     def _export_structure_road_assets(self, marking_lines: List[Dict]) -> None:
         """
         Files for the roads on structures (see config.STRUCTURE_AI_ROADS): the fully transparent texture of the invisible
@@ -1516,6 +1567,7 @@ class TerrainWorkflow:
 
         if config.GUARDRAILS_ENABLED and mesh_data.get("heightmap") is not None:
             mesh_data["guardrail_instances"] = _guardrail_instances(specs, node_lists, mesh_data)
+        mesh_data["sidewalk_meshes"] = _sidewalk_meshes(specs, node_lists) if config.SIDEWALKS_ENABLED else []
 
         # Extend the carriageway decals at kinked straight-through joints past the joint point (otherwise a wedge gap
         # on the outside, see close_continuation_gaps()). Only for the carriageway - the markings keep using node_lists.
@@ -1807,6 +1859,10 @@ class TerrainWorkflow:
         with task.subtask("Walls") as sub:
             count = self.export_walls(mesh_data)
             sub.finish(f"{count} walls" if count else "no walls")
+
+        with task.subtask("Sidewalks") as sub:
+            count = self.export_sidewalks(mesh_data)
+            sub.finish(f"{count} runs" if count else "no sidewalks")
 
         with task.subtask("Bridges") as sub:
             count = self.export_bridges(mesh_data)
