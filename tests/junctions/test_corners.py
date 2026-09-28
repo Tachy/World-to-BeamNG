@@ -231,3 +231,16 @@ def test_offset_split_into_touching_parts_by_geos_does_not_cost_the_corner():
     ids = [{a["road_id"] for a in c["arms"]} for c in find_junction_corners(roads, TABLE, 0.5, 160.0, rank=RANK,
                                                                            radius_factors=FACTORS, min_radius=0.5)]
     assert {"north", "lane"} in ids
+
+
+def test_acute_corner_gets_only_a_small_tip_radius():
+    angle = math.radians(12.0)  # two roads leave the node almost in parallel
+    roads = [_road("trunk", _line((0, 60), (0, 0), 1.0), 6.0),
+             _road("left", _line((0, 0), (-80 * math.sin(angle / 2), -80 * math.cos(angle / 2)), 1.0), 6.0),
+             _road("right", _line((0, 0), (80 * math.sin(angle / 2), -80 * math.cos(angle / 2)), 1.0), 6.0)]
+    corners = find_junction_corners(roads, TABLE, 0.5, 160.0, rank=RANK, radius_factors=FACTORS, min_radius=0.5,
+                                    acute_angle_deg=45.0)
+    tip = next(c for c in corners if {a["road_id"] for a in c["arms"]} == {"left", "right"})
+    assert tip["radius"] == pytest.approx(0.5)
+    outline = np.vstack([tip["corner_point"][None, :2], tip["rim"][:, :2]])
+    assert np.linalg.norm(outline - tip["corner_point"][:2], axis=1).max() < 6.0  # a small tip, no long wedge

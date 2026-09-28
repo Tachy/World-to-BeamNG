@@ -287,6 +287,7 @@ JUNCTION_ARC_STEP = 0.5  # longest arc segment, in meters
 JUNCTION_RADIUS_FACTORS = (1.0, 0.75, 0.5, 0.33, 0.2, 0.1)  # of the table radius
 JUNCTION_MIN_RADIUS = 0.5  # smallest fillet radius, in meters
 JUNCTION_KERB_MIN_RADIUS = 2.0  # smallest radius where a kerb runs around the arc (sidewalk on both arms), in meters
+JUNCTION_ACUTE_ANGLE = 45.0  # sharper corners get only the smallest radius at their tip (the wedge stays terrain), in degrees
 JUNCTION_DIRECTION_LENGTH = 5.0  # arm direction = node -> point this far along the arm, in meters
 # Ways that form no junction corners (no carriageway); tracks do when they have a visible DecalRoad (gravel) - dirt tracks
 # drop out through ROAD_DECAL_EXCLUDED_SURFACES

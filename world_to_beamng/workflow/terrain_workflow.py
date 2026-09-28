@@ -503,6 +503,7 @@ class TerrainWorkflow:
                 min_radius=config.JUNCTION_MIN_RADIUS,
                 kerb_min_radius=config.JUNCTION_KERB_MIN_RADIUS,
                 sidewalk_sides_by_id=sidewalk_sides_by_id,
+                acute_angle_deg=config.JUNCTION_ACUTE_ANGLE,
             )
             junction_embed = corner_embed_roads(
                 junction_corners,

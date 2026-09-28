@@ -116,8 +116,15 @@ def _fillet(node: np.ndarray, a: Dict, b: Dict, r: float, max_angle_deg: float, 
     theta = (math.atan2(ub[1], ub[0]) - math.atan2(ua[1], ua[0])) % (2.0 * math.pi)
     if theta < 1e-3 or theta > math.radians(max_angle_deg):
         return None
+    # Corner point (fan apex of the fill): intersection of both kerb lines at the node, as straight edges - at an acute
+    # corner it lies far out, where the two carriageways part
+    na, nb = np.array([-ua[1], ua[0]]), np.array([ub[1], -ub[0]])
+    pa, pb = node[:2] + na * a["half"], node[:2] + nb * b["half"]
+    s, q = np.linalg.solve(np.column_stack([ua, -ub]), pb - pa)
+    corner_xy = pa + s * ua
+
     # only the part of the arms near the node: a tight bend far away must not spoil the offset lines
-    near = r / math.tan(theta / 2.0) + 2.0 * (a["half"] + b["half"] + r) + 10.0
+    near = max(s, q, 0.0) + r / math.tan(theta / 2.0) + 2.0 * (a["half"] + b["half"] + r) + 10.0
     line_a, line_b = LineString(_local(a["points"], near)[:, :2]), LineString(_local(b["points"], near)[:, :2])
     kerb_a, kerb_b = _offset(line_a, a["half"]), _offset(line_b, -b["half"])  # corner: left of a, right of b
     centre_a, centre_b = _offset(line_a, a["half"] + r), _offset(line_b, -(b["half"] + r))
@@ -134,12 +141,6 @@ def _fillet(node: np.ndarray, a: Dict, b: Dict, r: float, max_angle_deg: float, 
     center = np.array([center_pt.x, center_pt.y])
     tangent_a = np.asarray(kerb_a.interpolate(trim_a).coords[0])
     tangent_b = np.asarray(kerb_b.interpolate(trim_b).coords[0])
-
-    # Corner point (fan apex of the fill): intersection of both kerb lines at the node, as straight edges
-    na, nb = np.array([-ua[1], ua[0]]), np.array([ub[1], -ub[0]])
-    pa, pb = node[:2] + na * a["half"], node[:2] + nb * b["half"]
-    s, _ = np.linalg.solve(np.column_stack([ua, -ub]), pb - pa)
-    corner_xy = pa + s * ua
 
     a0 = math.atan2(*(tangent_a - center)[::-1])
     a1 = math.atan2(*(tangent_b - center)[::-1])
@@ -181,11 +182,17 @@ def _fillet(node: np.ndarray, a: Dict, b: Dict, r: float, max_angle_deg: float, 
     return corner
 
 
-def _fit(candidate, table: Mapping, max_angle_deg: float, rank: Mapping, arc_step: float, factors, min_radius: float, start: int):
+def _fit(candidate, table: Mapping, max_angle_deg: float, rank: Mapping, arc_step: float, factors, min_radius: float, start: int,
+         acute_angle_deg: float = 0.0):
     """The corner with the first radius step from `start` on that fits: (corner, step) or (None, len(factors))."""
     node, a, b, has_kerb = candidate
     base = corner_radius(a["road"]["highway"], b["road"]["highway"], table)
     min_radius = max(min_radius, has_kerb)
+    theta = (math.atan2(a["u"][1], a["u"][0]) - math.atan2(b["u"][1], b["u"][0])) % (2.0 * math.pi)
+    if 2.0 * math.pi - theta < math.radians(acute_angle_deg):
+        # Two roads leaving almost in parallel: the table radius would only touch both kerbs far out and pave the whole
+        # wedge between them (in reality a traffic island) - only the tip is rounded
+        base = 0.0
     tried = set()
     for step in range(start, len(factors)):
         radius = max(min_radius, base * factors[step])
@@ -210,6 +217,7 @@ def find_junction_corners(
     min_radius: float = 0.5,
     kerb_min_radius: float = 2.0,
     sidewalk_sides_by_id: Optional[Mapping] = None,
+    acute_angle_deg: float = 0.0,
 ) -> List[Dict]:
     """
     Fillet corners of all junction nodes (three or more arms) of `roads`.
@@ -219,7 +227,8 @@ def find_junction_corners(
     corner, a kerb runs around the arc and the radius stays at least `kerb_min_radius`, so the sidewalk band behind it
     keeps its width). Where the arcs at both ends of a road side
     together need more than the road is long, the larger one is reduced further (dropped at the last step) - otherwise
-    the two fills would overlap.
+    the two fills would overlap. Corners sharper than `acute_angle_deg` get the smallest radius right away: only their
+    tip is rounded, the wedge between the two roads stays terrain.
 
     Args:
         roads: [{"road_id", "coords" (N, 3), "half_widths" (N,), "highway", "surface"}] - only roads whose ends may form
@@ -254,7 +263,7 @@ def find_junction_corners(
             has_kerb = all(side in (sides.get(arm["road"]["road_id"]) or {}) for arm, side in facing)
             candidates.append((node, a, b, kerb_min_radius if has_kerb else 0.0))
 
-    fit = lambda i, start: _fit(candidates[i], table, max_angle_deg, rank, arc_step, radius_factors, min_radius, start)
+    fit = lambda i, start: _fit(candidates[i], table, max_angle_deg, rank, arc_step, radius_factors, min_radius, start, acute_angle_deg)
     fitted = [fit(i, 0) for i in range(len(candidates))]
     lengths = {r["road_id"]: float(arc_lengths(np.asarray(r["coords"])[:, :2])[-1]) for r in roads if len(r["coords"]) >= 2}
 
