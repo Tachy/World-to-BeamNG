@@ -252,3 +252,46 @@ def test_a_corner_of_exactly_the_limit_angle_gets_no_fill():
              _road("other", _line((0, 0), (60 * math.cos(corner_angle), 60 * math.sin(corner_angle))), 6.0),
              _road("south", _line((0, 0), (0, -60)), 5.0)]
     assert all({a["road_id"] for a in c["arms"]} != {"east", "other"} for c in _corners(roads, max_angle=160.0))
+
+
+def _bent_t(grades=False):
+    """T with an arm leaving at 60 deg that curves back towards the straight east arm (radius 40 m)."""
+    radius, start = 40.0, math.radians(60.0)
+    centre = np.array([math.cos(start - math.pi / 2), math.sin(start - math.pi / 2)]) * radius
+    angles = np.linspace(start + math.pi / 2, start + math.pi / 2 - 0.9, 40)
+    bend = [tuple(centre + radius * np.array([math.cos(a), math.sin(a)])) for a in angles]
+    roads = [_road("east", _line((0, 0), (60, 0), 1.0), 6.0), _road("west", _line((-60, 0), (0, 0)), 6.0), _road("bend", bend, 6.0)]
+    if grades:  # the two corner arms run away from the node with opposite grades
+        roads[0]["coords"][:, 2] = 100.0 - 0.12 * roads[0]["coords"][:, 0]
+        along = np.concatenate([[0.0], np.cumsum(np.linalg.norm(np.diff(roads[2]["coords"][:, :2], axis=0), axis=1))])
+        roads[2]["coords"][:, 2] = 100.0 + 0.12 * along
+    return roads
+
+
+def _bent_corner(grades=False):
+    corners = find_junction_corners(_bent_t(grades), TABLE, 0.5, 140.0, rank=RANK, radius_factors=FACTORS, min_radius=0.5,
+                                    acute_angle_deg=45.0)
+    return next(c for c in corners if {a["road_id"] for a in c["arms"]} == {"east", "bend"})
+
+
+def test_arms_curving_towards_each_other_do_not_stretch_the_fill():
+    from shapely.geometry import Polygon
+
+    corner = _bent_corner()
+    fill = Polygon(np.vstack([corner["corner_point"][None, :2], corner["rim"][:, :2]]))
+    assert max(a["trim"] for a in corner["arms"]) < 15.6  # straight arms at 60 deg with r = 6 need 15.6 m
+    assert fill.area < 24.7  # ... and 24.7 m^2 of fill
+
+
+def test_fill_height_matches_each_road_along_its_kerb():
+    from shapely.geometry import LineString
+
+    from world_to_beamng.junctions.corners import _offset, corner_height
+    from world_to_beamng.terrain.road_embedding import _project_onto_polyline
+
+    corner = _bent_corner(grades=True)
+    for arm, line, sign, half in zip(corner["arms"], corner["arm_lines"], (1.0, -1.0), corner["halves"]):
+        kerb = _offset(LineString(line[:, :2]), sign * half)
+        points = np.array([kerb.interpolate(s).coords[0] for s in np.linspace(0.0, arm["trim"], 15)])
+        road = _project_onto_polyline(points[:, 0], points[:, 1], line[:, 0], line[:, 1], line[:, 2])
+        assert np.abs(corner_height(corner, points[:, 0], points[:, 1]) - road).max() < 0.02

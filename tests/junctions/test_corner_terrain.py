@@ -94,3 +94,14 @@ def test_gravel_and_dirt_tracks_both_form_corners():
                      _dict("dirt", (50, 50), (0, 0), 3.0, osm_tags={"highway": "track", "surface": "dirt"})]
     ids = [r["road_id"] for r in junction_roads(roads, props, config.JUNCTION_EXCLUDED_HIGHWAYS)]
     assert "gravel" in ids and "dirt" in ids
+
+
+def test_embedding_leaves_the_carriageways_of_the_arms_alone():
+    from shapely.geometry import LineString, Polygon
+
+    for corner in _corners(ROADS):
+        for embed in corner_embed_roads([corner], {}, 1.15, margin=1.5):
+            area = Polygon(embed["road_polygon"])
+            for line, half in zip(corner["arm_lines"], corner["halves"]):
+                carriageway = LineString(line[:, :2]).buffer(half - 0.01, cap_style="flat")
+                assert area.intersection(carriageway).area < 1e-6

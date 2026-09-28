@@ -86,20 +86,26 @@ def _offset(line, distance: float):
 
 def corner_height(corner: Dict, x: np.ndarray, y: np.ndarray) -> np.ndarray:
     """
-    Height inside a corner: the heights of both arms (projected onto their nearby centerline) blended by the angle
-    around the corner point - arm A's height along its edge, arm B's along its edge, a smooth transition in between
-    (the nearest-arm height would jump on the bisector where the arms have different grades).
+    Height inside a corner: the heights of both arms (projected onto their nearby centerline) blended by the distance to
+    the two kerb lines - exactly arm A's road height along kerb A, arm B's along kerb B, a smooth transition in between.
+    The real (possibly curved) kerbs are used: blending by the angle at the node only fits straight arms, and the
+    nearest-arm height would jump on the bisector where the arms have different grades.
     """
+    import shapely
+    from shapely.geometry import LineString
+
     from ..terrain.road_embedding import _project_onto_polyline
 
     x, y = np.asarray(x, dtype=float), np.asarray(y, dtype=float)
     line_a, line_b = corner["arm_lines"]
     za = _project_onto_polyline(x, y, line_a[:, 0], line_a[:, 1], line_a[:, 2])
     zb = _project_onto_polyline(x, y, line_b[:, 0], line_b[:, 1], line_b[:, 2])
-    ua, p = corner["u_a"], corner["corner_point"]
-    dx, dy = x - p[0], y - p[1]
-    phi = np.arctan2(ua[0] * dy - ua[1] * dx, ua[0] * dx + ua[1] * dy)  # angle from arm A's direction, counter-clockwise
-    w = np.where(dx * dx + dy * dy < 1e-12, 0.5, np.clip(phi / corner["theta"], 0.0, 1.0))
+    points = shapely.points(x.ravel(), y.ravel())
+    kerb_a, kerb_b = (LineString(k) for k in corner["kerb_lines"])
+    da = shapely.distance(kerb_a, points).reshape(x.shape)
+    db = shapely.distance(kerb_b, points).reshape(x.shape)
+    total = da + db
+    w = np.where(total < 1e-9, 0.5, da / np.maximum(total, 1e-12))
     return (1.0 - w) * za + w * zb
 
 
@@ -156,6 +162,7 @@ def _fillet(node: np.ndarray, a: Dict, b: Dict, r: float, max_angle_deg: float, 
     rim_xy = np.vstack([edge_a[:-1], arc_xy, edge_b[1:]])
 
     reach = max(trim_a, trim_b) + 2.0 * max(a["half"], b["half"])
+    straight = r / math.tan(theta / 2.0)
     corner = {
         "node": node,
         "radius": r,
@@ -164,6 +171,11 @@ def _fillet(node: np.ndarray, a: Dict, b: Dict, r: float, max_angle_deg: float, 
         "theta": theta,
         "corner_point": corner_xy,
         "arm_lines": (_local(a["points"], reach), _local(b["points"], reach)),
+        "halves": (a["half"], b["half"]),
+        # kerb lines from the road end to the tangent point (corner_height() blends by the distance to them)
+        "kerb_lines": (np.asarray(substring(kerb_a, 0.0, trim_a).coords), np.asarray(substring(kerb_b, 0.0, trim_b).coords)),
+        # trims the same radius would need on straight arms (_fit() compares: arms curving towards each other)
+        "straight_trims": (float(s + straight), float(q + straight)),
     }
     height = lambda xy: corner_height(corner, xy[:, 0], xy[:, 1])
     # The joining road (lower rank, then the narrower arm) gives the fill its surface: the flare belongs to it
@@ -183,8 +195,12 @@ def _fillet(node: np.ndarray, a: Dict, b: Dict, r: float, max_angle_deg: float, 
 
 
 def _fit(candidate, table: Mapping, max_angle_deg: float, rank: Mapping, arc_step: float, factors, min_radius: float, start: int,
-         acute_angle_deg: float = 0.0):
-    """The corner with the first radius step from `start` on that fits: (corner, step) or (None, len(factors))."""
+         acute_angle_deg: float = 0.0, trim_excess: float = 1.25, trim_slack: float = 0.5):
+    """The corner with the first radius step from `start` on that fits: (corner, step) or (None, len(factors)).
+
+    A fit whose arc touches a kerb much further out than on straight arms (more than `trim_excess` times the straight
+    trim plus `trim_slack`) does not count: the arms curve towards each other, and the fill would pave the long wedge
+    between them - the radius is reduced instead, down to a rounded tip."""
     node, a, b, has_kerb = candidate
     base = corner_radius(a["road"]["highway"], b["road"]["highway"], table)
     min_radius = max(min_radius, has_kerb)
@@ -200,7 +216,9 @@ def _fit(candidate, table: Mapping, max_angle_deg: float, rank: Mapping, arc_ste
             continue
         tried.add(radius)
         corner = _fillet(node, a, b, radius, max_angle_deg, rank, arc_step)
-        if corner is not None:
+        if corner is not None and all(
+            arm["trim"] <= trim_excess * straight + trim_slack for arm, straight in zip(corner["arms"], corner["straight_trims"])
+        ):
             return corner, step
     return None, len(factors)
 
@@ -334,15 +352,22 @@ def corner_embed_roads(corners: Sequence[Dict], sidewalk_sides_by_id: Mapping, s
 
     from shapely.geometry import Polygon
 
+    from shapely.geometry import LineString
+    from shapely.ops import unary_union
+
     result = []
     for corner in corners:
         height_at = partial(corner_height, corner)
-        fill = Polygon(np.vstack([corner["corner_point"][None, :2], corner["rim"][:, :2]]))
+        fill = Polygon(np.vstack([corner["corner_point"][None, :2], corner["rim"][:, :2]])).buffer(0)
         if margin > 0:
-            fill = fill.buffer(margin)
-        if fill.geom_type != "Polygon":
-            fill = max(fill.geoms, key=lambda g: g.area)
-        result.append({"road_polygon": np.asarray(fill.exterior.coords)[:-1], "trimmed_centerline": corner["centerline"], "height_at": height_at})
+            # the margin must not reach into the two carriageways: their cells keep the height the DecalRoads lie on
+            carriageways = unary_union([LineString(line[:, :2]).buffer(half, cap_style="flat")
+                                        for line, half in zip(corner["arm_lines"], corner["halves"])])
+            fill = fill.buffer(margin).difference(carriageways)
+        for piece in getattr(fill, "geoms", [fill]):
+            if piece.geom_type == "Polygon" and piece.area > 1e-6:
+                result.append({"road_polygon": np.asarray(piece.exterior.coords)[:-1], "trimmed_centerline": corner["centerline"],
+                               "height_at": height_at})
         if corner_has_sidewalks(corner, sidewalk_sides_by_id):
             result.append({"road_polygon": _sector(corner, sidewalk_width), "trimmed_centerline": corner["centerline"], "height_at": height_at})
     return result
