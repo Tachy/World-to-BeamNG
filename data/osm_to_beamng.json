@@ -212,6 +212,16 @@
             }
         }
     },
+    "sidewalks": {
+        "default_surface_material": "asphalt_road_standard",
+        "surface_materials": {
+            "asphalt": "asphalt_road_standard",
+            "paving_stones": "cobblestone_road",
+            "sett": "cobblestone_road",
+            "cobblestone": "cobblestone_road",
+            "concrete": "concrete"
+        }
+    },
     "forest_type_templates": {
         "german_deciduous_dense": {
             "tree_density": 1.0,
