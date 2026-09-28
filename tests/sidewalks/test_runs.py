@@ -127,15 +127,34 @@ def test_without_corners_runs_are_unchanged():
     assert plain[0]["points"][:, 0].min() == pytest.approx(2.5 + 1.15, abs=0.01)
 
 
-def test_joining_removes_the_merged_run_by_identity():
-    from world_to_beamng.sidewalks.runs import _join_through_corner
+def test_joining_keeps_unrelated_pieces_of_the_same_road_side():
+    from world_to_beamng.sidewalks.runs import _join_through_corners
 
     east, west, north = _t_roads()
     corner = next(c for c in _t_corners([east, west, north]) if {a["road_id"] for a in c["arms"]} == {"east", "north"})
     far_piece = {"road_index": 0, "side": "left", "surface": "a", "points": np.array([[40.0, 3.0, 100.0], [60.0, 3.0, 100.0]])}
     outgoing = {"road_index": 0, "side": "left", "surface": "a", "points": np.array([[8.5, 3.0, 100.0], [30.0, 3.0, 100.0]])}
     incoming = {"road_index": 2, "side": "right", "surface": "a", "points": np.array([[2.5, 60.0, 100.0], [2.5, 9.0, 100.0]])}
-    runs = [far_piece, outgoing, incoming]  # a piece of the same road side precedes the run that is merged away
-    _join_through_corner(runs, corner, 0, 2)
-    assert len(runs) == 2 and runs[0] is far_piece and runs[1] is incoming
-    assert incoming["points"][-1, 0] == pytest.approx(30.0)
+    runs = _join_through_corners([far_piece, outgoing, incoming], [(corner, 0, 2)])
+    assert len(runs) == 2
+    joined = next(r for r in runs if r["road_index"] == 2)
+    assert joined["points"][0, 1] == pytest.approx(60.0) and joined["points"][-1, 0] == pytest.approx(30.0)
+    assert any(r["points"][0, 0] == pytest.approx(40.0) for r in runs)
+
+
+def test_block_with_sidewalks_all_around_joins_into_one_run_in_any_corner_order():
+    rng = np.random.default_rng(1)
+    step = lambda a, b: [[a[0] + (b[0] - a[0]) * k / 10, a[1] + (b[1] - a[1]) * k / 10, 100.0, 6.0] for k in range(11)]
+    block = [step((0, 0), (50, 0)), step((50, 0), (50, 50)), step((50, 50), (0, 50)), step((0, 50), (0, 0))]
+    stubs = [step((0, 0), (-30, -30)), step((50, 0), (80, -30)), step((50, 50), (80, 80)), step((0, 50), (-30, 80))]
+    roads = block + stubs
+    ids = [f"r{k}" for k in range(len(roads))]
+    inputs = [{"road_id": rid, "coords": np.asarray(r)[:, :3], "half_widths": np.full(len(r), 3.0),
+               "highway": "residential", "surface": "a"} for rid, r in zip(ids, roads)]
+    corners = find_junction_corners(inputs, {"default_radius": 6.0}, 0.5, 160.0, rank={})
+    sides = [{"left": "a"}] * 4 + [{}] * 4  # all four block roads have their sidewalk inside the block
+    for _ in range(12):
+        order = [corners[k] for k in rng.permutation(len(corners))]
+        runs = plan_sidewalk_runs(roads, sides, [True] * len(roads), clearance=1.15, min_length=2.0, endpoint_tol=0.5,
+                                  max_angle_deg=30.0, corners=order, road_ids=ids)
+        assert len(runs) == 1

@@ -125,3 +125,33 @@ def test_surface_of_the_higher_ranked_arm_fills_the_corner():
              _road("main_w", _line((-60, 0), (0, 0)), 6.0, highway="secondary", surface="asphalt_road_standard"),
              _road("lane", _line((0, 0), (0, 60)), 4.0, highway="service", surface="cobblestone_road")]
     assert {c["surface"] for c in _corners(roads)} == {"asphalt_road_standard"}
+
+
+def test_heights_blend_smoothly_between_arms_of_opposite_grade():
+    roads = [_road("east", _line((0, 0), (60, 0), 1.0), 6.0), _road("west", _line((-60, 0), (0, 0), 1.0), 6.0),
+             _road("north", _line((0, 0), (0, 60), 1.0), 5.0)]
+    roads[0]["coords"][:, 2] = 100.0 + 0.1 * roads[0]["coords"][:, 0]  # east climbs 10 %
+    roads[2]["coords"][:, 2] = 100.0 - 0.1 * roads[2]["coords"][:, 1]  # north falls 10 %
+    corner = next(c for c in _corners(roads) if {a["road_id"] for a in c["arms"]} == {"east", "north"})
+    z = corner["arc"][:, 2]
+    assert z[0] == pytest.approx(100.0 + 0.1 * corner["arc"][0, 0], abs=0.02)  # tangent A at arm A's height
+    assert z[-1] == pytest.approx(100.0 - 0.1 * corner["arc"][-1, 1], abs=0.02)  # tangent B at arm B's height
+    mean_step = abs(z[-1] - z[0]) / (len(z) - 1)
+    assert np.abs(np.diff(z)).max() < 2.0 * mean_step + 0.01  # no jump at the bisector
+
+
+def test_fillet_follows_a_curved_arm():
+    from shapely.geometry import LineString, Point
+
+    radius = 50.0  # the north arm bends to the east with a 50 m radius
+    angles = np.linspace(np.pi, np.pi - 1.2, 61)
+    north = [(radius + radius * np.cos(a), radius * np.sin(a)) for a in angles]
+    roads = [_road("east", _line((0, 0), (60, 0), 1.0), 6.0), _road("west", _line((-60, 0), (0, 0), 1.0), 6.0),
+             _road("north", north, 5.0)]
+    corner = next(c for c in _corners(roads) if {a["road_id"] for a in c["arms"]} == {"east", "north"})
+    kerb = LineString(np.array(north)).offset_curve(-2.5)  # right side of the north arm = the corner side
+    tangent_b = corner["arc"][-1, :2]
+    assert kerb.distance(Point(tangent_b)) < 0.05
+    trim = next(a for a in corner["arms"] if a["road_id"] == "north")["trim"]
+    assert kerb.project(Point(tangent_b)) == pytest.approx(trim, abs=0.05)
+    assert np.linalg.norm(tangent_b - corner["center"]) == pytest.approx(corner["radius"], abs=0.05)

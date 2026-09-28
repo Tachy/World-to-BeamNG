@@ -70,3 +70,11 @@ def test_sidewalk_corner_is_added_only_when_both_arms_have_one_facing_the_corner
 
 def test_no_corners_no_polygons():
     assert corner_embed_roads([], {}, 1.15) == []
+
+
+def test_embedding_reaches_past_the_arc_so_no_terrain_shows_through():
+    heights = np.full((128, 128), 90.0)
+    embedded = embed_roads_into_heightmap(heights, 0.0, 0.0, 1.0, corner_embed_roads(_corners(ROADS), {}, 1.15, margin=1.5))
+    # NE fillet centre (58.5, 59), r = 6: cell (x 55, y 55) lies 0.7 m beyond the arc
+    assert embedded[55, 55] == pytest.approx(100.0)
+    assert embedded[80, 80] == pytest.approx(90.0)

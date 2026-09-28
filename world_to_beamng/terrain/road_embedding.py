@@ -234,9 +234,13 @@ def _embed_road(
 
     # Only project the cells inside the polygon: for long, diagonal roads the
     # bounding box is huge, but the actual strip is narrow (factor 100+ fewer cells).
-    target_z = _project_onto_polyline(
-        grid_x[inside], grid_y[inside], centerline[:, 0], centerline[:, 1], centerline[:, 2]
-    )
+    height_at = road.get("height_at")  # optional own height function (rounded junction corners: blended arm heights)
+    if height_at is not None:
+        target_z = height_at(grid_x[inside], grid_y[inside])
+    else:
+        target_z = _project_onto_polyline(
+            grid_x[inside], grid_y[inside], centerline[:, 0], centerline[:, 1], centerline[:, 2]
+        )
 
     sub = heights[row_start : row_end + 1, col_start : col_end + 1]
     sub[inside] = np.minimum(sub[inside], target_z) if clamp_to_max else target_z

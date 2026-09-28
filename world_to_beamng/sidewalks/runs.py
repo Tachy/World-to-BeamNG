@@ -104,23 +104,21 @@ def plan_sidewalk_runs(
                 s = np.array([line.project(Point(p)) for p in points])
                 points = np.column_stack([points, np.interp(s, cum, z)])
                 runs.append({"road_index": index, "side": side, "surface": surface, "points": points if sign > 0 else points[::-1]})
-    for corner, ia, ib in usable:
-        _join_through_corner(runs, corner, ia, ib)
-    return runs
+    return _join_through_corners(runs, usable)
 
 
-def _join_through_corner(runs: List[Dict], corner: Dict, ia: int, ib: int, tol: float = 0.5) -> None:
-    """Joins the run of arm A ending (or starting) at its tangent point with the run of arm B at the other tangent point
-    through the arc - only runs of these two roads on the corner-facing sides."""
+def _corner_link(runs: List[Dict], corner: Dict, ia: int, ib: int, tol: float):
+    """(index of the run arriving at the corner, arc path, index of the run leaving it) or None - only runs of the two
+    corner arms on their corner-facing sides, with an end at the respective tangent point."""
     arm_a, arm_b = corner["arms"]
     arc = np.asarray(corner["arc"], dtype=float)
 
     def find(index, side, point, at_end):
-        for run in runs:
+        for k, run in enumerate(runs):
             if run["road_index"] == index and run["side"] == side:
                 p = run["points"][-1] if at_end else run["points"][0]
                 if np.linalg.norm(p[:2] - point[:2]) <= tol:
-                    return run
+                    return k
         return None
 
     for (ia_, sa, ta), (ib_, sb, tb), path in (
@@ -128,11 +126,47 @@ def _join_through_corner(runs: List[Dict], corner: Dict, ia: int, ib: int, tol: 
         ((ib, arm_b["side"], arc[-1]), (ia, arm_a["side"], arc[0]), arc[::-1]),
     ):
         incoming, outgoing = find(ia_, sa, ta, True), find(ib_, sb, tb, False)
-        if incoming is None or outgoing is None:
-            continue
-        if incoming is outgoing:  # the corner closes a ring (a block with sidewalks all around)
-            incoming["points"] = np.vstack([incoming["points"][:-1], path])
-        else:
-            incoming["points"] = np.vstack([incoming["points"][:-1], path, outgoing["points"][1:]])
-            del runs[next(k for k, run in enumerate(runs) if run is outgoing)]  # by identity: dict == compares arrays
-        return
+        if incoming is not None and outgoing is not None:
+            return incoming, path, outgoing
+    return None
+
+
+def _join_through_corners(runs: List[Dict], usable, tol: float = 0.5) -> List[Dict]:
+    """
+    Joins runs through the arcs of the corners where both arms have a sidewalk on the corner side. All links are found
+    on the unjoined runs first and the chains are built afterwards, so the result does not depend on the corner order
+    (a block with sidewalks all around becomes one closed run).
+    """
+    links = {}  # incoming run index -> (arc path, outgoing run index)
+    for corner, ia, ib in usable:
+        link = _corner_link(runs, corner, ia, ib, tol)
+        if link is not None and link[0] not in links and link[2] not in {out for _, out in links.values()}:
+            links[link[0]] = (link[1], link[2])
+    incoming_of = {out: inc for inc, (_, out) in links.items()}
+
+    def chain_from(start: int, seen: set) -> Dict:
+        run = dict(runs[start])
+        points, k = [run["points"]], start
+        seen.add(start)
+        while k in links:
+            path, nxt = links[k]
+            if nxt in seen:  # closed ring: end on the arc back at the start
+                points[-1] = points[-1][:-1]
+                points.append(path)
+                break
+            points[-1] = points[-1][:-1]
+            points.append(path)
+            points.append(runs[nxt]["points"][1:])
+            seen.add(nxt)
+            k = nxt
+        run["points"] = np.vstack(points)
+        return run
+
+    result, seen = [], set()
+    for k in range(len(runs)):  # chains start at runs nobody leads into
+        if k not in seen and k not in incoming_of:
+            result.append(chain_from(k, seen))
+    for k in range(len(runs)):  # what is left are rings
+        if k not in seen:
+            result.append(chain_from(k, seen))
+    return result

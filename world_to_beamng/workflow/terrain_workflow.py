@@ -502,6 +502,7 @@ class TerrainWorkflow:
                 junction_corners,
                 {poly.get("road_id"): poly.get("sidewalk_sides") for poly in road_slope_polygons_2d if poly.get("sidewalk_sides")},
                 config.SIDEWALK_KERB_WIDTH + config.SIDEWALK_WIDTH,
+                margin=config.JUNCTION_EMBED_MARGIN,
             )
             if junction_corners:
                 logger.info(f"  [OK] {len(junction_corners)} junction corner(s) rounded")
