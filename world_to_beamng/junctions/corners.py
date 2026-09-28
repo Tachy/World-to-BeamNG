@@ -144,3 +144,57 @@ def find_junction_corners(
             if corner is not None:
                 corners.append(corner)
     return corners
+
+
+def junction_roads(road_dicts: Sequence[Dict], road_props, excluded_highways, excluded_surfaces) -> List[Dict]:
+    """
+    Input of find_junction_corners() from the road dicts (road_slope_polygons_2d): surface roads with a visible
+    DecalRoad only - footways/paths/tracks, roads without a DecalRoad (the aerial photo shows them) and structures form no
+    corners. Widths follow the blended "width_nodes" where present, else the OSM mapper width.
+    """
+    result = []
+    for poly in road_dicts:
+        tags = poly.get("osm_tags") or {}
+        if poly.get("structure_type", "surface") != "surface" or tags.get("highway") in excluded_highways:
+            continue
+        props = road_props(poly)
+        if props.get("internal_name") in excluded_surfaces:
+            continue
+        nodes = poly.get("width_nodes")
+        if nodes is not None:
+            nodes = np.asarray(nodes, dtype=float)
+            coords, half = nodes[:, :3], nodes[:, 3] / 2.0
+        else:
+            coords = np.asarray(poly["trimmed_centerline"], dtype=float)[:, :3]
+            half = np.full(len(coords), float(props["width"]) / 2.0)
+        result.append({"road_id": poly.get("road_id"), "coords": coords, "half_widths": half,
+                       "highway": tags.get("highway", ""), "surface": props.get("internal_name", "asphalt_road_standard")})
+    return result
+
+
+def _sector(corner: Dict, width: float) -> np.ndarray:
+    """Sidewalk band behind the arc: between the arc (radius r) and radius r - width, towards the fillet centre."""
+    arc = corner["arc"][:, :2]
+    center = np.asarray(corner["center"], dtype=float)
+    inner = center + (arc - center) * (corner["radius"] - width) / corner["radius"]
+    return np.vstack([arc, inner[::-1]])
+
+
+def corner_has_sidewalks(corner: Dict, sidewalk_sides_by_id: Mapping) -> bool:
+    """Both arms have a sidewalk on the side facing the corner."""
+    return all(arm["side"] in (sidewalk_sides_by_id.get(arm["road_id"]) or {}) for arm in corner["arms"])
+
+
+def corner_embed_roads(corners: Sequence[Dict], sidewalk_sides_by_id: Mapping, sidewalk_width: float) -> List[Dict]:
+    """
+    Fill polygons (and the sidewalk band of corners with a sidewalk on both arms) as road dicts for
+    embed_roads_into_heightmap() and union_road_surfaces(): "road_polygon" + "trimmed_centerline" (both arm centerlines,
+    so every cell takes the height of the nearest arm).
+    """
+    result = []
+    for corner in corners:
+        fill = np.vstack([corner["corner_point"][None, :2], corner["arc"][:, :2]])
+        result.append({"road_polygon": fill, "trimmed_centerline": corner["centerline"]})
+        if corner_has_sidewalks(corner, sidewalk_sides_by_id):
+            result.append({"road_polygon": _sector(corner, sidewalk_width), "trimmed_centerline": corner["centerline"]})
+    return result

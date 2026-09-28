@@ -81,6 +81,8 @@ class TileState:
     # _tile_road_network()
     grid_bounds_local: Optional[Tuple[float, float, float, float]] = None
     road_slope_polygons_2d: List[Dict] = field(default_factory=list)
+    junction_corners: List[Dict] = field(default_factory=list)
+    junction_embed_roads: List[Dict] = field(default_factory=list)
     # _tile_heightmap() (heights is changed again by _tile_shape_terrain() and _tile_ponds())
     grid: Optional[Tuple] = None
     nx: int = 0
@@ -242,6 +244,7 @@ class TerrainWorkflow:
             "grid": s.grid,
             "road_polygons": s.road_polygons,
             "road_slope_polygons_2d": s.road_slope_polygons_2d,  # For DecalRoad export
+            "junction_corners": s.junction_corners,  # fillet corners for export_junctions() and the sidewalks around them
             "structure_road_polygons": s.structure_road_polygons,  # Bridges/tunnels/galleries - for export_bridges()/export_tunnels()
             "bridge_photo_areas": _bridge_photo_areas(s.structure_road_polygons),  # retouched out of the aerial photo
             "road_surface_union": s.road_surface_union,  # unioned road surface for exclusion zones (or None)
@@ -476,6 +479,34 @@ class TerrainWorkflow:
             if with_sidewalks:
                 logger.info(f"  [OK] {with_sidewalks} road(s) with sidewalks: terrain embedding widened")
 
+        # Rounded junction corners: computed once here, embedded like roads and exported as a fill mesh
+        junction_corners, junction_embed = [], []
+        if config.JUNCTION_CORNERS_ENABLED:
+            from ..junctions.corners import corner_embed_roads, find_junction_corners, junction_roads
+
+            junction_corners = find_junction_corners(
+                junction_roads(
+                    road_slope_polygons_2d,
+                    lambda poly: OSM_MAPPER.get_road_properties(poly.get("osm_tags", {})),
+                    config.SIDEWALK_EXCLUDED_HIGHWAYS,
+                    config.ROAD_DECAL_EXCLUDED_SURFACES,
+                ),
+                OSM_MAPPER.config.get("junction_corners", {}),
+                config.ROAD_CONTINUATION_ENDPOINT_TOL,
+                config.JUNCTION_CORNER_MAX_ANGLE,
+                rank=config.JUNCTION_RANK,
+                direction_length=config.JUNCTION_DIRECTION_LENGTH,
+                arc_step=config.JUNCTION_ARC_STEP,
+            )
+            junction_embed = corner_embed_roads(
+                junction_corners,
+                {poly.get("road_id"): poly.get("sidewalk_sides") for poly in road_slope_polygons_2d if poly.get("sidewalk_sides")},
+                config.SIDEWALK_KERB_WIDTH + config.SIDEWALK_WIDTH,
+            )
+            if junction_corners:
+                logger.info(f"  [OK] {len(junction_corners)} junction corner(s) rounded")
+        s.junction_corners, s.junction_embed_roads = junction_corners, junction_embed
+
         s.grid_bounds_local, s.road_polygons, s.road_slope_polygons_2d = grid_bounds_local, road_polygons, road_slope_polygons_2d
 
     def _tile_heightmap(self, s: "TileState") -> None:
@@ -579,7 +610,7 @@ class TerrainWorkflow:
             terrain_origin_x,
             terrain_origin_y,
             config.TERRAIN_SQUARE_SIZE,
-            embeddable_roads,
+            embeddable_roads + s.junction_embed_roads,  # rounded junction corners: flat at the arms' height
         )
 
         # Bridges: cap terrain that lies HIGHER than the deck within the bridge width to deck level
@@ -612,7 +643,7 @@ class TerrainWorkflow:
 
                 all_tunnel_piece_ids = {pid for plan in tunnel_plans for pid in plan.get("piece_ids", [plan["id"]])}
 
-                protected = union_road_surfaces(surface_road_polygons + gallery_roads)
+                protected = union_road_surfaces(surface_road_polygons + gallery_roads + s.junction_embed_roads)
                 if protected is not None:
                     shapely.prepare(protected)
                 heights, tunnel_holes = shape_terrain_for_tunnels(
@@ -738,7 +769,7 @@ class TerrainWorkflow:
         portal_footprints = [
             {"road_polygon": np.array(portal_footprint(portal))} for plan in tunnel_plans for portal in plan["portals"] if portal["open"]
         ]
-        road_surface_union = union_road_surfaces(s.surface_road_polygons + s.gallery_roads + portal_footprints)
+        road_surface_union = union_road_surfaces(s.surface_road_polygons + s.gallery_roads + portal_footprints + s.junction_embed_roads)
         road_shapes = [road_surface_union] if road_surface_union is not None else []
         building_shapes = [
             p["geometry"]
