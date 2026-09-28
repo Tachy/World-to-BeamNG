@@ -14,6 +14,12 @@ import time
 # UTF-8 encoding for the Windows console
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
+if __name__ == "__main__":
+    # Before the package's config is imported below: it fixes the log level on import (--loglevel overrides LOG_LEVEL)
+    from world_to_beamng.cli import apply_cli
+
+    apply_cli()
+
 from world_to_beamng import __version__, config
 from world_to_beamng.logging_config import LoggerConfig
 
