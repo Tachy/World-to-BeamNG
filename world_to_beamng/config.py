@@ -18,8 +18,9 @@ from .logging_config import LoggerConfig
 #
 # Controlled exclusively via LOG_LEVEL (can be overridden via an environment variable, no need to edit
 # config.py): DEBUG | INFO | WARNING | ERROR | CRITICAL.
-#   PowerShell:  $env:LOG_LEVEL = "INFO"; python world_to_beamng.py
-#   Bash:        LOG_LEVEL=INFO python world_to_beamng.py
+#   Command line: python world_to_beamng.py --loglevel=INFO   (overrides the environment variable)
+#   PowerShell:   $env:LOG_LEVEL = "INFO"; python world_to_beamng.py
+#   Bash:         LOG_LEVEL=INFO python world_to_beamng.py
 LOG_LEVEL = (os.environ.get("LOG_LEVEL") or "WARNING").upper()  # empty/not set -> WARNING
 LOGGING_FILE = None  # Path("logs/world_to_beamng.log")  # Optional; None = stdout only
 LoggerConfig.get_instance(log_file=LOGGING_FILE, level=LOG_LEVEL)
