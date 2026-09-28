@@ -210,3 +210,24 @@ def test_both_ends_of_a_short_piece_share_it_without_overlapping():
     assert sum(trims) <= 20.0
     fills = [Polygon(np.vstack([c["corner_point"][None, :2], c["rim"][:, :2]])) for c in on_mid]
     assert fills[0].intersection(fills[1]).area < 1e-6
+
+
+def test_a_hairpin_far_along_an_arm_does_not_cost_the_corner():
+    # the east arm runs straight for 60 m, then turns back in a hairpin tighter than its half width
+    hairpin = _line((0, 0), (60, 0), 1.0) + [(60.5, 0.5), (60.0, 1.0), (40.0, 1.0)]
+    roads = [_road("east", hairpin, 6.0), _road("west", _line((-60, 0), (0, 0)), 6.0), _road("north", _line((0, 0), (0, 60)), 5.0)]
+    ids = [{a["road_id"] for a in c["arms"]} for c in _corners(roads)]
+    assert {"east", "north"} in ids
+
+
+def test_offset_split_into_touching_parts_by_geos_does_not_cost_the_corner():
+    # real arm from the Baden-Wuerttemberg map: straight, but GEOS offsets it by -1.25 m into two touching pieces
+    b = [[-0.071, -0.018], [-0.615, -0.499], [-1.16, -0.979], [-1.704, -1.459], [-2.249, -1.94], [-2.793, -2.42],
+         [-3.338, -2.901], [-3.882, -3.381], [-4.426, -3.861], [-4.971, -4.342], [-5.515, -4.822], [-6.06, -5.303],
+         [-6.604, -5.783], [-7.148, -6.263], [-7.693, -6.744], [-8.237, -7.224], [-8.782, -7.705], [-9.326, -8.185],
+         [-9.87, -8.665]]
+    roads = [_road("north", _line((0, 0), (0, 60)), 6.5), _road("east", _line((0, 0), (60, 0)), 6.5),
+             _road("lane", [tuple(p) for p in b], 2.5)]
+    ids = [{a["road_id"] for a in c["arms"]} for c in find_junction_corners(roads, TABLE, 0.5, 160.0, rank=RANK,
+                                                                           radius_factors=FACTORS, min_radius=0.5)]
+    assert {"north", "lane"} in ids

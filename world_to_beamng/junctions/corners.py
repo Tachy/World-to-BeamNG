@@ -73,6 +73,17 @@ def _local(points: np.ndarray, length: float) -> np.ndarray:
     return np.column_stack([xy, np.interp(s, cum, points[:, 2])])
 
 
+def _offset(line, distance: float):
+    """Offset line (positive = left); None if it is not one line. GEOS sometimes returns a straight offset as several
+    pieces that merely touch - those are merged back into one line."""
+    from shapely import line_merge
+
+    offset = line.offset_curve(distance)
+    if offset.geom_type == "MultiLineString":
+        offset = line_merge(offset)
+    return offset if offset.geom_type == "LineString" and not offset.is_empty else None
+
+
 def corner_height(corner: Dict, x: np.ndarray, y: np.ndarray) -> np.ndarray:
     """
     Height inside a corner: the heights of both arms (projected onto their nearby centerline) blended by the angle
@@ -105,11 +116,14 @@ def _fillet(node: np.ndarray, a: Dict, b: Dict, r: float, max_angle_deg: float, 
     theta = (math.atan2(ub[1], ub[0]) - math.atan2(ua[1], ua[0])) % (2.0 * math.pi)
     if theta < 1e-3 or theta > math.radians(max_angle_deg):
         return None
-    line_a, line_b = LineString(a["points"][:, :2]), LineString(b["points"][:, :2])
-    kerb_a, kerb_b = line_a.offset_curve(a["half"]), line_b.offset_curve(-b["half"])  # corner: left of a, right of b
-    if kerb_a.geom_type != "LineString" or kerb_b.geom_type != "LineString":
+    # only the part of the arms near the node: a tight bend far away must not spoil the offset lines
+    near = r / math.tan(theta / 2.0) + 2.0 * (a["half"] + b["half"] + r) + 10.0
+    line_a, line_b = LineString(_local(a["points"], near)[:, :2]), LineString(_local(b["points"], near)[:, :2])
+    kerb_a, kerb_b = _offset(line_a, a["half"]), _offset(line_b, -b["half"])  # corner: left of a, right of b
+    centre_a, centre_b = _offset(line_a, a["half"] + r), _offset(line_b, -(b["half"] + r))
+    if kerb_a is None or kerb_b is None or centre_a is None or centre_b is None:
         return None  # the offset folds over itself (tight bend right at the node): no clean kerb to fit to
-    hits = line_a.offset_curve(a["half"] + r).intersection(line_b.offset_curve(-(b["half"] + r)))
+    hits = centre_a.intersection(centre_b)
     hits = [g for g in getattr(hits, "geoms", [hits]) if g.geom_type == "Point"]
     if not hits:
         return None  # an arm is too short for the arc
