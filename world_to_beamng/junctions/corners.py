@@ -19,3 +19,128 @@ def corner_radius(highway_a: str, highway_b: str, table: Mapping) -> float:
     radii = table.get("radius_by_highway", {})
     default = float(table.get("default_radius", 6.0))
     return min(float(radii.get(highway_a, default)), float(radii.get(highway_b, default)))
+
+
+def _arm(road: Dict, end: str) -> Dict:
+    coords = np.asarray(road["coords"], dtype=float)
+    half = np.asarray(road["half_widths"], dtype=float)
+    points = coords if end == "start" else coords[::-1]
+    return {"road": road, "end": end, "points": points, "half": float(half[0] if end == "start" else half[-1])}
+
+
+def _direction(points: np.ndarray, length: float) -> Optional[np.ndarray]:
+    from ..geometry.polyline import arc_lengths
+
+    cum = arc_lengths(points[:, :2])
+    s = min(length, float(cum[-1]))
+    target = np.array([np.interp(s, cum, points[:, 0]), np.interp(s, cum, points[:, 1])])
+    d = target - points[0, :2]
+    n = float(np.linalg.norm(d))
+    return d / n if n > 1e-9 else None
+
+
+def _nodes(roads: Sequence[Dict], tol: float) -> List[List[Dict]]:
+    """Arms (road ends) grouped by position; only groups with three or more arms."""
+    from scipy.spatial import cKDTree
+
+    arms = [_arm(r, end) for r in roads if len(r["coords"]) >= 2 for end in ("start", "end")]
+    if not arms:
+        return []
+    xy = np.array([a["points"][0, :2] for a in arms])
+    tree, seen, groups = cKDTree(xy), set(), []
+    for i in range(len(arms)):
+        if i in seen:
+            continue
+        members = [m for m in sorted(tree.query_ball_point(xy[i], tol)) if m not in seen]
+        seen.update(members)
+        if len(members) >= 3:
+            groups.append([arms[m] for m in members])
+    return groups
+
+
+def _fillet(node: np.ndarray, a: Dict, b: Dict, table: Mapping, max_angle_deg: float, rank: Mapping, arc_step: float) -> Optional[Dict]:
+    """Fillet between arm `a` and the next arm `b` counter-clockwise; None if it does not fit."""
+    from ..geometry.polyline import arc_lengths
+    from ..terrain.road_embedding import _project_onto_polyline
+
+    ua, ub = a["u"], b["u"]
+    theta = (math.atan2(ub[1], ub[0]) - math.atan2(ua[1], ua[0])) % (2.0 * math.pi)
+    if theta < 1e-3 or theta > math.radians(max_angle_deg):
+        return None
+    na = np.array([-ua[1], ua[0]])  # left of a = towards the corner
+    nb = np.array([ub[1], -ub[0]])  # right of b = towards the corner
+    pa, pb = node[:2] + na * a["half"], node[:2] + nb * b["half"]
+    s, q = np.linalg.solve(np.column_stack([ua, -ub]), pb - pa)
+    corner_xy = pa + s * ua
+    r = corner_radius(a["road"]["highway"], b["road"]["highway"], table)
+    t = r / math.tan(theta / 2.0)
+    trim_a, trim_b = float(s + t), float(q + t)
+    if min(trim_a, trim_b) < 0.0 or trim_a > arc_lengths(a["points"][:, :2])[-1] or trim_b > arc_lengths(b["points"][:, :2])[-1]:
+        return None
+    tangent_a, tangent_b = corner_xy + ua * t, corner_xy + ub * t
+    center = tangent_a + na * r
+    a0 = math.atan2(*(tangent_a - center)[::-1])
+    a1 = math.atan2(*(tangent_b - center)[::-1])
+    sweep = (a1 - a0 + math.pi) % (2.0 * math.pi) - math.pi  # the short way: the arc facing the corner point
+    count = max(2, int(math.ceil(abs(sweep) * r / arc_step)) + 1)
+    angles = a0 + sweep * np.linspace(0.0, 1.0, count)
+    arc_xy = center + r * np.column_stack([np.cos(angles), np.sin(angles)])
+    arc_xy[0], arc_xy[-1] = tangent_a, tangent_b
+
+    centerline = np.vstack([a["points"][::-1], b["points"][1:]])
+    z = lambda xy: _project_onto_polyline(xy[:, 0], xy[:, 1], centerline[:, 0], centerline[:, 1], centerline[:, 2])
+    better = a if (rank.get(a["road"]["highway"], 0), a["half"]) >= (rank.get(b["road"]["highway"], 0), b["half"]) else b
+    return {
+        "node": node,
+        "radius": r,
+        "center": center,
+        "corner_point": np.array([*corner_xy, float(z(corner_xy[None])[0])]),
+        "arc": np.column_stack([arc_xy, z(arc_xy)]),
+        "centerline": centerline,
+        "surface": better["road"]["surface"],
+        "arms": [
+            {"road_id": a["road"]["road_id"], "end": a["end"], "side": "left" if a["end"] == "start" else "right", "trim": trim_a},
+            {"road_id": b["road"]["road_id"], "end": b["end"], "side": "right" if b["end"] == "start" else "left", "trim": trim_b},
+        ],
+    }
+
+
+def find_junction_corners(
+    roads: Sequence[Dict],
+    table: Mapping,
+    endpoint_tol: float,
+    max_angle_deg: float,
+    rank: Mapping,
+    direction_length: float = 5.0,
+    arc_step: float = 0.5,
+) -> List[Dict]:
+    """
+    Fillet corners of all junction nodes (three or more arms) of `roads`.
+
+    Args:
+        roads: [{"road_id", "coords" (N, 3), "half_widths" (N,), "highway", "surface"}] - only roads whose ends may form
+            junction corners (see junction_roads())
+        table: "junction_corners" section of data/osm_to_beamng.json
+        endpoint_tol: road ends closer than this form one node, in meters
+        max_angle_deg: corners with a wider opening angle get no fillet
+        rank: highway -> rank; the corner is filled with the surface of the higher-ranked arm (tie: wider arm)
+
+    Returns:
+        Corner dicts {"node", "radius", "center", "corner_point", "arc" (M, 3) from tangent A to tangent B,
+        "centerline" (both arm centerlines through the node), "surface", "arms": [{"road_id", "end", "side", "trim"}] x 2}
+        - "side" is the road side (drawing direction) facing the corner, "trim" the distance along that kerb line from
+        the road end to the tangent point
+    """
+    corners = []
+    for arms in _nodes(roads, endpoint_tol):
+        for arm in arms:
+            arm["u"] = _direction(arm["points"], direction_length)
+        arms = sorted((a for a in arms if a["u"] is not None), key=lambda a: math.atan2(a["u"][1], a["u"][0]))
+        if len(arms) < 3:
+            continue
+        node = np.mean([a["points"][0] for a in arms], axis=0)
+        for k, a in enumerate(arms):
+            corner = _fillet(node, a, arms[(k + 1) % len(arms)], table, max_angle_deg, rank, arc_step)
+            if corner is not None:
+                corners.append(corner)
+    return corners
