@@ -92,9 +92,9 @@ def corner_height(corner: Dict, x: np.ndarray, y: np.ndarray) -> np.ndarray:
     return (1.0 - w) * za + w * zb
 
 
-def _fillet(node: np.ndarray, a: Dict, b: Dict, table: Mapping, max_angle_deg: float, rank: Mapping, arc_step: float) -> Optional[Dict]:
+def _fillet(node: np.ndarray, a: Dict, b: Dict, r: float, max_angle_deg: float, rank: Mapping, arc_step: float) -> Optional[Dict]:
     """
-    Fillet between arm `a` and the next arm `b` counter-clockwise; None if it does not fit. The circle is fitted to the
+    Fillet of radius `r` between arm `a` and the next arm `b` counter-clockwise; None if it does not fit. The circle is fitted to the
     real kerb lines (the arm centerlines offset by their half width), so it also sits right on curved arms: its centre is
     where both centerlines offset by half width + r intersect, the tangent points are its feet on the kerb lines.
     """
@@ -105,7 +105,6 @@ def _fillet(node: np.ndarray, a: Dict, b: Dict, table: Mapping, max_angle_deg: f
     theta = (math.atan2(ub[1], ub[0]) - math.atan2(ua[1], ua[0])) % (2.0 * math.pi)
     if theta < 1e-3 or theta > math.radians(max_angle_deg):
         return None
-    r = corner_radius(a["road"]["highway"], b["road"]["highway"], table)
     line_a, line_b = LineString(a["points"][:, :2]), LineString(b["points"][:, :2])
     kerb_a, kerb_b = line_a.offset_curve(a["half"]), line_b.offset_curve(-b["half"])  # corner: left of a, right of b
     if kerb_a.geom_type != "LineString" or kerb_b.geom_type != "LineString":
@@ -167,6 +166,23 @@ def _fillet(node: np.ndarray, a: Dict, b: Dict, table: Mapping, max_angle_deg: f
     return corner
 
 
+def _fit(candidate, table: Mapping, max_angle_deg: float, rank: Mapping, arc_step: float, factors, min_radius: float, start: int):
+    """The corner with the first radius step from `start` on that fits: (corner, step) or (None, len(factors))."""
+    node, a, b, has_kerb = candidate
+    base = corner_radius(a["road"]["highway"], b["road"]["highway"], table)
+    min_radius = max(min_radius, has_kerb)
+    tried = set()
+    for step in range(start, len(factors)):
+        radius = max(min_radius, base * factors[step])
+        if radius in tried:
+            continue
+        tried.add(radius)
+        corner = _fillet(node, a, b, radius, max_angle_deg, rank, arc_step)
+        if corner is not None:
+            return corner, step
+    return None, len(factors)
+
+
 def find_junction_corners(
     roads: Sequence[Dict],
     table: Mapping,
@@ -175,9 +191,20 @@ def find_junction_corners(
     rank: Mapping,
     direction_length: float = 5.0,
     arc_step: float = 0.5,
+    radius_factors: Sequence[float] = (1.0,),
+    min_radius: float = 0.5,
+    kerb_min_radius: float = 2.0,
+    sidewalk_sides_by_id: Optional[Mapping] = None,
 ) -> List[Dict]:
     """
     Fillet corners of all junction nodes (three or more arms) of `roads`.
+
+    Where the table radius does not fit (short arm between two close junctions, acute angle), the radius is reduced step
+    by step (`radius_factors` of the table radius, never below `min_radius`; where both arms have a sidewalk facing the
+    corner, a kerb runs around the arc and the radius stays at least `kerb_min_radius`, so the sidewalk band behind it
+    keeps its width). Where the arcs at both ends of a road side
+    together need more than the road is long, the larger one is reduced further (dropped at the last step) - otherwise
+    the two fills would overlap.
 
     Args:
         roads: [{"road_id", "coords" (N, 3), "half_widths" (N,), "highway", "surface"}] - only roads whose ends may form
@@ -186,16 +213,18 @@ def find_junction_corners(
         endpoint_tol: road ends closer than this form one node, in meters
         max_angle_deg: corners with a wider opening angle get no fillet
         rank: highway -> rank; the corner is filled with the surface of the higher-ranked arm (tie: wider arm)
+        sidewalk_sides_by_id: road id -> {side: surface} of the roads with a sidewalk
 
     Returns:
         Corner dicts {"node", "radius", "center", "corner_point", "arc" (M, 3) from tangent A to tangent B, "rim" (fill
         outline from the corner point along kerb A, the arc and back along kerb B), "centerline" (the nearby parts of
         both arm centerlines through the node), "arm_lines", "u_a", "theta" (for corner_height()), "surface",
         "arms": [{"road_id", "end", "side", "trim"}] x 2}
-        - "side" is the road side (drawing direction) facing the corner, "trim" the distance along that kerb line from
-        the road end to the tangent point
     """
-    corners = []
+    from ..geometry.polyline import arc_lengths
+
+    sides = sidewalk_sides_by_id or {}
+    candidates = []
     for arms in _nodes(roads, endpoint_tol):
         for arm in arms:
             arm["u"] = _direction(arm["points"], direction_length)
@@ -204,10 +233,31 @@ def find_junction_corners(
             continue
         node = np.mean([a["points"][0] for a in arms], axis=0)
         for k, a in enumerate(arms):
-            corner = _fillet(node, a, arms[(k + 1) % len(arms)], table, max_angle_deg, rank, arc_step)
-            if corner is not None:
-                corners.append(corner)
-    return corners
+            b = arms[(k + 1) % len(arms)]
+            facing = ((a, "left" if a["end"] == "start" else "right"), (b, "right" if b["end"] == "start" else "left"))
+            has_kerb = all(side in (sides.get(arm["road"]["road_id"]) or {}) for arm, side in facing)
+            candidates.append((node, a, b, kerb_min_radius if has_kerb else 0.0))
+
+    fit = lambda i, start: _fit(candidates[i], table, max_angle_deg, rank, arc_step, radius_factors, min_radius, start)
+    fitted = [fit(i, 0) for i in range(len(candidates))]
+    lengths = {r["road_id"]: float(arc_lengths(np.asarray(r["coords"])[:, :2])[-1]) for r in roads if len(r["coords"]) >= 2}
+
+    # Both ends of a road side must share it: shrink the larger arc until the trims fit the road
+    while True:
+        by_side: Dict[tuple, List] = {}
+        for i, (corner, _) in enumerate(fitted):
+            for arm in corner["arms"] if corner is not None else ():
+                by_side.setdefault((arm["road_id"], arm["side"]), []).append((arm["trim"], i))
+        conflict = next(
+            (max(entries) for key, entries in by_side.items() if len(entries) > 1 and sum(t for t, _ in entries) > lengths[key[0]]),
+            None,
+        )
+        if conflict is None:
+            break
+        i = conflict[1]
+        fitted[i] = fit(i, fitted[i][1] + 1)
+
+    return [corner for corner, _ in fitted if corner is not None]
 
 
 def junction_roads(road_dicts: Sequence[Dict], road_props, excluded_highways, excluded_surfaces) -> List[Dict]:

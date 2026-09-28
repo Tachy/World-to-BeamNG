@@ -155,3 +155,51 @@ def test_fillet_follows_a_curved_arm():
     trim = next(a for a in corner["arms"] if a["road_id"] == "north")["trim"]
     assert kerb.project(Point(tangent_b)) == pytest.approx(trim, abs=0.05)
     assert np.linalg.norm(tangent_b - corner["center"]) == pytest.approx(corner["radius"], abs=0.05)
+
+
+FACTORS = (1.0, 0.75, 0.5, 0.33, 0.2, 0.1)
+
+
+def _short_t(east_length):
+    return [_road("east", _line((0, 0), (east_length, 0)), 6.0), _road("west", _line((-60, 0), (0, 0)), 6.0),
+            _road("north", _line((0, 0), (0, 60)), 5.0)]
+
+
+def _ne_corner(roads, sidewalks=None):
+    corners = find_junction_corners(roads, TABLE, 0.5, 160.0, rank=RANK, radius_factors=FACTORS, min_radius=0.5,
+                                    kerb_min_radius=2.0, sidewalk_sides_by_id=sidewalks or {})
+    return next((c for c in corners if {a["road_id"] for a in c["arms"]} == {"east", "north"}), None)
+
+
+def test_short_arm_gets_a_smaller_radius_instead_of_no_corner():
+    corner = _ne_corner(_short_t(5.0))
+    assert corner["radius"] == pytest.approx(6.0 * 0.33)  # 3 m would not fit the 5 m arm (trim 2.5 + r)
+
+
+def test_without_kerb_the_radius_may_drop_below_the_kerb_minimum():
+    corner = _ne_corner(_short_t(4.0))  # trim 2.5 + r <= 4 -> r <= 1.5
+    assert corner["radius"] == pytest.approx(6.0 * 0.2)
+
+
+def test_a_corner_with_a_kerb_keeps_the_kerb_minimum_radius():
+    kerb = {"east": {"left": "a"}, "north": {"right": "a"}}  # both arms have a sidewalk facing the corner
+    assert _ne_corner(_short_t(4.0), kerb) is None  # 2 m does not fit, smaller is not allowed with a kerb
+    assert _ne_corner(_short_t(5.0), kerb)["radius"] == pytest.approx(2.0)
+    one_sided = {"east": {"left": "a"}}  # only one arm: no kerb in the arc
+    assert _ne_corner(_short_t(4.0), one_sided)["radius"] == pytest.approx(6.0 * 0.2)
+
+
+def test_both_ends_of_a_short_piece_share_it_without_overlapping():
+    from shapely.geometry import Polygon
+
+    table = {"default_radius": 10.0}
+    roads = [_road("west", _line((-60, 0), (0, 0)), 6.0), _road("north0", _line((0, 0), (0, 60)), 6.0),
+             _road("mid", _line((0, 0), (20, 0), 1.0), 6.0), _road("north20", _line((20, 0), (20, 60)), 6.0),
+             _road("east", _line((20, 0), (80, 0)), 6.0)]
+    corners = find_junction_corners(roads, table, 0.5, 160.0, rank={}, radius_factors=FACTORS, min_radius=0.5)
+    on_mid = [c for c in corners if {a["road_id"] for a in c["arms"]} in ({"mid", "north0"}, {"mid", "north20"})]
+    assert len(on_mid) == 2
+    trims = [next(a["trim"] for a in c["arms"] if a["road_id"] == "mid") for c in on_mid]
+    assert sum(trims) <= 20.0
+    fills = [Polygon(np.vstack([c["corner_point"][None, :2], c["rim"][:, :2]])) for c in on_mid]
+    assert fills[0].intersection(fills[1]).area < 1e-6

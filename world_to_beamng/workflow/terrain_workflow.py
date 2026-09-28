@@ -484,6 +484,9 @@ class TerrainWorkflow:
         if config.JUNCTION_CORNERS_ENABLED:
             from ..junctions.corners import corner_embed_roads, find_junction_corners, junction_roads
 
+            sidewalk_sides_by_id = {
+                poly.get("road_id"): poly.get("sidewalk_sides") for poly in road_slope_polygons_2d if poly.get("sidewalk_sides")
+            }
             junction_corners = find_junction_corners(
                 junction_roads(
                     road_slope_polygons_2d,
@@ -497,10 +500,14 @@ class TerrainWorkflow:
                 rank=config.JUNCTION_RANK,
                 direction_length=config.JUNCTION_DIRECTION_LENGTH,
                 arc_step=config.JUNCTION_ARC_STEP,
+                radius_factors=config.JUNCTION_RADIUS_FACTORS,
+                min_radius=config.JUNCTION_MIN_RADIUS,
+                kerb_min_radius=config.JUNCTION_KERB_MIN_RADIUS,
+                sidewalk_sides_by_id=sidewalk_sides_by_id,
             )
             junction_embed = corner_embed_roads(
                 junction_corners,
-                {poly.get("road_id"): poly.get("sidewalk_sides") for poly in road_slope_polygons_2d if poly.get("sidewalk_sides")},
+                sidewalk_sides_by_id,
                 config.SIDEWALK_KERB_WIDTH + config.SIDEWALK_WIDTH,
                 margin=config.JUNCTION_EMBED_MARGIN,
             )

@@ -283,6 +283,10 @@ JUNCTION_FILL_LIFT = 0.02  # fill mesh above the embedded terrain (no z-fighting
 JUNCTION_EMBED_MARGIN = 1.5  # terrain embedded this far around the fill (> one raster cell diagonal), in meters
 JUNCTION_TEXTURE_TILE_M = 5.0  # world-aligned texture tile of the fill, in meters (the DecalRoad texture length)
 JUNCTION_ARC_STEP = 0.5  # longest arc segment, in meters
+# Where the table radius does not fit (short arm, acute angle, both ends of a short piece), it is reduced step by step
+JUNCTION_RADIUS_FACTORS = (1.0, 0.75, 0.5, 0.33, 0.2, 0.1)  # of the table radius
+JUNCTION_MIN_RADIUS = 0.5  # smallest fillet radius, in meters
+JUNCTION_KERB_MIN_RADIUS = 2.0  # smallest radius where a kerb runs around the arc (sidewalk on both arms), in meters
 JUNCTION_DIRECTION_LENGTH = 5.0  # arm direction = node -> point this far along the arm, in meters
 # Which arm's surface fills a corner: the higher rank wins (tie: the wider arm)
 JUNCTION_RANK = {
