@@ -1557,9 +1557,10 @@ class TerrainWorkflow:
 
     def export_junctions(self, mesh_data: Dict) -> int:
         """
-        Exports the fills of the rounded junction corners as ONE DAE (one node per junction) with ONE TSStatic and
-        registers their road surface materials; corners of roads without a DecalRoad are left out (terrain only). Without
-        corners, leftovers of a previous export are removed.
+        Exports the fills of the rounded junction corners as ONE DAE (one node per junction) with ONE TSStatic without
+        collision and registers their road surface materials; the fills are draped onto the finished heightmap. Corners
+        of roads without a DecalRoad are left out (terrain only). Without corners, leftovers of a previous export are
+        removed.
 
         Returns:
             Number of exported junction meshes
@@ -1569,7 +1570,14 @@ class TerrainWorkflow:
         junctions_dir = config.BEAMNG_DIR_SHAPES / "junctions"
         # corners whose surface has no DecalRoad (a dirt track joins) only shape the terrain - nothing is drawn there
         corners = [c for c in mesh_data.get("junction_corners") or [] if c["surface"] not in config.ROAD_DECAL_EXCLUDED_SURFACES]
-        meshes = build_junction_meshes(corners, config.JUNCTION_FILL_LIFT, config.JUNCTION_TEXTURE_TILE_M) if config.JUNCTION_CORNERS_ENABLED else []
+        heights = mesh_data.get("heightmap")
+        meshes = []
+        if config.JUNCTION_CORNERS_ENABLED and corners and heights is not None:
+            # draped onto the finished terrain (the heightmap itself is not changed here)
+            meshes = build_junction_meshes(
+                corners, config.JUNCTION_FILL_LIFT, config.JUNCTION_TEXTURE_TILE_M, heights,
+                mesh_data["terrain_origin_x"], mesh_data["terrain_origin_y"], config.TERRAIN_SQUARE_SIZE,
+            )
         if not meshes:
             for suffix in (".dae", ".cdae"):
                 (junctions_dir / f"junctions{suffix}").unlink(missing_ok=True)
@@ -1583,12 +1591,14 @@ class TerrainWorkflow:
             shape_name=str(config.RELATIVE_DIR_SHAPES / "junctions" / "junctions.dae"),
             position=(0, 0, 0),
             overwrite=True,
-            collisionType="Visible Mesh Final",
+            collisionType="None",  # visual only: vehicles drive on the terrain, which is embedded under the fill
         )
         area = 0.0
-        for c in corners:  # triangle fan from the corner point, as in build_junction_meshes()
-            d = np.asarray(c["arc"])[:, :2] - np.asarray(c["corner_point"])[:2]
-            area += 0.5 * float(np.abs(d[:-1, 0] * d[1:, 1] - d[:-1, 1] * d[1:, 0]).sum())
+        for mesh in meshes:
+            v = np.asarray(mesh["vertices"])[:, :2]
+            for faces in mesh["faces"].values():
+                a, b, c = (v[np.asarray(faces)[:, k]] for k in range(3))
+                area += 0.5 * float(np.abs((b[:, 0] - a[:, 0]) * (c[:, 1] - a[:, 1]) - (b[:, 1] - a[:, 1]) * (c[:, 0] - a[:, 0])).sum())
         logger.info(f"  [OK] {len(meshes)} junction(s), {len(corners)} rounded corner(s), {area:.0f} m^2 fill")
         return len(meshes)
 

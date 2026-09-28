@@ -71,7 +71,7 @@ def test_export_junctions_writes_dae_tsstatic_and_structure_material(tmp_path, m
     assert TerrainWorkflow.export_junctions(stub, _t_mesh_data()) == 1
     assert (tmp_path / "shapes" / "junctions" / "junctions.dae").is_file()
     item = stub.items.objects["junctions"]
-    assert item["collisionType"] == "Visible Mesh Final" and "rotation" not in item
+    assert item["collisionType"] == "None" and "rotation" not in item  # visual only: vehicles drive on the terrain
     assert "asphalt_road_standard_junction" in stub.materials.added
 
 
