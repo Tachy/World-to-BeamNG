@@ -67,10 +67,11 @@ def _guardrail_instances(specs: List[Tuple[Dict, Dict, List]], node_lists: List[
     return items
 
 
-def _sidewalk_meshes(specs: List[Tuple[Dict, Dict, List]], node_lists: List[List[List[float]]]) -> List[Dict]:
+def _sidewalk_meshes(specs: List[Tuple[Dict, Dict, List]], node_lists: List[List[List[float]]], corners=()) -> List[Dict]:
     """Kerb + sidewalk mesh dicts (sidewalks/) along the surface roads with "sidewalk_sides", from the finished DecalRoad
     nodes - the kerb stands exactly at the carriageway edge the decal is drawn to. `specs`/`node_lists` as in
-    export_decal_roads()."""
+    export_decal_roads(); `corners`: junction corner dicts - runs end at their tangent points and are joined through the
+    arc where both arms have a sidewalk on the corner side."""
     from ..sidewalks.runs import plan_sidewalk_runs
     from ..sidewalks.sidewalk_mesh import build_sidewalk_mesh
 
@@ -83,6 +84,8 @@ def _sidewalk_meshes(specs: List[Tuple[Dict, Dict, List]], node_lists: List[List
         min_length=config.SIDEWALK_MIN_LENGTH,
         endpoint_tol=config.ROAD_CONTINUATION_ENDPOINT_TOL,
         max_angle_deg=config.ROAD_CONTINUATION_MAX_ANGLE_DEG,
+        corners=corners,
+        road_ids=[poly.get("road_id") for poly, _ in surface],
     )
     meshes = []
     for number, run in enumerate(runs):

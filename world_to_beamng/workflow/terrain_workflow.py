@@ -1487,6 +1487,19 @@ class TerrainWorkflow:
         logger.debug(f"  [OK] {len(meshes)} wall(s) exported (walls.dae)")
         return len(meshes)
 
+    def _register_structure_road_materials(self, names) -> None:
+        """Road surface materials on meshes ("<surface type>_structure", like bridge decks) from surface_types."""
+        surface_types = config.OSM_MAPPER.config.get("surface_types", {})
+        for mat_name in sorted(names):
+            props = surface_types.get(mat_name.removesuffix("_structure"), {})
+            self.materials.add_building_material(
+                mat_name,
+                textures=props.get("textures", {}),
+                groundType=str(props.get("groundModelName", "asphalt")).upper(),
+                materialTag0="RoadAndPath",
+                materialTag1="beamng",
+            )
+
     def export_sidewalks(self, mesh_data: Dict) -> int:
         """
         Exports the kerbs + sidewalks as ONE DAE (each run a node) with ONE TSStatic and registers the kerb concrete and
@@ -1514,16 +1527,7 @@ class TerrainWorkflow:
             materialTag0=hints.get("materialTag0", "beamng"),
             materialTag1=hints.get("materialTag1", "Building"),
         )
-        surface_types = config.OSM_MAPPER.config.get("surface_types", {})
-        for mat_name in sorted({name for mesh in meshes for name in mesh["faces"]} - {config.BRIDGE_MATERIAL_NAME}):
-            props = surface_types.get(mat_name.removesuffix("_structure"), {})
-            self.materials.add_building_material(
-                mat_name,
-                textures=props.get("textures", {}),
-                groundType=str(props.get("groundModelName", "asphalt")).upper(),
-                materialTag0="RoadAndPath",
-                materialTag1="beamng",
-            )
+        self._register_structure_road_materials({name for mesh in meshes for name in mesh["faces"]} - {config.BRIDGE_MATERIAL_NAME})
 
         self.dae.export_multi_mesh(output_path=sidewalks_dir / "sidewalks.dae", meshes=meshes, with_uv=True)
         self.items.add_item(
@@ -1535,6 +1539,41 @@ class TerrainWorkflow:
             collisionType="Visible Mesh Final",
         )
         logger.debug(f"  [OK] {len(meshes)} sidewalk run(s) exported (sidewalks.dae)")
+        return len(meshes)
+
+    def export_junctions(self, mesh_data: Dict) -> int:
+        """
+        Exports the fills of the rounded junction corners as ONE DAE (one node per junction) with ONE TSStatic and
+        registers their road surface materials. Without corners, leftovers of a previous export are removed.
+
+        Returns:
+            Number of exported junction meshes
+        """
+        from ..junctions.fill_mesh import build_junction_meshes
+
+        junctions_dir = config.BEAMNG_DIR_SHAPES / "junctions"
+        corners = mesh_data.get("junction_corners") or []
+        meshes = build_junction_meshes(corners, config.JUNCTION_FILL_LIFT, config.JUNCTION_TEXTURE_TILE_M) if config.JUNCTION_CORNERS_ENABLED else []
+        if not meshes:
+            for suffix in (".dae", ".cdae"):
+                (junctions_dir / f"junctions{suffix}").unlink(missing_ok=True)
+            return 0
+
+        self._register_structure_road_materials({name for mesh in meshes for name in mesh["faces"]})
+        self.dae.export_multi_mesh(output_path=junctions_dir / "junctions.dae", meshes=meshes, with_uv=True)
+        self.items.add_item(
+            "junctions",
+            item_class="TSStatic",
+            shape_name=str(config.RELATIVE_DIR_SHAPES / "junctions" / "junctions.dae"),
+            position=(0, 0, 0),
+            overwrite=True,
+            collisionType="Visible Mesh Final",
+        )
+        area = 0.0
+        for c in corners:  # triangle fan from the corner point, as in build_junction_meshes()
+            d = np.asarray(c["arc"])[:, :2] - np.asarray(c["corner_point"])[:2]
+            area += 0.5 * float(np.abs(d[:-1, 0] * d[1:, 1] - d[:-1, 1] * d[1:, 0]).sum())
+        logger.info(f"  [OK] {len(meshes)} junction(s), {len(corners)} rounded corner(s), {area:.0f} m^2 fill")
         return len(meshes)
 
     def _export_structure_road_assets(self, marking_lines: List[Dict]) -> None:
@@ -1599,7 +1638,9 @@ class TerrainWorkflow:
 
         if config.GUARDRAILS_ENABLED and mesh_data.get("heightmap") is not None:
             mesh_data["guardrail_instances"] = _guardrail_instances(specs, node_lists, mesh_data)
-        mesh_data["sidewalk_meshes"] = _sidewalk_meshes(specs, node_lists) if config.SIDEWALKS_ENABLED else []
+        mesh_data["sidewalk_meshes"] = (
+            _sidewalk_meshes(specs, node_lists, mesh_data.get("junction_corners") or []) if config.SIDEWALKS_ENABLED else []
+        )
 
         # Extend the carriageway decals at kinked straight-through joints past the joint point (otherwise a wedge gap
         # on the outside, see close_continuation_gaps()). Only for the carriageway - the markings keep using node_lists.
@@ -1895,6 +1936,10 @@ class TerrainWorkflow:
         with task.subtask("Sidewalks") as sub:
             count = self.export_sidewalks(mesh_data)
             sub.finish(f"{count} runs" if count else "no sidewalks")
+
+        with task.subtask("Junction corners") as sub:
+            count = self.export_junctions(mesh_data)
+            sub.finish(f"{count} junctions" if count else "no junction corners")
 
         with task.subtask("Bridges") as sub:
             count = self.export_bridges(mesh_data)

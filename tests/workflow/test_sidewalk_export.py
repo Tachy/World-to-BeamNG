@@ -48,7 +48,9 @@ class _Dae:
 
 
 def _stub():
-    return SimpleNamespace(items=_RecordingItems(), materials=_Materials(), dae=_Dae(), _export_structure_road_assets=lambda lines: None)
+    stub = SimpleNamespace(items=_RecordingItems(), materials=_Materials(), dae=_Dae(), _export_structure_road_assets=lambda lines: None)
+    stub._register_structure_road_materials = lambda names: TerrainWorkflow._register_structure_road_materials(stub, names)
+    return stub
 
 
 def _mesh_data(sides, drop=False):
