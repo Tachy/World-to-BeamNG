@@ -5,10 +5,9 @@
             "priority": 8,
             "drivability": 0.9,
             "textures": {
-                "baseColorMap": "levels/world_to_beamng/art/shapes/assets/materials/decalroad/asphalt/asphalt_mesh_road/t_asphalt_meshroad_b.color.dds",
-                "normalMap": "levels/world_to_beamng/art/shapes/assets/materials/decalroad/asphalt/asphalt_mesh_road/t_asphalt_meshroad_nm.normal.dds",
-                "ambientOcclusionMap": "levels/world_to_beamng/art/shapes/assets/materials/decalroad/asphalt/asphalt_mesh_road/t_asphalt_meshroad_ao.data.dds",
-                "roughnessMap": "levels/world_to_beamng/art/shapes/assets/materials/decalroad/asphalt/asphalt_mesh_road/t_asphalt_meshroad_r.data.dds"
+                "baseColorMap": "levels/world_to_beamng/art/shapes/assets/materials/tileable/road/m_asphalt_new_01/t_asphalt_02_b.color.dds",
+                "normalMap": "levels/world_to_beamng/art/shapes/assets/materials/tileable/road/m_asphalt_new_01/t_asphalt_02_nm.normal.dds",
+                "ambientOcclusionMap": "levels/world_to_beamng/art/shapes/assets/materials/tileable/road/m_asphalt_new_01/t_asphalt_02_ao.data.dds"
             }
         },
         "dirt_road": {
