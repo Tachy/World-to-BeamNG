@@ -227,6 +227,19 @@ class BeamNGExporter:
                     use_road_asphalt(
                         config.OSM_MAPPER.surface_types, config.ROAD_ASPHALT_SURFACE, prepared[config.ROAD_ASPHALT_TEXTURE_NAME]
                     )
+            if install_dir is not None and config.ROAD_ASPHALT_TEXTURE_ZIP is None and config.ROAD_ASPHALT_STOCK_SOURCE:
+                # The stock asphalt as a road strip: its grain keeps its real size across the carriageway
+                from ..textures.road_asphalt import use_road_asphalt, write_stock_road_strip
+
+                with task.subtask("Asphalt road strip"):
+                    use_road_asphalt(
+                        config.OSM_MAPPER.surface_types,
+                        config.ROAD_ASPHALT_SURFACE,
+                        write_stock_road_strip(
+                            install_dir, config.BEAMNG_DIR_TEXTURES, config.ROAD_ASPHALT_STOCK_SOURCE,
+                            config.ROAD_ASPHALT_TILES_ACROSS, config.ROAD_ASPHALT_TILES_ALONG, config.ROAD_ASPHALT_TILE_PX,
+                        ),
+                    )
             if install_dir is not None:
                 # Stock road/roof/terrain-detail textures the OSM mapping references as level files (copied once)
                 with task.subtask("BeamNG stock textures") as sub:

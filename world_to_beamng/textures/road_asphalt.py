@@ -11,6 +11,11 @@ texture (data/textures/<name>/, see textures/library.py) and written into the le
 ambientCG ZIPs hold <asset>_Color.png, _NormalGL.png/_NormalDX.png, _Roughness.png and _AmbientOcclusion.png; the
 green-up NormalGL is the one BeamNG expects (config.TEXTURE_NORMAL_GREEN_UP), the ambient occlusion is baked into the
 colour (the library has no AO channel).
+
+Without an ambientCG ZIP the strip is built from BeamNG's own stock asphalt (write_stock_road_strip()): that texture is a
+terrain detail texture with a grain for ~1.2 m per tile, stretched once across a whole carriageway its chips would look
+four times too big. The stock strip is built from the local installation on every export and written into the level as
+DDS only - BeamNG assets must not be redistributed, so it never goes into the (public) texture library.
 """
 
 import hashlib
@@ -68,15 +73,16 @@ def _renormalize(normal: np.ndarray) -> np.ndarray:
 def build_road_strip(maps: Dict[str, np.ndarray], tiles_across: int, tiles_along: int, tile_px: int) -> Dict[str, np.ndarray]:
     """
     The road strip of `tiles_across` x `tiles_along` copies of the tile (each tile_px square): columns run across the
-    road, rows along it. Returns {"color", "normal", "roughness"} as uint8 RGB for library.store_texture(); the ambient
-    occlusion is multiplied into the colour.
+    road, rows along it. Returns {"color", "normal", "roughness"} as uint8 RGB for library.store_texture() ("roughness"
+    only if the source has one); the ambient occlusion is multiplied into the colour.
     """
     ao = _resize(maps["ao"], tile_px).astype(np.float64) / 255.0
     color = np.clip(_resize(maps["color"], tile_px).astype(np.float64) * ao[..., None] + 0.5, 0, 255).astype(np.uint8)
     normal = _renormalize(_resize(maps["normal"], tile_px))
-    roughness = np.repeat(_resize(maps["roughness"], tile_px)[..., None], 3, axis=2)
-    return {key: np.tile(tile, (tiles_along, tiles_across, 1)) for key, tile in
-            (("color", color), ("normal", normal), ("roughness", roughness))}
+    tiles = [("color", color), ("normal", normal)]
+    if "roughness" in maps:
+        tiles.append(("roughness", np.repeat(_resize(maps["roughness"], tile_px)[..., None], 3, axis=2)))
+    return {key: np.tile(tile, (tiles_along, tiles_across, 1)) for key, tile in tiles}
 
 
 def import_road_asphalt(
@@ -120,3 +126,70 @@ def use_road_asphalt(surface_types: Dict[str, Dict], surface: str, library_maps:
     material and the structure carriageways both take their textures from there. Stock AO/opacity maps are dropped: the
     AO is baked into the colour, the stock asphalt has no opacity either."""
     surface_types[surface]["textures"] = dict(library_maps)
+
+
+STOCK_STRIP_NAME = "road_asphalt_stock"
+_STOCK_HASH_FILE = "road_asphalt_stock.hash.json"
+
+
+def _write_dds(pixels: np.ndarray, output_dir: Path, name: str, dds_format: str) -> Path:
+    from ..facade import dds_export
+
+    return dds_export.write_dds(pixels, output_dir, name, dds_format, 0)  # full mip chain: tiling texture
+
+
+def write_stock_road_strip(
+    install_dir: Path,
+    output_dir: Path,
+    source: str,
+    tiles_across: int,
+    tiles_along: int,
+    tile_px: int,
+) -> Dict[str, str]:
+    """
+    Road strip from BeamNG's stock asphalt `source` (path below content/assets/materials without the "_b.color.dds"
+    suffix, e.g. "tileable/road/m_asphalt_new_01/t_asphalt_02"), written as DDS into `output_dir` - only when the
+    source zip or the tiling changed.
+
+    Returns:
+        {"baseColorMap", "normalMap"} relative to the BeamNG user folder (the stock asphalt has no roughness map)
+    """
+    import json
+
+    from ..facade import dds_export
+
+    materials = Path(install_dir) / "content" / "assets" / "materials"
+    prefix = f"assets/materials/{source}"
+    names = {"color": f"{prefix}_b.color.dds", "normal": f"{prefix}_nm.normal.dds", "ao": f"{prefix}_ao.data.dds"}
+    zip_path = None
+    for candidate in sorted(materials.glob("*.zip")):
+        with zipfile.ZipFile(candidate) as archive:
+            if names["color"] in archive.namelist():
+                zip_path = candidate
+                break
+    if zip_path is None:
+        raise FileNotFoundError(f"Stock asphalt {source} not found in {materials}")
+
+    output_dir = Path(output_dir)
+    signature = f"{_zip_signature(zip_path)} {source} {tiles_across}x{tiles_along} {tile_px}px"
+    hash_path = output_dir / _STOCK_HASH_FILE
+    channels = (("color", "baseColorMap", "_b.color", dds_export.COLOR), ("normal", "normalMap", "_nm.normal", dds_export.NORMAL))
+    result = {key: str(config.RELATIVE_DIR_TEXTURES / f"{STOCK_STRIP_NAME}{suffix}.dds") for _, key, suffix, _ in channels}
+    up_to_date = hash_path.exists() and json.loads(hash_path.read_text(encoding="utf-8")).get("signature") == signature
+    if up_to_date and all((output_dir / f"{STOCK_STRIP_NAME}{suffix}.dds").exists() for _, _, suffix, _ in channels):
+        return result
+
+    maps = {}
+    with zipfile.ZipFile(zip_path) as archive:
+        members = set(archive.namelist())
+        for key, member in names.items():
+            if member in members:
+                mode = "L" if key == "ao" else "RGB"
+                maps[key] = np.asarray(Image.open(io.BytesIO(archive.read(member))).convert(mode), dtype=np.uint8)
+    maps.setdefault("ao", np.full(maps["color"].shape[:2], 255, dtype=np.uint8))
+    strip = build_road_strip(maps, tiles_across, tiles_along, tile_px)
+    for channel, _, suffix, dds_format in channels:
+        _write_dds(strip[channel], output_dir, f"{STOCK_STRIP_NAME}{suffix}", dds_format)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    hash_path.write_text(json.dumps({"signature": signature}), encoding="utf-8")
+    return result

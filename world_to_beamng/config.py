@@ -219,11 +219,15 @@ ROAD_DECAL_TEXTURE_LENGTH = 5.0  # BeamNG's DecalRoad default: one texture repea
 # instead of BeamNG's stock asphalt (None = stock). It is imported once as a road strip (textures/road_asphalt.py):
 # tiles across the carriageway (u runs once over the full width) x whole tiles per ROAD_DECAL_TEXTURE_LENGTH along it.
 ROAD_ASPHALT_TEXTURE_ZIP = None  # e.g. "Road012A_2K-PNG.zip"
+# Without a ZIP the same strip is built from BeamNG's stock asphalt of the local installation (a terrain detail texture,
+# its grain is made for ~1.2 m per tile) and written into the level only (BeamNG assets are not redistributed); None =
+# the stock texture once across the full width (grain ~4x too coarse)
+ROAD_ASPHALT_STOCK_SOURCE = "tileable/road/m_asphalt_new_01/t_asphalt_02"
 ROAD_ASPHALT_TEXTURE_NAME = "road_asphalt"  # library folder the strip is stored in
 ROAD_ASPHALT_SURFACE = "asphalt_road_standard"  # surface type in data/osm_to_beamng.json that gets it
-ROAD_ASPHALT_TILES_ACROSS = 4  # 7 m carriageway -> 1.75 m per tile
+ROAD_ASPHALT_TILES_ACROSS = 4  # 5 m carriageway -> 1.25 m per tile (7 m -> 1.75 m)
 ROAD_ASPHALT_TILES_ALONG = 4  # 5 m texture length -> 1.25 m per tile
-ROAD_ASPHALT_TILE_PX = 512  # strip = 2048 x 2048 px (the library holds square power-of-two textures)
+ROAD_ASPHALT_TILE_PX = 1024  # strip = 4096 x 4096 px, the stock tile's full resolution (~1.2 mm per pixel)
 # BeamNG draws only a limited amount of geometry per DecalRoad (the decal is clipped to the terrain triangles under its
 # area; whatever exceeds the budget is missing without an error message - in game: cut-off after ~510 m^2 at 6.5 m width).
 # Carriageway decals are therefore split into pieces of at most this much area (geometry/decal_chunks.py), in m^2;
@@ -269,7 +273,7 @@ SIDEWALK_KERB_HEIGHT = 0.12  # kerb/sidewalk top above the carriageway edge, in 
 SIDEWALK_SKIRT_DEPTH = 0.3  # kerb face and outer edge reach this far below the carriageway level, in meters
 SIDEWALK_MAX_SEGMENT = 1.0  # longest mesh segment along the road, in meters
 SIDEWALK_MIN_LENGTH = 2.0  # shorter pieces (after the junction cut) are dropped, in meters
-SIDEWALK_TEXTURE_TILE_M = 2.0  # one texture repeat per this many meters on the sidewalk and kerb faces
+SIDEWALK_TEXTURE_TILE_M = 5.0  # one texture repeat per this many meters on the sidewalk and kerb faces (= the road strip)
 SIDEWALK_EXCLUDED_HIGHWAYS = GUARDRAIL_EXCLUDED_HIGHWAYS  # ways that neither get nor interrupt sidewalks
 
 # === JUNCTION CORNERS ===
