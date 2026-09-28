@@ -272,6 +272,23 @@ SIDEWALK_MIN_LENGTH = 2.0  # shorter pieces (after the junction cut) are dropped
 SIDEWALK_TEXTURE_TILE_M = 2.0  # one texture repeat per this many meters on the sidewalk and kerb faces
 SIDEWALK_EXCLUDED_HIGHWAYS = GUARDRAIL_EXCLUDED_HIGHWAYS  # ways that neither get nor interrupt sidewalks
 
+# === JUNCTION CORNERS ===
+# Rounded corners at junctions (junctions/): between every two neighbouring arms of a node with three or more arms a
+# circle tangent to both carriageway edges is fitted (radius per highway class, data/osm_to_beamng.json
+# "junction_corners"); the gap between the edges and the arc becomes a flat road-material mesh on embedded terrain, and
+# sidewalks follow the arc.
+JUNCTION_CORNERS_ENABLED = True
+JUNCTION_CORNER_MAX_ANGLE = 160.0  # corners with a wider opening angle are straight-ish and get no fillet, in degrees
+JUNCTION_FILL_LIFT = 0.02  # fill mesh above the embedded terrain (no z-fighting), in meters
+JUNCTION_TEXTURE_TILE_M = 5.0  # world-aligned texture tile of the fill, in meters (the DecalRoad texture length)
+JUNCTION_ARC_STEP = 0.5  # longest arc segment, in meters
+JUNCTION_DIRECTION_LENGTH = 5.0  # arm direction = node -> point this far along the arm, in meters
+# Which arm's surface fills a corner: the higher rank wins (tie: the wider arm)
+JUNCTION_RANK = {
+    "trunk": 6, "trunk_link": 6, "primary": 5, "primary_link": 5, "secondary": 4, "secondary_link": 4,
+    "tertiary": 3, "tertiary_link": 3, "unclassified": 2, "residential": 2, "living_street": 1, "service": 1,
+}
+
 # === WIDTH TRANSITIONS / ROAD MARKINGS ===
 # See docs/OSM_ROAD_ANALYSIS.md.
 # Width transition at straight-through joints of two DecalRoads (geometry/road_width_transitions.py): over 10 m,

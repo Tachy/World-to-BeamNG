@@ -222,6 +222,14 @@
             "concrete": "concrete"
         }
     },
+    "junction_corners": {
+        "default_radius": 6.0,
+        "radius_by_highway": {
+            "service": 4.0, "living_street": 4.0, "residential": 6.0, "unclassified": 6.0,
+            "tertiary": 8.0, "tertiary_link": 8.0, "secondary": 10.0, "secondary_link": 10.0,
+            "primary": 10.0, "primary_link": 10.0, "trunk": 12.0, "trunk_link": 12.0
+        }
+    },
     "forest_type_templates": {
         "german_deciduous_dense": {
             "tree_density": 1.0,
