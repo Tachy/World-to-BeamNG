@@ -1,5 +1,41 @@
 # Changelog
 
+## [0.3.0](https://github.com/Tachy/World-to-BeamNG/compare/v0.2.0...v0.3.0) (2026-09-28)
+
+
+### Features
+
+* Add a --loglevel option to world_to_beamng.py ([7efdc86](https://github.com/Tachy/World-to-BeamNG/commit/7efdc86db0b96234d9ab2bdce43975b0406ea536))
+* Add corner radii per road class for junction fillets ([a9fadbc](https://github.com/Tachy/World-to-BeamNG/commit/a9fadbc0b6ea31cdcd201eaf0a0fa146053d4c65))
+* Build the fill mesh of rounded junction corners ([2f443cc](https://github.com/Tachy/World-to-BeamNG/commit/2f443cc4b15cef91a753238bc77f23f9f18ce05e))
+* Build the kerb and sidewalk cross-section mesh ([0f9bc26](https://github.com/Tachy/World-to-BeamNG/commit/0f9bc26e49b60a23fd89fc2245980f5d8f8c1cd6))
+* Drape junction fills onto the terrain and drop their collision ([3c7bd83](https://github.com/Tachy/World-to-BeamNG/commit/3c7bd8330a6819b0399dcef86ce7e6a863aedad9))
+* Embed rounded junction corners into the terrain ([7726b44](https://github.com/Tachy/World-to-BeamNG/commit/7726b44bdfe40c685bc8e202dc6e46b9e7513437))
+* Export kerbs and raised sidewalks along tagged roads ([8dea892](https://github.com/Tachy/World-to-BeamNG/commit/8dea892bcf5aabd9d725cc11df74157af44a8f08))
+* Export rounded junction corners and run sidewalks around them ([2158a0e](https://github.com/Tachy/World-to-BeamNG/commit/2158a0efb443d524565864f3d0f7df737cf653db))
+* Find junction corners and fit tangent-circle fillets ([d49fe75](https://github.com/Tachy/World-to-BeamNG/commit/d49fe7514e8e850e6f91578168380bf0ead82ea9))
+* Leave junction corners of 140 degrees and more without fill ([c839a06](https://github.com/Tachy/World-to-BeamNG/commit/c839a06efa18eba16ca86003a6be9b6d26f9d8d2))
+* Map sidewalk surfaces to road surface types ([3119f7c](https://github.com/Tachy/World-to-BeamNG/commit/3119f7c555f378fabd1d4eb34ccad56ca360778c))
+* Plan sidewalk kerb lines with gaps at joining roads ([b10be51](https://github.com/Tachy/World-to-BeamNG/commit/b10be518ea624e6b675e266ba71ce0c6dde98446))
+* Read sidewalk sides and surfaces from OSM road tags ([90eac1d](https://github.com/Tachy/World-to-BeamNG/commit/90eac1dd59f33678a14d7d6d85412cd10c7a94b1))
+* Round gravel track corners and fill with the joining road's surface ([8483ea5](https://github.com/Tachy/World-to-BeamNG/commit/8483ea564d27ea08f60445112238cfad6dfc12d2))
+* Run sidewalks around rounded junction corners ([082b1f3](https://github.com/Tachy/World-to-BeamNG/commit/082b1f341a02fe3a94985c64c0d4929a920a0039))
+* Shrink junction radii step by step where the full radius does not fit ([f1c7551](https://github.com/Tachy/World-to-BeamNG/commit/f1c7551fbbf2fe93c0623d0f6873c5cb0c0f2736))
+* Start the road embankment behind the sidewalk ([aa87b50](https://github.com/Tachy/World-to-BeamNG/commit/aa87b5053b0b25bbbb02796ae3a5b9267b299c21))
+* Tile BeamNG's stock asphalt to its real grain size on roads ([35ff969](https://github.com/Tachy/World-to-BeamNG/commit/35ff9693e833349352ddc0e81ad92b5778bb2ae7))
+* Use BeamNG's homogeneous tileable asphalt for roads ([c3fbe0c](https://github.com/Tachy/World-to-BeamNG/commit/c3fbe0c83e6ebe22c96e9cfb074e7ae2ed2c38ea))
+* Widen the road embedding behind tagged sidewalks ([78d768e](https://github.com/Tachy/World-to-BeamNG/commit/78d768e9fb05645359871da85bb3a6c6d701346e))
+
+
+### Bug Fixes
+
+* Blend corner heights, fit fillets to curved kerbs, embed past the arc, join sidewalks order-independently ([fb96b02](https://github.com/Tachy/World-to-BeamNG/commit/fb96b02ee9b60e37f51ce7206d7ae02b1e0c1277))
+* Draw no junction fill from 160 degrees opening angle on ([da031e1](https://github.com/Tachy/World-to-BeamNG/commit/da031e122fb89d2d0ec43a635cb41582443f1ff6))
+* Fit junction fills to curved arms and level them to the roads ([7c91719](https://github.com/Tachy/World-to-BeamNG/commit/7c91719f815031163fa3fd61ade0180a326f41d1))
+* Keep junction corners whose kerb offset GEOS splits into touching pieces ([b49696c](https://github.com/Tachy/World-to-BeamNG/commit/b49696cf13aa8d0e7c0bc2685f976f49a7a55739))
+* Keep sidewalks through street continuations and off roads without decals ([16aeb7b](https://github.com/Tachy/World-to-BeamNG/commit/16aeb7bddb728503fc8e4bdf3f80b70352fd0e43))
+* Round only the tip of acute junction corners ([53ceb35](https://github.com/Tachy/World-to-BeamNG/commit/53ceb35bf49b1500d114150a4ae90c62dec270f3))
+
 ## [0.2.0](https://github.com/Tachy/World-to-BeamNG/compare/v0.1.0...v0.2.0) (2026-09-27)
 
 
