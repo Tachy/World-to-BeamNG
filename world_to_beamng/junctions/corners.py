@@ -114,7 +114,7 @@ def _fillet(node: np.ndarray, a: Dict, b: Dict, r: float, max_angle_deg: float, 
 
     ua, ub = a["u"], b["u"]
     theta = (math.atan2(ub[1], ub[0]) - math.atan2(ua[1], ua[0])) % (2.0 * math.pi)
-    if theta < 1e-3 or theta > math.radians(max_angle_deg):
+    if theta < 1e-3 or theta >= math.radians(max_angle_deg) - 1e-9:
         return None
     # Corner point (fan apex of the fill): intersection of both kerb lines at the node, as straight edges - at an acute
     # corner it lies far out, where the two carriageways part
@@ -235,7 +235,7 @@ def find_junction_corners(
             junction corners (see junction_roads())
         table: "junction_corners" section of data/osm_to_beamng.json
         endpoint_tol: road ends closer than this form one node, in meters
-        max_angle_deg: corners with a wider opening angle get no fillet
+        max_angle_deg: corners with this opening angle or wider get no fillet
         rank: highway -> rank; the corner is filled with the surface of the joining road - the lower-ranked arm (tie:
             the narrower one)
         sidewalk_sides_by_id: road id -> {side: surface} of the roads with a sidewalk

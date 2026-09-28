@@ -244,3 +244,11 @@ def test_acute_corner_gets_only_a_small_tip_radius():
     assert tip["radius"] == pytest.approx(0.5)
     outline = np.vstack([tip["corner_point"][None, :2], tip["rim"][:, :2]])
     assert np.linalg.norm(outline - tip["corner_point"][:2], axis=1).max() < 6.0  # a small tip, no long wedge
+
+
+def test_a_corner_of_exactly_the_limit_angle_gets_no_fill():
+    corner_angle = math.radians(160.0)  # "from 160 degrees on" nothing is drawn
+    roads = [_road("east", _line((0, 0), (60, 0)), 6.0),
+             _road("other", _line((0, 0), (60 * math.cos(corner_angle), 60 * math.sin(corner_angle))), 6.0),
+             _road("south", _line((0, 0), (0, -60)), 5.0)]
+    assert all({a["road_id"] for a in c["arms"]} != {"east", "other"} for c in _corners(roads, max_angle=160.0))

@@ -282,7 +282,7 @@ SIDEWALK_EXCLUDED_HIGHWAYS = GUARDRAIL_EXCLUDED_HIGHWAYS  # ways that neither ge
 # "junction_corners"); the gap between the edges and the arc becomes a flat road-material mesh on embedded terrain, and
 # sidewalks follow the arc.
 JUNCTION_CORNERS_ENABLED = True
-JUNCTION_CORNER_MAX_ANGLE = 160.0  # corners with a wider opening angle are straight-ish and get no fillet, in degrees
+JUNCTION_CORNER_MAX_ANGLE = 160.0  # corners with this opening angle or wider are straight-ish and get no fillet, in degrees
 JUNCTION_FILL_LIFT = 0.02  # fill mesh above the embedded terrain (no z-fighting), in meters
 JUNCTION_EMBED_MARGIN = 1.5  # terrain embedded this far around the fill (> one raster cell diagonal), in meters
 JUNCTION_TEXTURE_TILE_M = 5.0  # world-aligned texture tile of the fill, in meters (the DecalRoad texture length)
