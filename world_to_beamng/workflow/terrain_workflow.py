@@ -491,8 +491,7 @@ class TerrainWorkflow:
                 junction_roads(
                     road_slope_polygons_2d,
                     lambda poly: OSM_MAPPER.get_road_properties(poly.get("osm_tags", {})),
-                    config.SIDEWALK_EXCLUDED_HIGHWAYS,
-                    config.ROAD_DECAL_EXCLUDED_SURFACES,
+                    config.JUNCTION_EXCLUDED_HIGHWAYS,
                 ),
                 OSM_MAPPER.config.get("junction_corners", {}),
                 config.ROAD_CONTINUATION_ENDPOINT_TOL,
@@ -1495,17 +1494,23 @@ class TerrainWorkflow:
         logger.debug(f"  [OK] {len(meshes)} wall(s) exported (walls.dae)")
         return len(meshes)
 
-    def _register_structure_road_materials(self, names) -> None:
-        """Road surface materials on meshes ("<surface type>_structure", like bridge decks) from surface_types."""
+    def _register_structure_road_materials(self, names, translucent: bool = False) -> None:
+        """Road surface materials on meshes ("<surface type>_structure" like bridge decks, "<surface type>_junction" for the
+        junction fills) from surface_types. With
+        `translucent`, surfaces whose DecalRoad is see-through (gravel: opacityFactor < 1, the aerial photo shows through)
+        get the same opacity, so a fill next to such a decal looks like it."""
         surface_types = config.OSM_MAPPER.config.get("surface_types", {})
         for mat_name in sorted(names):
-            props = surface_types.get(mat_name.removesuffix("_structure"), {})
+            props = surface_types.get(mat_name.removesuffix("_structure").removesuffix("_junction"), {})
+            opacity = props.get("opacityFactor")
+            extra = {"stage_properties": {"opacityFactor": opacity}, "translucent": True, "translucentBlendOp": "LerpAlpha"} if translucent and opacity is not None else {}
             self.materials.add_building_material(
                 mat_name,
                 textures=props.get("textures", {}),
                 groundType=str(props.get("groundModelName", "asphalt")).upper(),
                 materialTag0="RoadAndPath",
                 materialTag1="beamng",
+                **extra,
             )
 
     def export_sidewalks(self, mesh_data: Dict) -> int:
@@ -1552,7 +1557,8 @@ class TerrainWorkflow:
     def export_junctions(self, mesh_data: Dict) -> int:
         """
         Exports the fills of the rounded junction corners as ONE DAE (one node per junction) with ONE TSStatic and
-        registers their road surface materials. Without corners, leftovers of a previous export are removed.
+        registers their road surface materials; corners of roads without a DecalRoad are left out (terrain only). Without
+        corners, leftovers of a previous export are removed.
 
         Returns:
             Number of exported junction meshes
@@ -1560,14 +1566,15 @@ class TerrainWorkflow:
         from ..junctions.fill_mesh import build_junction_meshes
 
         junctions_dir = config.BEAMNG_DIR_SHAPES / "junctions"
-        corners = mesh_data.get("junction_corners") or []
+        # corners whose surface has no DecalRoad (a dirt track joins) only shape the terrain - nothing is drawn there
+        corners = [c for c in mesh_data.get("junction_corners") or [] if c["surface"] not in config.ROAD_DECAL_EXCLUDED_SURFACES]
         meshes = build_junction_meshes(corners, config.JUNCTION_FILL_LIFT, config.JUNCTION_TEXTURE_TILE_M) if config.JUNCTION_CORNERS_ENABLED else []
         if not meshes:
             for suffix in (".dae", ".cdae"):
                 (junctions_dir / f"junctions{suffix}").unlink(missing_ok=True)
             return 0
 
-        self._register_structure_road_materials({name for mesh in meshes for name in mesh["faces"]})
+        self._register_structure_road_materials({name for mesh in meshes for name in mesh["faces"]}, translucent=True)
         self.dae.export_multi_mesh(output_path=junctions_dir / "junctions.dae", meshes=meshes, with_uv=True)
         self.items.add_item(
             "junctions",

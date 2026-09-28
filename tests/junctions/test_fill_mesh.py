@@ -21,7 +21,7 @@ def test_one_mesh_per_node_with_fan_triangles_lifted_and_facing_up():
     meshes = build_junction_meshes([_corner(), _corner(), _corner(node=(100.0, 0.0))], lift=0.02, tile_m=5.0)
     assert len(meshes) == 2
     first = meshes[0]
-    faces = first["faces"]["asphalt_road_standard_structure"]
+    faces = first["faces"]["asphalt_road_standard_junction"]
     assert len(faces) == 2 * 6  # two corners, 6 fan triangles each
     assert np.allclose(first["vertices"][:, 2], 100.02)
     assert np.all(first["normals"][:, 2] > 0.99)

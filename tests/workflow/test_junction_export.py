@@ -43,7 +43,7 @@ class _Dae:
 
 def _stub():
     stub = SimpleNamespace(items=_Items(), materials=_Materials(), dae=_Dae(), _export_structure_road_assets=lambda lines: None)
-    stub._register_structure_road_materials = lambda names: TerrainWorkflow._register_structure_road_materials(stub, names)
+    stub._register_structure_road_materials = lambda names, **kw: TerrainWorkflow._register_structure_road_materials(stub, names, **kw)
     return stub
 
 
@@ -72,7 +72,7 @@ def test_export_junctions_writes_dae_tsstatic_and_structure_material(tmp_path, m
     assert (tmp_path / "shapes" / "junctions" / "junctions.dae").is_file()
     item = stub.items.objects["junctions"]
     assert item["collisionType"] == "Visible Mesh Final" and "rotation" not in item
-    assert "asphalt_road_standard_structure" in stub.materials.added
+    assert "asphalt_road_standard_junction" in stub.materials.added
 
 
 def test_export_junctions_removes_leftovers_without_corners(tmp_path, monkeypatch):
@@ -88,3 +88,41 @@ def test_sidewalks_are_joined_around_the_corner_in_export_decal_roads():
     mesh_data = _t_mesh_data(sides_east={"left": "asphalt_road_standard"}, sides_north={"right": "asphalt_road_standard"})
     TerrainWorkflow.export_decal_roads(_stub(), mesh_data)
     assert len(mesh_data["sidewalk_meshes"]) == 1
+
+
+def test_gravel_fills_are_translucent_like_the_gravel_decal(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "BEAMNG_DIR_SHAPES", tmp_path / "shapes")
+    mesh_data = _t_mesh_data()
+    for corner in mesh_data["junction_corners"]:
+        corner["surface"] = "gravel_road"
+    stub = _stub()
+    TerrainWorkflow.export_junctions(stub, mesh_data)
+    gravel = stub.materials.added["gravel_road_junction"]
+    opacity = config.OSM_MAPPER.config["surface_types"]["gravel_road"]["opacityFactor"]
+    assert gravel["stage_properties"]["opacityFactor"] == opacity and gravel["translucent"] is True
+
+
+def test_opaque_surfaces_stay_opaque(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "BEAMNG_DIR_SHAPES", tmp_path / "shapes")
+    stub = _stub()
+    TerrainWorkflow.export_junctions(stub, _t_mesh_data())
+    asphalt = stub.materials.added["asphalt_road_standard_junction"]
+    assert "translucent" not in asphalt and not (asphalt.get("stage_properties") or {}).get("opacityFactor")
+
+
+def test_fill_materials_do_not_share_names_with_bridge_decks(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "BEAMNG_DIR_SHAPES", tmp_path / "shapes")
+    stub = _stub()
+    TerrainWorkflow.export_junctions(stub, _t_mesh_data())
+    assert not any(name.endswith("_structure") for name in stub.materials.added)
+
+
+def test_corners_of_roads_without_decal_are_not_drawn(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "BEAMNG_DIR_SHAPES", tmp_path / "shapes")
+    mesh_data = _t_mesh_data()
+    for corner in mesh_data["junction_corners"]:
+        corner["surface"] = "dirt_road"  # a dirt track joins: terrain only, nothing drawn
+    stub = _stub()
+    assert TerrainWorkflow.export_junctions(stub, mesh_data) == 0
+    assert not (tmp_path / "shapes" / "junctions" / "junctions.dae").exists()
+    assert "junctions" not in stub.items.objects

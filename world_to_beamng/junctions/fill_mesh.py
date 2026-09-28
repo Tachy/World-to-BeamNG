@@ -20,7 +20,7 @@ def build_junction_meshes(corners: Sequence[Dict], lift: float, tile_m: float) -
         tile_m: texture tile, in meters (u = x / tile_m, v = y / tile_m)
 
     Returns:
-        [{"id", "vertices", "uvs", "normals", "faces": {"<surface>_structure": [...]}}], one per junction node
+        [{"id", "vertices", "uvs", "normals", "faces": {"<surface>_junction": [...]}}], one per junction node
     """
     by_node: Dict[tuple, List[Dict]] = {}
     for corner in corners:
@@ -30,7 +30,9 @@ def build_junction_meshes(corners: Sequence[Dict], lift: float, tile_m: float) -
     for number, node_corners in enumerate(by_node.values()):
         builders: Dict[str, MeshBuilder] = {}
         for corner in node_corners:
-            builder = builders.setdefault(f"{corner['surface']}_structure", MeshBuilder())
+            # own material per surface ("<surface>_junction"): a see-through gravel fill must not share its material
+            # with an opaque gravel bridge deck ("<surface>_structure")
+            builder = builders.setdefault(f"{corner['surface']}_junction", MeshBuilder())
             p = np.asarray(corner["corner_point"], dtype=float) + [0.0, 0.0, lift]
             rim = np.asarray(corner.get("rim", corner["arc"]), dtype=float) + [0.0, 0.0, lift]
             for a, b in zip(rim[:-1], rim[1:]):

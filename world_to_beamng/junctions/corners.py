@@ -151,13 +151,14 @@ def _fillet(node: np.ndarray, a: Dict, b: Dict, r: float, max_angle_deg: float, 
         "arm_lines": (_local(a["points"], reach), _local(b["points"], reach)),
     }
     height = lambda xy: corner_height(corner, xy[:, 0], xy[:, 1])
-    better = a if (rank.get(a["road"]["highway"], 0), a["half"]) >= (rank.get(b["road"]["highway"], 0), b["half"]) else b
+    # The joining road (lower rank, then the narrower arm) gives the fill its surface: the flare belongs to it
+    joining = min((a, b), key=lambda arm: (rank.get(arm["road"]["highway"], 0), arm["half"], str(arm["road"]["road_id"])))
     corner.update(
         corner_point=np.array([*corner_xy, float(height(corner_xy[None])[0])]),
         arc=np.column_stack([arc_xy, height(arc_xy)]),
         rim=np.column_stack([rim_xy, height(rim_xy)]),
         centerline=np.vstack([corner["arm_lines"][0][::-1], corner["arm_lines"][1][1:]]),
-        surface=better["road"]["surface"],
+        surface=joining["road"]["surface"],
         arms=[
             {"road_id": a["road"]["road_id"], "end": a["end"], "side": "left" if a["end"] == "start" else "right", "trim": float(trim_a)},
             {"road_id": b["road"]["road_id"], "end": b["end"], "side": "right" if b["end"] == "start" else "left", "trim": float(trim_b)},
@@ -212,7 +213,8 @@ def find_junction_corners(
         table: "junction_corners" section of data/osm_to_beamng.json
         endpoint_tol: road ends closer than this form one node, in meters
         max_angle_deg: corners with a wider opening angle get no fillet
-        rank: highway -> rank; the corner is filled with the surface of the higher-ranked arm (tie: wider arm)
+        rank: highway -> rank; the corner is filled with the surface of the joining road - the lower-ranked arm (tie:
+            the narrower one)
         sidewalk_sides_by_id: road id -> {side: surface} of the roads with a sidewalk
 
     Returns:
@@ -260,11 +262,12 @@ def find_junction_corners(
     return [corner for corner, _ in fitted if corner is not None]
 
 
-def junction_roads(road_dicts: Sequence[Dict], road_props, excluded_highways, excluded_surfaces) -> List[Dict]:
+def junction_roads(road_dicts: Sequence[Dict], road_props, excluded_highways) -> List[Dict]:
     """
-    Input of find_junction_corners() from the road dicts (road_slope_polygons_2d): surface roads with a visible
-    DecalRoad only - footways/paths/tracks, roads without a DecalRoad (the aerial photo shows them) and structures form no
-    corners. Widths follow the blended "width_nodes" where present, else the OSM mapper width.
+    Input of find_junction_corners() from the road dicts (road_slope_polygons_2d): surface roads; footways/paths and
+    structures form no corners. Roads without a DecalRoad (dirt tracks - the aerial photo shows them) do take part: their
+    corners shape the terrain, export_junctions() just does not draw them. Widths follow the blended "width_nodes" where
+    present, else the OSM mapper width.
     """
     result = []
     for poly in road_dicts:
@@ -272,8 +275,6 @@ def junction_roads(road_dicts: Sequence[Dict], road_props, excluded_highways, ex
         if poly.get("structure_type", "surface") != "surface" or tags.get("highway") in excluded_highways:
             continue
         props = road_props(poly)
-        if props.get("internal_name") in excluded_surfaces:
-            continue
         nodes = poly.get("width_nodes")
         if nodes is not None:
             nodes = np.asarray(nodes, dtype=float)

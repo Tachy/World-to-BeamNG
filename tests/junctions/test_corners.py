@@ -120,11 +120,18 @@ def test_opening_angle_above_the_limit_gets_nothing():
         assert {a["road_id"] for a in corner["arms"]} != {"east", "other"}
 
 
-def test_surface_of_the_higher_ranked_arm_fills_the_corner():
+def test_surface_of_the_joining_road_fills_the_corner():
     roads = [_road("main_e", _line((0, 0), (60, 0)), 6.0, highway="secondary", surface="asphalt_road_standard"),
              _road("main_w", _line((-60, 0), (0, 0)), 6.0, highway="secondary", surface="asphalt_road_standard"),
-             _road("lane", _line((0, 0), (0, 60)), 4.0, highway="service", surface="cobblestone_road")]
-    assert {c["surface"] for c in _corners(roads)} == {"asphalt_road_standard"}
+             _road("lane", _line((0, 0), (0, 60)), 4.0, highway="service", surface="gravel_road")]
+    assert {c["surface"] for c in _corners(roads)} == {"gravel_road"}
+
+
+def test_same_rank_the_narrower_arm_decides_the_surface():
+    roads = [_road("main_e", _line((0, 0), (60, 0)), 6.0, surface="asphalt_road_standard"),
+             _road("main_w", _line((-60, 0), (0, 0)), 6.0, surface="asphalt_road_standard"),
+             _road("side", _line((0, 0), (0, 60)), 4.0, surface="gravel_road")]
+    assert {c["surface"] for c in _corners(roads)} == {"gravel_road"}
 
 
 def test_heights_blend_smoothly_between_arms_of_opposite_grade():

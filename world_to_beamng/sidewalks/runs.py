@@ -68,8 +68,8 @@ def plan_sidewalk_runs(
     usable = []
     for corner in corners:
         ia, ib = (index_of.get(arm["road_id"]) for arm in corner["arms"])
-        if ia is None or ib is None:
-            continue
+        if ia is None or ib is None or not (blocking[ia] and blocking[ib]):
+            continue  # a track or path at the corner does not interrupt the sidewalk, so neither does its arc
         usable.append((corner, ia, ib))
         for arm, own, other in ((corner["arms"][0], ia, ib), (corner["arms"][1], ib, ia)):
             trims.setdefault((own, arm["side"]), {})[arm["end"]] = arm["trim"]

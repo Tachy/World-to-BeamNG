@@ -288,10 +288,13 @@ JUNCTION_RADIUS_FACTORS = (1.0, 0.75, 0.5, 0.33, 0.2, 0.1)  # of the table radiu
 JUNCTION_MIN_RADIUS = 0.5  # smallest fillet radius, in meters
 JUNCTION_KERB_MIN_RADIUS = 2.0  # smallest radius where a kerb runs around the arc (sidewalk on both arms), in meters
 JUNCTION_DIRECTION_LENGTH = 5.0  # arm direction = node -> point this far along the arm, in meters
-# Which arm's surface fills a corner: the higher rank wins (tie: the wider arm)
+# Ways that form no junction corners (no carriageway); tracks do when they have a visible DecalRoad (gravel) - dirt tracks
+# drop out through ROAD_DECAL_EXCLUDED_SURFACES
+JUNCTION_EXCLUDED_HIGHWAYS = SIDEWALK_EXCLUDED_HIGHWAYS - {"track"}
+# Which arm's surface fills a corner: the joining road's - the lower rank (tie: the narrower arm)
 JUNCTION_RANK = {
     "trunk": 6, "trunk_link": 6, "primary": 5, "primary_link": 5, "secondary": 4, "secondary_link": 4,
-    "tertiary": 3, "tertiary_link": 3, "unclassified": 2, "residential": 2, "living_street": 1, "service": 1,
+    "tertiary": 3, "tertiary_link": 3, "unclassified": 2, "residential": 2, "living_street": 1, "service": 1, "track": 0,
 }
 
 # === WIDTH TRANSITIONS / ROAD MARKINGS ===

@@ -110,14 +110,14 @@ def test_one_sided_corner_ends_at_the_tangent_point():
 
 def test_runs_of_other_roads_are_never_joined_into_a_corner():
     roads = _t_roads()
-    # unrelated road whose left kerb (y = 9) ends exactly at the north tangent point (2.5, 9); it cuts nothing
+    # unrelated road whose left kerb (y = 9) heads for the north tangent point (2.5, 9); it cuts nothing itself
     passing = [[x, 11.0, 100.0, 4.0] for x in np.arange(30.0, 2.4, -2.5)]  # 30.0 ... 2.5
-    runs = plan_sidewalk_runs(roads + [passing], [{"left": "a"}, {}, {"right": "a"}, {"left": "a"}], [True, True, False, False],
+    runs = plan_sidewalk_runs(roads + [passing], [{"left": "a"}, {}, {"right": "a"}, {"left": "a"}], [True, True, True, False],
                               clearance=1.15, min_length=2.0, endpoint_tol=0.5, max_angle_deg=30.0,
                               corners=_t_corners(roads), road_ids=["east", "west", "north", "passing"])
     assert sorted(r["road_index"] for r in runs) == [2, 3]  # east + north joined (kept as the north run), passing alone
     passing_run = next(r for r in runs if r["road_index"] == 3)
-    assert np.allclose(passing_run["points"][:, 1], 9.0)
+    assert np.allclose(passing_run["points"][:, 1], 9.0) and passing_run["points"][:, 0].min() > 3.0  # cut by the north arm
 
 
 def test_without_corners_runs_are_unchanged():
@@ -158,3 +158,13 @@ def test_block_with_sidewalks_all_around_joins_into_one_run_in_any_corner_order(
         runs = plan_sidewalk_runs(roads, sides, [True] * len(roads), clearance=1.15, min_length=2.0, endpoint_tol=0.5,
                                   max_angle_deg=30.0, corners=order, road_ids=ids)
         assert len(runs) == 1
+
+
+def test_corners_with_a_non_blocking_arm_do_not_trim_sidewalks():
+    roads = _t_roads()  # east, west, north - here the north arm is a track that does not interrupt sidewalks
+    runs = plan_sidewalk_runs(roads, [{"left": "a"}, {"left": "a"}, {}], [True, True, False], clearance=1.15, min_length=2.0,
+                              endpoint_tol=0.5, max_angle_deg=30.0, corners=_t_corners(roads), road_ids=["east", "west", "north"])
+    east = next(r for r in runs if r["road_index"] == 0)
+    west = next(r for r in runs if r["road_index"] == 1)
+    assert east["points"][:, 0].min() == pytest.approx(0.0)  # not trimmed at the track's tangent point (8.5)
+    assert west["points"][:, 0].max() == pytest.approx(0.0)
